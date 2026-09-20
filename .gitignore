@@ -1,0 +1,6 @@
+/target
+
+# Databases hold a network inventory: never commit them.
+*.db
+*.db-wal
+*.db-shm

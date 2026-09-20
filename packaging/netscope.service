@@ -1,0 +1,44 @@
+# Ubuntu/Debian systemd unit. UNTESTED under systemd so far: validate with
+#   systemd-analyze verify netscope.service
+# Install:
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin netscope
+#   sudo install -m755 target/release/netscope /usr/local/bin/netscope
+#   sudo cp packaging/netscope.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now netscope
+# The UI listens on loopback only (it has no authentication). From your laptop:
+#   ssh -L 8080:localhost:8080 you@homeserver   then open http://localhost:8080
+#
+# Optional settings live in /etc/netscope/env (mode 0600, root-owned), e.g.:
+#   NETSCOPE_AGENT_TOKEN=<32+ random chars>     # needed for --ingest-listen
+#   NETSCOPE_WEBHOOK=https://hooks.slack.com/... # alert notifications
+# To accept remote agents add:  --ingest-listen 0.0.0.0:8081   (see README: no TLS)
+# To enable the traffic rules add:  --flows   (see README: what it can see)
+[Unit]
+Description=netscope network asset discovery
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=netscope
+EnvironmentFile=-/etc/netscope/env
+ExecStart=/usr/local/bin/netscope run --db /var/lib/netscope/netscope.db --listen 127.0.0.1:8080
+Restart=on-failure
+RestartSec=5
+
+# /var/lib/netscope, owned by the service user
+StateDirectory=netscope
+
+# Only what capture/injection needs: CAP_NET_RAW (packet sockets, raw ICMP),
+# CAP_NET_ADMIN (promiscuous mode via PACKET_ADD_MEMBERSHIP).
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_PACKET AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

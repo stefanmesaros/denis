@@ -1,0 +1,28 @@
+[package]
+name = "netscope"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.104"
+axum = "0.8.9"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+ipnet = "2.12.2"
+mime_guess = "2.0.5"
+nix = { version = "0.31.3", features = ["hostname", "net"] }
+oui-data = "0.2.3"
+pcap = "2.5.0"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+rust-embed = "8.12.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+socket2 = "0.6.5"
+surge-ping = "0.9.1"
+tokio = { version = "1.53.1", features = ["full"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+ureq = { version = "3.4.2", features = ["json"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+tower = { version = "0.5.3", features = ["util"] }

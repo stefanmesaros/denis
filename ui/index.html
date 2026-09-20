@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>netscope</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>netscope</h1>
+    <div id="status" class="status" aria-live="polite"></div>
+    <button id="scan" type="button">Scan now</button>
+  </header>
+
+  <nav>
+    <button class="tab active" data-tab="assets" type="button">Devices <span id="count-assets"></span></button>
+    <button class="tab" data-tab="alerts" type="button">Alerts <span id="count-alerts" class="badge" hidden></span></button>
+    <button class="tab" data-tab="events" type="button">Events</button>
+    <button class="tab" data-tab="agents" type="button">Sites <span id="count-agents"></span></button>
+    <input id="search" type="search" placeholder="Filter by IP, MAC, vendor, name, type…" aria-label="Filter devices">
+    <select id="site" aria-label="Filter by site" hidden></select>
+    <label class="check" id="online-label"><input id="only-online" type="checkbox"> online only</label>
+    <label class="check" id="acked-label" hidden><input id="show-acked" type="checkbox"> show acknowledged</label>
+  </nav>
+
+  <main>
+    <section id="view-assets">
+      <div class="table-wrap">
+        <table id="assets-table">
+          <thead><tr>
+            <th data-sort="online"></th>
+            <th data-sort="site" class="site-col" hidden>Site</th>
+            <th data-sort="ip">IP</th>
+            <th data-sort="mac">MAC</th>
+            <th data-sort="vendor">Vendor</th>
+            <th data-sort="name">Name</th>
+            <th data-sort="device_type">Type</th>
+            <th data-sort="os_guess">OS guess</th>
+            <th data-sort="ports">Open ports</th>
+            <th data-sort="last_seen">Last seen</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="empty" class="muted" hidden>No devices yet. The first sweep runs at startup; passive discovery fills in as devices announce themselves.</p>
+    </section>
+
+    <section id="view-alerts" hidden>
+      <div id="learning" class="banner" hidden></div>
+      <div class="table-wrap">
+        <table id="alerts-table">
+          <thead><tr><th>Time</th><th>Score</th><th>Type</th><th>Device</th><th>What happened</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="no-alerts" class="muted" hidden>No alerts. New devices and destinations are only flagged after the learning period.</p>
+    </section>
+
+    <section id="view-agents" hidden>
+      <div class="table-wrap">
+        <table id="agents-table">
+          <thead><tr><th></th><th>Name</th><th>Site</th><th>ID</th><th>Subnet</th><th>Devices</th><th>Version</th><th>Last report</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="muted">Remote agents report here; this machine is the "local" row. Start an agent with <code>netscope agent --master URL</code>.</p>
+    </section>
+
+    <section id="view-events" hidden>
+      <div class="table-wrap">
+        <table id="events-table">
+          <thead><tr><th>Time</th><th>Type</th><th>Severity</th><th>Score</th><th>Device</th><th>Details</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <aside id="detail" hidden>
+    <button id="close" type="button" aria-label="Close">×</button>
+    <div id="detail-body"></div>
+  </aside>
+
+  <script src="app.js"></script>
+</body>
+</html>

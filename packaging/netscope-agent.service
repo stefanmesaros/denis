@@ -1,0 +1,34 @@
+# Remote agent (a second site / network segment). UNTESTED under systemd:
+#   systemd-analyze verify netscope-agent.service
+# Install (same binary and user as the master unit):
+#   sudo mkdir -p /etc/netscope && sudo install -m600 /dev/null /etc/netscope/agent.env
+#   echo 'NETSCOPE_AGENT_TOKEN=<the master's token>' | sudo tee -a /etc/netscope/agent.env
+#   sudo cp packaging/netscope-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now netscope-agent
+# The agent only makes OUTBOUND connections to the master, so it works behind NAT.
+[Unit]
+Description=netscope remote agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=netscope
+EnvironmentFile=/etc/netscope/agent.env
+# Edit --master (the master's --ingest-listen address) and the id/name/site.
+ExecStart=/usr/local/bin/netscope agent --master http://MASTER-HOST:8081 --id branch-1 --name "Branch office" --site Branch --flows --db /var/lib/netscope-agent/agent.db
+Restart=on-failure
+RestartSec=5
+StateDirectory=netscope-agent
+
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_PACKET AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target
