@@ -1,20 +1,8 @@
 # Changelog
 
-## 0.4.0-rc.2: Pushover and ntfy, and a fix for moving table columns
+## 0.4.0: reports, health, two-step sign-in, real topology, software versions
 
-*A release candidate on top of 0.4.0-rc.1.*
-
-* **Pushover** and **ntfy** notification channels (*Alerting* → *Add a channel*). Pushover: an application token and a user or
-  group key; high alerts go as high priority. ntfy: the address of your topic on ntfy.sh or your own server, and an access token
-  for a protected topic (never sent over plain `http://`); published as JSON, so device names with any characters are safe.
-  Secrets are write-only, as for the other channels.
-* Fixed: **moving a table column a second time put the headings over the wrong data.** The first move worked, later ones did not.
-  The browser test now moves columns several times and checks every heading against its data.
-* Fixed a test that assumed the machine running it has no SSH server (the CI runners do).
-
-## 0.4.0-rc.1: reports, health, two-step sign-in, real topology, software versions
-
-*A release candidate: use it for a while on a real network before it becomes 0.4.0.*
+*Built from 0.4.0-rc.1 and 0.4.0-rc.2.*
 
 Reports
 * **Reports** is its own page. A report (devices, findings, accepted risks, alerts, trends and the compliance overview)
@@ -43,6 +31,12 @@ Findings
   (`data/vulndata.json`, built by `tools/build-vulndata.py`); the support dates can be refreshed from endoflife.date (off by default).
   *Verify fix* rescans and reads the banner again.
 
+Alerting
+* **Pushover** and **ntfy** notification channels (*Alerting* → *Add a channel*). Pushover: an application token and a user or
+  group key; high alerts go as high priority. ntfy: the address of your topic on ntfy.sh or your own server, and an access token
+  for a protected topic (never sent over plain `http://`); published as JSON, so device names with any characters are safe.
+  Secrets are write-only, as for the other channels.
+
 Detection
 * **Network watches** (Rules → *Your network watches*): like the OT command watches, for ordinary traffic. Devices you choose
   (a device, type, tag or network) talking to addresses or ports you did not allow: *only these* / *except these* lists of ports and
@@ -66,7 +60,8 @@ Topology
 
 Console
 * **Table columns**: every table can hide and show columns, reorder them (arrows or drag a heading) and resize them (drag the edge),
-  remembered per table in the browser.
+  remembered per table in the browser. (In rc.1, moving a column a second time, or hiding one after moving, put headings over the
+  wrong data; fixed, and the browser test now moves and hides columns repeatedly and checks every heading against its data.)
 * **Setup guide** for a new installation: a checklist (network, sign-in security, notifications, colleagues, backups, branding) whose
   items turn green only when they are really done. It opens once for an administrator, and again from *Settings*.
 

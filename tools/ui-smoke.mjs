@@ -362,6 +362,16 @@ await check('table columns can be hidden, reordered and resized, stay so when th
   }
   now_ = await heads();
   const before = now_.indexOf('Name');
+  // hide a column after the moves, then let the page redraw its rows (it does every few seconds): still the right data, still hidden
+  await evaluate("[...document.querySelectorAll('#view-assets .cols-row')].find((r) => r.textContent.trim().startsWith('MAC')).querySelector('input').click(); 0");
+  await sleep(250);
+  for (const again of [false, true]) {
+    if (again) { await evaluate("renderAssets(); 0"); await sleep(300); }
+    const p = await pairs();
+    if (p.some((x) => x[0] === 'MAC') || p.some((x) => /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/.test(x[1])) || !/^\d+\.\d+\.\d+\.\d+$/.test(p.find((x) => x[0] === 'IP')[1])) return (again ? 'after the page redrew its rows: ' : 'after hiding MAC: ') + JSON.stringify(p);
+  }
+  await evaluate("[...document.querySelectorAll('#view-assets .cols-row')].find((r) => r.textContent.trim().startsWith('MAC')).querySelector('input').click(); 0");
+  await sleep(250);
   // move Name one place to the left
   await evaluate("[...document.querySelectorAll('#view-assets .cols-row')].find((r) => r.textContent.includes('Name')).querySelector('.cols-up').click(); 0");
   await sleep(300);
