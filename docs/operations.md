@@ -71,7 +71,8 @@ Useful alerts: `denis_channel_failing == 1` (a notification channel is broken), 
 DENIS can update itself from GitHub releases, with a backup first ([Updates](updates.md)). To update by hand:
 
 1. Take a backup (above).
-2. Replace the `denis` binary and restart the service.
+2. Replace the `denis` binary and restart the service. On a Linux service installed with `install.sh`, just run the
+   newest `install.sh` again: it does both steps ([Deployment](deployment.md#installing-on-a-linux-server-a-permanent-service)).
 
 The database is upgraded in place, in small transactional steps; a crash mid-upgrade leaves it at a consistent
 older version. A database newer than the program is refused with a clear message (never silently downgraded).

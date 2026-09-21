@@ -22,6 +22,8 @@ pub mod flow;
 pub mod ingest;
 #[cfg(test)]
 mod i18n;
+#[cfg(test)]
+mod packaging;
 pub mod inventory;
 pub mod metrics;
 pub mod model;

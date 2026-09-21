@@ -5,8 +5,10 @@ Packet capture needs privileges. Linux: `sudo setcap cap_net_raw,cap_net_admin=e
 via the systemd unit). macOS: install Wireshark's ChmodBPF or run with `sudo`.
 
 **"binding web UI on 127.0.0.1:8080 … Address already in use"**
-Another DENIS (or program) holds the port. Stop it, or use `--listen 127.0.0.1:9000`. Nothing is sent to the
-network when this happens.
+Another DENIS (or another program) holds the port; port 8080 in particular is popular. Nothing is taken over and
+nothing is sent to the network when this happens. Start DENIS on a free port: `--listen 127.0.0.1:9000` (or `0.0.0.0:9443`
+to reach it from the network). `ss -ltnp` (Linux) or `lsof -nP -iTCP -sTCP:LISTEN` (macOS) shows who holds a port.
+For the systemd service set `DENIS_LISTEN` in `/etc/denis/env` and restart it ([Deployment](deployment.md#installing-on-a-linux-server-a-permanent-service)).
 
 **No devices appear**
 Check `denis interfaces` and pass `--iface`. On Wi-Fi some access points isolate clients (no broadcast between

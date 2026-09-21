@@ -31,6 +31,8 @@ upgrade, after the backup exists. Only newer versions are offered; a downgrade i
 * The program must be in a folder the DENIS user can write to (an unprivileged service user usually cannot write to
   `/usr/local/bin`). If it cannot, the console says so and links the release for a manual update. Either make the
   folder writable for that user, e.g. `sudo chown denis /usr/local/bin/denis /usr/local/bin`, or update by hand.
+  The systemd service that `install.sh` sets up is deliberately like that: update it by running the newest
+  `install.sh` again (backup and restart included).
 * A build without a release key (a build you compiled yourself before setting one) can *see* new versions but not
   install them.
 * Agents on remote sites are separate programs: update them the same way you installed them (or run

@@ -2,11 +2,15 @@
 
 ## 0.1.3: installing as a service
 
-* **Installing from a release** is documented step by step (download, verify the checksum, install, service).
-* The console's **port is set with `DENIS_LISTEN`** (in `/etc/denis/env`, next to `DENIS_TLS_NAMES`), so the systemd
-  unit no longer has to be edited to move it. If the port is taken DENIS says so and exits; the unit now stops retrying
-  after five failed starts instead of looping.
-* The systemd unit is syntax-checked with `systemd-analyze verify`; the `--listen` help text no longer says plain HTTP.
+* **`install.sh`**, attached to every release: on a Linux server it downloads the release for the machine, checks the
+  Ed25519 signature and SHA-256, installs the program, the `denis` user and the systemd service, **picks a free port**
+  (8443 or the next free one; 8080 is often taken), starts it and prints the address and the one-time admin password.
+  Run it again to update (with a database backup first); `--uninstall` removes it; `--dry-run` only verifies.
+* The installation guide starts from the GitHub release (no compiler), including a manual equivalent, port handling,
+  changing settings in `/etc/denis/env`, updating, and what happens when a port is taken.
+* The console's port is set with `DENIS_LISTEN` (like the other settings), so the unit no longer has to be edited. If
+  the port is taken DENIS says so and exits; the unit stops retrying after five failed starts.
+* The quick start and the README start from a downloaded release too.
 
 ## 0.1.2: OT command watches, rule exceptions, a tidier console
 

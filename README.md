@@ -6,10 +6,20 @@ e-mail, PagerDuty…) when something is not. One Rust binary, no external servic
 
 ![The DENIS console](docs/img/devices.png)
 
+**Install on a Linux server** (downloads a signed release, sets up a service, picks a free port, prints the address and
+the one-time admin password; [details](docs/deployment.md#installing-on-a-linux-server-a-permanent-service)):
+
 ```bash
-cargo build --release
-./target/release/denis run          # prints a one-time admin password; open https://localhost:8080 (self-signed by default, replaceable)
-denis serve --db demo.db            # or just look around: Settings → Load demo data (a fictional company)
+curl -fLO https://github.com/stefanmesaros/denis/releases/latest/download/install.sh
+less install.sh && sudo bash install.sh
+```
+
+**Or just try it** (Mac or Linux; download `denis-<your platform>` from the [Releases](https://github.com/stefanmesaros/denis/releases)
+page, or `cargo build --release`):
+
+```bash
+./denis run          # prints a one-time admin password; open https://localhost:8080 (self-signed by default, replaceable)
+./denis demo --db demo.db load && ./denis serve --db demo.db --insecure-no-auth   # or look around a fictional company: no capture, no login (this machine only)
 ```
 
 **Documentation** (also inside the console, with screenshots): [Quick start](docs/quickstart.md) ·

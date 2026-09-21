@@ -16,12 +16,25 @@ From nothing to a working, useful DENIS in about an hour. Every step says *why*,
   updater can replace the file in place; run `setcap` again after a manual replacement.
 * To build from source: Rust (stable) and libpcap headers (`sudo apt install build-essential libpcap-dev`).
 
-## 2. Build and start
+## 2. Get it and start it
+
+**On a Linux server that should run DENIS permanently**, use the installer: it needs no compiler and does everything
+(signature check, service, free port, first password): see [Deployment](deployment.md#installing-on-a-linux-server-a-permanent-service).
+
+**To try it on a Mac or Linux machine**, download the program for your platform from the
+[Releases](https://github.com/stefanmesaros/denis/releases) page (`denis-aarch64-apple-darwin` for an Apple-silicon Mac,
+`denis-x86_64-apple-darwin` for Intel, `denis-x86_64-unknown-linux-gnu` or `denis-aarch64-unknown-linux-gnu` for Linux),
+check it against `SHA256SUMS` on that page (`shasum -a 256 denis-…`), and start it:
 
 ```bash
-cargo build --release          # one file, target/release/denis, console and documentation included
-./target/release/denis run
+chmod +x denis-aarch64-apple-darwin          # your file name
+xattr -d com.apple.quarantine denis-aarch64-apple-darwin 2>/dev/null   # macOS: allow a file downloaded in a browser
+./denis-aarch64-apple-darwin run
 ```
+
+(or build it yourself: `cargo build --release`, then `./target/release/denis run`; one file, console and documentation
+included.) Only one program can use a port: if **8080 is taken** DENIS says `Address already in use` and stops; start it
+with another one, `./denis run --listen 127.0.0.1:9000`, and open that port instead of 8080 below.
 
 The first start creates an administrator and prints a **one-time password**. Copy it now, it is shown only once:
 
