@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Fixed
+* After **Install now** the console kept showing the last step ("Testing the new program") forever when the restart was
+  quicker than a second: the update had finished, but the page did not notice. It now reloads as soon as the new
+  version answers.
+
 ## 0.1.1: update test release
 
 Nothing new in the program itself. This release exists to prove the self-update path end to end on a real

@@ -989,9 +989,8 @@ async function watchInstall() {
       list.replaceChildren(...stages.map((s) => el('div', { text: '✓ ' + tr(s) })), el('div', { text: tr('… starting the new version') }));
       continue;
     }
-    if (down || (r.json.result && !r.json.installing && !r.json.stage && seen >= 0)) {
-      if (r.json.current !== updateInfo.current) { location.reload(); return; }
-    }
+    // the new version answers: load it (the restart can be so quick that the page never saw the program down)
+    if (r.json.current !== updateInfo.current) { location.reload(); return; }
     if (r.json.stage) {
       seen = Math.max(seen, stages.indexOf(r.json.stage));
       list.replaceChildren(...stages.map((s, idx) => el('div', { text: (idx < seen ? '✓ ' : idx === seen ? '▸ ' : '   ') + tr(s) })));
