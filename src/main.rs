@@ -81,10 +81,12 @@ enum Cmd {
     Run {
         #[command(flatten)]
         collect: Collect,
-        /// Web UI listen address. Sign-in is required. The connection is plain HTTP:
-        /// keep it on loopback and reach it through an SSH tunnel or a TLS reverse
-        /// proxy (then add --secure-cookies).
-        #[arg(short, long, default_value = "127.0.0.1:8080")]
+        /// Web UI listen address. Sign-in is required. The console is served over
+        /// HTTPS (a generated certificate, see --tls-name) unless --no-tls. On loopback
+        /// it is reachable only from this machine; another address (0.0.0.0:8443, say)
+        /// makes it reachable from the network. If the port is taken, DENIS exits with
+        /// "Address already in use": choose another one.
+        #[arg(short, long, default_value = "127.0.0.1:8080", env = "DENIS_LISTEN")]
         listen: SocketAddr,
         /// SQLite database file (default: denis.db; an existing netscope.db from
         /// before the rename is used automatically).

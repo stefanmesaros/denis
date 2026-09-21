@@ -5,8 +5,13 @@
 #   sudo install -m755 target/release/denis /usr/local/bin/denis
 #   sudo cp packaging/denis.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now denis
-# The UI listens on loopback only (it has no authentication). From your laptop:
-#   ssh -L 8080:localhost:8080 you@homeserver   then open http://localhost:8080
+# The console uses HTTPS with a certificate DENIS creates (sign-in required). From your laptop either open
+# https://<server>:<port> (after DENIS_LISTEN=0.0.0.0:<port>), or tunnel:
+#   ssh -L 8080:localhost:8080 you@homeserver   then open https://localhost:8080
+#
+# Where the console listens: DENIS_LISTEN below (default: this machine only, port 8080). If that port is
+# taken DENIS exits with "Address already in use" and systemd retries a few times, then gives up; set
+# another one in /etc/denis/env, e.g.  DENIS_LISTEN=0.0.0.0:8443  (and DENIS_TLS_NAMES=<the server's address>).
 #
 # Optional settings live in /etc/denis/env (mode 0600, root-owned), e.g.:
 #   (nothing required: remote agents use per-agent tokens, see `denis agent-token`)
@@ -18,11 +23,15 @@
 Description=denis network asset discovery
 After=network-online.target
 Wants=network-online.target
+# a start that keeps failing (for instance a taken port) is not retried forever
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 User=denis
+Environment=DENIS_LISTEN=127.0.0.1:8080
 EnvironmentFile=-/etc/denis/env
-ExecStart=/usr/local/bin/denis run --db /var/lib/denis/denis.db --listen 127.0.0.1:8080
+ExecStart=/usr/local/bin/denis run --db /var/lib/denis/denis.db
 Restart=on-failure
 RestartSec=5
 

@@ -4,27 +4,81 @@
 
 | Purpose | Default | Notes |
 |---|---|---|
-| Web UI + API | `127.0.0.1:8080` | plain HTTP, sign-in required; keep on loopback |
+| Web UI + API | `127.0.0.1:8080` | HTTPS (certificate created by DENIS), sign-in required; this machine only. `--listen` / `DENIS_LISTEN` changes it |
 | Agent ingest | *off* | enable with `--ingest-listen 0.0.0.0:8081`; per-agent bearer tokens |
 
 DENIS is one binary. `denis run` is the whole system for one network (collector, detection, UI). Add
 `denis agent` processes for extra sites.
 
-## Installing on Ubuntu
+## Installing on Ubuntu / Debian (a permanent service)
+
+**1. The program.** Either download a release (no compiler needed) or build it.
+
+*From a release* (x86-64 shown; the ARM64 file is `denis-aarch64-unknown-linux-gnu`):
+
+```bash
+sudo apt install libpcap0.8t64            # Ubuntu 22.04: libpcap0.8
+V=v0.1.3                                   # the version you want, see the Releases page
+cd /tmp
+curl -fLO https://github.com/stefanmesaros/denis/releases/download/$V/denis-x86_64-unknown-linux-gnu
+curl -fLO https://github.com/stefanmesaros/denis/releases/download/$V/SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS   # must say: denis-x86_64-unknown-linux-gnu: OK
+sudo install -m755 denis-x86_64-unknown-linux-gnu /usr/local/bin/denis
+```
+
+*Or build it* (needs [Rust](https://rustup.rs)):
 
 ```bash
 sudo apt install build-essential libpcap-dev
 cargo build --release
 sudo install -m755 target/release/denis /usr/local/bin/denis
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin denis
-sudo cp packaging/denis.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now denis
 ```
 
+**2. The service.**
+
+```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin denis
+sudo cp packaging/denis.service /etc/systemd/system/     # from the repository, or the same file at
+                                                         # https://github.com/stefanmesaros/denis/blob/main/packaging/denis.service
+```
+
+**3. Choose where the console listens (do this before starting).** The unit listens on `127.0.0.1:8080`, reachable
+only from the server itself. To open it from your laptop, and/or to avoid a port that something else already uses,
+create `/etc/denis/env` (root-owned, mode 0600):
+
+```bash
+sudo mkdir -p /etc/denis
+sudo tee /etc/denis/env >/dev/null <<'EOF'
+DENIS_LISTEN=0.0.0.0:8443
+DENIS_TLS_NAMES=192.168.1.20
+EOF
+sudo chmod 600 /etc/denis/env
+```
+
+Use a free port (`ss -ltn` lists the taken ones) and put the server's own address or name in `DENIS_TLS_NAMES`, so the
+generated certificate covers it. Then browse to `https://192.168.1.20:8443`.
+
+**4. Start it.**
+
+```bash
+sudo systemctl daemon-reload && sudo systemctl enable --now denis
+sudo systemctl status denis        # active (running)
+```
+
+**If the port is already taken** (another program on 8080, say) DENIS cannot open the console and exits with
+`Error: binding web UI on 127.0.0.1:8080 … Address already in use`. Nothing else is disturbed and nothing is taken
+over. systemd retries five times within two minutes and then leaves the service *failed* (`systemctl status denis`,
+`journalctl -u denis -n 20`). Set another `DENIS_LISTEN` in `/etc/denis/env`, then
+`sudo systemctl reset-failed denis && sudo systemctl restart denis`.
+
 The service runs as the unprivileged `denis` user with only the capabilities packet capture needs
-(`CAP_NET_RAW`, `CAP_NET_ADMIN`) and stores data in `/var/lib/denis`. Read the comments at the top of
-`packaging/denis.service`: **the unit has not yet been validated under systemd** (`systemd-analyze verify`),
-so test it before relying on it.
+(`CAP_NET_RAW`, `CAP_NET_ADMIN`) and stores data in `/var/lib/denis`. The unit's syntax is checked with
+`systemd-analyze verify`; read the comments at the top of `packaging/denis.service` and test it before relying on it.
+
+**Updating** a service installed like this is by hand (the console announces the update, but the program folder is not
+writable by the service, so it cannot replace itself): download the new file as in step 1 (`sudo install` over
+`/usr/local/bin/denis`) and `sudo systemctl restart denis`. Back up first:
+`sudo -u denis denis backup /var/lib/denis/backup-before-update.db`.
 
 The first-start administrator password is printed to the service's standard error: read it with
 `sudo journalctl -u denis | grep -A3 "FIRST START"`, or simply run `sudo -u denis denis user reset admin
@@ -37,7 +91,7 @@ certificate authority ("DENIS local CA") and a server certificate for `localhost
 (and any `--tls-name`). The certificate lasts about two years and is **renewed automatically** before it ends, or
 when the machine gets a new address. TLS 1.2/1.3 only, HTTP/2 offered, session cookie marked `Secure`.
 
-Browse to **https://localhost:8080**. Browsers do not know the DENIS authority, so they warn once. Two ways to make the
+Browse to **https://localhost:8080** (or the address and port you set in `DENIS_LISTEN`). Browsers do not know the DENIS authority, so they warn once. Two ways to make the
 warning go away:
 
 * **Trust the DENIS CA once**: *Settings → HTTPS certificate → Download the CA certificate* (or copy

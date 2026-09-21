@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.3: installing as a service
+
+* **Installing from a release** is documented step by step (download, verify the checksum, install, service).
+* The console's **port is set with `DENIS_LISTEN`** (in `/etc/denis/env`, next to `DENIS_TLS_NAMES`), so the systemd
+  unit no longer has to be edited to move it. If the port is taken DENIS says so and exits; the unit now stops retrying
+  after five failed starts instead of looping.
+* The systemd unit is syntax-checked with `systemd-analyze verify`; the `--listen` help text no longer says plain HTTP.
+
 ## 0.1.2: OT command watches, rule exceptions, a tidier console
 
 OT
