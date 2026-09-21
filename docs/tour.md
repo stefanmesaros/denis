@@ -78,7 +78,8 @@ accepted it and why ([details](detection-rules.md#verifying-a-fix-and-accepting-
 
 Every detection with what it does, what it needs, whether it is on, its weight (`0` = off, `2` = twice as loud)
 its thresholds and a minimum score of its own, plus **exceptions** (devices, device types, tags or networks a rule
-stays quiet about) and your own **OT command watches**. Everyone can read it; administrators change it. Changes apply
+stays quiet about), your own **network watches** (which devices may talk to which addresses and ports) and your own
+**OT command watches**. Everyone can read it; administrators change it. Changes apply
 within seconds, survive restarts and are written to the audit log ([details](detection-rules.md)).
 
 ## Compliance

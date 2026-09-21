@@ -130,6 +130,9 @@ pub static RULE_INFO: &[RuleInfo] = &[
     RuleInfo { id: "threat_list_match", title: "Contact with a known-bad address", group: "network",
         summary: "A device contacts an address on your threat list (a blocklist file you supply, for example from abuse.ch or Spamhaus). Not subject to learning.",
         needs: "traffic analysis (--flows) and --threat-list <file>", params: &[] },
+    RuleInfo { id: "it_watch", title: "Your network watches", group: "network",
+        summary: "Your own watches on ordinary traffic: be told when devices you choose talk to networks, addresses or ports you did not allow (cameras talking to the internet, servers using unusual ports, the guest network reaching the office). Add them below.",
+        needs: "traffic analysis (--flows)", params: &[] },
     RuleInfo { id: "ot_new_conversation", title: "OT: new communication path", group: "ot",
         summary: "An industrial device starts talking to a controller it never talked to. Writes and control messages weigh more than reads.",
         needs: "traffic analysis on a mirror port", params: &[] },
@@ -171,6 +174,9 @@ pub struct Overrides {
     /// The administrator's own industrial-command watches.
     #[serde(default)]
     pub ot_watches: Vec<OtWatch>,
+    /// The administrator's own watches on ordinary (IT) traffic.
+    #[serde(default)]
+    pub it_watches: Vec<ItWatch>,
 }
 
 /// Who or what a rule setting applies to.
@@ -184,6 +190,9 @@ pub struct Scope {
 /// Limits: a rule setting is small, and a request must not be able to make it big.
 pub const MAX_SCOPES: usize = 50;
 pub const MAX_WATCHES: usize = 30;
+pub const MAX_IT_WATCHES: usize = 30;
+/// How many ports or addresses one IT watch may list.
+pub const MAX_LIST: usize = 30;
 pub const WATCH_PROTOS: &[&str] = &["any", "modbus", "s7", "enip", "dnp3", "bacnet", "opcua", "iec104"];
 
 impl Scope {
@@ -302,6 +311,170 @@ impl OtWatch {
     }
 }
 
+/// "Tell me when this device talks to that network or port": one watch on ordinary traffic.
+///
+/// A flow (a device and a remote address, over a protocol and service port) matches when it passes
+/// *every* condition that is set. `only` means "the value is one of these", `except` means "the value
+/// is none of these" (an allow-list: "cameras may talk to the recorder, nothing else").
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ItWatch {
+    /// Chosen by the console; lower-case letters and digits.
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    /// The devices the watch is about (empty: any device).
+    #[serde(default)]
+    pub sources: Vec<Scope>,
+    /// Never for these devices.
+    #[serde(default)]
+    pub except_sources: Vec<Scope>,
+    /// `any`, `tcp`, `udp` or `icmp`.
+    pub proto: String,
+    /// `any`, `only` or `except`.
+    pub ports_mode: String,
+    #[serde(default)]
+    pub ports: Vec<u16>,
+    /// `any`, `only` or `except`.
+    pub remotes_mode: String,
+    /// Networks (`10.0.5.0/24`, or one address), or the words `private` (the local network) and `public` (the internet).
+    #[serde(default)]
+    pub remotes: Vec<String>,
+    /// Only when at least this many kilobytes moved in the window (0: any amount).
+    #[serde(default)]
+    pub min_kb: u64,
+    /// The score the alert gets (1-100).
+    pub score: i32,
+    /// At most one alert per device, address and port in this many minutes.
+    pub cooldown_minutes: u32,
+}
+
+pub const IT_PROTOS: &[&str] = &["any", "tcp", "udp", "icmp"];
+pub const LIST_MODES: &[&str] = &["any", "only", "except"];
+
+/// The local network: private ranges, link-local and carrier-grade NAT.
+pub fn is_private_addr(ip: std::net::Ipv4Addr) -> bool {
+    let o = ip.octets();
+    ip.is_private() || ip.is_link_local() || (o[0] == 100 && (64..128).contains(&o[1]))
+}
+
+/// The internet: none of the above, and not multicast, broadcast, loopback or unspecified.
+pub fn is_public_addr(ip: std::net::Ipv4Addr) -> bool {
+    !is_private_addr(ip) && !ip.is_multicast() && !ip.is_broadcast() && !ip.is_loopback() && !ip.is_unspecified()
+}
+
+fn remote_entry_matches(entry: &str, ip: std::net::Ipv4Addr) -> bool {
+    match entry {
+        "private" => is_private_addr(ip),
+        "public" => is_public_addr(ip),
+        // (saved entries are always `a.b.c.d/n`; a bare address is accepted too)
+        cidr => match parse_cidr(cidr).or_else(|| cidr.parse().ok().map(|a| (a, 32))) {
+            Some((net, bits)) => {
+                let mask = if bits == 0 { 0 } else { u32::MAX << (32 - bits) };
+                u32::from(ip) & mask == u32::from(net) & mask
+            }
+            None => false,
+        },
+    }
+}
+
+impl ItWatch {
+    pub fn check(&self) -> Result<ItWatch, String> {
+        let id = self.id.trim().to_string();
+        if id.is_empty() || id.len() > 16 || !id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()) {
+            return Err("a watch needs an id of up to 16 lower-case letters and digits".into());
+        }
+        let name = self.name.trim().to_string();
+        if name.is_empty() || name.chars().count() > 60 || name.chars().any(char::is_control) {
+            return Err("a watch needs a name of at most 60 characters".into());
+        }
+        if !IT_PROTOS.contains(&self.proto.as_str()) {
+            return Err(format!("protocol must be one of {}", IT_PROTOS.join(", ")));
+        }
+        for mode in [&self.ports_mode, &self.remotes_mode] {
+            if !LIST_MODES.contains(&mode.as_str()) {
+                return Err("a list is matched as any, only or except".into());
+            }
+        }
+        let mut ports = self.ports.clone();
+        ports.sort_unstable();
+        ports.dedup();
+        if ports.len() > MAX_LIST || ports.contains(&0) {
+            return Err(format!("at most {MAX_LIST} ports, each from 1 to 65535"));
+        }
+        let mut remotes = Vec::new();
+        for r in &self.remotes {
+            let r = r.trim().to_ascii_lowercase();
+            if r == "private" || r == "public" {
+                remotes.push(r);
+            } else if let Some((net, bits)) = parse_cidr(&r) {
+                remotes.push(format!("{net}/{bits}"));
+            } else if let Ok(ip) = r.parse::<std::net::Ipv4Addr>() {
+                remotes.push(format!("{ip}/32"));
+            } else {
+                return Err(format!("{r:?} is not an address, a network like 10.0.5.0/24, or the words private and public"));
+            }
+        }
+        remotes.dedup();
+        if remotes.len() > MAX_LIST {
+            return Err(format!("at most {MAX_LIST} addresses or networks"));
+        }
+        if self.ports_mode != "any" && ports.is_empty() {
+            return Err("choose at least one port, or match any port".into());
+        }
+        if self.remotes_mode != "any" && remotes.is_empty() {
+            return Err("choose at least one address or network, or match any address".into());
+        }
+        if self.min_kb > 100_000_000 {
+            return Err("the amount of data is too large".into());
+        }
+        let restricts = self.proto != "any" || self.ports_mode != "any" || self.remotes_mode != "any" || self.min_kb > 0;
+        if !restricts && self.sources.is_empty() {
+            return Err("a watch must match something: choose devices, a protocol, ports, addresses or an amount of data".into());
+        }
+        if !(1..=100).contains(&self.score) {
+            return Err("the score of a watch must be between 1 and 100".into());
+        }
+        if !(1..=1440).contains(&self.cooldown_minutes) {
+            return Err("the gap between alerts must be between 1 and 1440 minutes".into());
+        }
+        let scopes = |v: &[Scope]| -> Result<Vec<Scope>, String> {
+            if v.len() > MAX_SCOPES {
+                return Err(format!("at most {MAX_SCOPES} devices per list"));
+            }
+            v.iter().map(Scope::check).collect()
+        };
+        Ok(ItWatch {
+            id, name, enabled: self.enabled, sources: scopes(&self.sources)?, except_sources: scopes(&self.except_sources)?, proto: self.proto.clone(),
+            ports_mode: self.ports_mode.clone(), ports, remotes_mode: self.remotes_mode.clone(), remotes, min_kb: self.min_kb,
+            score: self.score, cooldown_minutes: self.cooldown_minutes,
+        })
+    }
+
+    /// Does this traffic pass every condition of the watch? (Which device it is about is checked separately.)
+    pub fn matches_flow(&self, f: &crate::model::FlowRecord) -> bool {
+        let proto_ok = match self.proto.as_str() {
+            "tcp" => f.proto == 6,
+            "udp" => f.proto == 17,
+            "icmp" => f.proto == 1,
+            _ => true,
+        };
+        let listed = |mode: &str, found: bool| match mode {
+            "only" => found,
+            "except" => !found,
+            _ => true,
+        };
+        proto_ok
+            && listed(&self.ports_mode, self.ports.contains(&f.port))
+            && listed(&self.remotes_mode, self.remotes.iter().any(|r| remote_entry_matches(r, f.remote)))
+            && f.bytes_out + f.bytes_in >= self.min_kb.saturating_mul(1000)
+    }
+
+    /// Is the device one the watch is about?
+    pub fn covers(&self, a: &crate::model::Asset, meta: Option<&crate::model::AssetMeta>) -> bool {
+        (self.sources.is_empty() || self.sources.iter().any(|s| s.matches(a, meta))) && !self.except_sources.iter().any(|s| s.matches(a, meta))
+    }
+}
+
 impl Overrides {
     /// The configuration in force: `base` with these overrides applied.
     pub fn apply(&self, base: &DetectConfig) -> DetectConfig {
@@ -318,6 +491,7 @@ impl Overrides {
             }
         }
         c.ot_watches = self.ot_watches.clone();
+        c.it_watches = self.it_watches.clone();
         c.rule_min_scores = self.min_scores.iter().map(|(k, v)| (k.clone(), *v)).collect();
         c
     }
@@ -438,6 +612,20 @@ impl Overrides {
                     }
                     next.ot_watches = checked;
                 }
+                "it_watches" => {
+                    let watches: Vec<ItWatch> = serde_json::from_value(v.clone()).map_err(|e| format!("it_watches must be a list of watches ({e})"))?;
+                    if watches.len() > MAX_IT_WATCHES {
+                        return Err(format!("at most {MAX_IT_WATCHES} watches"));
+                    }
+                    let checked: Vec<ItWatch> = watches.iter().map(ItWatch::check).collect::<Result<_, _>>()?;
+                    let mut ids: Vec<&str> = checked.iter().map(|w| w.id.as_str()).collect();
+                    ids.sort_unstable();
+                    ids.dedup();
+                    if ids.len() != checked.len() {
+                        return Err("watch ids must be unique".into());
+                    }
+                    next.it_watches = checked;
+                }
                 other => return Err(format!("unknown field {other:?}")),
             }
         }
@@ -491,6 +679,7 @@ pub fn describe(base: &DetectConfig, o: &Overrides) -> Value {
         "any_override": *o != Overrides::default(),
         "exceptions": o.exceptions,
         "ot_watches": o.ot_watches,
+        "it_watches": o.it_watches,
         "watch_protocols": WATCH_PROTOS,
     })
 }
@@ -641,5 +830,81 @@ mod tests {
         // it all shows up in the description the console reads
         let d = describe(&DetectConfig::default(), &o);
         assert!(d["ot_watches"].is_array() && d["exceptions"].is_object() && d["watch_protocols"].as_array().unwrap().len() > 5);
+    }
+
+    fn it_watch() -> ItWatch {
+        ItWatch {
+            id: "w1".into(), name: " Guest VLAN to the office ".into(), enabled: true, sources: vec![Scope { kind: "cidr".into(), value: "10.9.0.0/24".into() }],
+            except_sources: vec![], proto: "tcp".into(), ports_mode: "only".into(), ports: vec![3389, 22, 22], remotes_mode: "only".into(),
+            remotes: vec![" PRIVATE ".into(), "10.0.5.7".into(), "10.1.0.0/16".into()], min_kb: 0, score: 60, cooldown_minutes: 15,
+        }
+    }
+
+    fn flow(remote: [u8; 4], proto: u8, port: u16, bytes: u64) -> crate::model::FlowRecord {
+        crate::model::FlowRecord { mac: crate::model::Mac([2, 0, 0, 0, 0, 1]), remote: remote.into(), proto, port, bytes_out: bytes, bytes_in: 0, packets: 1, window_start: 0, window_secs: 10 }
+    }
+
+    #[test]
+    fn an_it_watch_is_cleaned_and_refused_when_it_is_nonsense() {
+        let w = it_watch().check().unwrap();
+        assert_eq!((w.name.as_str(), w.ports.clone(), w.remotes.clone()), ("Guest VLAN to the office", vec![22, 3389], vec!["private".to_string(), "10.0.5.7/32".into(), "10.1.0.0/16".into()]));
+        let bad = |f: &dyn Fn(&mut ItWatch)| { let mut w = it_watch(); f(&mut w); w.check().is_err() };
+        assert!(bad(&|w| w.id = "Has Space".into()));
+        assert!(bad(&|w| w.name = " ".into()));
+        assert!(bad(&|w| w.proto = "gre".into()));
+        assert!(bad(&|w| w.ports_mode = "always".into()));
+        assert!(bad(&|w| w.ports = vec![]), "'only' with nothing listed matches nothing useful");
+        assert!(bad(&|w| w.ports = vec![0]));
+        assert!(bad(&|w| w.remotes = vec!["not an address".into()]));
+        assert!(bad(&|w| w.remotes = vec!["10.0.0.0/33".into()]));
+        assert!(bad(&|w| w.ports = (1..=31).collect()));
+        assert!(bad(&|w| w.score = 0));
+        assert!(bad(&|w| w.cooldown_minutes = 0));
+        assert!(bad(&|w| { w.sources = vec![]; w.proto = "any".into(); w.ports_mode = "any".into(); w.remotes_mode = "any".into(); }), "a watch that matches everything is refused");
+        let mut ok = it_watch();
+        ok.sources = vec![];
+        ok.proto = "any".into();
+        ok.ports_mode = "any".into();
+        ok.remotes_mode = "any".into();
+        ok.min_kb = 1;
+        assert!(ok.check().is_ok(), "an amount of data alone is a condition");
+    }
+
+    #[test]
+    fn traffic_is_matched_by_protocol_ports_addresses_and_amount() {
+        let w = it_watch().check().unwrap();
+        assert!(w.matches_flow(&flow([10, 0, 5, 7], 6, 3389, 1)), "private address, listed port, TCP");
+        assert!(w.matches_flow(&flow([192, 168, 1, 1], 6, 22, 1)));
+        assert!(!w.matches_flow(&flow([8, 8, 8, 8], 6, 22, 1)), "the internet is not 'private'");
+        assert!(!w.matches_flow(&flow([10, 0, 5, 7], 17, 3389, 1)), "UDP is not TCP");
+        assert!(!w.matches_flow(&flow([10, 0, 5, 7], 6, 443, 1)), "port not listed");
+        let mut allow = w.clone();
+        allow.remotes_mode = "except".into();
+        allow.remotes = vec!["public".into()];
+        allow.ports_mode = "any".into();
+        assert!(allow.matches_flow(&flow([192, 168, 1, 1], 6, 1, 1)) && !allow.matches_flow(&flow([1, 1, 1, 1], 6, 1, 1)));
+        let mut big = allow.clone();
+        big.min_kb = 5;
+        assert!(!big.matches_flow(&flow([192, 168, 1, 1], 6, 1, 4_999)) && big.matches_flow(&flow([192, 168, 1, 1], 6, 1, 5_000)));
+        // the address classes
+        for (ip, private, public) in [([10, 1, 1, 1], true, false), ([172, 16, 0, 1], true, false), ([192, 168, 0, 1], true, false), ([169, 254, 1, 1], true, false), ([100, 64, 0, 1], true, false), ([100, 128, 0, 1], false, true), ([8, 8, 8, 8], false, true), ([224, 0, 0, 251], false, false), ([255, 255, 255, 255], false, false), ([127, 0, 0, 1], false, false)] {
+            assert_eq!((is_private_addr(ip.into()), is_public_addr(ip.into())), (private, public), "{ip:?}");
+        }
+    }
+
+    #[test]
+    fn it_watches_are_saved_limited_unique_and_reach_the_detector() {
+        let mut o = Overrides::default();
+        o.patch(&json!({"it_watches": [it_watch()]})).unwrap();
+        assert_eq!(o.it_watches[0].name, "Guest VLAN to the office");
+        assert_eq!(o.apply(&DetectConfig::default()).it_watches.len(), 1);
+        let before = o.clone();
+        let mut dup = it_watch();
+        dup.name = "again".into();
+        assert!(o.patch(&json!({"it_watches": [it_watch(), dup]})).is_err(), "ids must be unique");
+        assert!(o.patch(&json!({"it_watches": (0..31).map(|i| { let mut w = it_watch(); w.id = format!("w{i}"); w }).collect::<Vec<_>>()})).is_err());
+        assert!(o.patch(&json!({"it_watches": "all"})).is_err());
+        assert_eq!(o, before, "a refused change leaves everything as it was");
+        assert!(describe(&DetectConfig::default(), &o)["it_watches"].is_array());
     }
 }

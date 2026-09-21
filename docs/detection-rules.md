@@ -16,7 +16,7 @@ All rules are **rule-based and explainable**: each alert shows the factors that 
 Rule names for `--rule-weight`: `new_device`, `new_destination`, `volume_anomaly`, `new_port`,
 `unusual_hours`, `arp_conflict`, `device_silent`, `rogue_dhcp`, `new_device_burst`, `threat_list_match`,
 `ot_new_conversation`, `ot_control_command`, `ot_internet_exposure`, `ot_purdue_skip`, `ot_unexpected_writer`,
-`ot_command_watch`, `ot_write_escalation`.
+`ot_command_watch`, `ot_write_escalation`, `it_watch`.
 
 Every alert carries **advice**: click an alert (Alerts or Events tab) to see its summary, *why* it scored what
 it did, and *what to do next*. The same advice is in `GET /api/meta/options` (`advice`).
@@ -90,6 +90,29 @@ downloads one: refresh the file yourself (for example with cron); DENIS notices 
 keeps the old list if the new file is broken. A device contacting a listed address scores 85 (+10 if it sent ≥100 kB),
 from the first day (no learning period), once per device and address per six hours. Traffic is only seen when it
 crosses the interface DENIS listens on (see [Concepts](concepts.md#visibility-what-can-be-seen-from-where)).
+
+### `it_watch`: your own network watches *(needs `--flows`)*
+
+*Rules* → **Your network watches** (administrators): be told when devices you choose talk to addresses or ports
+you did not allow. A watch is a set of conditions; traffic matches when it passes **all** the conditions that are set:
+
+* **Devices**: for these devices (a device, a device type, a tag or a network; empty means any device), and **never for**
+  the ones you list (a recorder that legitimately talks to everything).
+* **Protocol**: any, TCP, UDP or ICMP.
+* **Ports**: any, *only these*, or *any except these*.
+* **Addresses**: any, *only these*, or *any except these*. An entry is a network like `10.0.5.0/24`, a single address,
+  or one of two words: `public` (the internet) and `private` (the local network: 10/8, 172.16/12, 192.168/16, link-local
+  and 100.64/10). Multicast and broadcast are neither.
+* **Amount of data**: only when at least this many kB moved in one 10-second window.
+
+*Only* makes a block-list ("alert on RDP or SSH to the internet"), *except* makes an allow-list ("cameras may talk to
+the recorder and DNS, anything else alerts"). Ready-made starting points are in the form (devices talking to the internet,
+remote access crossing the boundary, anything but DNS/web/time to the internet, mail sent straight from a device,
+large transfers, devices reaching the local network). The alert names the watch, the device, the destination, the port
+and the amount, and carries the score you chose (1–100). One alert per device, address and port per cooldown (1–1440
+minutes). Like OT watches, network watches **also fire during the learning period** (you asked for them), and the
+rule's **weight** scales or, at 0, switches off all of them. Only what leaves or enters through the monitored interface
+is seen, so place the collector where the traffic is. Up to 30 watches.
 
 ## Industrial (OT) rules
 Details and examples are in the [OT guide](ot-guide.md). In short:

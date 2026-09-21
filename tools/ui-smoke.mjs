@@ -358,7 +358,7 @@ await check('an OT command watch can be added from the Rules page and removed ag
   takeProblems();
   await evaluate("location.hash = '#rules'; setTab('rules'); 0");
   await sleep(1000);
-  await evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Add a watch').click(); 0");
+  await evaluate("document.querySelector('#watches .row button.primary').click(); 0");
   await sleep(500);
   await evaluate("(() => { const d = document.getElementById('dialog-form'); d.querySelector('input[required]').value = 'Smoke test watch'; const p = d.querySelectorAll('select')[0]; p.value = '2'; p.dispatchEvent(new Event('change')); d.querySelector('button[type=submit]').click(); })()");
   await sleep(1500);
@@ -369,6 +369,37 @@ await check('an OT command watch can be added from the Rules page and removed ag
   const r2 = await (await fetch(base + '/api/rules')).json();
   const p = takeProblems();
   if ((r2.ot_watches || []).length) return 'the watch was not deleted';
+  return p.length ? p.join('; ') : null;
+});
+await check('a network watch can be added from the Rules page, is listed in words, and removed again', async () => {
+  takeProblems();
+  await evaluate("location.hash = '#rules'; setTab('rules'); 0");
+  await sleep(1000);
+  await evaluate("document.getElementById('add-it-watch').click(); 0");
+  await sleep(500);
+  // the first preset: devices talking to the internet
+  await evaluate("(() => { const d = document.getElementById('dialog-form'); const p = d.querySelector('select'); p.value = '0'; p.dispatchEvent(new Event('change')); d.querySelector('input[required]').value = 'Smoke test net watch'; d.querySelector('button[type=submit]').click(); })()");
+  await sleep(1500);
+  const r = await (await fetch(base + '/api/rules')).json();
+  const w = (r.it_watches || []).find((x) => x.name === 'Smoke test net watch');
+  if (!w || w.remotes_mode !== 'only' || w.remotes[0] !== 'public') return 'the watch was not saved: ' + JSON.stringify(r.it_watches);
+  const text = await evaluate("document.querySelector('#it-watches .watch')?.innerText || ''");
+  if (!/the internet/.test(text)) return 'the list does not describe it in words: ' + text;
+  // refused: a watch that lists ports but no port
+  await evaluate("document.querySelector('#it-watches .watch-actions button').click(); 0");
+  await sleep(500);
+  await evaluate("(() => { const d = document.getElementById('dialog-form'); const s = d.querySelectorAll('select'); const m = [...s].find((x) => [...x.options].some((o) => o.value === 'except')); m.value = 'only'; d.querySelector('button[type=submit]').click(); })()");
+  await sleep(1000);
+  const open = await evaluate("!!document.querySelector('#form-dialog[open]')");
+  const err = await evaluate("document.querySelector('#dialog-form .form-error')?.textContent || ''");
+  if (!open || !err) return 'a watch with "only these ports" and no port was not refused';
+  takeProblems(); // the 400 was the point
+  await evaluate("document.querySelector('#form-dialog').close(); 0");
+  await evaluate("window.confirm = () => true; [...document.querySelectorAll('#it-watches .watch-actions button')].find((b) => b.textContent === 'Delete').click(); 0");
+  await sleep(1200);
+  const r2 = await (await fetch(base + '/api/rules')).json();
+  const p = takeProblems();
+  if ((r2.it_watches || []).length) return 'the watch was not deleted';
   return p.length ? p.join('; ') : null;
 });
 

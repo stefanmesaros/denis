@@ -83,6 +83,9 @@ async function loadRules() {
   for (const [group, title] of [['network', tr('Network rules')], ['ot', tr('Industrial (OT) rules')]]) {
     cards.push(el('div', { class: 'group-title', text: title }));
     if (group === 'ot') cards.push(watchesSection(edit, saveNow));
+    if (group === 'network') cards.push(itWatchesSection(edit, saveNow));
+    // the watches have their own cards (with their own exceptions); the rules behind them only carry the weight
+
     for (const rule of rulesData.rules.filter((x) => x.group === group)) {
       const on = el('input', { type: 'checkbox', checked: rule.enabled, disabled: !edit, id: 'rule-on-' + rule.id });
       const w = numInput(rule.weight, 0, 5, 0.05, !edit, { id: 'rule-w-' + rule.id });
@@ -99,7 +102,7 @@ async function loadRules() {
         el('div', { class: 'rule-controls' },
           el('label', { title: tr('1 = as designed, 0.5 = half as loud, 2 = twice as loud (scores are capped at 100)') }, tr('Weight (default {value})', { value: rule.default_weight }), w),
           el('label', { title: tr('Below this score this rule is only logged. Empty: use the minimum score above.') }, tr('Alert only from score'), own), ...params),
-        rule.id === 'ot_command_watch' ? null : el('details', { class: 'exceptions', open: exceptions.length > 0 },
+        rule.id === 'ot_command_watch' || rule.id === 'it_watch' ? null : el('details', { class: 'exceptions', open: exceptions.length > 0 },
           el('summary', { text: exceptions.length ? tr('Exceptions ({n})', { n: exceptions.length }) : tr('Exceptions') }),
           el('p', { class: 'muted small', text: tr('This rule stays quiet about these devices, device types, tags or networks. For industrial alerts the sending device counts too.') }),
           scopeEditor(exceptions, (list) => saveNow({ exceptions: { [rule.id]: list } }), edit)));
@@ -281,6 +284,128 @@ async function openWatchForm(prefill, done) {
       };
       if (!nw.name) return tr('Give the watch a name.');
       if (!nw.writes && !nw.controls && !nw.commands.length) return tr('Choose what to watch for: a kind of command or a function name.');
+      const res = await done(nw);
+      return res && !res.ok ? apiError(res) : null;
+    },
+  });
+}
+
+// ------------------------------------------------------------------------------ network (IT) watches
+
+const IT_PRESETS = () => [
+  { label: tr('Devices talking to the internet'), remotes_mode: 'only', remotes: ['public'] },
+  { label: tr('Remote access crossing the boundary (RDP, SSH, VNC, Telnet)'), ports_mode: 'only', ports: [3389, 22, 5900, 23], remotes_mode: 'only', remotes: ['public'] },
+  { label: tr('Anything but DNS, web and time to the internet'), ports_mode: 'except', ports: [53, 80, 443, 123], remotes_mode: 'only', remotes: ['public'] },
+  { label: tr('Mail sent straight from a device (SMTP)'), ports_mode: 'only', ports: [25, 465, 587], remotes_mode: 'only', remotes: ['public'] },
+  { label: tr('Large transfer to the internet (5 MB or more in 10 seconds)'), remotes_mode: 'only', remotes: ['public'], min_kb: 5000 },
+  { label: tr('Devices reaching the local network'), remotes_mode: 'only', remotes: ['private'] },
+];
+
+const IT_PROTO_NAMES = () => ({ any: tr('any protocol'), tcp: 'TCP', udp: 'UDP', icmp: 'ICMP' });
+const LIST_MODE_NAMES = (what) => ({ any: what.any, only: what.only, except: what.except });
+
+/** The words for one address entry: "the internet", "the local network", or the network itself. */
+const remoteWord = (r) => (r === 'public' ? tr('the internet') : r === 'private' ? tr('the local network') : r.replace(/\/32$/, ''));
+
+/** What a network watch looks for, in one line. */
+function itWatchText(w) {
+  const parts = [];
+  parts.push(w.remotes_mode === 'any' ? tr('any address') : (w.remotes_mode === 'only' ? tr('to {list}', { list: w.remotes.map(remoteWord).join(', ') }) : tr('to anywhere except {list}', { list: w.remotes.map(remoteWord).join(', ') })));
+  if (w.ports_mode !== 'any') parts.push(w.ports_mode === 'only' ? tr('on port {list}', { list: w.ports.join(', ') }) : tr('on any port except {list}', { list: w.ports.join(', ') }));
+  if (w.proto !== 'any') parts.push(IT_PROTO_NAMES()[w.proto]);
+  if (w.min_kb) parts.push(tr('at least {n} kB', { n: w.min_kb }));
+  return parts.join(' · ');
+}
+
+/** The "your own network watches" block at the top of the network rules. */
+function itWatchesSection(edit, saveNow) {
+  const list = rulesData.it_watches || [];
+  const put = (next) => saveNow({ it_watches: next });
+  const rows = list.map((w, i) => el('div', { class: 'watch' + (w.enabled ? '' : ' off'), 'data-watch': w.id },
+    el('div', { class: 'rule-head' },
+      el('input', { type: 'checkbox', checked: w.enabled, disabled: !edit, title: tr('On or off'), onchange: (ev) => put(list.map((x, j) => (j === i ? { ...x, enabled: ev.target.checked } : x))) }),
+      el('b', { text: w.name }), el('span', { class: 'muted small', text: tr('score {n}', { n: w.score }) }),
+      edit ? el('span', { class: 'watch-actions' },
+        el('button', { type: 'button', text: tr('Edit'), onclick: () => openItWatchForm(w, (nw) => put(list.map((x, j) => (j === i ? nw : x)))) }),
+        el('button', { type: 'button', text: tr('Delete'), onclick: () => { if (confirm(tr('Delete the watch "{name}"?', { name: w.name }))) put(list.filter((_, j) => j !== i)); } })) : null),
+    el('div', { text: itWatchText(w) }),
+    el('div', { class: 'muted small' },
+      tr('Devices') + ': ' + (w.sources.length ? w.sources.map(scopeText).join(', ') : tr('any device')) + ' · ' +
+      tr('Never for') + ': ' + (w.except_sources.length ? w.except_sources.map(scopeText).join(', ') : tr('none')) + ' · ' +
+      tr('at most one alert per {n} min', { n: w.cooldown_minutes }))));
+  return el('div', { class: 'rule-card', id: 'it-watches' },
+    el('div', { class: 'rule-head' }, el('b', { text: tr('Your network watches') }), el('code', { text: 'it_watch' })),
+    el('p', { class: 'muted', text: tr('Be told when devices you choose talk to addresses or ports you did not allow: cameras reaching the internet, a server using an unusual port, the guest network reaching the office. Needs traffic analysis (--flows). Watches also fire during the learning period.') }),
+    ...rows,
+    list.length ? null : el('p', { class: 'muted', text: tr('No watches yet.') }),
+    edit ? el('div', { class: 'row' }, el('button', { type: 'button', class: 'primary', id: 'add-it-watch', text: tr('Add a watch'), onclick: () => openItWatchForm(null, (nw) => put([...list, nw])) })) : null);
+}
+
+/** The network watch form. `prefill` may be a saved watch (edit) or the beginnings of one. */
+function openItWatchForm(prefill, done) {
+  const w = { name: '', enabled: true, sources: [], except_sources: [], proto: 'any', ports_mode: 'any', ports: [], remotes_mode: 'only', remotes: ['public'], min_kb: 0, score: 60, cooldown_minutes: 30, ...(prefill || {}) };
+  const isNew = !prefill || !prefill.id;
+  let sources = w.sources.slice();
+  let except = w.except_sources.slice();
+  const nameIn = el('input', { value: w.name, maxLength: 60, required: true, placeholder: tr('e.g. Cameras must not reach the internet') });
+  const preset = el('select', {}, el('option', { value: '', text: tr('Start from a common watch…') }), ...IT_PRESETS().map((p, i) => el('option', { value: String(i), text: p.label })));
+  const proto = el('select', {}, ...Object.entries(IT_PROTO_NAMES()).map(([v, t]) => el('option', { value: v, text: t })));
+  proto.value = w.proto;
+  const portsMode = el('select', {}, ...Object.entries(LIST_MODE_NAMES({ any: tr('any port'), only: tr('only these ports'), except: tr('any port except these') })).map(([v, t]) => el('option', { value: v, text: t })));
+  portsMode.value = w.ports_mode;
+  const ports = el('input', { value: w.ports.join(', '), placeholder: tr('e.g. 22, 3389') });
+  const remotesMode = el('select', {}, ...Object.entries(LIST_MODE_NAMES({ any: tr('any address'), only: tr('only these addresses'), except: tr('any address except these') })).map(([v, t]) => el('option', { value: v, text: t })));
+  remotesMode.value = w.remotes_mode;
+  const remotes = el('input', { value: w.remotes.join(', '), placeholder: tr('e.g. public, 10.0.5.0/24, 192.168.1.10') });
+  const addWord = (word) => () => { const cur = remotes.value.split(',').map((x) => x.trim()).filter(Boolean); if (!cur.includes(word)) cur.push(word); remotes.value = cur.join(', '); };
+  const chips = el('div', { class: 'chips' },
+    el('button', { type: 'button', class: 'chip', text: tr('the internet (public)'), onclick: addWord('public') }),
+    el('button', { type: 'button', class: 'chip', text: tr('the local network (private)'), onclick: addWord('private') }));
+  const minKb = el('input', { type: 'number', min: 0, max: 100000000, value: String(w.min_kb) });
+  const score = el('input', { type: 'number', min: 1, max: 100, value: String(w.score) });
+  const gap = el('input', { type: 'number', min: 1, max: 1440, value: String(w.cooldown_minutes) });
+  const enabled = el('input', { type: 'checkbox', checked: w.enabled });
+  preset.onchange = () => {
+    const p = IT_PRESETS()[Number(preset.value)];
+    if (!p) return;
+    proto.value = p.proto || 'any';
+    portsMode.value = p.ports_mode || 'any';
+    ports.value = (p.ports || []).join(', ');
+    remotesMode.value = p.remotes_mode || 'any';
+    remotes.value = (p.remotes || []).join(', ');
+    minKb.value = String(p.min_kb || 0);
+    if (!nameIn.value.trim()) nameIn.value = p.label;
+  };
+  const sourcesBox = el('div', {});
+  const exceptBox = el('div', {});
+  const drawScopes = () => {
+    sourcesBox.replaceChildren(scopeEditor(sources, (l) => { sources = l; drawScopes(); }, true));
+    exceptBox.replaceChildren(scopeEditor(except, (l) => { except = l; drawScopes(); }, true));
+  };
+  drawScopes();
+  openForm(isNew ? tr('Add a network watch') : tr('Edit the network watch'), [el('div', { class: 'form-grid' },
+    el('div', { class: 'field-wide' }, field(tr('Name'), nameIn)),
+    field(tr('Start from'), preset),
+    field(tr('Protocol'), proto),
+    el('div', { class: 'field-wide' }, el('span', { class: 'label', text: tr('For these devices (empty: any device)') }), sourcesBox),
+    el('div', { class: 'field-wide' }, el('span', { class: 'label', text: tr('Never for these devices') }), exceptBox),
+    field(tr('Talking on'), portsMode), field(tr('Ports (comma separated)'), ports),
+    field(tr('Talking to'), remotesMode), field(tr('Addresses (comma separated)'), remotes),
+    el('div', { class: 'field-wide muted small' }, tr('Use the words public (the internet) and private (the local network), single addresses, or networks like 10.0.5.0/24.'), chips),
+    field(tr('Only when at least this many kB moved in 10 seconds (0: any amount)'), minKb),
+    field(tr('Score of the alert (1–100)'), score),
+    field(tr('At most one alert per device, address and port in this many minutes'), gap),
+    el('label', { class: 'check field-wide' }, enabled, ' ' + tr('On')))], {
+    onSubmit: async () => {
+      const nw = {
+        id: w.id || Math.random().toString(36).slice(2, 10).replace(/[^a-z0-9]/g, 'x'), name: nameIn.value.trim(), enabled: enabled.checked,
+        sources, except_sources: except, proto: proto.value,
+        ports_mode: portsMode.value, ports: ports.value.split(',').map((x) => x.trim()).filter(Boolean).map(Number),
+        remotes_mode: remotesMode.value, remotes: remotes.value.split(',').map((x) => x.trim()).filter(Boolean),
+        min_kb: Number(minKb.value) || 0, score: Number(score.value), cooldown_minutes: Number(gap.value),
+      };
+      if (!nw.name) return tr('Give the watch a name.');
+      if (nw.ports.some((p) => !Number.isInteger(p) || p < 1 || p > 65535)) return tr('Ports are numbers from 1 to 65535, separated by commas.');
       const res = await done(nw);
       return res && !res.ok ? apiError(res) : null;
     },

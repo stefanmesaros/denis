@@ -37,12 +37,13 @@ pub const RULE_OT_WRITER: &str = "ot_unexpected_writer";
 pub const RULE_THREAT: &str = "threat_list_match";
 pub const RULE_OT_WATCH: &str = "ot_command_watch";
 pub const RULE_OT_ESCALATION: &str = "ot_write_escalation";
+pub const RULE_IT_WATCH: &str = "it_watch";
 
 /// Every rule name accepted by `--rule-weight`.
 pub const RULES: &[&str] = &[
     RULE_NEW_DEVICE, RULE_NEW_DESTINATION, RULE_VOLUME, RULE_NEW_PORT, RULE_HOURS, RULE_ARP, RULE_SILENT,
     RULE_OT_NEW_CONV, RULE_OT_CONTROL, RULE_OT_EXPOSURE, RULE_DHCP, RULE_BURST, RULE_OT_PURDUE, RULE_OT_WRITER, RULE_THREAT,
-    RULE_OT_WATCH, RULE_OT_ESCALATION,
+    RULE_OT_WATCH, RULE_OT_ESCALATION, RULE_IT_WATCH,
 ];
 
 /// Every event kind that can be raised as an alert, with what the person who
@@ -66,6 +67,7 @@ pub const ADVICE: &[(&str, &str)] = &[
     (RULE_OT_PURDUE, "Two industrial devices talk across more than one Purdue level (for example a controller straight to an office PC). Segmentation models such as IEC 62443 expect traffic to pass through the level in between. Confirm the path is intended; if it is not, block it at the firewall between the zones or fix the wrong Purdue level in the register."),
     (RULE_OT_WRITER, "A device that is not an engineering or operator station (a phone, printer, camera, IoT gadget…) sent write or control commands to an industrial device. Treat as suspicious: identify the sender, and check whether its device type is simply wrong in the register."),
     (RULE_THREAT, "A device contacted an address on your threat list (known botnet, malware or scanner infrastructure). Isolate the device, check what is running on it and what it sent, and change any credentials it holds. If the entry is a false positive for your environment, remove it from the list file."),
+    (RULE_IT_WATCH, "One of your own network watches matched: a device you asked to be told about talked to an address or port you did not allow (the alert names the watch, the device and the destination). If that is expected, no action is needed; if not, find out what on the device made the connection, and consider blocking it at the firewall. Once you know it is legitimate, add the destination to the watch's allowed list, or the device to its exceptions."),
     (RULE_OT_WATCH, "One of your own OT command watches matched: a command you asked to be told about was sent to an industrial device. Check who sent it and why (the alert names the watch, the sender and the target). If it was planned, no action is needed; if not, contact the plant's operations and security leads, and consider adding the sender to the watch's allowed senders once you know it is legitimate."),
     (RULE_OT_ESCALATION, "A path that only ever read from an industrial device has started writing to it. That is how a monitoring or reporting connection turns into a controlling one. Confirm with operations that the change was intended (a new function, a commissioning, a maintenance task); if not, treat the sender as compromised or misconfigured and block the path at the firewall between the zones."),
     (RULE_OT_EXPOSURE, "An industrial protocol crossed the network boundary. These protocols have no authentication of their own, so nothing outside should reach them. Find the firewall or NAT rule, or the bridging device, that allows it and close it."),
@@ -145,6 +147,8 @@ pub struct DetectConfig {
     pub agent_offline_secs: i64,
     /// `ot_command_watch`: the administrator's own watches for specific industrial commands.
     pub ot_watches: Vec<crate::rules::OtWatch>,
+    /// `it_watch`: the administrator's own watches on ordinary traffic.
+    pub it_watches: Vec<crate::rules::ItWatch>,
     /// `new_device_burst`: this many new devices within this many seconds.
     pub burst_min: usize,
     pub burst_window_secs: i64,
@@ -188,6 +192,7 @@ impl Default for DetectConfig {
             silent_secs: 2 * 3600,
             agent_offline_secs: 600,
             ot_watches: Vec::new(),
+            it_watches: Vec::new(),
             burst_min: 5,
             burst_window_secs: 600,
             ot_control_cooldown_secs: 600,
@@ -248,6 +253,8 @@ pub struct Detector {
     convs_dirty: HashSet<(i64, i64, String, u16)>,
     /// (client, server, protocol) -> until when repeated control alerts are held back.
     conv_cooldown: HashMap<(i64, i64, String), i64>,
+    /// One alert per (device, watch, address, port) in a while, for `it_watch`.
+    it_cooldown: HashMap<(i64, String, Ipv4Addr, u16), i64>,
     /// DHCP servers seen so far, per collector (`None` = local). Learned silently during
     /// the learning period and kept in the database (`dhcp_servers`).
     dhcp_known: HashMap<Option<String>, HashSet<Mac>>,
@@ -282,6 +289,7 @@ impl Detector {
             convs: HashMap::new(),
             convs_dirty: HashSet::new(),
             conv_cooldown: HashMap::new(),
+            it_cooldown: HashMap::new(),
             dhcp_known: HashMap::new(),
             dhcp_loaded: false,
             new_times: VecDeque::new(),
@@ -442,6 +450,9 @@ impl Detector {
             if !self.threat.is_empty() {
                 events.extend(self.threat_hits(asset_id, &recs, store, now));
             }
+            if !self.cfg.it_watches.is_empty() {
+                events.extend(self.it_watch_hits(asset_id, &recs, store, now));
+            }
             let found = self.ingest_asset(asset_id, &recs, now);
             if found.is_empty() {
                 continue;
@@ -455,6 +466,49 @@ impl Detector {
         }
         if self.global_dests.len() > 200_000 {
             self.global_dests.clear(); // only weakens a scoring bonus
+        }
+        events
+    }
+
+    /// The administrator's own watches on ordinary traffic. Explicit requests, so learning does not apply.
+    fn it_watch_hits(&mut self, asset_id: i64, recs: &[&FlowRecord], store: &dyn Store, now: i64) -> Vec<Event> {
+        let mut events = Vec::new();
+        let watches = self.cfg.it_watches.clone();
+        let mut loaded: Option<(Asset, Option<crate::model::AssetMeta>)> = None;
+        for w in watches.iter().filter(|w| w.enabled) {
+            for r in recs.iter().filter(|r| w.matches_flow(r)) {
+                let key = (asset_id, w.id.clone(), r.remote, r.port);
+                if self.it_cooldown.get(&key).is_some_and(|u| now < *u) {
+                    continue;
+                }
+                if loaded.is_none() {
+                    let Some(asset) = store.get_asset(asset_id).ok().flatten() else { return events };
+                    loaded = Some((asset, store.get_meta(asset_id).ok().flatten()));
+                }
+                let (asset, meta) = loaded.as_ref().expect("loaded above");
+                if !w.covers(asset, meta.as_ref()) {
+                    break; // the device is not one this watch is about: no flow of it can match
+                }
+                let score = self.cfg.weighted(RULE_IT_WATCH, w.score);
+                if score == 0 {
+                    continue; // the rule as a whole is switched off (weight 0)
+                }
+                self.it_cooldown.insert(key, now + w.cooldown_minutes as i64 * 60);
+                let kb = (r.bytes_out + r.bytes_in) / 1000;
+                let mut d = json!({
+                    "summary": format!("{}: {} talked to {} ({} port {}, {} kB)", w.name, asset_label(asset), r.remote, proto_name(r.proto), r.port, kb),
+                    "reasons": [format!("+{} matches your watch \"{}\"", w.score, w.name)],
+                    "watch": {"id": w.id, "name": w.name},
+                    "remote": r.remote, "port": r.port, "proto": proto_name(r.proto),
+                    "bytes_out": r.bytes_out, "bytes_in": r.bytes_in,
+                });
+                d["mac"] = json!(asset.mac);
+                // a watch is an explicit request: it is raised even if its score is under the general minimum
+                events.push(make_event(asset, RULE_IT_WATCH, score, severity_for(score.max(self.cfg.min_score), self.cfg.min_score), d, now));
+            }
+        }
+        if self.it_cooldown.len() > 50_000 {
+            self.it_cooldown.retain(|_, u| now < *u);
         }
         events
     }
@@ -2502,6 +2556,70 @@ mod tests {
         // unlisted neighbours are quiet, and it repeats after six hours
         assert!(d.ingest_flows(None, &[flow(MAC, [203, 0, 113, 10], 443, 10, 400)], &s, 400).is_empty());
         assert_eq!(d.ingest_flows(None, &[flow(MAC, [203, 0, 113, 9], 443, 10, 30_000)], &s, 30_000).len(), 1);
+    }
+
+    fn it_watch(id: &str) -> crate::rules::ItWatch {
+        crate::rules::ItWatch {
+            id: id.into(), name: "Cameras to the internet".into(), enabled: true, sources: vec![], except_sources: vec![], proto: "any".into(),
+            ports_mode: "any".into(), ports: vec![], remotes_mode: "only".into(), remotes: vec!["public".into()], min_kb: 0, score: 75, cooldown_minutes: 30,
+        }
+    }
+
+    #[test]
+    fn an_it_watch_names_the_device_and_destination_only_for_the_devices_and_traffic_it_is_about() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let cam = asset(&s, MAC, 0);
+        let other = asset(&s, MAC2, 0);
+        let mut c = cfg();
+        let mut w = it_watch("w1");
+        w.sources = vec![crate::rules::Scope { kind: "device".into(), value: cam.id.to_string() }];
+        c.it_watches = vec![w];
+        let mut d = Detector::new(c, vec![], 0);
+        // watches fire during the learning period too
+        assert!(d.ingest_flows(None, &[flow(MAC, [192, 168, 1, 77], 443, 500, 0)], &s, 10).is_empty(), "the local network is not the internet");
+        let ev = d.ingest_flows(None, &[flow(MAC, [8, 8, 4, 4], 443, 500, 0)], &s, 10);
+        assert_eq!(kinds(&ev), [(RULE_IT_WATCH, 75)]);
+        assert_eq!(ev[0].asset_id, cam.id);
+        assert_eq!((ev[0].raw_details["remote"].as_str(), ev[0].raw_details["port"].as_u64()), (Some("8.8.4.4"), Some(443)));
+        assert!(ev[0].raw_details["summary"].as_str().unwrap().starts_with("Cameras to the internet: "));
+        // held back for the cooldown, per destination and port; another destination speaks up
+        assert!(d.ingest_flows(None, &[flow(MAC, [8, 8, 4, 4], 443, 500, 100)], &s, 100).is_empty());
+        assert_eq!(d.ingest_flows(None, &[flow(MAC, [8, 8, 8, 8], 443, 500, 100)], &s, 100).len(), 1);
+        assert_eq!(d.ingest_flows(None, &[flow(MAC, [8, 8, 4, 4], 443, 500, 2000)], &s, 2000).len(), 1, "and again after the cooldown");
+        // another device is not what the watch is about
+        assert!(d.ingest_flows(None, &[flow(MAC2, [1, 1, 1, 1], 443, 500, 3000)], &s, 3000).is_empty());
+        let _ = other;
+    }
+
+    #[test]
+    fn an_it_watch_can_be_an_allow_list_and_stays_quiet_for_excepted_devices_or_when_switched_off() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let cam = asset(&s, MAC, 0);
+        let run = |tweak: &dyn Fn(&mut crate::rules::ItWatch, &mut DetectConfig)| {
+            let mut c = cfg();
+            let mut w = it_watch("w1");
+            // "may talk only to the recorder and to DNS": anything else is alerted
+            w.remotes_mode = "except".into();
+            w.remotes = vec!["192.168.1.10".into()];
+            w.ports_mode = "except".into();
+            w.ports = vec![53];
+            tweak(&mut w, &mut c);
+            c.it_watches = vec![w];
+            let mut d = Detector::new(c, vec![], 0);
+            let mut out = Vec::new();
+            for (remote, port) in [([192, 168, 1, 10], 554u16), ([192, 168, 1, 10], 53), ([192, 168, 1, 99], 554), ([8, 8, 8, 8], 53)] {
+                out.extend(d.ingest_flows(None, &[flow(MAC, remote, port, 500, 0)], &s, 10).into_iter().map(|e| (e.raw_details["remote"].as_str().unwrap().to_string(), e.raw_details["port"].as_u64().unwrap())));
+            }
+            out
+        };
+        // both conditions must hold: not the recorder AND not port 53
+        assert_eq!(run(&|_, _| {}), vec![("192.168.1.99".to_string(), 554)], "only the flow outside both allow-lists");
+        assert!(run(&|w, _| w.except_sources = vec![crate::rules::Scope { kind: "device".into(), value: cam.id.to_string() }]).is_empty());
+        assert!(run(&|w, _| w.enabled = false).is_empty());
+        assert!(run(&|_, c| { c.weights.insert(RULE_IT_WATCH.into(), 0.0); }).is_empty(), "the rule as a whole can be switched off");
+        // an amount of data, and a protocol
+        assert!(run(&|w, _| w.min_kb = 10).is_empty(), "600 bytes is not 10 kB");
+        assert!(run(&|w, _| w.proto = "udp".into()).is_empty(), "the flows are TCP");
     }
 
     #[test]

@@ -1460,6 +1460,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn network_watches_round_trip_survive_other_edits_and_are_refused_when_nonsense() {
+        let (app, store, [viewer, _editor, admin]) = secured().await;
+        let watch = serde_json::json!({"id": "cam1", "name": "Cameras stay home", "enabled": true, "sources": [{"kind": "type", "value": "camera"}], "except_sources": [],
+            "proto": "any", "ports_mode": "any", "ports": [], "remotes_mode": "only", "remotes": ["public"], "min_kb": 0, "score": 70, "cooldown_minutes": 30});
+        assert_eq!(send(&app, req("PUT", "/api/rules", Some(&viewer), Some(serde_json::json!({"it_watches": [watch]})))).await.0, StatusCode::FORBIDDEN);
+        let (st, _, v) = send(&app, req("PUT", "/api/rules", Some(&admin), Some(serde_json::json!({"it_watches": [watch]})))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        let (_, _, v) = send(&app, req("GET", "/api/rules", Some(&viewer), None)).await;
+        assert_eq!((v["it_watches"][0]["name"].as_str(), v["it_watches"][0]["remotes"][0].as_str()), (Some("Cameras stay home"), Some("public")));
+        assert!(v["rules"].as_array().unwrap().iter().any(|r| r["id"] == "it_watch" && r["group"] == "network"), "the rule behind the watches is listed, so its weight can be turned down");
+        let cfg = crate::rules::load(&*store).unwrap().apply(&crate::detect::DetectConfig::default());
+        assert_eq!(cfg.it_watches.len(), 1);
+        // nonsense is refused and nothing changes
+        for bad in [
+            serde_json::json!({"id": "x", "name": "n", "enabled": true, "sources": [], "proto": "any", "ports_mode": "any", "remotes_mode": "any", "score": 50, "cooldown_minutes": 5}),
+            serde_json::json!({"id": "y", "name": "n", "enabled": true, "sources": [], "proto": "tcp", "ports_mode": "only", "ports": [], "remotes_mode": "any", "score": 50, "cooldown_minutes": 5}),
+            serde_json::json!({"id": "z", "name": "n", "enabled": true, "sources": [], "proto": "tcp", "ports_mode": "any", "remotes_mode": "only", "remotes": ["nowhere"], "score": 50, "cooldown_minutes": 5}),
+        ] {
+            assert_eq!(send(&app, req("PUT", "/api/rules", Some(&admin), Some(serde_json::json!({"it_watches": [bad]})))).await.0, StatusCode::BAD_REQUEST);
+        }
+        assert_eq!(crate::rules::load(&*store).unwrap().it_watches.len(), 1);
+        // other edits keep the watches; the rule's weight can silence them all
+        let (st, _, v) = send(&app, req("PUT", "/api/rules", Some(&admin), Some(serde_json::json!({"weights": {"it_watch": 0}})))).await;
+        assert_eq!((st, v["it_watches"].as_array().unwrap().len()), (StatusCode::OK, 1));
+    }
+
+    #[tokio::test]
     async fn notification_channels_are_admin_only_never_reveal_secrets_and_can_be_tested() {
         use std::io::{Read, Write};
         // a stand-in for Slack: answers 200 to anything and remembers the last body
