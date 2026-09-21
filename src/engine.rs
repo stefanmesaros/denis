@@ -1244,9 +1244,9 @@ mod tests {
             Ok(Observation::Ports { ip, .. }) => assert_eq!(ip, local),
             other => panic!("expected the fresh ports of the answering host, got {other:?}"),
         }
-        // and what its services said about themselves (nothing here, which also clears any old banners)
+        // and what its services said about themselves (whatever this machine happens to run: a CI runner has sshd)
         match obs_rx.try_recv() {
-            Ok(Observation::Banners { ip, fields }) => assert!(ip == local && fields.is_empty()),
+            Ok(Observation::Banners { ip, .. }) => assert_eq!(ip, local),
             other => panic!("expected the banners of the answering host, got {other:?}"),
         }
         assert!(obs_rx.try_recv().is_err(), "nothing was reported for the excluded or the silent address");
