@@ -77,7 +77,8 @@ pub fn compliance_now(store: &dyn Store, shared: &Shared, now: i64) -> Result<cr
     let users = store.list_users()?;
     let overrides = crate::rules::load(store)?;
     let acceptances = store.list_risk_acceptances()?;
-    let mut with_passkey = std::collections::HashSet::new();
+    // a second step: a passkey or an authenticator app
+    let mut with_passkey = store.totp_enabled_users()?;
     for u in &users {
         if !store.list_passkeys(u.id)?.is_empty() {
             with_passkey.insert(u.id);
@@ -102,7 +103,7 @@ pub fn compliance_now(store: &dyn Store, shared: &Shared, now: i64) -> Result<cr
         channels_enabled: channels.iter().filter(|c| c.enabled).count(),
         exports_configured: info.exports.len(),
         users: users.len(), users_with_passkey: users.iter().filter(|u| with_passkey.contains(&u.id)).count(),
-        admins: admins.len(), admins_with_passkey: admins.iter().filter(|u| with_passkey.contains(&u.id)).count(),
+        admins: admins.len(), admins_with_mfa: admins.iter().filter(|u| with_passkey.contains(&u.id)).count(),
         high_findings: open.iter().filter(|f| f.severity == "high").count(),
         accepted_risks: accepted.iter().filter(|r| r.still_applies).count(),
     };

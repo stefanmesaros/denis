@@ -141,7 +141,7 @@ fn the_json_catalogs_are_the_ones_generated_from_the_sources() {
 #[test]
 fn every_string_the_scripts_and_pages_show_is_translated() {
     let cat = catalog("de");
-    for script in ["app.js", "admin.js", "rules.js", "findings.js", "reports.js", "health.js", "tables.js", "setup.js", "main.js", "icons.js"] {
+    for script in ["app.js", "admin.js", "rules.js", "findings.js", "reports.js", "health.js", "tables.js", "setup.js", "totp.js", "main.js", "icons.js"] {
         assert_translated(&cat, script, tr_literals(&read(&format!("ui/{script}"))));
     }
     assert_translated(&cat, "index.html", html_strings(&read("ui/index.html")));
@@ -173,6 +173,7 @@ fn everything_the_server_sends_for_display_is_translated() {
     keys.extend(crate::findings::texts().into_iter().map(String::from));
     keys.extend(crate::web_admin::risk_texts().map(String::from));
     keys.extend(crate::web_reports::texts().map(String::from));
+    keys.extend(crate::web_totp::texts().map(String::from));
     keys.extend(crate::web_health::texts().into_iter().map(String::from));
     for list in [crate::fingerprint::DEVICE_TYPES, crate::tracking::STATUSES, crate::tracking::CRITICALITIES] {
         keys.extend(list.iter().map(|s| s.to_string()));
@@ -191,7 +192,7 @@ fn everything_the_server_sends_for_display_is_translated() {
         let metas = HashMap::new();
         let r = crate::compliance::assess(&crate::compliance::Inputs {
             assets: &assets, metas: &metas, now: 0, passive_discovery: on, active_discovery: on, traffic_analysis: on, learning_finished: on,
-            rules_enabled: usize::from(on), rules_total: 3, channels_enabled: 0, exports_configured: 0, users: 1, users_with_passkey: 0, admins: 1, admins_with_passkey: 0, high_findings: usize::from(!on), accepted_risks: 0,
+            rules_enabled: usize::from(on), rules_total: 3, channels_enabled: 0, exports_configured: 0, users: 1, users_with_passkey: 0, admins: 1, admins_with_mfa: 0, high_findings: usize::from(!on), accepted_risks: 0,
         });
         shown.insert(r.disclaimer.to_string());
         for m in r.measures {

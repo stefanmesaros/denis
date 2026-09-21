@@ -34,7 +34,7 @@ random and shown once.
   agent saw would cross the network readable. If the master runs with `--no-tls` (behind a TLS proxy) point the agent at
   the proxy's `https://` address. What is not protected: the agent's token is a shared secret rather than a client
   certificate, so keep it as safe as a password (revocable per agent under *Sites*).
-* **Passkeys** (WebAuthn) are supported for sign-in (below). There is no separate TOTP code and no single sign-on (SAML/OIDC) yet.
+* **Passkeys** (WebAuthn) and **one-time codes from an authenticator app** (TOTP) are supported for sign-in (below). There is no single sign-on (SAML/OIDC) yet.
 * Login lock-out is **per account name**: an attacker can lock a known account for short periods (denial of
   service), but cannot guess passwords faster. On top of that each **source address** may make 20 failed
   sign-ins per 10 minutes, then is refused (HTTP 429) for the rest of the window, which stops one address
@@ -71,17 +71,44 @@ face, device PIN or security key, with no password to type or phish.
 * A passkey cannot skip a pending password change, cannot sign in a disabled account, is rate limited like passwords,
   and every registration, removal and sign-in is in the audit log.
 * **Lost device:** the person removes it under *Passkeys*; an administrator can remove *all* of a user's passkeys
-  (`DELETE /api/users/{id}/passkeys`). Passwords keep working; there is no way to force passkey-only sign-in yet.
+  (`DELETE /api/users/{id}/passkeys`). Passwords keep working; there is no way to force passkey-only sign-in yet (an administrator can require *a* second step, see the next section).
 * Verified with a software authenticator against the full protocol (forged, replayed, unverified, cloned and
   wrong-origin responses are all refused) and in a browser with a simulated authenticator. Not yet verified with a
   physical security key or a phone.
+
+## Authenticator app (TOTP)
+
+Anyone can add a second step to their own account: *My account* → **Authenticator app** → *Set up*. DENIS asks for the
+password again, shows a QR code (and the key, to type by hand) for any authenticator app (Google Authenticator, Microsoft
+Authenticator, Authy, 1Password, Aegis…: standard RFC 6238, 6 digits, 30 seconds), and turns it on only after the person
+types a correct first code. Ten **recovery codes** are shown once.
+
+* **At sign-in** a right password earns only a short-lived (5 minutes), single-use *ticket*; the session comes when the
+  code is right. Each code works **once** (a code seen over a shoulder cannot be replayed), a clock a little fast or
+  slow is tolerated (one 30-second step either way), and a recovery code works once.
+* **Guessing is throttled.** Wrong codes count against the account with the same growing lock-out as wrong passwords, five
+  wrong codes void the ticket, and a right password does **not** reset that count, so re-entering the password cannot
+  restart the guessing. Wrong attempts are also counted per client address. They appear in the audit log (`auth.mfa_failed`),
+  as do turning it on or off, new recovery codes and the use of a recovery code.
+* **Passkeys** already are two factors (the device plus a fingerprint or PIN), so a passkey sign-in asks for no code.
+* **Sensitive actions ask for the password again**: setting up, turning off and new recovery codes (the last also
+  needs a current code).
+* **Requiring it.** *Settings* → **Sign-in security**: require a second step (an authenticator app *or* a passkey) for
+  nobody, administrators, or everybody. Whoever is required and has none is asked to set one up at their next request,
+  and nothing else works until they have (API tokens are not affected). While it is required, a person cannot turn their
+  only second step off.
+* **Lost phone:** an administrator resets the person's authenticator app (*Users* → *Reset*, or
+  `DELETE /api/users/{id}/totp`); the person is signed out, signs in with the password (or a passkey) and sets it up again.
+* **What is stored.** A code cannot be checked against a hash, so the secret is stored in the database, beside the password
+  hashes: a copy or **backup of the database** can produce codes for everyone, so guard backups like the database itself.
+  The secret is shown once, at set-up, and never returned again. Recovery codes are stored only as hashes.
 
 ## Hardening checklist
 
 - [ ] HTTPS on (the default), with the CA trusted or your own certificate installed; never `--no-tls` on a network.
 - [ ] Ingest port firewalled to the agents' addresses, and TLS/VPN in front if it crosses untrusted networks.
 - [ ] Run as an unprivileged user with capabilities (the systemd unit does); database directory `0700`.
-- [ ] Set `--public-url` and have people add a passkey.
+- [ ] Set `--public-url` and have people add a passkey or an authenticator app; require a second step (*Settings* → *Sign-in security*).
 - [ ] Individual named accounts; *viewer* by default; only a few admins; review the audit log.
 - [ ] Rotate agent tokens when staff or hardware change; revoke tokens of retired agents.
 - [ ] Back up the database; test a restore.

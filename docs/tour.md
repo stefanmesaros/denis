@@ -171,6 +171,12 @@ language), the **HTTPS certificate** (download the local CA, or use your own), *
 later) and **demo data**: load a fictional company to explore, remove it, or **erase all data** when you are ready for
 the real network ([details](operations.md#demo-data-and-starting-clean-erase-all-data)).
 
+## Users: second step and Sign-in security
+
+The *Users* page shows how each person signs in (authenticator app, passkeys), and **Reset** removes somebody's
+authenticator app after a lost phone. Under *Settings* → **Sign-in security** an administrator can require a second step
+for administrators or for everybody.
+
 ## Audit log (administrators)
 
 ![Audit log](img/audit.png)
@@ -182,7 +188,8 @@ Every sign-in, change, user, token, channel and rule edit with who did it, filte
 ![My account](img/account.png)
 
 Click your name in the header. Here you change your **password** and manage your **passkeys**: sign in with a
-fingerprint, face, device PIN or security key instead of a password, one per device ([details](security.md#passkeys)).
+fingerprint, face, device PIN or security key instead of a password, one per device ([details](security.md#passkeys)),
+and an **authenticator app** as a second step after the password, with recovery codes ([details](security.md#authenticator-app-totp)).
 
 ## Reports
 

@@ -14,6 +14,11 @@
       <p class="muted" id="login-sub">Device Enumeration &amp; Network Inventory Security</p>
       <label>Username<input id="login-user" name="username" autocomplete="username" required autofocus></label>
       <label>Password<input id="login-pass" name="password" type="password" autocomplete="current-password" required></label>
+      <div id="login-mfa" hidden>
+        <label>Code from your authenticator app<input id="login-code" name="one-time-code" autocomplete="one-time-code" inputmode="numeric" maxlength="16"></label>
+        <p class="muted small">Lost your phone? Type one of your recovery codes instead.</p>
+        <button type="button" id="login-back" class="passkey-btn">Start again</button>
+      </div>
       <div id="login-error" class="form-error" role="alert" hidden></div>
       <button type="submit" class="primary">Sign in</button>
       <button type="button" id="login-passkey" class="passkey-btn" hidden>Sign in with a passkey</button>
@@ -284,7 +289,7 @@
           <select id="user-role"><option>viewer</option><option>editor</option><option>admin</option></select>
           <button type="submit" class="primary">Add user</button>
         </form>
-        <div class="table-wrap"><table id="users-table"><thead><tr><th>Username</th><th>Role</th><th>State</th><th>Last sign-in</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="table-wrap"><table id="users-table"><thead><tr><th>Username</th><th>Role</th><th>State</th><th>Second step</th><th>Last sign-in</th><th></th></tr></thead><tbody></tbody></table></div>
         <p class="muted">Roles: <b>viewer</b> reads everything; <b>editor</b> also edits assets, acknowledges alerts and starts scans; <b>admin</b> also manages users, agent tokens and can delete manual assets.</p>
         <h3 class="section">API tokens</h3>
         <p class="muted">For scripts and integrations (Grafana, automation). A token can read (viewer) or also change assets (editor), never administer. Send it as <code>Authorization: Bearer &lt;token&gt;</code>.</p>
@@ -299,8 +304,12 @@
       <section id="view-settings" hidden>
         <p class="muted">Settings for the whole installation. Only administrators see this page; every change is written to the <a href="#audit">audit log</a>.</p>
         <nav class="subnav" aria-label="Settings sections">
-          <a href="#settings/branding">Branding (white label)</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
+          <a href="#settings/branding">Branding (white label)</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/security">Sign-in security</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
         </nav>
+        <div id="security-box" hidden>
+          <h3 class="section">Sign-in security</h3>
+          <div id="security-body"></div>
+        </div>
         <div id="setup-box" hidden>
           <h3 class="section">Setup guide</h3>
           <p class="muted">A checklist of what a new installation usually needs: your network, sign-in security, notifications, colleagues, backups and your branding. Each item turns green when it is really done.</p>
@@ -362,6 +371,10 @@
           <h3 class="section">Passkeys</h3>
           <div id="passkeys-body"></div>
         </div>
+        <div id="totp-box" hidden>
+          <h3 class="section">Authenticator app</h3>
+          <div id="totp-body"></div>
+        </div>
         <h3 class="section">Sign-in</h3>
         <div class="row"><button id="account-logout" type="button">Sign out</button></div>
       </section>
@@ -389,6 +402,7 @@
   <script src="health.js"></script>
   <script src="tables.js"></script>
   <script src="setup.js"></script>
+  <script src="totp.js"></script>
   <script src="main.js"></script>
 </body>
 </html>

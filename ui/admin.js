@@ -187,6 +187,7 @@ function showLogin(message) {
   $('app').hidden = true;
   $('login').hidden = false;
   $('login-pass').value = '';
+  resetLoginCodeStep();
   const e = $('login-error');
   e.hidden = !message;
   e.textContent = message || '';
@@ -218,6 +219,7 @@ async function start() {
   $('tokens-box').hidden = !can('admin');
   $('branding-box').hidden = !can('admin');
   $('setup-box').hidden = !can('admin');
+  $('security-box').hidden = !can('admin');
   $('setup-open').onclick = openSetupGuide;
   if (can('admin')) initBrandingForm();
   $('add-asset').hidden = !can('editor');
@@ -245,7 +247,7 @@ async function boot() {
   const me = await api('GET', '/api/auth/me');
   if (me.ok) {
     state.me = me.json.user;
-    if (me.json.must_change) { await start(); onMustChange(); } else await start();
+    if (me.json.must_change) { await start(); onMustChange(); } else { await start(); if (me.json.must_enrol) onMustEnrol(); }
   } else {
     showLogin();
   }
@@ -253,18 +255,30 @@ async function boot() {
 
 $('login-form').onsubmit = async (ev) => {
   ev.preventDefault();
-  const r = await api('POST', '/api/auth/login', { username: $('login-user').value, password: $('login-pass').value });
+  // the second step, when the password was right and an authenticator app is on
+  const r = loginTicket
+    ? await api('POST', '/api/auth/mfa', { ticket: loginTicket, code: $('login-code').value })
+    : await api('POST', '/api/auth/login', { username: $('login-user').value, password: $('login-pass').value });
   if (!r.ok) {
     const e = $('login-error');
     e.textContent = apiError(r);
     e.hidden = false;
     $('login-pass').value = '';
+    $('login-code').value = '';
     return;
   }
+  if (r.json.mfa_required) {
+    $('login-error').hidden = true;
+    showLoginCodeStep(r.json.ticket);
+    return;
+  }
+  resetLoginCodeStep();
   state.me = r.json.user;
   await start();
   if (r.json.must_change) onMustChange();
+  else if (r.json.must_enrol) onMustEnrol();
 };
+$('login-back').onclick = () => { resetLoginCodeStep(); $('login-error').hidden = true; $('login-user').focus(); };
 
 $('logout').onclick = async () => {
   await api('POST', '/api/auth/logout');
@@ -541,6 +555,14 @@ async function renderUsers() {
         return sel;
       })()),
       el('td', { text: u.disabled ? tr('disabled') : u.must_change ? tr('must change password') : tr('active') }),
+      el('td', {},
+        el('span', { text: [u.totp ? tr('authenticator app') : null, u.passkeys ? tr('{n} passkeys', { n: u.passkeys }) : null].filter(Boolean).join(' · ') || tr('none') }),
+        u.totp ? el('button', { type: 'button', class: 'reset-totp', title: tr('Remove the authenticator app (a lost phone). The person is signed out and can set it up again.'), text: tr('Reset'), onclick: async () => {
+          if (!confirm(tr('Remove the authenticator app of {user}? They will be signed out.', { user: u.username }))) return;
+          const rr = await api('DELETE', '/api/users/' + u.id + '/totp');
+          if (!rr.ok) showMessage(tr('Could not reset'), el('p', { text: apiError(rr) }));
+          renderUsers();
+        } }) : null),
       el('td', { text: u.last_login ? fmtTime(u.last_login) : tr('never') }),
       el('td', {},
         el('button', { type: 'button', text: u.disabled ? tr('Enable') : tr('Disable'), onclick: async () => {
@@ -868,6 +890,7 @@ function renderAccount() {
   const roles = { viewer: tr('can read everything'), editor: tr('can also edit devices, acknowledge alerts and start scans'), admin: tr('can also manage users, settings and rules') };
   $('account-info').replaceChildren(el('div', {}, el('b', { text: me.username }), ' · ' + tr(me.role)), el('div', { text: roles[me.role] || '' }));
   renderPasskeys();
+  renderTotp();
 }
 $('account').onclick = () => { location.hash = '#account'; setTab('account'); };
 $('account-logout').onclick = () => $('logout').click();
@@ -887,7 +910,7 @@ function applyHash() {
   if (what === 'rules' && arg === 'watches') setTimeout(() => $('watches')?.scrollIntoView({ block: 'start' }), 700);
   // #settings/tls, #settings/updates ...: scroll to that section
   if (what === 'settings' && arg && !$('tab-settings').hidden) {
-    const box = { branding: 'branding-box', tls: 'tls-box', updates: 'update-box', data: 'data-box', setup: 'setup-box' }[arg];
+    const box = { branding: 'branding-box', tls: 'tls-box', updates: 'update-box', data: 'data-box', setup: 'setup-box', security: 'security-box' }[arg];
     if (box) setTimeout(() => $(box).scrollIntoView({ block: 'start' }), 50);
   }
   if (what === 'passkeys') { location.hash = '#account'; return; }

@@ -12,6 +12,10 @@
 //! * Sessions expire when idle and absolutely; changing a password signs the
 //!   user out everywhere else.
 //! * The last enabled administrator cannot be removed.
+//! * A person can add a second step: a code from an authenticator app. The password alone then only earns a
+//!   short-lived, single-use *ticket*; the session comes when the code (or a recovery code) is right. A right
+//!   password does not reset the count of wrong codes, so the code cannot be guessed by re-entering the password.
+//!   Signing in with a passkey already is two factors and asks for nothing more.
 //!
 //! Time is passed in so all of it is testable.
 
@@ -48,7 +52,15 @@ pub enum AuthError {
     Locked(i64),
     /// The request itself is unacceptable (weak password, bad username...).
     Rejected(String),
+    /// The password was right but a one-time code is needed too: this ticket goes with it.
+    MfaRequired(String),
     Internal(anyhow::Error),
+}
+
+impl From<serde_json::Error> for AuthError {
+    fn from(e: serde_json::Error) -> Self {
+        AuthError::Internal(e.into())
+    }
 }
 
 impl From<anyhow::Error> for AuthError {
@@ -73,7 +85,26 @@ pub struct Auth {
     /// Where passkeys are valid (`None` = passkeys are off on this setup) and the challenges in flight.
     pub passkey_cfg: Mutex<Option<crate::passkey::Config>>,
     pub ceremonies: Mutex<crate::passkey::Ceremonies>,
+    /// Passwords that were right and now wait for a code: ticket hash -> who, until when, wrong codes so far.
+    mfa_tickets: Mutex<HashMap<String, MfaTicket>>,
+    /// The policy "who must use a second step" (`off`, `admins`, `all`) and when it was read.
+    mfa_policy: Mutex<Option<(String, i64)>>,
 }
+
+struct MfaTicket {
+    user_id: i64,
+    /// The account's lock-out key, so wrong codes count against the account.
+    key: String,
+    expires: i64,
+    fails: u32,
+}
+
+/// How long a right password waits for its code, and how many wrong codes end the wait.
+const MFA_TICKET_SECS: i64 = 300;
+const MFA_TICKET_MAX_FAILS: u32 = 5;
+/// The setting that holds who must use a second step.
+pub const SECURITY_KEY: &str = "security";
+pub const MFA_POLICIES: &[&str] = &["off", "admins", "all"];
 
 /// Failed sign-ins one address may make per window before it is refused outright.
 const IP_MAX_FAILURES: u32 = 20;
@@ -157,7 +188,7 @@ pub fn validate_username(u: &str) -> Result<(), String> {
 
 impl Auth {
     pub fn new(store: Arc<dyn Store>) -> Self {
-        Auth { store, attempts: Mutex::new(HashMap::new()), last_agent_touch: Mutex::new(HashMap::new()), ip_failures: Mutex::new(HashMap::new()), passkey_cfg: Mutex::new(None), ceremonies: Mutex::new(Default::default()) }
+        Auth { store, attempts: Mutex::new(HashMap::new()), last_agent_touch: Mutex::new(HashMap::new()), ip_failures: Mutex::new(HashMap::new()), passkey_cfg: Mutex::new(None), ceremonies: Mutex::new(Default::default()), mfa_tickets: Mutex::new(HashMap::new()), mfa_policy: Mutex::new(None) }
     }
 
     /// First run: create `admin` with a random one-time password. Returns it
@@ -252,13 +283,157 @@ impl Auth {
             self.record_failure(&key, now);
             return Err(AuthError::Invalid);
         };
+        if self.store.get_totp(r.user.id)?.is_some_and(|t| t.enabled) {
+            // the failure counter stays as it is: a right password must not wipe out the wrong codes tried so far
+            return Err(AuthError::MfaRequired(self.new_ticket(r.user.id, &key, now)?));
+        }
         self.attempts.lock().unwrap().remove(&key);
+        self.open_session(r.user, now)
+    }
+
+    fn open_session(&self, mut user: User, now: i64) -> Result<(String, User), AuthError> {
         let token = random_token()?;
-        self.store.create_session(&sha256_hex(&token), r.user.id, now, now + SESSION_MAX_SECS)?;
-        self.store.set_last_login(r.user.id, now)?;
-        let mut user = r.user;
+        self.store.create_session(&sha256_hex(&token), user.id, now, now + SESSION_MAX_SECS)?;
+        self.store.set_last_login(user.id, now)?;
         user.last_login = Some(now);
         Ok((token, user))
+    }
+
+    fn new_ticket(&self, user_id: i64, key: &str, now: i64) -> Result<String, AuthError> {
+        let ticket = random_token()?;
+        let mut m = self.mfa_tickets.lock().unwrap();
+        m.retain(|_, t| t.expires > now);
+        if m.len() >= 1000 {
+            // a flood of right passwords cannot grow this without bound: the oldest go first
+            let oldest = m.iter().min_by_key(|(_, t)| t.expires).map(|(k, _)| k.clone());
+            if let Some(k) = oldest {
+                m.remove(&k);
+            }
+        }
+        m.insert(sha256_hex(&ticket), MfaTicket { user_id, key: key.to_string(), expires: now + MFA_TICKET_SECS, fails: 0 });
+        Ok(ticket)
+    }
+
+    /// The second step: a 6-digit code from the app, or a recovery code. Returns the session token, the user and
+    /// which kind of code was used (`totp` or `recovery`). Every wrong code counts against the account (the same
+    /// lock-out as wrong passwords) and against the ticket, which is void after a few.
+    pub fn complete_mfa(&self, ticket: &str, typed: &str, now: i64) -> Result<(String, User, &'static str), AuthError> {
+        let th = sha256_hex(ticket);
+        let (user_id, key) = {
+            let mut m = self.mfa_tickets.lock().unwrap();
+            match m.get(&th) {
+                Some(t) if t.expires > now => (t.user_id, t.key.clone()),
+                Some(_) => {
+                    m.remove(&th);
+                    return Err(AuthError::Invalid);
+                }
+                None => return Err(AuthError::Invalid),
+            }
+        };
+        let wait = self.lock_remaining(&key, now);
+        if wait > 0 {
+            return Err(AuthError::Locked(wait));
+        }
+        let rec = self.store.get_user_record(user_id)?.filter(|r| !r.user.disabled).ok_or(AuthError::Invalid)?;
+        let totp = self.store.get_totp(user_id)?.filter(|t| t.enabled).ok_or(AuthError::Invalid)?;
+        let method = if crate::totp::looks_like_recovery(typed) { "recovery" } else { "totp" };
+        let ok = if method == "recovery" {
+            self.store.use_recovery_code(user_id, &crate::totp::hash_recovery(typed), now)?
+        } else {
+            match crate::totp::verify(&totp.secret, typed, now, totp.last_step) {
+                Some(step) => self.store.advance_totp_step(user_id, step)?,
+                None => false,
+            }
+        };
+        if !ok {
+            self.record_failure(&key, now);
+            let mut m = self.mfa_tickets.lock().unwrap();
+            if let Some(t) = m.get_mut(&th) {
+                t.fails += 1;
+                if t.fails >= MFA_TICKET_MAX_FAILS {
+                    m.remove(&th);
+                }
+            }
+            return Err(AuthError::Invalid);
+        }
+        self.mfa_tickets.lock().unwrap().remove(&th);
+        self.attempts.lock().unwrap().remove(&key);
+        let (token, user) = self.open_session(rec.user, now)?;
+        Ok((token, user, method))
+    }
+
+    /// The current password, asked again before something sensitive (starting or stopping the second step). Wrong
+    /// answers count against the account exactly like wrong sign-ins, so this cannot be used to guess the password.
+    pub fn confirm_password(&self, user: &User, password: &str, now: i64) -> Result<(), AuthError> {
+        let key = user.username.trim().to_lowercase();
+        let wait = self.lock_remaining(&key, now);
+        if wait > 0 {
+            return Err(AuthError::Locked(wait));
+        }
+        let rec = self.store.get_user_record(user.id)?.ok_or(AuthError::Invalid)?;
+        if verify_password(&rec.password_hash, password) {
+            Ok(())
+        } else {
+            self.record_failure(&key, now);
+            Err(AuthError::Invalid)
+        }
+    }
+
+    /// A wrong code typed while setting up or renewing: the same back-off as wrong passwords.
+    pub fn code_check(&self, user: &User, now: i64) -> Result<(), AuthError> {
+        let wait = self.lock_remaining(&user.username.trim().to_lowercase(), now);
+        if wait > 0 { Err(AuthError::Locked(wait)) } else { Ok(()) }
+    }
+
+    pub fn code_failed(&self, user: &User, now: i64) {
+        self.record_failure(&user.username.trim().to_lowercase(), now);
+    }
+
+    // ------------------------------------------------------ who must use a second step
+
+    /// `off`, `admins` or `all`. Read from the database at most every few seconds.
+    pub fn mfa_policy(&self, now: i64) -> String {
+        let mut c = self.mfa_policy.lock().unwrap();
+        if let Some((p, at)) = c.as_ref() {
+            if now - at < 10 {
+                return p.clone();
+            }
+        }
+        let p = self
+            .store
+            .get_setting(SECURITY_KEY)
+            .ok()
+            .flatten()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .and_then(|v| v["mfa_required"].as_str().map(String::from))
+            .filter(|p| MFA_POLICIES.contains(&p.as_str()))
+            .unwrap_or_else(|| "off".into());
+        *c = Some((p.clone(), now));
+        p
+    }
+
+    pub fn set_mfa_policy(&self, policy: &str, now: i64) -> Result<(), AuthError> {
+        if !MFA_POLICIES.contains(&policy) {
+            return Err(AuthError::Rejected("the policy must be off, admins or all".into()));
+        }
+        self.store.set_setting(SECURITY_KEY, &serde_json::to_vec(&serde_json::json!({ "mfa_required": policy }))?, now)?;
+        *self.mfa_policy.lock().unwrap() = Some((policy.to_string(), now));
+        Ok(())
+    }
+
+    /// Has this person a second factor: a working authenticator app or at least one passkey?
+    pub fn has_mfa(&self, user_id: i64) -> Result<bool> {
+        Ok(self.store.get_totp(user_id)?.is_some_and(|t| t.enabled) || !self.store.list_passkeys(user_id)?.is_empty())
+    }
+
+    /// Must this person set up a second step before anything else works? (Never on a database error: that must not lock everybody out.)
+    pub fn must_enrol(&self, user: &User, now: i64) -> bool {
+        let required = match self.mfa_policy(now).as_str() {
+            "all" => true,
+            "admins" => user.role == "admin",
+            _ => false,
+        };
+        required && self.has_mfa(user.id).is_ok_and(|has| !has)
     }
 
     /// The user behind a session cookie, if it is valid, unexpired, not idle

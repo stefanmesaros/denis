@@ -13,9 +13,10 @@ window.fetch = async (input, init = {}) => {
   const method = (init.method || 'GET').toUpperCase();
   if (method !== 'GET') init = { ...init, headers: { 'X-Denis': '1', ...(init.headers || {}) } };
   const r = await rawFetch(input, { credentials: 'same-origin', ...init });
-  if (url.startsWith('/api/') && !url.startsWith('/api/auth/login')) {
+  // a wrong password or code typed into a form is a 401 too, but it is not the end of the session
+  if (url.startsWith('/api/') && !/^\/api\/auth\/(login|mfa|password|totp)/.test(url)) {
     if (r.status === 401) onUnauthenticated();
-    else if (r.status === 403) r.clone().json().then((j) => { if (j.code === 'must_change') onMustChange(); }).catch(() => {});
+    else if (r.status === 403) r.clone().json().then((j) => { if (j.code === 'must_change') onMustChange(); else if (j.code === 'mfa_required') onMustEnrol(); }).catch(() => {});
   }
   return r;
 };
@@ -646,7 +647,7 @@ function setTab(t) {
   if (t === 'health') loadHealth();
   if (t === 'alerting') loadAlerting();
   if (t === 'users') { renderUsers(); renderApiTokens(); }
-  if (t === 'settings') { initBrandingForm(); loadUpdateBox(); loadTlsBox(); }
+  if (t === 'settings') { initBrandingForm(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); }
   if (t === 'audit') renderAudit();
   if (t === 'account') renderAccount();
   if (t === 'agents') renderTokens();

@@ -29,6 +29,7 @@ nix = { version = "0.31.3", features = ["hostname", "net"] }
 oui-data = "0.2.3"
 pcap = "2.5.0"
 pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
+qrcode = { version = "0.14.1", default-features = false }
 rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
 ring = "0.17"
 rusqlite = { version = "0.40.2", features = ["bundled"] }

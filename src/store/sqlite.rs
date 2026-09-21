@@ -6,10 +6,10 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use std::collections::HashMap;
 
-use super::{AgentToken, ApiToken, EventQuery, Passkey, SessionRecord, Store, StoreStats, UserRecord};
+use super::{AgentToken, ApiToken, EventQuery, Passkey, SessionRecord, Store, StoreStats, TotpRecord, UserRecord};
 use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, ReportMeta, RiskAcceptance, User};
 
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 
 /// Phase 1 schema.
 const V1: &str = "CREATE TABLE assets (
@@ -180,6 +180,22 @@ const V11: &str = "CREATE TABLE reports (
      );
      CREATE INDEX reports_created ON reports (created_at);";
 
+/// Authenticator-app sign-in (TOTP): one secret per person (pending until the first code is confirmed), and recovery codes.
+const V12: &str = "CREATE TABLE totp (
+        user_id    INTEGER PRIMARY KEY,
+        secret     BLOB NOT NULL,
+        enabled    INTEGER NOT NULL DEFAULT 0,
+        last_step  INTEGER NOT NULL DEFAULT 0,   -- the newest 30-second step accepted: a code works once
+        created_at INTEGER NOT NULL
+     );
+     CREATE TABLE totp_recovery (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id   INTEGER NOT NULL,
+        code_hash TEXT NOT NULL,
+        used_at   INTEGER
+     );
+     CREATE INDEX totp_recovery_user ON totp_recovery (user_id);";
+
 /// Phase 3.8: API tokens for scripts and integrations.
 const V7: &str = "CREATE TABLE api_tokens (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -231,7 +247,7 @@ impl SqliteStore {
         }
         // Each step runs in its own transaction and bumps user_version, so a
         // crash mid-migration leaves the database at a consistent older version.
-        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11)] {
+        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12)] {
             if version < target {
                 let tx = conn.unchecked_transaction()?;
                 tx.execute_batch(sql)?;
@@ -760,6 +776,84 @@ impl Store for SqliteStore {
     fn revoke_risk_acceptance(&self, id: i64, by: &str, ts: i64) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
         Ok(conn.execute("UPDATE risk_acceptances SET revoked_at = ?2, revoked_by = ?3 WHERE id = ?1 AND revoked_at IS NULL", params![id, ts, by])? > 0)
+    }
+
+    // ------------------------------------------------ authenticator app (TOTP)
+    fn get_totp(&self, user_id: i64) -> Result<Option<TotpRecord>> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn
+            .query_row("SELECT user_id, secret, enabled, last_step, created_at FROM totp WHERE user_id = ?1", [user_id], |r| {
+                Ok(TotpRecord { user_id: r.get(0)?, secret: r.get(1)?, enabled: r.get::<_, i64>(2)? != 0, last_step: r.get(3)?, created_at: r.get(4)? })
+            })
+            .optional()?)
+    }
+
+    fn set_totp_pending(&self, user_id: i64, secret: &[u8], now: i64) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        // a working secret is never replaced by starting again: it has to be switched off first
+        if conn.query_row("SELECT enabled FROM totp WHERE user_id = ?1", [user_id], |r| r.get::<_, i64>(0)).optional()?.is_some_and(|e| e != 0) {
+            return Ok(false);
+        }
+        conn.execute("INSERT OR REPLACE INTO totp (user_id, secret, enabled, last_step, created_at) VALUES (?1, ?2, 0, 0, ?3)", params![user_id, secret, now])?;
+        Ok(true)
+    }
+
+    fn enable_totp(&self, user_id: i64, step: i64, recovery_hashes: &[String]) -> Result<bool> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let changed = tx.execute("UPDATE totp SET enabled = 1, last_step = ?2 WHERE user_id = ?1 AND enabled = 0", params![user_id, step])?;
+        if changed == 0 {
+            return Ok(false);
+        }
+        tx.execute("DELETE FROM totp_recovery WHERE user_id = ?1", [user_id])?;
+        for h in recovery_hashes {
+            tx.execute("INSERT INTO totp_recovery (user_id, code_hash) VALUES (?1, ?2)", params![user_id, h])?;
+        }
+        tx.commit()?;
+        Ok(true)
+    }
+
+    fn advance_totp_step(&self, user_id: i64, step: i64) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        // one statement, so two requests with the same code cannot both win
+        Ok(conn.execute("UPDATE totp SET last_step = ?2 WHERE user_id = ?1 AND enabled = 1 AND last_step < ?2", params![user_id, step])? > 0)
+    }
+
+    fn use_recovery_code(&self, user_id: i64, code_hash: &str, now: i64) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.execute("UPDATE totp_recovery SET used_at = ?3 WHERE user_id = ?1 AND code_hash = ?2 AND used_at IS NULL", params![user_id, code_hash, now])? > 0)
+    }
+
+    fn replace_recovery_codes(&self, user_id: i64, hashes: &[String]) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM totp_recovery WHERE user_id = ?1", [user_id])?;
+        for h in hashes {
+            tx.execute("INSERT INTO totp_recovery (user_id, code_hash) VALUES (?1, ?2)", params![user_id, h])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn recovery_codes_left(&self, user_id: i64) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.query_row("SELECT COUNT(*) FROM totp_recovery WHERE user_id = ?1 AND used_at IS NULL", [user_id], |r| r.get::<_, i64>(0))? as usize)
+    }
+
+    fn delete_totp(&self, user_id: i64) -> Result<bool> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM totp_recovery WHERE user_id = ?1", [user_id])?;
+        let n = tx.execute("DELETE FROM totp WHERE user_id = ?1", [user_id])?;
+        tx.commit()?;
+        Ok(n > 0)
+    }
+
+    fn totp_enabled_users(&self) -> Result<std::collections::HashSet<i64>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT user_id FROM totp WHERE enabled = 1")?;
+        let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     // ------------------------------------------------ reports
@@ -1395,5 +1489,41 @@ mod tests {
         assert!(!s.delete_report(first).unwrap());
         s.erase_inventory().unwrap();
         assert!(s.list_reports().unwrap().is_empty());
+    }
+
+    #[test]
+    fn totp_secrets_are_pending_until_confirmed_and_each_step_and_recovery_code_works_once() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let u = s.create_user("ana", "x", "viewer", false, 0).unwrap().id;
+        assert!(s.get_totp(u).unwrap().is_none());
+        assert!(s.set_totp_pending(u, b"first-secret", 10).unwrap());
+        assert!(s.set_totp_pending(u, b"second-secret", 11).unwrap(), "starting again replaces a pending secret");
+        let t = s.get_totp(u).unwrap().unwrap();
+        assert_eq!((t.secret.as_slice(), t.enabled), (&b"second-secret"[..], false));
+        assert!(!s.advance_totp_step(u, 5).unwrap(), "a pending secret cannot sign anybody in");
+        assert!(s.totp_enabled_users().unwrap().is_empty());
+        let codes: Vec<String> = ["a", "b", "c"].iter().map(|c| c.to_string()).collect();
+        assert!(s.enable_totp(u, 100, &codes).unwrap());
+        assert!(!s.enable_totp(u, 100, &codes).unwrap(), "already on");
+        assert!(!s.set_totp_pending(u, b"third", 12).unwrap(), "a working secret is not replaced by starting again");
+        assert_eq!(s.get_totp(u).unwrap().unwrap().secret, b"second-secret");
+        assert!(s.totp_enabled_users().unwrap().contains(&u));
+        // a step works once, and never an older one
+        assert!(!s.advance_totp_step(u, 100).unwrap());
+        assert!(s.advance_totp_step(u, 101).unwrap());
+        assert!(!s.advance_totp_step(u, 101).unwrap());
+        assert!(!s.advance_totp_step(u, 99).unwrap());
+        // recovery codes
+        assert_eq!(s.recovery_codes_left(u).unwrap(), 3);
+        assert!(s.use_recovery_code(u, "b", 200).unwrap());
+        assert!(!s.use_recovery_code(u, "b", 201).unwrap(), "a code works once");
+        assert!(!s.use_recovery_code(u, "nope", 201).unwrap());
+        assert!(!s.use_recovery_code(u + 1, "a", 201).unwrap(), "and only for its owner");
+        assert_eq!(s.recovery_codes_left(u).unwrap(), 2);
+        s.replace_recovery_codes(u, &["x".to_string()]).unwrap();
+        assert_eq!(s.recovery_codes_left(u).unwrap(), 1);
+        assert!(s.delete_totp(u).unwrap());
+        assert!(!s.delete_totp(u).unwrap());
+        assert_eq!((s.recovery_codes_left(u).unwrap(), s.get_totp(u).unwrap().is_none()), (0, true));
     }
 }

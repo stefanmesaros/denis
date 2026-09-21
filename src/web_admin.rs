@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 
 use crate::auth::{self, AuthError};
 use crate::branding;
-use crate::model::{now_ts, Asset, AssetMeta, RiskAcceptance, User};
+use crate::model::{now_ts, Asset, AssetMeta, RiskAcceptance};
 use crate::tracking;
 use crate::web::{asset_view, blocking, ApiError, AppState, AuthUser, SESSION_COOKIE};
 
@@ -42,6 +42,7 @@ fn map_auth_err(e: AuthError) -> Response {
             r
         }
         AuthError::Rejected(m) => err(StatusCode::BAD_REQUEST, m),
+        AuthError::MfaRequired(_) => err(StatusCode::UNAUTHORIZED, "a one-time code is required"),
         AuthError::Internal(e) => {
             tracing::error!("auth error: {e:#}");
             err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
@@ -119,6 +120,10 @@ pub(crate) async fn login(
             r.headers_mut().insert(header::SET_COOKIE, cookie(&token, st.secure_cookie, None));
             r
         }
+        Err(AuthError::MfaRequired(ticket)) => {
+            // the password was right; the session comes with the code (POST /api/auth/mfa)
+            Json(json!({ "mfa_required": true, "ticket": ticket })).into_response()
+        }
         Err(e) => {
             // The attempted name is logged as typed (trimmed, bounded): useful
             // for spotting guessing without revealing whether it exists.
@@ -157,8 +162,10 @@ pub(crate) async fn logout(State(st): State<AppState>, Extension(AuthUser(user))
     r
 }
 
-pub(crate) async fn me(Extension(AuthUser(user)): Extension<AuthUser>) -> Json<Value> {
-    Json(json!({ "user": user, "must_change": user.must_change }))
+pub(crate) async fn me(State(st): State<AppState>, Extension(AuthUser(user)): Extension<AuthUser>) -> Json<Value> {
+    // a person who must set up a second step before anything else works (an API token or a no-login console never must)
+    let must_enrol = user.id > 0 && !st.no_auth && st.auth.must_enrol(&user, now_ts());
+    Json(json!({ "user": user, "must_change": user.must_change, "must_enrol": must_enrol }))
 }
 
 #[derive(Deserialize)]
@@ -195,8 +202,22 @@ pub(crate) async fn change_password(
 
 // -------------------------------------------------------------------- users
 
-pub(crate) async fn users_list(State(st): State<AppState>) -> Result<Json<Vec<User>>, ApiError> {
-    Ok(Json(blocking(&st.store, |s| s.list_users()).await?))
+/// The users with how each signs in: passkeys and whether an authenticator app is on (never any secret).
+pub(crate) async fn users_list(State(st): State<AppState>) -> Result<Json<Vec<Value>>, ApiError> {
+    let rows = blocking(&st.store, |s| {
+        let totp = s.totp_enabled_users()?;
+        let mut out = Vec::new();
+        for u in s.list_users()? {
+            let passkeys = s.list_passkeys(u.id)?.len();
+            let mut v = serde_json::to_value(&u)?;
+            v["passkeys"] = passkeys.into();
+            v["totp"] = totp.contains(&u.id).into();
+            out.push(v);
+        }
+        Ok(out)
+    })
+    .await?;
+    Ok(Json(rows))
 }
 
 #[derive(Deserialize)]

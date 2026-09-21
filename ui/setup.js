@@ -15,7 +15,7 @@ const SETUP_STEPS = () => ({
   },
   security: {
     title: tr('Sign-in security'), target: '#account', button: tr('My account'),
-    text: (s) => (s.done ? tr('Every administrator signs in with a passkey.') : tr('{a} of {b} administrators use a passkey. Add one in My account to sign in with a fingerprint, face or security key instead of a password.', s.vars)),
+    text: (s) => (s.done ? tr('Every administrator uses a second sign-in step.') : tr('{a} of {b} administrators use a passkey or an authenticator app. Add one in My account, and require it for everybody under Settings → Sign-in security.', s.vars)),
   },
   alerts: {
     title: tr('Be told about alerts'), target: '#alerting', button: tr('Open Alerting'),

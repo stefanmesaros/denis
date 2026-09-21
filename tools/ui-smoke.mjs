@@ -17,6 +17,7 @@ import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import net from 'node:net';
+import { createHmac, randomBytes } from 'node:crypto';
 
 import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -97,6 +98,7 @@ const load = async (url) => { await navigate('about:blank'); await navigate(url)
 const navigate = async (url) => { const loaded = new Promise((res) => { const h = (m) => { if (JSON.parse(m.data).method === 'Page.loadEventFired') { ws.removeEventListener('message', h); res(); } }; ws.addEventListener('message', h); }); await send('Page.navigate', { url }); await loaded; };
 const ready = async () => { for (let i = 0; i < 60; i++) { if (await evaluate("typeof state !== 'undefined' && !!(state.me && state.assets && state.assets.length && state.options)")) return true; await sleep(250); } return false; };
 const takeProblems = () => problems.splice(0);
+const ready2 = async () => { for (let i = 0; i < 60; i++) { if (await evaluate("typeof state !== 'undefined' && !!(state.me && state.options)")) return true; await sleep(250); } return false; };
 
 await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
 await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/meta/options*' }] });
@@ -424,6 +426,144 @@ await check('the setup guide opens from Settings with its steps, its buttons lea
   const bad = await evaluate(BAD_TEXT);
   const p = takeProblems();
   return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
+});
+
+// ------------------------------------------------------------------ the second sign-in step, with real sign-ins
+// A separate console with sign-in switched on, made for this test: an empty database in the temporary folder and
+// the one-time password the program itself prints at its first start (never shown in the output).
+await check('the authenticator-app second step: set-up with a QR code and recovery codes, a code at sign-in, a wrong current password does not sign you out', async () => {
+  let srv = null;
+  try { return await (async () => {
+  const otp = (b32, offset = 0) => {
+    const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    let bits = ''; for (const c of b32.replace(/\s/g, '')) bits += A.indexOf(c).toString(2).padStart(5, '0');
+    const key = Buffer.from(bits.match(/.{8}/g).map((b) => parseInt(b, 2)));
+    const step = Math.floor(Date.now() / 30000) + offset;
+    const msg = Buffer.alloc(8); msg.writeBigUInt64BE(BigInt(step));
+    const h = createHmac('sha1', key).update(msg).digest();
+    const o = h[19] & 15;
+    return String(((h.readUInt32BE(o) & 0x7fffffff) % 1000000)).padStart(6, '0');
+  };
+  const port = await freePort();
+  const dbFile = join(tmp, 'secured.db');
+  srv = spawn(bin, ['serve', '--db', dbFile, '--listen', `127.0.0.1:${port}`], { stdio: ['ignore', 'ignore', 'pipe'] });
+  procs.push(srv);
+  let firstPassword = null;
+  srv.stderr.on('data', (d) => { const m = /password: (\S+)/.exec(String(d)); if (m) firstPassword = m[1]; });
+  const url = `http://127.0.0.1:${port}`;
+  for (let i = 0; i < 50 && !firstPassword; i++) await sleep(200);
+  for (let i = 0; i < 50; i++) { try { if ((await fetch(url + '/api/health')).ok) break; } catch { /* not yet */ } await sleep(200); }
+  if (!firstPassword) return 'the test console did not print its first password';
+  const newPassword = 'Smoke-' + randomBytes(9).toString('hex');
+  takeProblems();
+  await load(url + '/');
+  await sleep(700);
+  const type = (id, v) => evaluate(`(() => { const e = document.getElementById(${JSON.stringify(id)}); e.value = ${JSON.stringify(v)}; e.dispatchEvent(new Event('input')); })()`);
+  const signIn = async (user, pw) => { await type('login-user', user); await type('login-pass', pw); await evaluate("document.querySelector('#login-form button[type=submit]').click(); 0"); await sleep(1800); };
+  await signIn('admin', firstPassword);
+  // the forced change of password: a wrong current password is refused and does NOT end the session
+  const dialogInputs = () => evaluate("[...document.querySelectorAll('#dialog-form input')].map((i) => i.type)");
+  if ((await dialogInputs()).length !== 3) return 'the forced password change did not open: ' + JSON.stringify(await dialogInputs());
+  await evaluate(`(() => { const i = document.querySelectorAll('#dialog-form input'); i[0].value = 'not-the-password-1'; i[1].value = ${JSON.stringify(newPassword)}; i[2].value = ${JSON.stringify(newPassword)}; document.querySelector('#dialog-form button[type=submit]').click(); })()`);
+  await sleep(1200);
+  if (!(await evaluate("document.getElementById('login').hidden")) || !(await evaluate("!!document.querySelector('#form-dialog[open]')"))) return 'a wrong current password signed the person out (or closed the dialog)';
+  await evaluate(`(() => { const i = document.querySelectorAll('#dialog-form input'); i[0].value = ${JSON.stringify(firstPassword)}; i[1].value = ${JSON.stringify(newPassword)}; i[2].value = ${JSON.stringify(newPassword)}; document.querySelector('#dialog-form button[type=submit]').click(); })()`);
+  await sleep(2500);
+  if (!(await ready2())) return 'the console did not open after the password change';
+  // My account: set up the app
+  await evaluate("location.hash = '#account'; setTab('account'); 0");
+  await sleep(1000);
+  await evaluate("document.getElementById('totp-setup').click(); 0");
+  await sleep(500);
+  await evaluate(`(() => { document.querySelector('#dialog-form input[type=password]').value = ${JSON.stringify(newPassword)}; document.querySelector('#dialog-form button[type=submit]').click(); })()`);
+  await sleep(1500);
+  const qrOk = await evaluate("(async () => { const i = document.getElementById('totp-qr'); if (!i) return 'no QR image'; await new Promise((r) => (i.complete ? r() : (i.onload = i.onerror = r))); return i.naturalWidth > 0 ? 'ok' : 'the QR image did not load'; })()");
+  if (qrOk !== 'ok') return qrOk;
+  const secret = await evaluate("document.getElementById('totp-secret').textContent");
+  if (!/^[A-Z2-7 ]{30,}$/.test(secret)) return 'the secret to type by hand looks wrong';
+  await evaluate("document.getElementById('totp-code').value = '000000'; document.querySelector('#dialog-form button[type=submit]').click(); 0");
+  await sleep(1000);
+  if (!(await evaluate("!!document.querySelector('#form-dialog[open]') && document.querySelector('#dialog-form .form-error').textContent.length > 0"))) return 'a wrong code was not refused';
+  await evaluate(`document.getElementById('totp-code').value = ${JSON.stringify(otp(secret))}; document.querySelector('#dialog-form button[type=submit]').click(); 0`);
+  await sleep(1500);
+  const codes = await evaluate("(document.getElementById('recovery-codes') || {}).textContent || ''");
+  const recovery = codes.split('\n').filter(Boolean);
+  if (recovery.length !== 10 || !recovery.every((c) => /^[a-z2-9]{5}-[a-z2-9]{5}$/.test(c))) return 'the recovery codes are missing: ' + JSON.stringify(recovery.length);
+  await evaluate("document.getElementById('msg-dialog').close(); 0");
+  await sleep(600);
+  if (!/An authenticator app is set up/.test(await evaluate("document.getElementById('totp-body').innerText"))) return 'the account page does not say it is on';
+  // sign out, sign in: the password alone gets the code step and no session
+  await evaluate("document.getElementById('logout').click(); 0");
+  await sleep(800);
+  await signIn('admin', newPassword);
+  if (!(await evaluate("!document.getElementById('login-mfa').hidden && !document.getElementById('login').hidden"))) return 'the code step did not appear after the right password';
+  if (await evaluate("!document.getElementById('app').hidden")) return 'the app opened before the code was typed';
+  await type('login-code', '000000');
+  await evaluate("document.querySelector('#login-form button[type=submit]').click(); 0");
+  await sleep(1200);
+  if (!(await evaluate("document.getElementById('login-error').textContent.length > 0 && document.getElementById('app').hidden"))) return 'a wrong code was not refused';
+  // the code of the next 30-second step is accepted too (the clock may be a little off) and the one that confirmed the set-up is used up
+  await type('login-code', otp(secret, 1));
+  await evaluate("document.querySelector('#login-form button[type=submit]').click(); 0");
+  await sleep(2000);
+  if (!(await ready2())) return 'a right code did not open the console';
+  // an administrator can require a second step for everybody, and the choice is saved
+  await evaluate("location.hash = '#settings'; setTab('settings'); 0");
+  await sleep(1000);
+  await evaluate("document.getElementById('mfa-policy').value = 'all'; document.getElementById('mfa-policy').dispatchEvent(new Event('change')); document.getElementById('mfa-save').click(); 0");
+  await sleep(1000);
+  const policy = await evaluate("fetch('/api/security').then((r) => r.json()).then((j) => j.mfa_required)");
+  if (policy !== 'all') return 'the policy was not saved: ' + policy;
+  // a recovery code signs in once
+  await evaluate("document.getElementById('logout').click(); 0");
+  await sleep(800);
+  await signIn('admin', newPassword);
+  await type('login-code', recovery[0].toUpperCase());
+  await evaluate("document.querySelector('#login-form button[type=submit]').click(); 0");
+  await sleep(2000);
+  if (!(await ready2())) return 'a recovery code did not sign in';
+  await evaluate("document.getElementById('logout').click(); 0");
+  await sleep(800);
+  await signIn('admin', newPassword);
+  await type('login-code', recovery[0]);
+  await evaluate("document.querySelector('#login-form button[type=submit]').click(); 0");
+  await sleep(1200);
+  if (!(await evaluate("document.getElementById('app').hidden"))) return 'a recovery code worked twice';
+  // a second step is required for everybody, and this person has none any more (an administrator removed it): the guide to set one up opens
+  await type('login-code', recovery[1]);
+  await evaluate("document.querySelector('#login-form button[type=submit]').click(); 0");
+  await sleep(2000);
+  if (!(await ready2())) return 'the second recovery code did not sign in';
+  await evaluate("api('DELETE', '/api/users/' + state.me.id + '/totp').then(() => 0)");
+  await sleep(800);
+  await load(url + '/');
+  await sleep(800);
+  await signIn('admin', newPassword);
+  await sleep(500);
+  const forced = await evaluate("({ open: !!document.querySelector('#form-dialog[open]'), title: (document.querySelector('#dialog-form h3') || {}).textContent, cancel: [...document.querySelectorAll('#dialog-form button')].some((b) => b.textContent === 'Cancel') })");
+  if (!forced.open || forced.title !== 'Set up a second sign-in step' || forced.cancel) return 'the required set-up did not open (or can be cancelled): ' + JSON.stringify(forced);
+  await evaluate("document.querySelector('#dialog-form button[type=submit]').click(); 0");
+  await sleep(800);
+  await evaluate(`(() => { document.querySelector('#dialog-form input[type=password]').value = ${JSON.stringify(newPassword)}; document.querySelector('#dialog-form button[type=submit]').click(); })()`);
+  await sleep(1500);
+  const secret2 = await evaluate("(document.getElementById('totp-secret') || {}).textContent || ''");
+  if (!secret2) return 'no new secret was offered';
+  await evaluate(`document.getElementById('totp-code').value = ${JSON.stringify(otp(secret2))}; document.querySelector('#dialog-form button[type=submit]').click(); 0`);
+  await sleep(1500);
+  await evaluate("document.getElementById('msg-dialog').close(); 0"); // closing the recovery codes reloads the console
+  await sleep(2500);
+  if (!(await ready2())) return 'the console did not open after the required set-up';
+  if (!(await evaluate("fetch('/api/auth/totp').then((r) => r.json()).then((j) => j.enabled)"))) return 'the app is not on after the required set-up';
+  const bad = await evaluate("['null', 'undefined', '[object Object]'].filter((w) => document.body.innerText.includes(w))");
+  takeProblems(); // wrong codes and passwords are refused with 401/403 on purpose
+  srv.kill('SIGTERM');
+  return bad.length ? 'the page shows ' + bad.join(', ') : null;
+  })(); } finally {
+    // back to the main console for the checks that follow
+    if (srv) srv.kill('SIGTERM');
+    await load(base + '/#assets');
+    await ready();
+  }
 });
 
 // ------------------------------------------------------------------ health and backups

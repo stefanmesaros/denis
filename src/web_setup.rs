@@ -49,7 +49,7 @@ pub struct Facts {
     pub interface: String,
     pub subnet: String,
     pub admins: usize,
-    pub admins_with_passkey: usize,
+    pub admins_with_mfa: usize,
     pub channels: usize,
     pub exports: usize,
     pub users: usize,
@@ -71,7 +71,7 @@ pub fn steps(f: &Facts) -> Vec<Step> {
             done: f.devices > 0 && (f.sweep_done || f.passive_only) && (f.capture_running || f.viewer),
             vars: v([("interface", f.interface.clone()), ("subnet", f.subnet.clone()), ("devices", f.devices.to_string())]),
         },
-        Step { id: "security", done: f.admins > 0 && f.admins_with_passkey >= f.admins, vars: v([("a", f.admins_with_passkey.to_string()), ("b", f.admins.to_string())]) },
+        Step { id: "security", done: f.admins > 0 && f.admins_with_mfa >= f.admins, vars: v([("a", f.admins_with_mfa.to_string()), ("b", f.admins.to_string())]) },
         Step { id: "alerts", done: f.channels + f.exports > 0, vars: v([("channels", f.channels.to_string()), ("exports", f.exports.to_string())]) },
         Step { id: "people", done: f.users > 1, vars: v([("users", f.users.to_string())]) },
         Step {
@@ -87,9 +87,11 @@ fn gather(store: &dyn Store, st: &AppState) -> anyhow::Result<serde_json::Value>
     let info = st.shared.snapshot();
     let users = store.list_users()?;
     let admins: Vec<_> = users.iter().filter(|u| u.role == "admin" && !u.disabled).collect();
+    // a second step: a passkey or an authenticator app
+    let totp = store.totp_enabled_users()?;
     let mut with_passkey = 0;
     for a in &admins {
-        if !store.list_passkeys(a.id)?.is_empty() {
+        if totp.contains(&a.id) || !store.list_passkeys(a.id)?.is_empty() {
             with_passkey += 1;
         }
     }
@@ -104,7 +106,7 @@ fn gather(store: &dyn Store, st: &AppState) -> anyhow::Result<serde_json::Value>
         interface: info.interface.clone(),
         subnet: info.subnet.clone(),
         admins: admins.len(),
-        admins_with_passkey: with_passkey,
+        admins_with_mfa: with_passkey,
         channels: crate::channels::load(store)?.iter().filter(|c| c.enabled).count(),
         exports: info.exports.len(),
         users: users.iter().filter(|u| !u.disabled).count(),
@@ -144,7 +146,7 @@ mod tests {
     fn facts() -> Facts {
         Facts {
             devices: 0, sweep_done: false, passive_only: false, capture_running: false, viewer: false, interface: "eth0".into(), subnet: "192.168.1.0/24".into(),
-            admins: 1, admins_with_passkey: 0, channels: 0, exports: 0, users: 1, backup_schedule: "off".into(), backups: 0, report_schedule: "off".into(), branded: false,
+            admins: 1, admins_with_mfa: 0, channels: 0, exports: 0, users: 1, backup_schedule: "off".into(), backups: 0, report_schedule: "off".into(), branded: false,
         }
     }
 
@@ -170,7 +172,7 @@ mod tests {
         assert!(!done(&f)[0].1, "no sweep yet");
         f.passive_only = true;
         assert!(done(&f)[0].1, "passive only never sweeps");
-        f.admins_with_passkey = 1;
+        f.admins_with_mfa = 1;
         f.channels = 1;
         f.users = 2;
         f.backup_schedule = "daily".into();
@@ -180,7 +182,7 @@ mod tests {
         let mut g = facts();
         g.exports = 1;
         g.admins = 2;
-        g.admins_with_passkey = 1;
+        g.admins_with_mfa = 1;
         assert_eq!((done(&g)[1].1, done(&g)[2].1), (false, true));
         // a backup on disk counts even if the schedule was switched off afterwards
         let mut h = facts();

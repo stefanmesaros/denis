@@ -99,6 +99,16 @@ pub struct StoreStats {
     pub rows: Vec<(&'static str, i64)>,
 }
 
+/// A person's authenticator-app secret. `enabled` is false until the first code was confirmed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TotpRecord {
+    pub user_id: i64,
+    pub secret: Vec<u8>,
+    pub enabled: bool,
+    pub last_step: i64,
+    pub created_at: i64,
+}
+
 pub trait Store: Send + Sync {
     /// Every known asset (used to warm the in-memory inventory at startup).
     fn load_assets(&self) -> Result<Vec<Asset>>;
@@ -194,6 +204,23 @@ pub trait Store: Send + Sync {
     fn list_risk_acceptances(&self) -> Result<Vec<RiskAcceptance>>;
     /// Withdraw a decision. `false` if there was none (or it was already withdrawn).
     fn revoke_risk_acceptance(&self, id: i64, by: &str, ts: i64) -> Result<bool>;
+
+    // ------------------------------------------------ authenticator app (TOTP)
+    fn get_totp(&self, user_id: i64) -> Result<Option<TotpRecord>>;
+    /// Keep a new secret until its first code is confirmed. `false` if a working one exists (switch it off first).
+    fn set_totp_pending(&self, user_id: i64, secret: &[u8], now: i64) -> Result<bool>;
+    /// Switch a pending secret on, remembering the step of the confirming code, and store the recovery codes (hashes).
+    fn enable_totp(&self, user_id: i64, step: i64, recovery_hashes: &[String]) -> Result<bool>;
+    /// Accept a step only if it is newer than the last one used (atomic): a code works once.
+    fn advance_totp_step(&self, user_id: i64, step: i64) -> Result<bool>;
+    /// Use up a recovery code. `false` if it does not exist or was already used.
+    fn use_recovery_code(&self, user_id: i64, code_hash: &str, now: i64) -> Result<bool>;
+    fn replace_recovery_codes(&self, user_id: i64, hashes: &[String]) -> Result<()>;
+    fn recovery_codes_left(&self, user_id: i64) -> Result<usize>;
+    /// Remove the secret and the recovery codes.
+    fn delete_totp(&self, user_id: i64) -> Result<bool>;
+    /// Who has a working authenticator app.
+    fn totp_enabled_users(&self) -> Result<std::collections::HashSet<i64>>;
 
     // ------------------------------------------------ reports
     fn add_report(&self, meta: &ReportMeta, content: &[u8]) -> Result<i64>;

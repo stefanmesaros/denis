@@ -33,6 +33,7 @@ use crate::web_admin as admin;
 use crate::web_health as health_page;
 use crate::web_reports as reports_page;
 use crate::web_setup as setup_page;
+use crate::web_totp as totp_page;
 use crate::web_passkey as passkey;
 use crate::risk::{self, Risk};
 use crate::{report, trends};
@@ -91,6 +92,15 @@ pub fn router(state: AppState) -> Router {
         .route("/api/auth/passkey/login/finish", post(passkey::login_finish))
         .route("/api/auth/passkey/register/begin", post(passkey::register_begin))
         .route("/api/auth/passkey/register/finish", post(passkey::register_finish))
+        .route("/api/auth/mfa", post(totp_page::mfa_login))
+        .route("/api/auth/totp", get(totp_page::status))
+        .route("/api/auth/totp/begin", post(totp_page::begin))
+        .route("/api/auth/totp/qr.svg", get(totp_page::qr))
+        .route("/api/auth/totp/confirm", post(totp_page::confirm))
+        .route("/api/auth/totp/disable", post(totp_page::disable))
+        .route("/api/auth/totp/recovery", post(totp_page::new_recovery_codes))
+        .route("/api/users/{id}/totp", delete(totp_page::admin_reset))
+        .route("/api/security", get(totp_page::policy_get).put(totp_page::policy_put))
         .route("/api/auth/passkeys", get(passkey::list))
         .route("/api/auth/passkeys/{id}", delete(passkey::delete))
         .route("/api/users/{id}/passkeys", delete(passkey::admin_revoke_all))
@@ -169,7 +179,7 @@ pub fn router(state: AppState) -> Router {
 /// data), the login call and the liveness probe.
 fn is_public(method: &axum::http::Method, path: &str) -> bool {
     !(path.starts_with("/api/") || path.starts_with("/report") || path.starts_with("/docs") || path == "/metrics")
-        || matches!(path, "/api/auth/login" | "/api/health" | "/api/auth/methods" | "/api/auth/passkey/login/begin" | "/api/auth/passkey/login/finish")
+        || matches!(path, "/api/auth/login" | "/api/health" | "/api/auth/methods" | "/api/auth/passkey/login/begin" | "/api/auth/passkey/login/finish" | "/api/auth/mfa")
         // branding is read before anybody can sign in; changing it is admin-only
         || (path == "/api/branding" && method == axum::http::Method::GET)
 }
@@ -178,7 +188,7 @@ fn is_public(method: &axum::http::Method, path: &str) -> bool {
 /// anything needs `editor`; managing users, tokens and the audit log, or
 /// deleting assets, needs `admin`.
 pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static str {
-    if path.starts_with("/api/users") || path.starts_with("/api/tls") || path.starts_with("/api/data") || path.starts_with("/api/channels") || path.starts_with("/api/agent-tokens") || path.starts_with("/api/api-tokens") || path.starts_with("/api/audit") || path.starts_with("/api/backups") || path.starts_with("/api/setup") {
+    if path.starts_with("/api/users") || path.starts_with("/api/tls") || path.starts_with("/api/data") || path.starts_with("/api/channels") || path.starts_with("/api/agent-tokens") || path.starts_with("/api/api-tokens") || path.starts_with("/api/audit") || path.starts_with("/api/backups") || path.starts_with("/api/setup") || path.starts_with("/api/security") {
         return "admin";
     }
     if path.starts_with("/api/auth/") {
@@ -232,6 +242,10 @@ async fn authn(State(st): State<AppState>, mut req: Request, next: Next) -> Resp
     // A password set by someone else must be changed before anything else works.
     if u.must_change && !path.starts_with("/api/auth/") {
         return deny(StatusCode::FORBIDDEN, "password change required", "must_change");
+    }
+    // A second step the administrator requires must be set up before anything else works (setting it up is allowed).
+    if !via_token && !st.no_auth && !path.starts_with("/api/auth/") && st.auth.must_enrol(&u, now_ts()) {
+        return deny(StatusCode::FORBIDDEN, "set up a second sign-in step first", "mfa_required");
     }
     if role_rank(&u.role) < role_rank(required_role(req.method(), &path)) {
         return deny(StatusCode::FORBIDDEN, "your role does not allow this", "forbidden");
@@ -1459,6 +1473,135 @@ mod tests {
         assert_eq!((v["ot_watches"].as_array().unwrap().len(), v["exceptions"]["new_device"].as_array().unwrap().len()), (1, 1));
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
         assert!(audit.contains("rules.update"), "changes to watches are audited");
+    }
+
+    #[tokio::test]
+    async fn an_authenticator_app_is_a_second_step_with_one_use_codes_recovery_codes_lockout_and_an_admin_reset() {
+        let (app, store, [viewer, _editor, admin]) = secured().await;
+        let uid = store.find_user("vera").unwrap().unwrap().user.id;
+        let pw = "a-long-passphrase-1";
+        let login = || async { send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "vera", "password": pw})))).await };
+        let mfa = |ticket: String, code: String| {
+            let app = app.clone();
+            async move { send(&app, req("POST", "/api/auth/mfa", None, Some(serde_json::json!({"ticket": ticket, "code": code})))).await }
+        };
+        let now_code = |offset: i64| { let t = store.get_totp(uid).unwrap().unwrap(); format!("{:06}", crate::totp::code_at(&t.secret, crate::totp::step_of(now_ts()) + offset)) };
+        // nothing is set up: the status says so, and the password alone signs in
+        let (_, _, v) = send(&app, req("GET", "/api/auth/totp", Some(&viewer), None)).await;
+        assert_eq!((v["enabled"].as_bool(), v["pending"].as_bool(), v["recovery_left"].as_u64()), (Some(false), Some(false), Some(0)));
+        // set-up: the password again first
+        assert_eq!(send(&app, req("POST", "/api/auth/totp/begin", Some(&viewer), Some(serde_json::json!({"password": "wrong-password-1"})))).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(send(&app, req("GET", "/api/auth/totp/qr.svg", Some(&viewer), None)).await.0, StatusCode::NOT_FOUND, "no QR code before it is started");
+        let (st, _, v) = send(&app, req("POST", "/api/auth/totp/begin", Some(&viewer), Some(serde_json::json!({"password": pw})))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert!(v["uri"].as_str().unwrap().starts_with("otpauth://totp/DENIS:vera?secret=") && v["secret"].as_str().unwrap().len() == 32);
+        let resp = app.clone().oneshot(req("GET", "/api/auth/totp/qr.svg", Some(&viewer), None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.headers()[header::CONTENT_TYPE], "image/svg+xml");
+        assert!(String::from_utf8_lossy(&axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap()).starts_with("<svg "));
+        // pending: still only the password is needed
+        assert!(login().await.2["user"]["username"] == "vera", "a set-up that was never confirmed changes nothing");
+        // confirming needs a right code
+        assert_eq!(send(&app, req("POST", "/api/auth/totp/confirm", Some(&viewer), Some(serde_json::json!({"code": "000000"})))).await.0, StatusCode::BAD_REQUEST);
+        let (st, _, v) = send(&app, req("POST", "/api/auth/totp/confirm", Some(&viewer), Some(serde_json::json!({"code": now_code(0)})))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        let recovery: Vec<String> = v["recovery_codes"].as_array().unwrap().iter().map(|c| c.as_str().unwrap().to_string()).collect();
+        assert_eq!(recovery.len(), 10);
+        assert_eq!(send(&app, req("POST", "/api/auth/totp/begin", Some(&viewer), Some(serde_json::json!({"password": pw})))).await.0, StatusCode::CONFLICT, "starting again does not replace a working one");
+        // the password now earns only a ticket, and no session
+        let (st, h, v) = login().await;
+        assert_eq!((st, v["mfa_required"].as_bool()), (StatusCode::OK, Some(true)), "{v}");
+        assert!(h.get(header::SET_COOKIE).is_none() && v.get("user").is_none(), "no session before the code");
+        let ticket = v["ticket"].as_str().unwrap().to_string();
+        // wrong codes are refused; the confirming code cannot be replayed; the next one works
+        assert_eq!(mfa(ticket.clone(), "123456".into()).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(mfa(ticket.clone(), now_code(0)).await.0, StatusCode::UNAUTHORIZED, "the code that confirmed the set-up was used already");
+        assert_eq!(mfa("f".repeat(64), now_code(1)).await.0, StatusCode::UNAUTHORIZED, "an invented ticket is nothing");
+        let (st, h, v) = mfa(ticket.clone(), now_code(1)).await;
+        assert_eq!((st, v["user"]["username"].as_str()), (StatusCode::OK, Some("vera")), "{v}");
+        let cookie = cookie_of(&h);
+        assert_eq!(send(&app, req("GET", "/api/assets", Some(&cookie), None)).await.0, StatusCode::OK);
+        assert_eq!(mfa(ticket, now_code(1)).await.0, StatusCode::UNAUTHORIZED, "a ticket works once");
+        // the same code cannot be used twice, also for a fresh ticket
+        let t2 = login().await.2["ticket"].as_str().unwrap().to_string();
+        assert_eq!(mfa(t2, now_code(1)).await.0, StatusCode::UNAUTHORIZED, "each code works once");
+        // a ticket is void after five wrong codes, even if the sixth is right
+        let t3 = login().await.2["ticket"].as_str().unwrap().to_string();
+        for _ in 0..5 {
+            mfa(t3.clone(), "111111".into()).await;
+        }
+        assert_ne!(mfa(t3, now_code(-1)).await.0, StatusCode::OK, "the ticket is void (or the account is locked)");
+        // the account is locked for a moment after five wrong codes, and the right password does not lift that
+        let (st, _, _) = login().await;
+        assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
+        let (_, _, v) = send(&app, req("GET", "/api/auth/totp", Some(&cookie), None)).await;
+        assert_eq!((v["enabled"].as_bool(), v["recovery_left"].as_u64()), (Some(true), Some(recovery.len() as u64)));
+    }
+
+    #[tokio::test]
+    async fn recovery_codes_the_admin_reset_and_the_policy_that_makes_a_second_step_compulsory() {
+        let (app, store, [viewer, _editor, admin]) = secured().await;
+        let uid = store.find_user("vera").unwrap().unwrap().user.id;
+        let pw = "a-long-passphrase-1";
+        // vera turns the app on
+        send(&app, req("POST", "/api/auth/totp/begin", Some(&viewer), Some(serde_json::json!({"password": pw})))).await;
+        let secret = store.get_totp(uid).unwrap().unwrap().secret;
+        let code = |offset: i64| format!("{:06}", crate::totp::code_at(&secret, crate::totp::step_of(now_ts()) + offset));
+        let (_, _, v) = send(&app, req("POST", "/api/auth/totp/confirm", Some(&viewer), Some(serde_json::json!({"code": code(0)})))).await;
+        let recovery: Vec<String> = v["recovery_codes"].as_array().unwrap().iter().map(|c| c.as_str().unwrap().to_string()).collect();
+        let ticket = |app: Router| async move { send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "vera", "password": pw})))).await.2["ticket"].as_str().unwrap().to_string() };
+        // a recovery code (typed loosely) signs in, once
+        let t = ticket(app.clone()).await;
+        let typed = recovery[0].to_uppercase().replace('-', " ");
+        let (st, _, v) = send(&app, req("POST", "/api/auth/mfa", None, Some(serde_json::json!({"ticket": t, "code": typed})))).await;
+        assert_eq!((st, v["user"]["username"].as_str()), (StatusCode::OK, Some("vera")), "{v}");
+        let t = ticket(app.clone()).await;
+        assert_eq!(send(&app, req("POST", "/api/auth/mfa", None, Some(serde_json::json!({"ticket": t, "code": recovery[0]})))).await.0, StatusCode::UNAUTHORIZED, "a recovery code works once");
+        // new recovery codes need the password and a current code; the old ones stop working
+        assert_eq!(send(&app, req("POST", "/api/auth/totp/recovery", Some(&viewer), Some(serde_json::json!({"password": pw, "code": "000000"})))).await.0, StatusCode::UNAUTHORIZED);
+        let (st, _, v) = send(&app, req("POST", "/api/auth/totp/recovery", Some(&viewer), Some(serde_json::json!({"password": pw, "code": code(1)})))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_ne!(v["recovery_codes"][0], recovery[1].as_str());
+        let t = ticket(app.clone()).await;
+        assert_eq!(send(&app, req("POST", "/api/auth/mfa", None, Some(serde_json::json!({"ticket": t, "code": recovery[1]})))).await.0, StatusCode::UNAUTHORIZED, "the old codes are gone");
+        // the users list shows how each person signs in, never a secret
+        let (_, _, users) = send(&app, req("GET", "/api/users", Some(&admin), None)).await;
+        let vera = users.as_array().unwrap().iter().find(|u| u["username"] == "vera").unwrap();
+        assert_eq!((vera["totp"].as_bool(), vera["passkeys"].as_u64()), (Some(true), Some(0)));
+        assert!(!users.to_string().contains("secret"));
+        // the policy: admin only; "all" catches everybody without a second step
+        assert_eq!(send(&app, req("PUT", "/api/security", Some(&viewer), Some(serde_json::json!({"mfa_required": "all"})))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("PUT", "/api/security", Some(&admin), Some(serde_json::json!({"mfa_required": "sometimes"})))).await.0, StatusCode::BAD_REQUEST);
+        let (_, _, p) = send(&app, req("GET", "/api/security", Some(&admin), None)).await;
+        assert_eq!((p["mfa_required"].as_str(), p["all_without"].as_u64(), p["admins_without"].as_u64()), (Some("off"), Some(2), Some(1)), "{p}");
+        assert_eq!(send(&app, req("PUT", "/api/security", Some(&admin), Some(serde_json::json!({"mfa_required": "all"})))).await.0, StatusCode::OK);
+        // adam has no second step: everything but signing in and setting one up is refused, with a code the console understands
+        let (st, _, v) = send(&app, req("GET", "/api/assets", Some(&admin), None)).await;
+        assert_eq!((st, v["code"].as_str()), (StatusCode::FORBIDDEN, Some("mfa_required")), "{v}");
+        assert_eq!(send(&app, req("GET", "/api/auth/totp", Some(&admin), None)).await.0, StatusCode::OK, "setting one up is allowed");
+        assert_eq!(send(&app, req("GET", "/api/auth/me", Some(&admin), None)).await.2["must_enrol"], true);
+        // vera has one, so nothing changes for her; she cannot turn it off while it is required
+        assert_eq!(send(&app, req("GET", "/api/assets", Some(&viewer), None)).await.0, StatusCode::OK);
+        assert_eq!(send(&app, req("POST", "/api/auth/totp/disable", Some(&viewer), Some(serde_json::json!({"password": pw})))).await.0, StatusCode::CONFLICT);
+        // adam sets one up and is let in
+        send(&app, req("POST", "/api/auth/totp/begin", Some(&admin), Some(serde_json::json!({"password": pw})))).await;
+        let aid = store.find_user("adam").unwrap().unwrap().user.id;
+        let asecret = store.get_totp(aid).unwrap().unwrap().secret;
+        let acode = format!("{:06}", crate::totp::code_at(&asecret, crate::totp::step_of(now_ts())));
+        assert_eq!(send(&app, req("POST", "/api/auth/totp/confirm", Some(&admin), Some(serde_json::json!({"code": acode})))).await.0, StatusCode::OK);
+        assert_eq!(send(&app, req("GET", "/api/assets", Some(&admin), None)).await.0, StatusCode::OK);
+        // the administrator resets vera's app (a lost phone): her sessions end and the password alone works again
+        assert_eq!(send(&app, req("DELETE", &format!("/api/users/{uid}/totp"), Some(&viewer), None)).await.0, StatusCode::FORBIDDEN);
+        let (st, _, v) = send(&app, req("DELETE", &format!("/api/users/{uid}/totp"), Some(&admin), None)).await;
+        assert_eq!((st, v["removed"].as_bool()), (StatusCode::OK, Some(true)));
+        assert_eq!(send(&app, req("GET", "/api/assets", Some(&viewer), None)).await.0, StatusCode::UNAUTHORIZED, "her sessions ended");
+        let (_, _, v) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "vera", "password": pw})))).await;
+        assert!(v["user"]["username"] == "vera" && v.get("ticket").is_none());
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        for a in ["totp.enable", "totp.recovery_code_used", "totp.recovery_codes", "totp.reset", "security.mfa_policy", "auth.mfa_failed"] {
+            assert!(audit.contains(a), "{a}");
+        }
+        assert!(!audit.contains(&recovery[2]), "no code is ever written to the audit log");
     }
 
     #[tokio::test]

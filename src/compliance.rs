@@ -36,7 +36,7 @@ pub struct Inputs<'a> {
     pub users: usize,
     pub users_with_passkey: usize,
     pub admins: usize,
-    pub admins_with_passkey: usize,
+    pub admins_with_mfa: usize,
     /// Open findings of high severity, and risks people decided to accept.
     pub high_findings: usize,
     pub accepted_risks: usize,
@@ -125,7 +125,7 @@ pub fn assess(i: &Inputs) -> Report {
             detail: if ot.is_empty() { "no industrial devices found" } else { "{a} of {b}" }, vars: ratio(ot_leveled, ot.len()),
         },
         Measure { label: "Detection rules switched on", percent: pct(i.rules_enabled, i.rules_total), detail: "{a} of {b}", vars: ratio(i.rules_enabled, i.rules_total) },
-        Measure { label: "Administrators with a passkey", percent: pct(i.admins_with_passkey, i.admins), detail: "{a} of {b}", vars: ratio(i.admins_with_passkey, i.admins) },
+        Measure { label: "Administrators with a second sign-in step", percent: pct(i.admins_with_mfa, i.admins), detail: "{a} of {b}", vars: ratio(i.admins_with_mfa, i.admins) },
     ];
 
 
@@ -166,9 +166,9 @@ pub fn assess(i: &Inputs) -> Report {
         },
         Control {
             reference: "CIS Controls v8 · 6.5", title: "Require MFA for administrative access",
-            evidence: "Passkey sign-in (a verified fingerprint, face, PIN or security key).",
-            status: if i.admins == 0 { "not_in_place" } else { status(pct(i.admins_with_passkey, i.admins), 100, 1) },
-            note: "{a} of {b} administrator(s) have a passkey. Passwords still work; passkey-only sign-in is not enforced.", vars: ratio(i.admins_with_passkey, i.admins),
+            evidence: "A second sign-in step: a passkey (a verified fingerprint, face, PIN or security key) or a one-time code from an authenticator app.",
+            status: if i.admins == 0 { "not_in_place" } else { status(pct(i.admins_with_mfa, i.admins), 100, 1) },
+            note: "{a} of {b} administrator(s) use a passkey or an authenticator app. Where a second step is not required (Settings), a password alone still works.", vars: ratio(i.admins_with_mfa, i.admins),
         },
         Control {
             reference: "NIST CSF 2.0 · ID.AM-01", title: "Inventories of hardware managed by the organization are maintained",
@@ -212,9 +212,9 @@ pub fn assess(i: &Inputs) -> Report {
     // ---- ISO/IEC 27001:2022 Annex A and NIS2 Article 21(2): the same evidence, in their words
     let inventory_status = status(inventory, 80, 40);
     let vuln_status = if i.high_findings == 0 { "in_place" } else { "partial" };
-    let mfa_status = if i.admins == 0 { "not_in_place" } else { status(pct(i.admins_with_passkey, i.admins), 100, 1) };
-    let mfa_note = "{a} of {b} administrator(s) have a passkey. Passwords still work; passkey-only sign-in is not enforced.";
-    let mfa_vars = ratio(i.admins_with_passkey, i.admins);
+    let mfa_status = if i.admins == 0 { "not_in_place" } else { status(pct(i.admins_with_mfa, i.admins), 100, 1) };
+    let mfa_note = "{a} of {b} administrator(s) use a passkey or an authenticator app. Where a second step is not required (Settings), a password alone still works.";
+    let mfa_vars = ratio(i.admins_with_mfa, i.admins);
     let vuln_note = "{a} high-severity finding(s) are open; {b} risk(s) were accepted with a reason.";
     let vuln_vars = ratio(i.high_findings, i.accepted_risks);
     let monitoring_status = if i.passive_discovery && i.learning_finished && i.rules_enabled > 0 { "in_place" } else if i.passive_discovery { "partial" } else { "not_in_place" };
@@ -229,7 +229,7 @@ pub fn assess(i: &Inputs) -> Report {
         },
         Control {
             reference: "ISO/IEC 27001:2022 · A.8.5", title: "Secure authentication",
-            evidence: "Passkey sign-in (a verified fingerprint, face, PIN or security key).",
+            evidence: "A second sign-in step: a passkey (a verified fingerprint, face, PIN or security key) or a one-time code from an authenticator app.",
             status: mfa_status, note: mfa_note, vars: mfa_vars.clone(),
         },
         Control {
@@ -302,7 +302,7 @@ pub fn assess(i: &Inputs) -> Report {
         },
         Control {
             reference: "NIS2 · Article 21(2)(j)", title: "Multi-factor authentication",
-            evidence: "Passkey sign-in (a verified fingerprint, face, PIN or security key).",
+            evidence: "A second sign-in step: a passkey (a verified fingerprint, face, PIN or security key) or a one-time code from an authenticator app.",
             status: mfa_status, note: mfa_note, vars: mfa_vars,
         },
     ]);
@@ -335,7 +335,7 @@ mod tests {
     fn inputs<'a>(assets: &'a [Asset], metas: &'a HashMap<i64, AssetMeta>) -> Inputs<'a> {
         Inputs {
             assets, metas, now: NOW, passive_discovery: true, active_discovery: false, traffic_analysis: false, learning_finished: true,
-            rules_enabled: 10, rules_total: 15, channels_enabled: 0, exports_configured: 0, users: 2, users_with_passkey: 0, admins: 1, admins_with_passkey: 0, high_findings: 0, accepted_risks: 0,
+            rules_enabled: 10, rules_total: 15, channels_enabled: 0, exports_configured: 0, users: 2, users_with_passkey: 0, admins: 1, admins_with_mfa: 0, high_findings: 0, accepted_risks: 0,
         }
     }
 
@@ -372,7 +372,7 @@ mod tests {
         let mut i = inputs(&assets, &metas);
         i.traffic_analysis = true;
         i.channels_enabled = 1;
-        i.admins_with_passkey = 1;
+        i.admins_with_mfa = 1;
         i.active_discovery = true;
         let r = assess(&i);
         for c in ["1.1", "1.2", "13.1", "13.6", "6.5", "ID.AM-01", "DE.CM-01", "SR 6.2", "1.3"] {
@@ -399,7 +399,7 @@ mod tests {
         assert_eq!(status_of(&r, "Article 21(2)(j)"), "not_in_place");
         assert_eq!(status_of(&r, "A.8.15"), "in_place");
         i.high_findings = 0;
-        i.admins_with_passkey = i.admins;
+        i.admins_with_mfa = i.admins;
         let r = assess(&i);
         for c in ["A.8.8", "Article 21(2)(e)", "A.8.5", "Article 21(2)(j)"] {
             assert_eq!(status_of(&r, c), "in_place", "{c}");

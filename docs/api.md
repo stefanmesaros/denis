@@ -60,6 +60,10 @@ Role = the lowest role allowed.
 | `GET /api/reports` | viewer | saved reports (without content), the schedule and the total size |
 | `GET /api/reports/{id}` | viewer | the saved report as a page; add `?download=1` to get it as a file |
 | `POST /api/reports` | editor | make and save a report now: `{"days": 7}` |
+| `POST /api/auth/mfa` | public | second step of a sign-in: `{ticket, code}` (a 6-digit code or a recovery code); `POST /api/auth/login` answers `{mfa_required: true, ticket}` instead of a session when an authenticator app is on |
+| `GET /api/auth/totp` · `POST /api/auth/totp/begin` `/confirm` `/disable` `/recovery` · `GET /api/auth/totp/qr.svg` | any signed-in user | your authenticator app: status · set up (password, then the first code) · turn off · new recovery codes · the QR code of the pending secret |
+| `DELETE /api/users/{id}/totp` | admin | remove somebody's authenticator app |
+| `GET/PUT /api/security` | admin | who must use a second step: `{"mfa_required": "off\|admins\|all"}` (plus how many people that would catch) |
 | `GET/PUT /api/setup` | admin | the setup guide: `{completed, steps[]}` judged from what is configured · `{"completed": true\|false}` |
 | `GET/PUT /api/reports/settings` | viewer / admin | the schedule: `{"schedule": "off\|weekly\|monthly", "keep": 12, "days": 7}` |
 | `DELETE /api/reports/{id}` | admin | delete a saved report |
