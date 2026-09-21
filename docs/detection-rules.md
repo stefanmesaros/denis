@@ -170,8 +170,18 @@ records who accepted it, when, **why** (required: it is what an auditor reads) a
 year, or until withdrawn). Accepted risks are listed under the findings with their end date (highlighted when it is
 within two weeks) and can be **withdrawn** at any time. When the time is up the finding counts again by itself. A
 decision only exists while the problem exists: if the device is fixed the entry says *the problem is gone*.
+
+**Accepted risks are watched** (once an hour, in the background):
+
+* **Warnings before the end**: an event `risk_expiring` (severity low, so it can go to your notification channels) 14 days
+  and again 3 days before a decision ends, and `risk_expired` when it has ended and counts again.
+* **Rechecks**: once a day, DENIS scans the accepted *open-port* findings again (only those devices, never industrial
+  ones, and only when the console can scan), so a fix is noticed without anyone pressing *Verify*.
+* **Problem gone**: an `info` event `risk_gone` and an audit entry (`risk.gone`, by *system*) when the problem is no
+  longer there. The decision is never withdrawn automatically: that stays a person's call. If the problem comes back
+  and goes again, it is noted again.
 Accepting is written to the [audit log](tour.md#audit-log-administrators) (`risk.accept` / `risk.revoke`, with the
-reason) and accepted risks appear in the **printable report** and as `denis_accepted_risks` in `/metrics`. API:
+reason) and accepted risks appear in the **saved reports** and as `denis_accepted_risks` in `/metrics`. API:
 `GET/POST /api/risk-acceptances`, `DELETE /api/risk-acceptances/{id}`, `POST /api/findings/{id}/verify` (see the
 [API reference](api.md)). Deleting a device, or *erase all data*, removes its accepted risks.
 

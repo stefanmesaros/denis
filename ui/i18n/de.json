@@ -202,6 +202,7 @@
 "Custom fields": "Eigene Felder",
 "DENIS": "DENIS",
 "DENIS <denis@example.com>": "DENIS <denis@example.com>",
+"DENIS keeps watching them: it warns 14 days and 3 days before a decision ends, scans the open-port ones again once a day, and notes in the event log when a problem has gone away.": "DENIS behält sie im Blick: Es warnt 14 und 3 Tage bevor eine Entscheidung endet, scannt die mit offenen Ports einmal täglich erneut und vermerkt im Ereignisprotokoll, wenn ein Problem verschwunden ist.",
 "DENIS {to} did not start, so version {from} was put back.": "DENIS {to} ist nicht gestartet, daher wurde Version {from} wiederhergestellt.",
 "DENIS {version} is available (you have {current}).": "DENIS {version} ist verfügbar (Sie haben {current}).",
 "DHCP options": "DHCP-Optionen",

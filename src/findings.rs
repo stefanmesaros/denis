@@ -128,6 +128,11 @@ pub fn is_known(id: &str) -> bool {
     ALL_KINDS.iter().any(|k| k.id == id)
 }
 
+/// The title of a kind of finding.
+pub fn title_of(id: &str) -> Option<&'static str> {
+    ALL_KINDS.iter().find(|k| k.id == id).map(|k| k.title)
+}
+
 /// Findings that are about what a scan of the device shows (an open port), so a rescan can confirm a fix.
 pub fn is_port_finding(id: &str) -> bool {
     PORT_FINDINGS.iter().any(|(_, k, _)| k.id == id)

@@ -35,6 +35,7 @@ pub mod ot;
 pub mod parse;
 pub mod passkey;
 pub mod report;
+pub mod reverify;
 pub mod reports;
 pub mod risk;
 pub mod rules;

@@ -202,6 +202,7 @@
 "Custom fields": "Vlastné polia",
 "DENIS": "DENIS",
 "DENIS <denis@example.com>": "DENIS <denis@example.com>",
+"DENIS keeps watching them: it warns 14 days and 3 days before a decision ends, scans the open-port ones again once a day, and notes in the event log when a problem has gone away.": "DENIS ich stále sleduje: upozorní 14 dní a 3 dni pred skončením rozhodnutia, raz denne znova naskenuje tie s otvorenými portmi a do záznamu udalostí zapíše, keď problém zmizol.",
 "DENIS {to} did not start, so version {from} was put back.": "DENIS {to} sa nespustil, preto sa vrátila verzia {from}.",
 "DENIS {version} is available (you have {current}).": "DENIS {version} je dostupný (máte {current}).",
 "DHCP options": "Možnosti DHCP",
