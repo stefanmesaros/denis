@@ -56,7 +56,12 @@ Role = the lowest role allowed.
 | `GET /api/alerts` · `GET /api/events` | viewer | `?limit=&asset_id=&unacked=1` (`alerts` = real alerts only) |
 | `GET /api/agents` · `GET /api/conversations` | viewer | remote sites · industrial communications matrix (with the `commands` each path used) |
 | `GET /api/trends` | viewer | `?hours=24&agent=<id\|local>` samples for charts |
-| `GET /api/export/assets.csv` · `/alerts.csv` · `GET /report` | viewer | CSV exports · printable report (`?days=7`) |
+| `GET /api/export/assets.csv` · `/alerts.csv` · `GET /report` | viewer | CSV exports · live printable report, not saved (`?days=7`) |
+| `GET /api/reports` | viewer | saved reports (without content), the schedule and the total size |
+| `GET /api/reports/{id}` | viewer | the saved report as a page; add `?download=1` to get it as a file |
+| `POST /api/reports` | editor | make and save a report now: `{"days": 7}` |
+| `GET/PUT /api/reports/settings` | viewer / admin | the schedule: `{"schedule": "off\|weekly\|monthly", "keep": 12, "days": 7}` |
+| `DELETE /api/reports/{id}` | admin | delete a saved report |
 | `POST /api/alerts/{id}/ack` · `/unack` | editor | acknowledge / undo |
 | `POST /api/scan` | editor | run a sweep + port scan now |
 | `POST /api/assets` | editor | create a manual asset: `{"mac"?, "display_name", …}` |

@@ -86,8 +86,9 @@ within seconds, survive restarts and are written to the audit log ([details](det
 ![Compliance](img/compliance.png)
 
 How complete your register is (reviewed, typed, owned, rated, Purdue levels) and how DENIS's capabilities line up
-with controls of **CIS Controls v8**, **NIST CSF 2.0** and **IEC 62443-3-3**: which are in place, partly or not
-yet, and why. It is evidence for your own assessment, not a certification. Print the page to keep it.
+with controls of **CIS Controls v8**, **NIST CSF 2.0**, **IEC 62443-3-3**, **NIST SP 800-82** (through its NIST
+SP 800-53 controls), **ISO/IEC 27001:2022 Annex A** and **NIS2 Article 21**: which are in place, partly or not yet,
+and why. It is evidence for your own assessment, not a certification. Print the page to keep it.
 
 ## Topology
 
@@ -161,7 +162,18 @@ Every sign-in, change, user, token, channel and rule edit with who did it, filte
 Click your name in the header. Here you change your **password** and manage your **passkeys**: sign in with a
 fingerprint, face, device PIN or security key instead of a password, one per device ([details](security.md#passkeys)).
 
-## Printable report
+## Reports
 
-**Printable report** (Devices tab) is a self-contained page: summary, trends, findings, devices by risk, alerts and
-lifecycle. Print it or save it as PDF to hand to a client or an auditor. It carries your branding.
+The **Reports** page (Analyze) keeps snapshots of your network on the DENIS server. A report is a self-contained
+page: summary, compliance overview, findings, accepted risks, trends, devices by risk, alerts and lifecycle. It
+carries your branding. **Open** it, **Download** it as one HTML file, or print it (or save it as PDF) to hand to a
+client or an auditor.
+
+* **Make a report now** (editors and administrators) for the last 7 days up to a year. The report is stored, so
+  last month's is still there next month, exactly as it was.
+* **Schedule** (administrators): every week or every month, covering a period you choose. DENIS keeps the newest
+  N scheduled reports and removes older ones; reports you made by hand are never removed. Deleting a report is an
+  administrator's action and goes to the audit log.
+* Reports are kept in DENIS's database, so they are included in backups, and **Erase all data** removes them too.
+
+`/report?days=7` still gives a live report that is not saved (see the [API](api.md)).

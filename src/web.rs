@@ -30,6 +30,7 @@ use crate::engine::Shared;
 use crate::auth::{role_rank, Auth};
 use crate::model::{now_ts, Asset, AssetMeta, User};
 use crate::web_admin as admin;
+use crate::web_reports as reports_page;
 use crate::web_passkey as passkey;
 use crate::risk::{self, Risk};
 use crate::{report, trends};
@@ -115,6 +116,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/data/erase", post(admin::data_erase))
         .route("/api/findings", get(findings))
         .route("/api/findings/{id}/verify", post(admin::finding_verify))
+        .route("/api/reports", get(reports_page::list).post(reports_page::make))
+        .route("/api/reports/settings", get(reports_page::settings_get).put(reports_page::settings_put))
+        .route("/api/reports/{id}", get(reports_page::view).delete(reports_page::remove))
         .route("/api/risk-acceptances", get(admin::risk_list).post(admin::risk_accept))
         .route("/api/risk-acceptances/{id}", delete(admin::risk_revoke))
         .route("/api/rules", get(admin::rules_get).put(admin::rules_put).delete(admin::rules_reset))
@@ -173,7 +177,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances")) && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path == "/api/reports/settings") && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -444,41 +448,8 @@ async fn metrics(State(st): State<AppState>) -> Result<Response, ApiError> {
 
 /// Coverage of the register and a mapping onto CIS / NIST CSF / IEC 62443 controls.
 async fn compliance(State(st): State<AppState>) -> Result<Json<crate::compliance::Report>, ApiError> {
-    let now = now_ts();
-    let info = st.shared.snapshot();
-    let base = st.shared.detect_base().unwrap_or_default();
-    let (mut assets, metas, channels, users, overrides, per_user) = blocking(&st.store, |s| {
-        let users = s.list_users()?;
-        let mut with_passkey = std::collections::HashSet::new();
-        for u in &users {
-            if !s.list_passkeys(u.id)?.is_empty() {
-                with_passkey.insert(u.id);
-            }
-        }
-        Ok((s.load_assets()?, s.load_all_meta()?, crate::channels::load(s)?, users, crate::rules::load(s)?, with_passkey))
-    })
-    .await?;
-    for a in &mut assets {
-        if let Some(m) = metas.get(&a.id) {
-            crate::tracking::apply_overrides(a, m);
-        }
-    }
-    let eff = overrides.apply(&base);
-    let rules_enabled = crate::detect::RULES.iter().filter(|r| eff.weights.get(**r).copied().unwrap_or(1.0) > 0.0).count();
-    let admins: Vec<&User> = users.iter().filter(|u| u.role == "admin" && !u.disabled).collect();
-    let inputs = crate::compliance::Inputs {
-        assets: &assets, metas: &metas, now,
-        passive_discovery: true,
-        active_discovery: !info.passive_only,
-        traffic_analysis: info.flows_enabled,
-        learning_finished: info.learning_ends_at.is_none_or(|t| t <= now),
-        rules_enabled, rules_total: crate::detect::RULES.len(),
-        channels_enabled: channels.iter().filter(|c| c.enabled).count(),
-        exports_configured: info.exports.len(),
-        users: users.len(), users_with_passkey: users.iter().filter(|u| per_user.contains(&u.id)).count(),
-        admins: admins.len(), admins_with_passkey: admins.iter().filter(|u| per_user.contains(&u.id)).count(),
-    };
-    Ok(Json(crate::compliance::assess(&inputs)))
+    let shared = st.shared.clone();
+    Ok(Json(blocking(&st.store, move |s| crate::reports::compliance_now(s, &shared, now_ts())).await?))
 }
 
 async fn assets(State(st): State<AppState>) -> Result<Json<Vec<AssetView>>, ApiError> {
@@ -978,7 +949,7 @@ mod tests {
             (M::GET, "/api/users", "admin"), (M::POST, "/api/users", "admin"), (M::GET, "/api/audit", "admin"),
             (M::GET, "/api/agent-tokens", "admin"), (M::GET, "/api/api-tokens", "admin"), (M::DELETE, "/api/api-tokens/1", "admin"), (M::DELETE, "/api/agent-tokens/x", "admin"),
             (M::PUT, "/api/branding", "admin"), (M::PUT, "/api/branding/logo", "admin"), (M::DELETE, "/api/branding/logo", "admin"),
-            (M::GET, "/api/branding", "viewer"), (M::GET, "/api/rules", "viewer"), (M::PUT, "/api/rules", "admin"), (M::DELETE, "/api/rules", "admin"),
+            (M::GET, "/api/branding", "viewer"), (M::POST, "/api/reports", "editor"), (M::GET, "/api/reports/3", "viewer"), (M::PUT, "/api/reports/settings", "admin"), (M::DELETE, "/api/reports/3", "admin"), (M::GET, "/api/rules", "viewer"), (M::PUT, "/api/rules", "admin"), (M::DELETE, "/api/rules", "admin"),
             (M::POST, "/api/auth/password", "viewer"), (M::POST, "/api/auth/logout", "viewer"),
         ] {
             assert_eq!(required_role(&m, p), want, "{m} {p}");
@@ -1917,6 +1888,49 @@ mod tests {
         assert_eq!(send(&app, req("GET", "/api/findings", Some(&viewer), None)).await.2[0]["assets"], serde_json::json!([cam.id, cam2.id]));
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
         assert!(audit.contains("risk.accept") && audit.contains("risk.revoke") && audit.contains("isolated VLAN"), "who decided what, and why, is in the audit log");
+    }
+
+    #[tokio::test]
+    async fn reports_are_saved_viewed_downloaded_scheduled_and_deleted_with_the_right_roles() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let mut cam = Asset::new(Mac([2, 0, 0, 0, 0, 1]), 10);
+        cam.device_type = "camera".into();
+        cam.last_seen = now_ts();
+        store.save_asset(&mut cam).unwrap();
+        let text = |resp: Response| async move { (resp.status(), resp.headers().clone(), String::from_utf8_lossy(&axum::body::to_bytes(resp.into_body(), 10_000_000).await.unwrap()).to_string()) };
+        // a viewer reads reports but cannot make them; an editor can
+        assert_eq!(send(&app, req("POST", "/api/reports", Some(&viewer), Some(serde_json::json!({"days": 7})))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("POST", "/api/reports", Some(&editor), Some(serde_json::json!({"days": 0})))).await.0, StatusCode::BAD_REQUEST);
+        let (st, _, meta) = send(&app, req("POST", "/api/reports", Some(&editor), Some(serde_json::json!({"days": 30})))).await;
+        assert_eq!(st, StatusCode::CREATED, "{meta}");
+        let id = meta["id"].as_i64().unwrap();
+        assert_eq!((meta["kind"].as_str(), meta["created_by"].as_str(), meta["period_days"].as_i64()), (Some("manual"), Some("eda"), Some(30)));
+        let (_, _, list) = send(&app, req("GET", "/api/reports", Some(&viewer), None)).await;
+        assert_eq!(list["reports"][0]["id"], id);
+        assert_eq!(list["settings"]["schedule"], "off");
+        // viewing: inline, with a strict CSP, and it carries the compliance overview with all the frameworks
+        let (st, h, body) = text(app.clone().oneshot(req("GET", &format!("/api/reports/{id}"), Some(&viewer), None)).await.unwrap()).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(h[header::CONTENT_SECURITY_POLICY].to_str().unwrap().contains("default-src 'none'"));
+        assert_eq!(h[header::CONTENT_DISPOSITION], "inline");
+        for want in ["Compliance overview", "CIS Controls", "NIS2", "ISO/IEC 27001:2022", "Devices by risk"] {
+            assert!(body.contains(want), "{want}");
+        }
+        let (_, h, _) = text(app.clone().oneshot(req("GET", &format!("/api/reports/{id}?download=1"), Some(&viewer), None)).await.unwrap()).await;
+        assert!(h[header::CONTENT_DISPOSITION].to_str().unwrap().starts_with("attachment; filename=\"denis-report-"));
+        assert_eq!(send(&app, req("GET", "/api/reports/9999", Some(&viewer), None)).await.0, StatusCode::NOT_FOUND);
+        // the schedule: administrators only, validated
+        let sched = serde_json::json!({"schedule": "weekly", "keep": 4, "days": 14});
+        assert_eq!(send(&app, req("PUT", "/api/reports/settings", Some(&editor), Some(sched.clone()))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("PUT", "/api/reports/settings", Some(&admin), Some(serde_json::json!({"schedule": "hourly", "keep": 4, "days": 14})))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, req("PUT", "/api/reports/settings", Some(&admin), Some(sched))).await.0, StatusCode::OK);
+        assert_eq!(send(&app, req("GET", "/api/reports/settings", Some(&viewer), None)).await.2["keep"], 4);
+        // deleting: administrators only
+        assert_eq!(send(&app, req("DELETE", &format!("/api/reports/{id}"), Some(&editor), None)).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("DELETE", &format!("/api/reports/{id}"), Some(&admin), None)).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, req("DELETE", &format!("/api/reports/{id}"), Some(&admin), None)).await.0, StatusCode::NOT_FOUND);
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("report.create") && audit.contains("report.schedule") && audit.contains("report.delete"));
     }
 
     #[tokio::test]

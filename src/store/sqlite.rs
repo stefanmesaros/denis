@@ -7,9 +7,9 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::collections::HashMap;
 
 use super::{AgentToken, ApiToken, EventQuery, Passkey, SessionRecord, Store, UserRecord};
-use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, RiskAcceptance, User};
+use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, ReportMeta, RiskAcceptance, User};
 
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 11;
 
 /// Phase 1 schema.
 const V1: &str = "CREATE TABLE assets (
@@ -168,6 +168,18 @@ const V10: &str = "CREATE TABLE risk_acceptances (
      );
      CREATE INDEX risk_acceptances_asset ON risk_acceptances (asset_id);";
 
+/// Reports kept in the database, so they can be viewed and downloaded from the console at any time.
+const V11: &str = "CREATE TABLE reports (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind        TEXT NOT NULL,            -- manual | scheduled
+        title       TEXT NOT NULL,
+        period_days INTEGER NOT NULL,
+        created_at  INTEGER NOT NULL,
+        created_by  TEXT NOT NULL,
+        content     BLOB NOT NULL
+     );
+     CREATE INDEX reports_created ON reports (created_at);";
+
 /// Phase 3.8: API tokens for scripts and integrations.
 const V7: &str = "CREATE TABLE api_tokens (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -219,7 +231,7 @@ impl SqliteStore {
         }
         // Each step runs in its own transaction and bumps user_version, so a
         // crash mid-migration leaves the database at a consistent older version.
-        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10)] {
+        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11)] {
             if version < target {
                 let tx = conn.unchecked_transaction()?;
                 tx.execute_batch(sql)?;
@@ -672,7 +684,7 @@ impl Store for SqliteStore {
         // children first
         for sql in [
             "DELETE FROM events", "DELETE FROM baselines", "DELETE FROM conversations", "DELETE FROM presence", "DELETE FROM metrics",
-            "DELETE FROM asset_meta", "DELETE FROM risk_acceptances", "DELETE FROM assets", "DELETE FROM agents",
+            "DELETE FROM asset_meta", "DELETE FROM risk_acceptances", "DELETE FROM reports", "DELETE FROM assets", "DELETE FROM agents",
             // learned state that belongs to the old network
             "DELETE FROM settings WHERE key = 'dhcp_servers'",
         ] {
@@ -736,6 +748,56 @@ impl Store for SqliteStore {
     fn revoke_risk_acceptance(&self, id: i64, by: &str, ts: i64) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
         Ok(conn.execute("UPDATE risk_acceptances SET revoked_at = ?2, revoked_by = ?3 WHERE id = ?1 AND revoked_at IS NULL", params![id, ts, by])? > 0)
+    }
+
+    // ------------------------------------------------ reports
+    fn add_report(&self, m: &ReportMeta, content: &[u8]) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO reports (kind, title, period_days, created_at, created_by, content) VALUES (?1,?2,?3,?4,?5,?6)",
+            params![m.kind, m.title, m.period_days, m.created_at, m.created_by, content],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    fn list_reports(&self) -> Result<Vec<ReportMeta>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, kind, title, period_days, created_at, created_by, length(content) FROM reports ORDER BY created_at DESC, id DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(ReportMeta { id: r.get(0)?, kind: r.get(1)?, title: r.get(2)?, period_days: r.get(3)?, created_at: r.get(4)?, created_by: r.get(5)?, size: r.get(6)? })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn get_report(&self, id: i64) -> Result<Option<(ReportMeta, Vec<u8>)>> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn
+            .query_row(
+                "SELECT id, kind, title, period_days, created_at, created_by, length(content), content FROM reports WHERE id = ?1",
+                [id],
+                |r| {
+                    Ok((
+                        ReportMeta { id: r.get(0)?, kind: r.get(1)?, title: r.get(2)?, period_days: r.get(3)?, created_at: r.get(4)?, created_by: r.get(5)?, size: r.get(6)? },
+                        r.get::<_, Vec<u8>>(7)?,
+                    ))
+                },
+            )
+            .optional()?)
+    }
+
+    fn delete_report(&self, id: i64) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.execute("DELETE FROM reports WHERE id = ?1", [id])? > 0)
+    }
+
+    fn prune_reports(&self, kind: &str, keep: usize) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.execute(
+            "DELETE FROM reports WHERE kind = ?1 AND id NOT IN (SELECT id FROM reports WHERE kind = ?1 ORDER BY created_at DESC, id DESC LIMIT ?2)",
+            params![kind, keep as i64],
+        )?)
     }
 
     // ------------------------------------------------ users and sessions
@@ -1297,5 +1359,29 @@ mod tests {
         s.add_risk_acceptance(&acc(a.id, "again", None)).unwrap();
         s.erase_inventory().unwrap();
         assert!(s.list_risk_acceptances().unwrap().is_empty());
+    }
+
+    #[test]
+    fn reports_are_stored_listed_and_pruned() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let meta = |kind: &str, at: i64| ReportMeta { id: 0, kind: kind.into(), title: format!("r{at}"), period_days: 7, created_at: at, created_by: "x".into(), size: 0 };
+        let first = s.add_report(&meta("manual", 100), b"<html>one</html>").unwrap();
+        for at in [200, 300, 400] {
+            s.add_report(&meta("scheduled", at), b"<html>s</html>").unwrap();
+        }
+        let list = s.list_reports().unwrap();
+        assert_eq!(list.len(), 4);
+        assert_eq!(list[0].created_at, 400, "newest first");
+        assert_eq!(list[3].size, 16);
+        let (m, body) = s.get_report(first).unwrap().unwrap();
+        assert_eq!((m.kind.as_str(), body.as_slice()), ("manual", &b"<html>one</html>"[..]));
+        // only scheduled reports are pruned; a manual one is kept
+        assert_eq!(s.prune_reports("scheduled", 1).unwrap(), 2);
+        let left: Vec<i64> = s.list_reports().unwrap().iter().map(|r| r.created_at).collect();
+        assert_eq!(left, vec![400, 100]);
+        assert!(s.delete_report(first).unwrap());
+        assert!(!s.delete_report(first).unwrap());
+        s.erase_inventory().unwrap();
+        assert!(s.list_reports().unwrap().is_empty());
     }
 }

@@ -8,7 +8,7 @@ use anyhow::Result;
 
 use std::collections::HashMap;
 
-use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Mac, Metric, Presence, RiskAcceptance, User};
+use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Mac, Metric, Presence, ReportMeta, RiskAcceptance, User};
 
 #[derive(Clone, Debug)]
 pub struct EventQuery {
@@ -179,6 +179,15 @@ pub trait Store: Send + Sync {
     fn list_risk_acceptances(&self) -> Result<Vec<RiskAcceptance>>;
     /// Withdraw a decision. `false` if there was none (or it was already withdrawn).
     fn revoke_risk_acceptance(&self, id: i64, by: &str, ts: i64) -> Result<bool>;
+
+    // ------------------------------------------------ reports
+    fn add_report(&self, meta: &ReportMeta, content: &[u8]) -> Result<i64>;
+    /// Without the content, newest first.
+    fn list_reports(&self) -> Result<Vec<ReportMeta>>;
+    fn get_report(&self, id: i64) -> Result<Option<(ReportMeta, Vec<u8>)>>;
+    fn delete_report(&self, id: i64) -> Result<bool>;
+    /// Keep only the newest `keep` reports of this kind; returns how many were removed.
+    fn prune_reports(&self, kind: &str, keep: usize) -> Result<usize>;
 
     // ------------------------------------------------ per-agent tokens
     /// Replaces (revokes) any earlier token for the same agent.

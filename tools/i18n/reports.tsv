@@ -1,0 +1,31 @@
+# Reports page (0.4.0).
+Reports || Berichte || Rapports || Informes || Reporty
+Never || Nie || Jamais || Nunca || Nikdy
+Every week || Jede Woche || Chaque semaine || Cada semana || Každý týždeň
+Every month || Jeden Monat || Chaque mois || Cada mes || Každý mesiac
+{n} reports, {size} in total. || {n} Berichte, insgesamt {size}. || {n} rapports, {size} au total. || {n} informes, {size} en total. || {n} reportov, spolu {size}.
+On schedule || Nach Zeitplan || Planifié || Programado || Podľa plánu
+By hand || Von Hand || Manuel || Manual || Ručne
+1 day || 1 Tag || 1 jour || 1 día || 1 deň
+{n} days || {n} Tage || {n} jours || {n} días || {n} dní
+Open || Öffnen || Ouvrir || Abrir || Otvoriť
+Download || Herunterladen || Télécharger || Descargar || Stiahnuť
+Delete the report from {date}? It cannot be recovered. || Den Bericht vom {date} löschen? Er lässt sich nicht wiederherstellen. || Supprimer le rapport du {date} ? Il ne pourra pas être récupéré. || ¿Eliminar el informe del {date}? No se puede recuperar. || Zmazať report z {date}? Nedá sa obnoviť.
+Make a report automatically || Bericht automatisch erstellen || Créer un rapport automatiquement || Crear un informe automáticamente || Vytvárať report automaticky
+Each one covers || Jeder umfasst || Chacun couvre || Cada uno abarca || Každý pokrýva
+Keep the newest || Die neuesten behalten || Conserver les plus récents || Conservar los más recientes || Ponechať najnovších
+Older scheduled reports are removed; reports you made by hand are never removed. || Ältere geplante Berichte werden entfernt; von Hand erstellte Berichte nie. || Les anciens rapports planifiés sont supprimés ; ceux créés manuellement ne le sont jamais. || Los informes programados más antiguos se eliminan; los creados a mano nunca se eliminan. || Staršie plánované reporty sa odstraňujú; ručne vytvorené sa nikdy neodstraňujú.
+Only an administrator can change the schedule. || Nur ein Administrator kann den Zeitplan ändern. || Seul un administrateur peut modifier la planification. || Solo un administrador puede cambiar la programación. || Plán môže meniť iba administrátor.
+Save schedule || Zeitplan speichern || Enregistrer la planification || Guardar la programación || Uložiť plán
+Making the report… || Bericht wird erstellt … || Création du rapport… || Creando el informe… || Vytváram report…
+a report covers 1 to 365 days || ein Bericht umfasst 1 bis 365 Tage || un rapport couvre de 1 à 365 jours || un informe abarca de 1 a 365 días || report pokrýva 1 až 365 dní
+no such report || Bericht nicht gefunden || rapport introuvable || informe no encontrado || taký report neexistuje
+Period the report covers || Zeitraum des Berichts || Période couverte par le rapport || Período que abarca el informe || Obdobie, ktoré report pokrýva
+Make a report now || Jetzt einen Bericht erstellen || Créer un rapport maintenant || Crear un informe ahora || Vytvoriť report teraz
+Open a live report without saving it || Einen Live-Bericht ohne Speichern öffnen || Ouvrir un rapport en direct sans l'enregistrer || Abrir un informe en vivo sin guardarlo || Otvoriť aktuálny report bez uloženia
+A report is a snapshot of your network at one moment: devices, findings, accepted risks, alerts, trends and the compliance overview. Reports are kept here on the DENIS server, so you can open, download or print last month's again, for an auditor or a customer. || Ein Bericht ist eine Momentaufnahme Ihres Netzwerks: Geräte, Befunde, akzeptierte Risiken, Alarme, Trends und die Compliance-Übersicht. Berichte werden hier auf dem DENIS-Server gespeichert; so können Sie den des letzten Monats jederzeit erneut öffnen, herunterladen oder drucken, für Prüfer oder Kunden. || Un rapport est un instantané de votre réseau à un moment donné : appareils, constats, risques acceptés, alertes, tendances et aperçu de conformité. Les rapports sont conservés ici, sur le serveur DENIS : vous pouvez rouvrir, télécharger ou imprimer celui du mois dernier, pour un auditeur ou un client. || Un informe es una instantánea de su red en un momento dado: dispositivos, hallazgos, riesgos aceptados, alertas, tendencias y el resumen de cumplimiento. Los informes se guardan aquí, en el servidor DENIS, para que pueda volver a abrir, descargar o imprimir el del mes pasado, para un auditor o un cliente. || Report je snímka vašej siete v jednom okamihu: zariadenia, zistenia, akceptované riziká, upozornenia, trendy a prehľad súladu. Reporty sa ukladajú tu, na serveri DENIS, takže ten z minulého mesiaca môžete kedykoľvek znova otvoriť, stiahnuť alebo vytlačiť pre audítora či zákazníka.
+No reports yet. Make one now, or switch the schedule on below. || Noch keine Berichte. Erstellen Sie jetzt einen oder schalten Sie unten den Zeitplan ein. || Aucun rapport pour l'instant. Créez-en un maintenant ou activez la planification ci-dessous. || Aún no hay informes. Cree uno ahora o active la programación más abajo. || Zatiaľ žiadne reporty. Vytvorte prvý teraz alebo zapnite plán nižšie.
+Made || Erstellt || Créé || Creado || Vytvorený
+How || Wie || Comment || Cómo || Ako
+Covers || Umfasst || Couvre || Abarca || Pokrýva
+Size || Größe || Taille || Tamaño || Veľkosť

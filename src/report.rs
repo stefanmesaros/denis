@@ -40,6 +40,8 @@ pub struct ReportData {
     pub accepted: Vec<crate::findings::AcceptedRisk>,
     pub points: Vec<Point>,
     pub step_secs: i64,
+    /// The compliance overview, when the report includes one (saved reports do).
+    pub compliance: Option<crate::compliance::Report>,
 }
 
 pub fn gather(store: &dyn Store, days: i64, now: i64) -> Result<ReportData> {
@@ -87,6 +89,7 @@ pub fn gather(store: &dyn Store, days: i64, now: i64) -> Result<ReportData> {
         accepted,
         points,
         step_secs,
+        compliance: None,
     })
 }
 
@@ -102,6 +105,11 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
         out.push(if c.len() > 2 { T[n as usize & 63] as char } else { '=' });
     }
     out
+}
+
+/// A sentence with `{name}` placeholders, filled in.
+fn fill(text: &str, vars: &crate::compliance::Vars) -> String {
+    vars.iter().fold(text.to_string(), |t, (k, v)| t.replace(&format!("{{{k}}}"), v))
 }
 
 // ------------------------------------------------------------------ time
@@ -121,6 +129,11 @@ pub fn iso(ts: i64) -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", secs / 3600, secs % 3600 / 60, secs % 60)
+}
+
+/// `YYYY-MM-DD`.
+pub fn day(ts: i64) -> String {
+    iso(ts)[..10].to_string()
 }
 
 fn minute(ts: i64) -> String {
@@ -381,6 +394,27 @@ pub fn html(data: &ReportData) -> String {
             ));
         }
         h.push_str("</table>");
+    }
+
+    if let Some(c) = &data.compliance {
+        h.push_str("<h2>Compliance overview</h2><div class=\"cards\">");
+        for m in &c.measures {
+            let vars = fill(m.detail, &m.vars);
+            h.push_str(&format!("<div class=\"card\"><b>{}%</b>{}<div class=\"why\">{}</div></div>", m.percent, esc(m.label), esc(&vars)));
+        }
+        h.push_str("</div><table><tr><th>Reference</th><th>Requirement</th><th>Status</th><th>How DENIS helps</th></tr>");
+        for k in &c.controls {
+            let (class, word) = match k.status {
+                "in_place" => ("low", "in place"),
+                "partial" => ("medium", "partly"),
+                _ => ("high", "not in place"),
+            };
+            h.push_str(&format!(
+                "<tr><td class=\"mono\">{}</td><td><b>{}</b></td><td><span class=\"sev {class}\">{word}</span></td><td>{}<div class=\"why\">{}</div></td></tr>",
+                esc(k.reference), esc(k.title), esc(k.evidence), esc(&fill(k.note, &k.vars))
+            ));
+        }
+        h.push_str(&format!("</table><p class=\"muted\">{}</p>", esc(c.disclaimer)));
     }
 
     h.push_str("<h2>Trends</h2><table><tr><th>Devices online</th><th>Traffic sent outside</th></tr><tr><td>");

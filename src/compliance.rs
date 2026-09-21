@@ -1,6 +1,7 @@
 //! Coverage and standards mapping: how complete the inventory is, which protective and
 //! detective capabilities are switched on, and how that lines up with the controls of
-//! CIS Controls v8, NIST CSF and IEC 62443-3-3.
+//! CIS Controls v8, NIST CSF, IEC 62443-3-3, NIST SP 800-82 (via its SP 800-53 controls),
+//! ISO/IEC 27001 Annex A and NIS2.
 //!
 //! This is *evidence*, not certification. Each line says what DENIS can show and whether
 //! it is currently in place on this installation; whether a control is *satisfied* for an
@@ -36,6 +37,9 @@ pub struct Inputs<'a> {
     pub users_with_passkey: usize,
     pub admins: usize,
     pub admins_with_passkey: usize,
+    /// Open findings of high severity, and risks people decided to accept.
+    pub high_findings: usize,
+    pub accepted_risks: usize,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -205,6 +209,103 @@ pub fn assess(i: &Inputs) -> Report {
             note: "The audit log is always on.", vars: Vars::new(),
         },
     ];
+    // ---- ISO/IEC 27001:2022 Annex A and NIS2 Article 21(2): the same evidence, in their words
+    let inventory_status = status(inventory, 80, 40);
+    let vuln_status = if i.high_findings == 0 { "in_place" } else { "partial" };
+    let mfa_status = if i.admins == 0 { "not_in_place" } else { status(pct(i.admins_with_passkey, i.admins), 100, 1) };
+    let mfa_note = "{a} of {b} administrator(s) have a passkey. Passwords still work; passkey-only sign-in is not enforced.";
+    let mfa_vars = ratio(i.admins_with_passkey, i.admins);
+    let vuln_note = "{a} high-severity finding(s) are open; {b} risk(s) were accepted with a reason.";
+    let vuln_vars = ratio(i.high_findings, i.accepted_risks);
+    let monitoring_status = if i.passive_discovery && i.learning_finished && i.rules_enabled > 0 { "in_place" } else if i.passive_discovery { "partial" } else { "not_in_place" };
+    let inventory_note_vars = vars([("percent", inventory.to_string())]);
+    let inventory_note_vars2 = inventory_note_vars.clone();
+    let vuln_vars2 = vuln_vars.clone();
+    controls.extend([
+        Control {
+            reference: "ISO/IEC 27001:2022 · A.5.9", title: "Inventory of information and other associated assets",
+            evidence: "Asset register with owner, criticality, lifecycle and change history.",
+            status: inventory_status, note: "Inventory completeness {percent}%.", vars: inventory_note_vars.clone(),
+        },
+        Control {
+            reference: "ISO/IEC 27001:2022 · A.8.5", title: "Secure authentication",
+            evidence: "Passkey sign-in (a verified fingerprint, face, PIN or security key).",
+            status: mfa_status, note: mfa_note, vars: mfa_vars.clone(),
+        },
+        Control {
+            reference: "ISO/IEC 27001:2022 · A.8.8", title: "Management of technical vulnerabilities",
+            evidence: "Findings for exposed and risky services, each with a fix, confirmed by a fresh scan (Verify fix); accepted risks are recorded with a reason, an owner and an end date.",
+            status: vuln_status, note: vuln_note, vars: vuln_vars.clone(),
+        },
+        Control {
+            reference: "ISO/IEC 27001:2022 · A.8.15", title: "Logging",
+            evidence: "An audit log of every sign-in, change, user, token, channel and rule edit, exportable to a SIEM.",
+            status: "in_place", note: "The audit log is always on.", vars: Vars::new(),
+        },
+        Control {
+            reference: "ISO/IEC 27001:2022 · A.8.16", title: "Monitoring activities",
+            evidence: "Continuous passive and (optionally) active monitoring with learned baselines and explainable rules.",
+            status: monitoring_status,
+            note: if !i.learning_finished { "Still in the learning period: new devices and destinations are learned, not alerted on." } else { "{a} of {b} detection rules are on." },
+            vars: ratio(i.rules_enabled, i.rules_total),
+        },
+        Control {
+            reference: "ISO/IEC 27001:2022 · A.8.20", title: "Networks security",
+            evidence: "Network discovery and monitoring with alerts for new devices, rogue DHCP servers and ARP conflicts.",
+            status: flag(i.passive_discovery && i.rules_enabled > 0), note: "{n} detection rules are on.", vars: vars([("n", i.rules_enabled.to_string())]),
+        },
+        Control {
+            reference: "NIS2 · Article 21(2)(b)", title: "Incident handling",
+            evidence: "Scored alerts with advice on what to do, delivery to chat, e-mail, PagerDuty or a SIEM, and an audit trail.",
+            status: if i.channels_enabled + i.exports_configured > 0 { "in_place" } else { "partial" },
+            note: "{channels} notification channel(s) and {exports} export(s) configured; alerts are always visible in the console.",
+            vars: vars([("channels", i.channels_enabled.to_string()), ("exports", i.exports_configured.to_string())]),
+        },
+        Control {
+            reference: "NIS2 · Article 21(2)(e)", title: "Vulnerability handling",
+            evidence: "Findings for exposed and risky services, each with a fix, confirmed by a fresh scan (Verify fix); accepted risks are recorded with a reason, an owner and an end date.",
+            status: vuln_status, note: vuln_note, vars: vuln_vars,
+        },
+        Control {
+            reference: "NIS2 · Article 21(2)(i)", title: "Asset management",
+            evidence: "Asset register with owner, criticality, lifecycle and change history.",
+            status: inventory_status, note: "Inventory completeness {percent}%.", vars: inventory_note_vars,
+        },
+        // NIST SP 800-82 Rev. 3 (guide to OT security) points to these NIST SP 800-53 controls
+        Control {
+            reference: "NIST SP 800-82 Rev. 3 · CM-8", title: "System component inventory",
+            evidence: "Asset register with owner, criticality, lifecycle and change history.",
+            status: inventory_status, note: "Inventory completeness {percent}%.", vars: inventory_note_vars2,
+        },
+        Control {
+            reference: "NIST SP 800-82 Rev. 3 · SC-7", title: "Boundary protection",
+            evidence: "Zone and Purdue level per device, and alerts for communication that skips a level or crosses the network boundary.",
+            status: if ot.is_empty() { "in_place" } else { status(pct(ot_leveled, ot.len()), 90, 40) },
+            note: if ot.is_empty() { "No industrial devices were found, so there is nothing to segment yet." } else { "{a} of {b} industrial devices have a Purdue level entered; the segmentation rules can only judge those." },
+            vars: ratio(ot_leveled, ot.len()),
+        },
+        Control {
+            reference: "NIST SP 800-82 Rev. 3 · SI-4", title: "System monitoring",
+            evidence: "Passive industrial protocol monitoring (Modbus, S7, EtherNet/IP, DNP3, BACnet, OPC UA, IEC 104) with new-path and control-command detection.",
+            status: if i.traffic_analysis && i.rules_enabled > 0 { "in_place" } else { "not_in_place" },
+            note: if i.traffic_analysis { "Traffic analysis is on." } else { "Industrial monitoring needs --profile ot (or --flows) on a mirror port." }, vars: Vars::new(),
+        },
+        Control {
+            reference: "NIST SP 800-82 Rev. 3 · RA-5", title: "Vulnerability monitoring and scanning",
+            evidence: "Findings for exposed and risky services, each with a fix, confirmed by a fresh scan (Verify fix); accepted risks are recorded with a reason, an owner and an end date.",
+            status: vuln_status, note: vuln_note, vars: vuln_vars2,
+        },
+        Control {
+            reference: "NIST SP 800-82 Rev. 3 · AU-2", title: "Event logging",
+            evidence: "An audit log of every sign-in, change, user, token, channel and rule edit, exportable to a SIEM.",
+            status: "in_place", note: "The audit log is always on.", vars: Vars::new(),
+        },
+        Control {
+            reference: "NIS2 · Article 21(2)(j)", title: "Multi-factor authentication",
+            evidence: "Passkey sign-in (a verified fingerprint, face, PIN or security key).",
+            status: mfa_status, note: mfa_note, vars: mfa_vars,
+        },
+    ]);
     if i.active_discovery {
         controls.push(Control {
             reference: "CIS Controls v8 · 1.3", title: "Utilize an active discovery tool",
@@ -234,7 +335,7 @@ mod tests {
     fn inputs<'a>(assets: &'a [Asset], metas: &'a HashMap<i64, AssetMeta>) -> Inputs<'a> {
         Inputs {
             assets, metas, now: NOW, passive_discovery: true, active_discovery: false, traffic_analysis: false, learning_finished: true,
-            rules_enabled: 10, rules_total: 15, channels_enabled: 0, exports_configured: 0, users: 2, users_with_passkey: 0, admins: 1, admins_with_passkey: 0,
+            rules_enabled: 10, rules_total: 15, channels_enabled: 0, exports_configured: 0, users: 2, users_with_passkey: 0, admins: 1, admins_with_passkey: 0, high_findings: 0, accepted_risks: 0,
         }
     }
 
@@ -281,6 +382,32 @@ mod tests {
         // still learning: monitoring is only partly in place
         i.learning_finished = false;
         assert_eq!(status_of(&assess(&i), "DE.CM-01"), "partial");
+    }
+
+    #[test]
+    fn iso_27001_and_nis2_reuse_the_same_evidence_and_follow_findings_and_passkeys() {
+        let assets: Vec<Asset> = (1..=2).map(|i| dev(i, "computer")).collect();
+        let metas = HashMap::new();
+        let mut i = inputs(&assets, &metas);
+        i.high_findings = 2;
+        i.accepted_risks = 1;
+        let r = assess(&i);
+        for c in ["A.8.8", "Article 21(2)(e)"] {
+            assert_eq!(status_of(&r, c), "partial", "{c}: high findings are open");
+        }
+        assert_eq!(status_of(&r, "A.8.5"), "not_in_place");
+        assert_eq!(status_of(&r, "Article 21(2)(j)"), "not_in_place");
+        assert_eq!(status_of(&r, "A.8.15"), "in_place");
+        i.high_findings = 0;
+        i.admins_with_passkey = i.admins;
+        let r = assess(&i);
+        for c in ["A.8.8", "Article 21(2)(e)", "A.8.5", "Article 21(2)(j)"] {
+            assert_eq!(status_of(&r, c), "in_place", "{c}");
+        }
+        assert_eq!(status_of(&r, "Article 21(2)(b)"), "partial", "no channel or export yet");
+        assert_eq!(status_of(&r, "CM-8"), status_of(&r, "A.5.9"), "same evidence, same status");
+        assert_eq!(status_of(&r, "RA-5"), "in_place");
+        assert_eq!(status_of(&r, "SI-4"), "not_in_place", "no traffic analysis");
     }
 
     #[test]

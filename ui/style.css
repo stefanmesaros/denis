@@ -284,3 +284,9 @@ button.danger:hover { background: color-mix(in srgb, #dc2626 12%, transparent); 
 
 .lang-select { padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); font: inherit; font-size: 12px; }
 .login-card .lang-select { justify-self: center; }
+
+/* links that look like buttons (Reports: Open / Download) */
+a.button { display: inline-block; font: inherit; text-decoration: none; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 5px 12px; border-radius: 6px; }
+a.button:hover { border-color: var(--accent); }
+.row-actions { white-space: nowrap; text-align: right; }
+.row-actions > * { margin-left: 6px; }

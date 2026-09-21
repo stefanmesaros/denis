@@ -101,7 +101,7 @@ const takeProblems = () => problems.splice(0);
 await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
 await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/meta/options*' }] });
 
-const TABS = ['assets', 'alerts', 'findings', 'topology', 'ot', 'trends', 'events', 'compliance', 'rules', 'alerting', 'agents', 'users', 'settings', 'audit', 'account'];
+const TABS = ['assets', 'alerts', 'findings', 'topology', 'ot', 'trends', 'events', 'compliance', 'reports', 'rules', 'alerting', 'agents', 'users', 'settings', 'audit', 'account'];
 // text a person must never see on a page
 const BAD_TEXT = "(() => { const t = document.getElementById('app').innerText; return ['null', 'undefined', '[object Object]', 'NaN'].filter((w) => new RegExp('(^|[^A-Za-z0-9_])' + w.replace(/[\\[\\]]/g, '\\\\$&') + '([^A-Za-z0-9_]|$)').test(t)); })()";
 
@@ -294,6 +294,35 @@ await check('"Verify fix" answers plainly, also when this console cannot scan', 
   const text = await evaluate("document.getElementById('msg-dialog').open ? document.getElementById('msg-body').innerText : ''");
   await evaluate("document.getElementById('msg-dialog').close(); 0");
   if (!/Verify fix/.test(text) || !/Not scanned/.test(text) || !/cannot scan/.test(text)) return 'the answer said: ' + text.slice(0, 300);
+  const bad = await evaluate(BAD_TEXT);
+  const p = takeProblems();
+  return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
+});
+
+// ------------------------------------------------------------------ reports: make, list, open, schedule, delete
+await check('the Reports page makes a report, keeps it in the list, serves it and deletes it; the old "Printable report" link is gone', async () => {
+  takeProblems();
+  if (await evaluate("!!document.getElementById('report-link') || document.body.innerText.includes('Printable report')")) return 'the old "Printable report" link is still on the page';
+  await evaluate("window.open = () => null; location.hash = '#reports'; setTab('reports'); 0");
+  await sleep(700);
+  const before = (await (await fetch(base + '/api/reports')).json()).reports.length;
+  await evaluate("document.getElementById('make-report').click(); 0");
+  await sleep(2500);
+  const list = (await (await fetch(base + '/api/reports')).json()).reports;
+  if (list.length !== before + 1) return `the report was not made (${before} -> ${list.length})`;
+  const rows = await evaluate("[...document.querySelectorAll('#reports-table tbody tr')].map((r) => r.innerText)");
+  if (rows.length !== list.length || !/By hand/.test(rows[0])) return 'the list on the page does not show it: ' + JSON.stringify(rows);
+  const page = await (await fetch(base + '/api/reports/' + list[0].id)).text();
+  for (const w of ['Compliance overview', 'NIS2', 'ISO/IEC 27001:2022', 'NIST SP 800-82']) if (!page.includes(w)) return `the saved report lacks "${w}"`;
+  const links = await evaluate("[...document.querySelectorAll('#reports-table tbody tr:first-child a')].map((a) => a.getAttribute('href'))");
+  if (!links.some((h) => h.endsWith('?download=1'))) return 'no download link: ' + JSON.stringify(links);
+  // the schedule is saved
+  await evaluate("(() => { const s = document.getElementById('rep-schedule'); s.value = 'weekly'; document.getElementById('rep-save').click(); })()");
+  await sleep(800);
+  if ((await (await fetch(base + '/api/reports/settings')).json()).schedule !== 'weekly') return 'the schedule was not saved';
+  await evaluate("window.confirm = () => true; document.querySelector('#reports-table tbody tr:first-child button').click(); 0");
+  await sleep(1000);
+  if ((await (await fetch(base + '/api/reports')).json()).reports.length !== before) return 'the report was not deleted';
   const bad = await evaluate(BAD_TEXT);
   const p = takeProblems();
   return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;

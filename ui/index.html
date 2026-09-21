@@ -52,6 +52,7 @@
           <button class="tab" data-tab="trends" type="button"><span class="label">Trends</span></button>
           <button class="tab" data-tab="events" type="button"><span class="label">Events</span></button>
           <button class="tab" data-tab="compliance" type="button"><span class="label">Compliance</span></button>
+          <button class="tab" data-tab="reports" type="button"><span class="label">Reports</span></button>
           <div class="navgroup">Manage</div>
           <button class="tab" data-tab="rules" type="button"><span class="label">Rules</span></button>
           <button class="tab" data-tab="alerting" type="button" id="tab-alerting" hidden><span class="label">Alerting</span></button>
@@ -77,7 +78,6 @@
             <input id="import-file" type="file" accept=".csv,text/csv" hidden>
             <a id="export-assets" href="/api/export/assets.csv?days=7" download>Devices CSV</a>
             <a id="export-alerts" href="/api/export/alerts.csv?days=30" download>Alerts CSV</a>
-            <a id="report-link" href="/report?days=7" target="_blank" rel="noopener">Printable report</a>
           </span>
           <label class="check" id="online-label"><input id="only-online" type="checkbox"> online only</label>
           <label class="check" id="review-label"><input id="only-review" type="checkbox"> needs review <span id="review-count" class="muted"></span></label>
@@ -203,6 +203,21 @@
         <h3 class="section">Standards mapping</h3>
         <div class="table-wrap"><table id="compliance-table"><thead><tr><th>Requirement</th><th>What DENIS provides</th><th>Status</th></tr></thead><tbody></tbody></table></div>
         <p class="muted small">Print this page (Ctrl/Cmd+P) to keep it as evidence.</p>
+      </section>
+
+      <section id="view-reports" hidden>
+        <p class="muted">A report is a snapshot of your network at one moment: devices, findings, accepted risks, alerts, trends and the compliance overview. Reports are kept here on the DENIS server, so you can open, download or print last month's again, for an auditor or a customer.</p>
+        <div class="row">
+          <select id="report-days" aria-label="Period the report covers"></select>
+          <button id="make-report" type="button" class="primary">Make a report now</button>
+          <span id="reports-total" class="muted"></span>
+          <span class="spacer"></span>
+          <a href="/report?days=7" target="_blank" rel="noopener" class="muted small">Open a live report without saving it</a>
+        </div>
+        <p id="no-reports" class="muted" hidden>No reports yet. Make one now, or switch the schedule on below.</p>
+        <div class="table-wrap"><table id="reports-table"><thead><tr><th>Made</th><th>How</th><th>Covers</th><th>Size</th><th></th></tr></thead><tbody></tbody></table></div>
+        <h3 class="section">Schedule</h3>
+        <div id="reports-schedule"></div>
       </section>
 
       <section id="view-rules" hidden>
@@ -343,6 +358,7 @@
   <script src="admin.js"></script>
   <script src="rules.js"></script>
   <script src="findings.js"></script>
+  <script src="reports.js"></script>
   <script src="main.js"></script>
 </body>
 </html>

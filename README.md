@@ -47,7 +47,7 @@ page, or `cargo build --release`):
 6. **Alerts reach you.** Slack, Microsoft Teams, Discord, PagerDuty, e-mail and a signed webhook, each with its own
    threshold, a Test button, digests during storms, maintenance mode and per-device silencing.
 7. **Tells you what to fix.** *Findings* (Telnet/RDP exposed, lost devices still online, no owner, expiring
-   warranty…), each with **Verify fix** (a fresh scan) and **Accept risk** (a reason, an end date, an audit trail) and a *Compliance* view mapping your coverage to CIS Controls v8, NIST CSF 2.0 and IEC 62443-3-3.
+   warranty…), each with **Verify fix** (a fresh scan) and **Accept risk** (a reason, an end date, an audit trail) and a *Compliance* view mapping your coverage to CIS Controls v8, NIST CSF 2.0, IEC 62443-3-3, NIST SP 800-82, ISO/IEC 27001 Annex A and NIS2, and *Reports* that are kept on the server (made by hand or on a schedule) to view, download or print.
 8. **A console you can trust, in your language.** English, German, French, Spanish and Slovak. Roles, passkey sign-in (WebAuthn), Argon2id, lock-outs, API tokens, an audit log,
    optional built-in HTTPS, strict headers. Every detection is visible and tunable (*Rules* tab).
 9. **Plays well with the rest of your stack.** Syslog/CEF for SIEMs, OpenObserve export, Prometheus `/metrics`,
@@ -94,7 +94,8 @@ src/detect.rs       baselines, all rules, scoring, learning periods, communicati
 src/risk.rs         per-device risk score
 src/rules.rs        the rules as the console shows and tunes them
 src/demo.rs         built-in demo data (a fictional company)
-src/compliance.rs   coverage and standards mapping (CIS / NIST CSF / IEC 62443)
+src/compliance.rs   coverage and standards mapping (CIS / NIST CSF / IEC 62443 / NIST 800-82 / ISO 27001 / NIS2)
+src/reports.rs      saved reports and their schedule
 src/docs.rs         the documentation served inside the console
 ui/i18n.js          language handling; texts in tools/i18n/*.tsv -> ui/i18n/*.json (python3 tools/i18n/build.py)
 src/metrics.rs      Prometheus exposition

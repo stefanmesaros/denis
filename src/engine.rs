@@ -708,6 +708,9 @@ pub async fn run(cfg: Config) -> Result<()> {
         tasks.push(tokio::spawn(crate::channels::run(d, store.clone())));
     }
 
+    // saved reports on a schedule
+    tasks.push(tokio::spawn(crate::reports::run(store.clone(), coll.shared.clone())));
+
     if let Some(sc) = cfg.syslog.clone() {
         let sl = Arc::new(crate::syslog::Syslog::new(sc));
         tracing::info!("sending alerts as syslog/CEF to {}", sl.status.lock().unwrap().target);

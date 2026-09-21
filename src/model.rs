@@ -659,6 +659,22 @@ pub struct AuditEntry {
 }
 
 
+/// A saved report (the content is stored beside it and fetched on its own).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReportMeta {
+    pub id: i64,
+    /// `manual` or `scheduled`.
+    pub kind: String,
+    pub title: String,
+    /// How many days of alerts and trends it covers.
+    pub period_days: i64,
+    pub created_at: i64,
+    /// A user name, or `schedule`.
+    pub created_by: String,
+    /// Bytes.
+    pub size: i64,
+}
+
 /// A person's decision to live with a finding on one device ("accept the risk"), with the reason and, usually, an end date.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RiskAcceptance {
