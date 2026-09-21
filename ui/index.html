@@ -192,6 +192,8 @@
               <option value="teams">Microsoft Teams (Workflows webhook)</option>
               <option value="discord">Discord (webhook)</option>
               <option value="pagerduty">PagerDuty (Events API v2)</option>
+              <option value="pushover">Pushover</option>
+              <option value="ntfy">ntfy (ntfy.sh or your own server)</option>
               <option value="email">E-mail (SMTP)</option>
               <option value="webhook">Generic webhook (signed JSON)</option>
             </select>
@@ -199,6 +201,7 @@
           <label>Name<input id="ch-name" maxlength="60" required placeholder="e.g. #security-alerts"></label>
           <label id="ch-url-row">Webhook URL<input id="ch-url" type="url" autocomplete="off" placeholder="https://…"></label>
           <label id="ch-secret-row">Integration key<input id="ch-secret" type="password" autocomplete="off"></label>
+          <label id="ch-user-row" hidden>User or group key<input id="ch-user" type="password" autocomplete="off"></label>
           <div id="ch-smtp" hidden class="brand-form">
             <label>SMTP server<input id="ch-smtp-host" placeholder="smtp.example.com"></label>
             <label>Port<input id="ch-smtp-port" type="number" min="1" max="65535" value="587"></label>

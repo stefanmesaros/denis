@@ -208,7 +208,7 @@ DENIS_AGENT_TOKEN=dat_… denis agent --master https://MASTER:8081 --master-ca /
 
 ## Alert notifications
 
-Configure **Slack, Teams, Discord, PagerDuty, e-mail and signed webhooks** in the console (*Alerting* tab, see [Alerting](alerting.md)); no restart, per-channel thresholds, a Test button. The simple command-line webhook below is the older way and still works:
+Configure **Slack, Teams, Discord, PagerDuty, Pushover, ntfy, e-mail and signed webhooks** in the console (*Alerting* tab, see [Alerting](alerting.md)); no restart, per-channel thresholds, a Test button. The simple command-line webhook below is the older way and still works:
 
 ```bash
 denis run --webhook https://hooks.slack.com/services/… --webhook-min-score 60

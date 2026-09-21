@@ -9,6 +9,8 @@ watch the console. Add as many channels as you like; each one has its own minimu
 | **Microsoft Teams** | a webhook URL from **Workflows** ("Send webhook alerts to a channel", or a flow triggered by *When a Teams webhook request is received*) | sent as an Adaptive Card. Microsoft retired the old Office 365 Connectors, so use Workflows |
 | **Discord** | a channel webhook URL | mentions are disabled, so a device named `@everyone` cannot ping anyone |
 | **PagerDuty** | an *Events API v2* integration key | for paging. Default minimum score is 70; repeats about the same device fold into one incident; severity maps to critical / error / warning / info |
+| **Pushover** | an application token (pushover.net/apps) and your user or group key | push notifications to phones. *High* alerts go as high priority (they bypass quiet hours), medium as normal, low as low; nothing asks for an acknowledgement |
+| **ntfy** | the address of your topic, like `https://ntfy.sh/your-topic` (or a topic on your own ntfy server); an access token if the topic is protected | push notifications without an account. Priority follows severity (urgent for a score of 90 and up). On the public server the topic name is the only secret: make it long and random. A token is never sent over plain `http://` |
 | **E-mail** | an SMTP server (STARTTLS or TLS), From and To addresses | plain-text mail with the same content |
 | **Generic webhook** | any URL that accepts a JSON POST | ServiceNow, Mattermost, Zapier, your own code. Optional signing secret |
 

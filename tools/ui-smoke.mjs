@@ -351,8 +351,18 @@ await check('table columns can be hidden, reordered and resized, stay so when th
   let now_ = await heads();
   if (now_.includes('Vendor') || now_.length !== start.length - 1) return 'Vendor was not hidden: ' + JSON.stringify(now_);
   if ((await firstRow()).length !== now_.length) return 'the rows did not follow the hidden column';
-  // move Name one place to the left
+  // move columns several times: after each move every heading must still sit over its own data
+  const pairs = () => evaluate("(() => { const t = document.getElementById('assets-table'); const vis = (c) => getComputedStyle(c).display !== 'none'; const hs = [...t.tHead.rows[0].cells].filter(vis).map((c) => c.textContent.trim()); const r = [...t.tBodies[0].rows[0].cells].filter(vis); return hs.map((h, i) => [h, r[i].textContent.trim(), r[i].className]); })()");
+  for (const name of ['MAC', 'Name', 'IP', 'Name']) {
+    await evaluate(`[...document.querySelectorAll('#view-assets .cols-row')].find((r) => r.textContent.trim().startsWith(${JSON.stringify(name)})).querySelector('.cols-up').click(); 0`);
+    await sleep(250);
+    const p = await pairs();
+    const ip = p.find((x) => x[0] === 'IP'), mac = p.find((x) => x[0] === 'MAC'), nm = p.find((x) => x[0] === 'Name'), ty = p.find((x) => x[0] === 'Type');
+    if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip[1]) || !/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/.test(mac[1]) || !/namecell/.test(nm[2]) || !ty[1]) return `after moving ${name}, a heading is over the wrong data: ` + JSON.stringify(p);
+  }
+  now_ = await heads();
   const before = now_.indexOf('Name');
+  // move Name one place to the left
   await evaluate("[...document.querySelectorAll('#view-assets .cols-row')].find((r) => r.textContent.includes('Name')).querySelector('.cols-up').click(); 0");
   await sleep(300);
   now_ = await heads();
@@ -707,6 +717,31 @@ await check('findings about software versions list what was read per device, and
   await sleep(1000);
   const box = await evaluate("document.getElementById('vuln-body').innerText");
   if (!/Support dates for \d+ products and \d+ known-exploited vulnerabilities, as of 20\d\d-\d\d-\d\d/.test(box)) return 'the software data box says: ' + box.slice(0, 300);
+  const bad = await evaluate(BAD_TEXT);
+  const p = takeProblems();
+  return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
+});
+
+// ------------------------------------------------------------------ Pushover and ntfy channels
+await check('Pushover and ntfy channels can be added from Alerting with the right fields, never show their secrets, and are removed again', async () => {
+  takeProblems();
+  await evaluate("location.hash = '#alerting'; setTab('alerting'); 0");
+  await sleep(900);
+  const pick = (k) => evaluate(`(() => { const s = document.getElementById('ch-kind'); s.value = ${JSON.stringify(k)}; s.dispatchEvent(new Event('change')); return { user: !document.getElementById('ch-user-row').hidden, url: !document.getElementById('ch-url-row').hidden, secret: document.getElementById('ch-secret-row').firstChild.textContent }; })()`);
+  const po = await pick('pushover');
+  if (!po.user || po.url || po.secret !== 'Application token') return 'the Pushover form: ' + JSON.stringify(po);
+  await evaluate(`(() => { document.getElementById('ch-name').value = 'Smoke phone'; document.getElementById('ch-secret').value = 'a'.repeat(30); document.getElementById('ch-user').value = 'u'.repeat(30); document.querySelector('#channel-form button[type=submit]').click(); })()`);
+  await sleep(1200);
+  const nt = await pick('ntfy');
+  if (nt.user || !nt.url || nt.secret !== 'Access token (optional)') return 'the ntfy form: ' + JSON.stringify(nt);
+  await evaluate(`(() => { document.getElementById('ch-name').value = 'Smoke topic'; document.getElementById('ch-url').value = 'https://ntfy.sh/smoke-test-topic-123456'; document.querySelector('#channel-form button[type=submit]').click(); })()`);
+  await sleep(1200);
+  const list = await (await fetch(base + '/api/channels')).json();
+  const mine = list.filter((c) => c.name.startsWith('Smoke '));
+  if (mine.length !== 2 || JSON.stringify(list).includes('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') || JSON.stringify(list).includes('smoke-test-topic')) return 'saved: ' + JSON.stringify(mine) + ' (or a secret was shown)';
+  const rows = await evaluate("[...document.querySelectorAll('#channels-table tbody tr')].map((r) => r.innerText)");
+  if (!rows.some((r) => /Smoke phone[\s\S]*Pushover/.test(r)) || !rows.some((r) => /Smoke topic[\s\S]*ntfy/.test(r))) return 'the list: ' + JSON.stringify(rows);
+  for (const c of mine) await fetch(base + '/api/channels/' + c.id, { method: 'DELETE', headers: { 'X-Denis': '1' } });
   const bad = await evaluate(BAD_TEXT);
   const p = takeProblems();
   return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;

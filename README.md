@@ -44,7 +44,7 @@ page, or `cargo build --release`):
    crossing the network boundary, Purdue-level skipping and writes from devices that should never write.
 5. **A real asset register.** Owner, location, serial number, asset tag, warranty, criticality, tags, custom
    fields, 80+ icons, 90+ device types, change history, a review queue for new devices, CSV import/export.
-6. **Alerts reach you.** Slack, Microsoft Teams, Discord, PagerDuty, e-mail and a signed webhook, each with its own
+6. **Alerts reach you.** Slack, Microsoft Teams, Discord, PagerDuty, Pushover, ntfy, e-mail and a signed webhook, each with its own
    threshold, a Test button, digests during storms, maintenance mode and per-device silencing.
 7. **Tells you what to fix.** *Findings* (Telnet/RDP exposed, lost devices still online, no owner, expiring
    warranty…), each with **Verify fix** (a fresh scan) and **Accept risk** (a reason, an end date, an audit trail) and a *Compliance* view mapping your coverage to CIS Controls v8, NIST CSF 2.0, IEC 62443-3-3, NIST SP 800-82, ISO/IEC 27001 Annex A and NIS2, and *Reports* that are kept on the server (made by hand or on a schedule) to view, download or print.
@@ -116,7 +116,7 @@ src/tls.rs          optional built-in HTTPS (rustls)
 src/engine.rs       collector + detector + web wiring (`run`, `run_agent`)
 src/store/          `Store` trait + SQLite (schema v5, transactional migrations)
 src/branding.rs     white-label settings and safe logo handling
-src/channels.rs     notification channels (Slack/Teams/Discord/PagerDuty/e-mail/webhook)
+src/channels.rs     notification channels (Slack/Teams/Discord/PagerDuty/Pushover/ntfy/e-mail/webhook)
 src/syslog.rs       syslog/CEF alert export for SIEMs
 src/sink.rs         OpenObserve exporter (cursor-based, at-least-once)
 src/report.rs       CSV / printable HTML (escaping, formula-injection guard)

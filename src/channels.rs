@@ -2,7 +2,8 @@
 //! administrator, in the tools they already watch.
 //!
 //! Supported: **Slack**, **Microsoft Teams** (a Workflows "webhook request"
-//! trigger; Adaptive Card), **Discord**, **PagerDuty** (Events API v2), **e-mail**
+//! trigger; Adaptive Card), **Discord**, **PagerDuty** (Events API v2), **Pushover**,
+//! **ntfy** (ntfy.sh or your own server), **e-mail**
 //! (SMTP) and a **generic signed webhook** (JSON, HMAC-SHA256 signature) for
 //! anything else (Mattermost, Zapier, ServiceNow, your own code).
 //!
@@ -43,13 +44,14 @@ use crate::store::Store;
 
 pub const KEY: &str = "channels";
 pub const MAINTENANCE_KEY: &str = "maintenance";
-pub const KINDS: &[&str] = &["slack", "teams", "discord", "pagerduty", "email", "webhook"];
+pub const KINDS: &[&str] = &["slack", "teams", "discord", "pagerduty", "pushover", "ntfy", "email", "webhook"];
 /// More waiting alerts than this for one channel are sent as a single digest.
 pub const DIGEST_ABOVE: usize = 5;
 /// Alerts older than this are not sent.
 const MAX_AGE_SECS: i64 = 24 * 3600;
 const MAX_CHANNELS: usize = 20;
 const PAGERDUTY_URL: &str = "https://events.pagerduty.com/v2/enqueue";
+const PUSHOVER_URL: &str = "https://api.pushover.net/1/messages.json";
 
 // ------------------------------------------------------------------ config
 
@@ -78,9 +80,12 @@ pub struct Channel {
     /// Webhook URL (slack, teams, discord, webhook); optional endpoint override for pagerduty.
     #[serde(default)]
     pub url: Option<String>,
-    /// PagerDuty routing (integration) key, or the webhook's signing secret.
+    /// PagerDuty routing (integration) key, the webhook's signing secret, Pushover's application token, or ntfy's access token.
     #[serde(default)]
     pub secret: Option<String>,
+    /// Pushover: the user (or group) key the message goes to.
+    #[serde(default)]
+    pub user: Option<String>,
     #[serde(default)]
     pub smtp: Option<Smtp>,
 }
@@ -145,6 +150,33 @@ impl Channel {
                     }
                 }
             }
+            "pushover" => {
+                let key_ok = |k: &str| (20..=40).contains(&k.len()) && k.chars().all(|c| c.is_ascii_alphanumeric());
+                if !self.secret.as_deref().is_some_and(key_ok) {
+                    return Err("give the Pushover application token (30 letters and digits, from pushover.net/apps)".into());
+                }
+                if !self.user.as_deref().is_some_and(key_ok) {
+                    return Err("give the Pushover user or group key (30 letters and digits, shown on your Pushover dashboard)".into());
+                }
+                if let Some(u) = &self.url {
+                    let (scheme, host) = split_url(u)?;
+                    if scheme == "http" && !is_loopback_host(host) {
+                        return Err("the Pushover endpoint must use https://".into());
+                    }
+                }
+            }
+            "ntfy" => {
+                let url = self.url.as_deref().ok_or("the ntfy topic address is required, like https://ntfy.sh/your-topic")?;
+                let (scheme, host) = split_url(url)?;
+                ntfy_target(url)?;
+                // an access token must not cross the network in clear; without one, a private server on http is the owner's call
+                if scheme == "http" && !is_loopback_host(host) && self.secret.is_some() {
+                    return Err("an access token would cross the network unencrypted: use https://".into());
+                }
+                if self.secret.as_deref().is_some_and(|t| t.len() > 200 || t.chars().any(|c| c.is_whitespace() || c.is_control())) {
+                    return Err("that does not look like an ntfy access token".into());
+                }
+            }
             "email" => {
                 let s = self.smtp.as_ref().ok_or("SMTP settings are required")?;
                 if s.host.is_empty() || s.host.len() > 253 || s.host.chars().any(|c| c.is_whitespace() || c.is_control() || c == '/') {
@@ -180,7 +212,7 @@ impl Channel {
         });
         json!({
             "id": self.id, "name": self.name, "kind": self.kind, "enabled": self.enabled, "min_score": self.min_score,
-            "url": url_shown, "has_url": self.url.is_some(), "has_secret": self.secret.is_some(),
+            "url": url_shown, "has_url": self.url.is_some(), "has_secret": self.secret.is_some(), "has_user": self.user.is_some(),
             "smtp": self.smtp.as_ref().map(|s| json!({
                 "host": s.host, "port": s.port, "security": s.security, "username": s.username,
                 "has_password": s.password.is_some(), "from": s.from, "to": s.to,
@@ -193,6 +225,7 @@ impl Channel {
         let mut v: Vec<&str> = Vec::new();
         v.extend(self.url.as_deref());
         v.extend(self.secret.as_deref());
+        v.extend(self.user.as_deref());
         if let Some(s) = &self.smtp {
             v.extend(s.password.as_deref());
         }
@@ -223,12 +256,12 @@ impl Channel {
 /// secrets are kept when the body does not send new ones).
 pub fn from_body(body: &Value, existing: Option<&Channel>) -> Result<Channel, String> {
     let obj = body.as_object().ok_or("expected a JSON object")?;
-    const ALLOWED: &[&str] = &["name", "kind", "enabled", "min_score", "url", "secret", "smtp"];
+    const ALLOWED: &[&str] = &["name", "kind", "enabled", "min_score", "url", "secret", "user", "smtp"];
     if let Some(k) = obj.keys().find(|k| !ALLOWED.contains(&k.as_str())) {
         return Err(format!("unknown field {k:?}"));
     }
     let mut c = existing.cloned().unwrap_or(Channel {
-        id: String::new(), name: String::new(), kind: String::new(), enabled: true, min_score: 50, url: None, secret: None, smtp: None,
+        id: String::new(), name: String::new(), kind: String::new(), enabled: true, min_score: 50, url: None, secret: None, user: None, smtp: None,
     });
     if let Some(k) = obj.get("kind") {
         let k = k.as_str().ok_or("kind must be text")?;
@@ -262,6 +295,9 @@ pub fn from_body(body: &Value, existing: Option<&Channel>) -> Result<Channel, St
     }
     if let Some(v) = text("secret")? {
         c.secret = v;
+    }
+    if let Some(v) = text("user")? {
+        c.user = v;
     }
     if let Some(s) = obj.get("smtp") {
         let o = s.as_object().ok_or("smtp must be an object")?;
@@ -558,6 +594,52 @@ pub fn pagerduty_payload(n: &Notification, routing_key: &str, source: &str) -> V
     })
 }
 
+/// Pushover message (their API accepts JSON). Priority follows severity; nothing needs an acknowledgement.
+pub fn pushover_payload(n: &Notification, token: &str, user: &str) -> Value {
+    let priority = match n.severity.as_str() {
+        _ if n.test => 0,
+        "high" => 1, // bypasses the recipient's quiet hours
+        "medium" => 0,
+        _ => -1,
+    };
+    let mut msg = n.summary.clone();
+    if let Some(d) = n.device() {
+        msg.push_str(&format!("\nDevice: {d}"));
+    }
+    if let Some(a) = &n.advice {
+        msg.push_str(&format!("\nWhat to do: {a}"));
+    }
+    json!({ "token": token, "user": user, "title": cut(&n.headline(), 250), "message": cut(&msg, 1024), "priority": priority, "timestamp": n.ts.max(0) })
+}
+
+/// Split an ntfy topic address into the server (`https://ntfy.sh`) and the topic (`your-topic`).
+pub fn ntfy_target(url: &str) -> Result<(String, String), String> {
+    let (scheme, _) = split_url(url)?;
+    let rest = &url[scheme.len() + 3..];
+    if url.contains(['?', '#']) {
+        return Err("the ntfy address is the server and the topic, like https://ntfy.sh/your-topic".into());
+    }
+    let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let mut segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    let topic = segments.pop().ok_or("the ntfy address needs a topic at the end, like https://ntfy.sh/your-topic")?;
+    if topic.len() > 64 || !topic.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err("an ntfy topic is up to 64 letters, digits, - and _".into());
+    }
+    let prefix = if segments.is_empty() { String::new() } else { format!("/{}", segments.join("/")) };
+    Ok((format!("{scheme}://{authority}{prefix}"), topic.to_string()))
+}
+
+/// ntfy message, published as JSON to the server (so device names with any characters are safe: no headers involved).
+pub fn ntfy_payload(n: &Notification, topic: &str) -> Value {
+    let (priority, tag) = match (n.severity.as_str(), n.score) {
+        ("high", s) if s >= 90 => (5, "rotating_light"),
+        ("high", _) => (4, "rotating_light"),
+        ("medium", _) => (3, "warning"),
+        _ => (2, "information_source"),
+    };
+    json!({ "topic": topic, "title": cut(&n.headline(), 250), "message": cut(&n.plain(), 3900), "priority": if n.test { 3 } else { priority }, "tags": [tag] })
+}
+
 pub fn webhook_payload(n: &Notification, now: i64) -> Value {
     json!({
         "version": 1,
@@ -639,6 +721,12 @@ pub fn send(ch: &Channel, n: &Notification, host: &str, now: i64) -> Result<()> 
         "teams" => post_json(ch.url.as_deref().unwrap_or(""), &teams_payload(n), &[]),
         "discord" => post_json(ch.url.as_deref().unwrap_or(""), &discord_payload(n), &[]),
         "pagerduty" => post_json(ch.url.as_deref().unwrap_or(PAGERDUTY_URL), &pagerduty_payload(n, ch.secret.as_deref().unwrap_or(""), host), &[]),
+        "pushover" => post_json(ch.url.as_deref().unwrap_or(PUSHOVER_URL), &pushover_payload(n, ch.secret.as_deref().unwrap_or(""), ch.user.as_deref().unwrap_or("")), &[]),
+        "ntfy" => {
+            let (base, topic) = ntfy_target(ch.url.as_deref().unwrap_or("")).map_err(|e| anyhow!("{e}"))?;
+            let extra: Vec<(&str, String)> = ch.secret.iter().map(|t| ("Authorization", format!("Bearer {t}"))).collect();
+            post_json(&base, &ntfy_payload(n, &topic), &extra)
+        }
         "webhook" => {
             let body = webhook_payload(n, now);
             let mut extra = Vec::new();
@@ -1097,5 +1185,90 @@ mod tests {
         let mut dead = ch.clone();
         dead.smtp.as_mut().unwrap().port = 1;
         assert!(send(&dead, &Notification::test(), "h", 1).is_err());
+    }
+
+    fn notif(severity: &str, score: i32) -> Notification {
+        Notification {
+            id: 1, kind: "new_port".into(), severity: severity.into(), score, ts: 1_000, summary: "camera opened port 23".into(), reasons: vec!["+40 new port".into()],
+            advice: None, name: Some("cam".into()), ip: Some("10.0.0.5".into()), mac: None, site: None, asset_id: Some(1), test: false, details: json!({}),
+        }
+    }
+
+    #[test]
+    fn pushover_and_ntfy_are_validated_addressed_and_never_show_their_secrets() {
+        let tok = "a".repeat(30);
+        let usr = "u".repeat(30);
+        let po = from_body(&json!({"name": "phone", "kind": "pushover", "secret": tok, "user": usr}), None).unwrap();
+        let shown = po.masked().to_string();
+        assert!(!shown.contains(&tok) && !shown.contains(&usr) && shown.contains("\"has_user\":true"), "{shown}");
+        for bad in [
+            json!({"name": "x", "kind": "pushover", "user": usr}),
+            json!({"name": "x", "kind": "pushover", "secret": tok}),
+            json!({"name": "x", "kind": "pushover", "secret": "short", "user": usr}),
+            json!({"name": "x", "kind": "pushover", "secret": tok, "user": "not valid!!!!!!!!!!!!!!!!!!!!"}),
+            json!({"name": "x", "kind": "pushover", "secret": tok, "user": usr, "url": "http://example.com/x"}),
+            json!({"name": "x", "kind": "ntfy"}),
+            json!({"name": "x", "kind": "ntfy", "url": "https://ntfy.sh"}),
+            json!({"name": "x", "kind": "ntfy", "url": "https://ntfy.sh/bad topic"}),
+            json!({"name": "x", "kind": "ntfy", "url": "https://ntfy.sh/topic?auth=x"}),
+            json!({"name": "x", "kind": "ntfy", "url": "https://ntfy.sh/a/b/c d"}),
+            json!({"name": "x", "kind": "ntfy", "url": "http://ntfy.lan/topic", "secret": "tk_abcdef"}),
+        ] {
+            assert!(from_body(&bad, None).is_err(), "{bad}");
+        }
+        assert!(from_body(&json!({"name": "x", "kind": "ntfy", "url": "http://ntfy.lan/topic"}), None).is_ok(), "a private server on http, without a token, is the owner's call");
+        assert_eq!(ntfy_target("https://ntfy.sh/my-topic").unwrap(), ("https://ntfy.sh".to_string(), "my-topic".to_string()));
+        assert_eq!(ntfy_target("https://ntfy.example.com:8443/sub/path/alerts_1/").unwrap(), ("https://ntfy.example.com:8443/sub/path".to_string(), "alerts_1".to_string()));
+        // an error never contains the topic (it is the secret of a public server) or the keys
+        let n = from_body(&json!({"name": "x", "kind": "ntfy", "url": "https://ntfy.sh/SecretTopicName", "secret": "tk_verysecrettoken"}), None).unwrap();
+        assert!(!n.scrub("POST https://ntfy.sh/SecretTopicName failed, tk_verysecrettoken".into()).contains("SecretTopicName"));
+        assert!(!po.scrub(format!("bad {tok} for {usr}")).contains(&tok));
+    }
+
+    #[test]
+    fn pushover_and_ntfy_carry_severity_the_device_and_what_to_do() {
+        let mut n = notif("high", 95);
+        n.name = Some("cam \u{1F4F7} <b>1</b>".into());
+        n.advice = Some("Isolate it.".into());
+        let p = pushover_payload(&n, "TOKEN", "USER");
+        assert_eq!((p["token"].as_str(), p["user"].as_str(), p["priority"].as_i64()), (Some("TOKEN"), Some("USER"), Some(1)));
+        assert!(p["message"].as_str().unwrap().contains("Isolate it.") && p["message"].as_str().unwrap().contains("cam"));
+        assert_eq!(pushover_payload(&notif("medium", 60), "T", "U")["priority"], 0);
+        assert_eq!(pushover_payload(&notif("low", 35), "T", "U")["priority"], -1);
+        let mut big = notif("high", 95);
+        big.summary = "x".repeat(5000);
+        assert!(pushover_payload(&big, "T", "U")["message"].as_str().unwrap().chars().count() <= 1024, "Pushover's limit");
+        let t = ntfy_payload(&n, "alerts");
+        assert_eq!((t["topic"].as_str(), t["priority"].as_i64(), t["tags"][0].as_str()), (Some("alerts"), Some(5), Some("rotating_light")));
+        assert_eq!(ntfy_payload(&notif("medium", 60), "a")["priority"], 3);
+        assert_eq!(ntfy_payload(&notif("low", 35), "a")["priority"], 2);
+        assert!(ntfy_payload(&big, "a")["message"].as_str().unwrap().chars().count() <= 3900);
+    }
+
+    #[test]
+    fn pushover_and_ntfy_deliver_to_the_service_and_ntfy_sends_its_token_as_a_bearer() {
+        let f = fake();
+        let (s, id) = world();
+        let mut po = from_body(&json!({"name": "phone", "kind": "pushover", "secret": "a".repeat(30), "user": "u".repeat(30), "url": format!("{}/1/messages.json", f.url), "min_score": 0}), None).unwrap();
+        let mut nt = from_body(&json!({"name": "topic", "kind": "ntfy", "url": format!("{}/my-topic", f.url), "min_score": 0}), None).unwrap();
+        let mut nt2 = from_body(&json!({"name": "private", "kind": "ntfy", "url": format!("{}/sub/other", f.url), "secret": "tk_abc123", "min_score": 0}), None).unwrap();
+        po.id = "cp".into();
+        nt.id = "cn".into();
+        nt2.id = "c2".into();
+        save(&s, &[po, nt, nt2], 1).unwrap();
+        let d = Dispatcher::new(Arc::default(), "denis-host".into(), Duration::ZERO);
+        d.cycle(&s, 100);
+        event(&s, id, "new_port", 95, 150);
+        d.cycle(&s, 160);
+        let seen = f.seen.lock().unwrap();
+        assert_eq!(seen.len(), 3, "{:?}", seen.iter().map(|x| &x.0).collect::<Vec<_>>());
+        let p = seen.iter().find(|x| x.0 == "/1/messages.json").unwrap();
+        assert_eq!((p.2["priority"].as_i64(), p.2["user"].as_str().map(str::len)), (Some(1), Some(30)));
+        let plain = seen.iter().find(|x| x.2["topic"] == "my-topic").unwrap();
+        assert_eq!(plain.0, "/", "published as JSON to the server itself, the topic is in the body");
+        assert!(!plain.1.iter().any(|(k, _)| k == "authorization"), "no token, no Authorization header");
+        let private = seen.iter().find(|x| x.2["topic"] == "other").unwrap();
+        assert_eq!(private.0, "/sub", "a server under a path keeps its path");
+        assert_eq!(private.1.iter().find(|(k, _)| k == "authorization").map(|(_, v)| v.as_str()), Some("Bearer tk_abc123"));
     }
 }

@@ -74,9 +74,12 @@ function enhanceTable(table) {
     for (const row of table.tBodies[0] ? [...table.tBodies[0].rows] : []) {
       if (row.cells.length !== shown.length) continue; // an empty-state row, or one the page built differently
       const cells = [...row.cells];
-      // the cells come in the original order of the columns the page shows
-      const map = new Map(shown.map((c, i) => [c.ci, cells[i]]));
+      // A row the page has just drawn has its cells in the original order of the columns it shows; a row we have
+      // already laid out says which column each cell belongs to (moving it again must not guess from the order).
+      if (cells.some((cell) => cell.dataset.ci === undefined)) cells.forEach((cell, i) => { cell.dataset.ci = String(shown[i].ci); });
+      const map = new Map(cells.map((cell) => [Number(cell.dataset.ci), cell]));
       const want = sorted.map((s) => map.get(s.ci));
+      if (want.some((cell) => !cell)) continue; // a row that does not fit the columns: leave it alone
       if (want.some((cell, i) => cells[i] !== cell)) row.replaceChildren(...want);
       for (const [ci, cell] of map) cell.classList.toggle('col-off', layout.hidden.includes(ci));
     }

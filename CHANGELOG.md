@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0-rc.2: Pushover and ntfy, and a fix for moving table columns
+
+*A release candidate on top of 0.4.0-rc.1.*
+
+* **Pushover** and **ntfy** notification channels (*Alerting* → *Add a channel*). Pushover: an application token and a user or
+  group key; high alerts go as high priority. ntfy: the address of your topic on ntfy.sh or your own server, and an access token
+  for a protected topic (never sent over plain `http://`); published as JSON, so device names with any characters are safe.
+  Secrets are write-only, as for the other channels.
+* Fixed: **moving a table column a second time put the headings over the wrong data.** The first move worked, later ones did not.
+  The browser test now moves columns several times and checks every heading against its data.
+* Fixed a test that assumed the machine running it has no SSH server (the CI runners do).
+
 ## 0.4.0-rc.1: reports, health, two-step sign-in, real topology, software versions
 
 *A release candidate: use it for a while on a real network before it becomes 0.4.0.*
