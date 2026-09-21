@@ -27,6 +27,7 @@ pub const PAGES: &[(&str, &str)] = &[
     ("asset-management", "Asset management"),
     ("detection-rules", "Detection rules"),
     ("ot-guide", "OT guide"),
+    ("switches", "Switches (SNMP)"),
     ("alerting", "Alerting"),
     ("branding", "Branding"),
     ("export", "Export & SIEM"),
@@ -46,25 +47,25 @@ struct Chrome {
     back: &'static str,
     notice: &'static str,
     /// Menu titles, in `PAGES` order.
-    menu: [&'static str; 16],
+    menu: [&'static str; 17],
 }
 
 const CHROME: &[Chrome] = &[
     Chrome {
         lang: "de", documentation: "Dokumentation", back: "← Zurück zur Konsole", notice: "Die Dokumentation ist auf Englisch verfasst.",
-        menu: ["Überblick", "Schnellstart", "Konsolenrundgang", "Konzepte", "Geräteverwaltung", "Erkennungsregeln", "OT-Leitfaden", "Alarmierung", "Branding", "Export & SIEM", "Bereitstellung", "Betrieb", "Aktualisierungen", "Sicherheit", "API", "Fehlerbehebung"],
+        menu: ["Überblick", "Schnellstart", "Konsolenrundgang", "Konzepte", "Geräteverwaltung", "Erkennungsregeln", "OT-Leitfaden", "Switches (SNMP)", "Alarmierung", "Branding", "Export & SIEM", "Bereitstellung", "Betrieb", "Aktualisierungen", "Sicherheit", "API", "Fehlerbehebung"],
     },
     Chrome {
         lang: "fr", documentation: "Documentation", back: "← Retour à la console", notice: "La documentation est rédigée en anglais.",
-        menu: ["Vue d'ensemble", "Démarrage rapide", "Visite de la console", "Concepts", "Gestion des appareils", "Règles de détection", "Guide OT", "Alertes sortantes", "Personnalisation", "Export & SIEM", "Déploiement", "Exploitation", "Mises à jour", "Sécurité", "API", "Dépannage"],
+        menu: ["Vue d'ensemble", "Démarrage rapide", "Visite de la console", "Concepts", "Gestion des appareils", "Règles de détection", "Guide OT", "Commutateurs (SNMP)", "Alertes sortantes", "Personnalisation", "Export & SIEM", "Déploiement", "Exploitation", "Mises à jour", "Sécurité", "API", "Dépannage"],
     },
     Chrome {
         lang: "es", documentation: "Documentación", back: "← Volver a la consola", notice: "La documentación está escrita en inglés.",
-        menu: ["Resumen", "Inicio rápido", "Recorrido por la consola", "Conceptos", "Gestión de dispositivos", "Reglas de detección", "Guía OT", "Alertas externas", "Marca", "Exportación y SIEM", "Despliegue", "Operación", "Actualizaciones", "Seguridad", "API", "Solución de problemas"],
+        menu: ["Resumen", "Inicio rápido", "Recorrido por la consola", "Conceptos", "Gestión de dispositivos", "Reglas de detección", "Guía OT", "Conmutadores (SNMP)", "Alertas externas", "Marca", "Exportación y SIEM", "Despliegue", "Operación", "Actualizaciones", "Seguridad", "API", "Solución de problemas"],
     },
     Chrome {
         lang: "sk", documentation: "Dokumentácia", back: "← Späť do konzoly", notice: "Dokumentácia je napísaná po anglicky.",
-        menu: ["Prehľad", "Rýchly štart", "Prehliadka konzoly", "Pojmy", "Správa zariadení", "Detekčné pravidlá", "Sprievodca OT", "Upozorňovanie", "Vzhľad", "Export a SIEM", "Nasadenie", "Prevádzka", "Aktualizácie", "Bezpečnosť", "API", "Riešenie problémov"],
+        menu: ["Prehľad", "Rýchly štart", "Prehliadka konzoly", "Pojmy", "Správa zariadení", "Detekčné pravidlá", "Sprievodca OT", "Switche (SNMP)", "Upozorňovanie", "Vzhľad", "Export a SIEM", "Nasadenie", "Prevádzka", "Aktualizácie", "Bezpečnosť", "API", "Riešenie problémov"],
     },
 ];
 

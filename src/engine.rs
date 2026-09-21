@@ -720,6 +720,8 @@ pub async fn run(cfg: Config) -> Result<()> {
     tasks.push(tokio::spawn(crate::reports::run(store.clone(), coll.shared.clone())));
     // accepted risks: announce their end, scan them again, notice when the problem is gone
     tasks.push(tokio::spawn(crate::reverify::run(store.clone(), coll.shared.clone(), alerts.clone())));
+    // switches read over SNMP (ports, neighbours, what is plugged in where)
+    tasks.push(tokio::spawn(crate::switches::run(store.clone(), coll.shared.clone())));
     // scheduled backups of the database
     tasks.push(tokio::spawn(crate::backups::run(store.clone(), coll.shared.clone())));
 

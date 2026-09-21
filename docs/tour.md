@@ -105,6 +105,10 @@ and why. It is evidence for your own assessment, not a certification. Print the 
 
 Devices grouped by type around the gateway; colour shows risk. Hover a device for its name, address and score.
 
+**Switches and cables** is the physical map, read from your switches over SNMP: which port each device is plugged into and
+how the switches are cabled together. A device's panel gets a *Connected to* line. Set it up under *Settings* → *Switches (SNMP)*
+([details](switches.md)).
+
 ## OT
 
 ![OT](img/ot.png)

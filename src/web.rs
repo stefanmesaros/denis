@@ -33,6 +33,7 @@ use crate::web_admin as admin;
 use crate::web_health as health_page;
 use crate::web_reports as reports_page;
 use crate::web_setup as setup_page;
+use crate::web_topology as topology_page;
 use crate::web_totp as totp_page;
 use crate::web_passkey as passkey;
 use crate::risk::{self, Risk};
@@ -128,6 +129,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/data/erase", post(admin::data_erase))
         .route("/api/findings", get(findings))
         .route("/api/findings/{id}/verify", post(admin::finding_verify))
+        .route("/api/topology", get(topology_page::topology))
+        .route("/api/switches", get(topology_page::list).put(topology_page::put))
+        .route("/api/switches/{id}/poll", post(topology_page::poll_now))
         .route("/api/system", get(health_page::health))
         .route("/api/setup", get(setup_page::get).put(setup_page::put))
         .route("/api/backups", get(health_page::list).post(health_page::make))
@@ -194,7 +198,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path == "/api/reports/settings") && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path == "/api/reports/settings") && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -1602,6 +1606,60 @@ mod tests {
             assert!(audit.contains(a), "{a}");
         }
         assert!(!audit.contains(&recovery[2]), "no code is ever written to the audit log");
+    }
+
+    #[tokio::test]
+    async fn switches_are_added_by_admins_polled_over_snmp_and_place_known_devices_on_their_ports_without_ever_exposing_the_community() {
+        use crate::snmp::{agent, oid, Value};
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let mut cam = Asset::new(Mac([0xaa, 0, 0, 0, 0, 9]), 10);
+        cam.device_type = "camera".into();
+        cam.last_seen = now_ts();
+        store.save_asset(&mut cam).unwrap();
+        // a small switch: two ports, one MAC learned on port 2
+        let mut mib = std::collections::BTreeMap::new();
+        mib.insert(oid("1.3.6.1.2.1.1.1.0"), Value::Str(b"Acme switch".to_vec()));
+        mib.insert(oid("1.3.6.1.2.1.1.5.0"), Value::Str(b"sw-lab".to_vec()));
+        for i in 1..=2u32 {
+            mib.insert(oid(&format!("1.3.6.1.2.1.31.1.1.1.1.{i}")), Value::Str(format!("Gi1/0/{i}").into_bytes()));
+            mib.insert(oid(&format!("1.3.6.1.2.1.17.1.4.1.2.{i}")), Value::Int(i as i64));
+        }
+        mib.insert(oid("1.3.6.1.2.1.17.7.1.2.2.1.2.1.170.0.0.0.0.9"), Value::Int(2));
+        let a = agent::start("SUPERSECRETCOMMUNITY", mib, false);
+        let put = |targets: serde_json::Value| serde_json::json!({"interval_secs": 300, "targets": targets});
+        let target = serde_json::json!({"id": "lab1", "name": "Lab switch", "address": a.addr.to_string(), "community": "SUPERSECRETCOMMUNITY", "enabled": true});
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("PUT", "/api/switches", Some(c), Some(put(serde_json::json!([target.clone()]))))).await.0, StatusCode::FORBIDDEN);
+            assert_eq!(send(&app, req("POST", "/api/switches/lab1/poll", Some(c), None)).await.0, StatusCode::FORBIDDEN);
+        }
+        // refused: no community for a new switch, a name for an address
+        let no_comm = serde_json::json!({"id": "x1", "name": "n", "address": "192.0.2.1", "enabled": true});
+        assert_eq!(send(&app, req("PUT", "/api/switches", Some(&admin), Some(put(serde_json::json!([no_comm]))))).await.0, StatusCode::BAD_REQUEST);
+        let named = serde_json::json!({"id": "x2", "name": "n", "address": "sw.example.com", "community": "c", "enabled": true});
+        assert_eq!(send(&app, req("PUT", "/api/switches", Some(&admin), Some(put(serde_json::json!([named]))))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, req("PUT", "/api/switches", Some(&admin), Some(put(serde_json::json!([target.clone()]))))).await.0, StatusCode::NO_CONTENT);
+        // read it now
+        let (st, _, v) = send(&app, req("POST", "/api/switches/lab1/poll", Some(&admin), None)).await;
+        assert_eq!((st, v["ok"].as_bool(), v["ports"].as_u64(), v["macs"].as_u64()), (StatusCode::OK, Some(true), Some(2), Some(1)), "{v}");
+        assert_eq!(send(&app, req("POST", "/api/switches/nope/poll", Some(&admin), None)).await.0, StatusCode::NOT_FOUND);
+        // the topology names the port the camera is plugged into; everyone signed in can read it
+        let (_, _, t) = send(&app, req("GET", "/api/topology", Some(&viewer), None)).await;
+        assert_eq!(t["configured"], true);
+        assert_eq!((t["switches"][0]["sys_name"].as_str(), t["switches"][0]["ports_total"].as_u64()), (Some("sw-lab"), Some(2)));
+        let at = &t["attachments"][0];
+        assert_eq!((at["asset_id"].as_i64(), at["port"].as_str(), at["switch"].as_str(), at["via"].as_str()), (Some(cam.id), Some("Gi1/0/2"), Some("lab1"), Some("fdb")), "{t}");
+        // the community is never sent back, nor written to the audit log; leaving it blank on the next save keeps it
+        let (_, _, list) = send(&app, req("GET", "/api/switches", Some(&viewer), None)).await;
+        assert_eq!((list["targets"][0]["has_community"].as_bool(), list["targets"][0]["macs"].as_u64()), (Some(true), Some(1)));
+        assert!(!list.to_string().contains("SUPERSECRET") && !t.to_string().contains("SUPERSECRET"));
+        let renamed = serde_json::json!({"id": "lab1", "name": "Lab core", "address": a.addr.to_string(), "enabled": true});
+        assert_eq!(send(&app, req("PUT", "/api/switches", Some(&admin), Some(put(serde_json::json!([renamed]))))).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, req("POST", "/api/switches/lab1/poll", Some(&admin), None)).await.2["ok"], true, "the stored community was kept");
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("switches.update") && audit.contains("switches.poll") && !audit.contains("SUPERSECRET"));
+        // removing the switch from the list removes it from the topology
+        assert_eq!(send(&app, req("PUT", "/api/switches", Some(&admin), Some(put(serde_json::json!([]))))).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, req("GET", "/api/topology", Some(&viewer), None)).await.2["configured"], false);
     }
 
     #[tokio::test]

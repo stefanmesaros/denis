@@ -327,6 +327,7 @@ async function showDetail(id) {
     const h = await fetch('/api/assets/' + id + '/history');
     if (h.ok) hist = await h.json();
   } catch (e) { /* offline: show without baseline/history */ }
+  const plugged = await connectedTo(id); // which switch port it is plugged into, when a switch says
   const mine = state.alerts.filter((e) => e.asset_id === id).slice(0, 8);
 
   const baselineNodes = bl ? [
@@ -375,6 +376,7 @@ async function showDetail(id) {
     dl([
       row('MAC', a.mac + (a.randomized_mac ? ' ' + tr('(private/randomised)') : '')),
       row(tr('Vendor'), a.vendor),
+      row(tr('Connected to'), plugged),
       row(tr('Hostnames'), a.hostnames),
       row(tr('First seen'), fmtTime(a.first_seen)),
       row(tr('Last seen'), a.last_seen ? fmtTime(a.last_seen) : tr('never (entered by hand)')),
@@ -637,7 +639,7 @@ function setTab(t) {
   $('acked-label').hidden = t !== 'alerts';
   $('range').hidden = t !== 'trends';
   renderSiteFilter();
-  if (t === 'topology') renderTopology();
+  if (t === 'topology') { if (topoMode === 'physical') renderPhysical(); else renderTopology(); }
   if (t === 'trends') loadTrends();
   if (t === 'ot') loadOt();
   if (t === 'findings') loadFindings();
@@ -647,7 +649,7 @@ function setTab(t) {
   if (t === 'health') loadHealth();
   if (t === 'alerting') loadAlerting();
   if (t === 'users') { renderUsers(); renderApiTokens(); }
-  if (t === 'settings') { initBrandingForm(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); }
+  if (t === 'settings') { initBrandingForm(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); }
   if (t === 'audit') renderAudit();
   if (t === 'account') renderAccount();
   if (t === 'agents') renderTokens();

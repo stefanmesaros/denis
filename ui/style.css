@@ -316,3 +316,13 @@ table.sized td, table.sized th { overflow: hidden; text-overflow: ellipsis; }
 .setup-body { flex: 1; }
 .setup-body button { margin-top: 6px; }
 .setup-actions { margin-top: 12px; }
+
+/* physical topology (switches.js) */
+.segmented { display: inline-flex; margin: 0 0 10px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.segmented button { border: 0; border-radius: 0; padding: 5px 14px; }
+.segmented button.active { background: var(--accent); color: var(--accent-text); }
+.topo .cable { stroke: var(--accent); stroke-width: 2.5; }
+.topo .switch-node { fill: var(--panel); stroke: var(--accent); stroke-width: 2; }
+.topo .switch-node.down { stroke: #dc2626; stroke-dasharray: 4 3; }
+.topo text.switch-label { fill: var(--text); font-size: 10px; font-weight: 600; }
+#topo-physical-body { flex-direction: column; }

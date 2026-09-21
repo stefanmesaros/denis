@@ -99,6 +99,16 @@ pub struct StoreStats {
     pub rows: Vec<(&'static str, i64)>,
 }
 
+/// The last poll of one switch.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TopoRow {
+    pub id: String,
+    pub last_poll: i64,
+    pub last_ok: Option<i64>,
+    pub error: Option<String>,
+    pub snapshot: Option<String>,
+}
+
 /// A person's authenticator-app secret. `enabled` is false until the first code was confirmed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TotpRecord {
@@ -204,6 +214,12 @@ pub trait Store: Send + Sync {
     fn list_risk_acceptances(&self) -> Result<Vec<RiskAcceptance>>;
     /// Withdraw a decision. `false` if there was none (or it was already withdrawn).
     fn revoke_risk_acceptance(&self, id: i64, by: &str, ts: i64) -> Result<bool>;
+
+    // ------------------------------------------------ switches (SNMP topology)
+    /// Keep what a switch said (`Ok(json)`), or why polling it failed (`Err`): a failure keeps the older snapshot.
+    fn save_topo(&self, id: &str, now: i64, snapshot: Result<&str, &str>) -> Result<()>;
+    fn list_topo(&self) -> Result<Vec<TopoRow>>;
+    fn delete_topo(&self, id: &str) -> Result<()>;
 
     // ------------------------------------------------ authenticator app (TOTP)
     fn get_totp(&self, user_id: i64) -> Result<Option<TotpRecord>>;

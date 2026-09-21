@@ -6,10 +6,10 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use std::collections::HashMap;
 
-use super::{AgentToken, ApiToken, EventQuery, Passkey, SessionRecord, Store, StoreStats, TotpRecord, UserRecord};
+use super::{AgentToken, ApiToken, EventQuery, Passkey, SessionRecord, Store, StoreStats, TopoRow, TotpRecord, UserRecord};
 use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, ReportMeta, RiskAcceptance, User};
 
-const SCHEMA_VERSION: i64 = 12;
+const SCHEMA_VERSION: i64 = 13;
 
 /// Phase 1 schema.
 const V1: &str = "CREATE TABLE assets (
@@ -196,6 +196,15 @@ const V12: &str = "CREATE TABLE totp (
      );
      CREATE INDEX totp_recovery_user ON totp_recovery (user_id);";
 
+/// What each polled switch last said (SNMP): the ports, its LLDP neighbours and its forwarding table, as JSON.
+const V13: &str = "CREATE TABLE topo_snapshots (
+        id        TEXT PRIMARY KEY,
+        last_poll INTEGER NOT NULL,
+        last_ok   INTEGER,
+        error     TEXT,
+        snapshot  TEXT
+     );";
+
 /// Phase 3.8: API tokens for scripts and integrations.
 const V7: &str = "CREATE TABLE api_tokens (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -247,7 +256,7 @@ impl SqliteStore {
         }
         // Each step runs in its own transaction and bumps user_version, so a
         // crash mid-migration leaves the database at a consistent older version.
-        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12)] {
+        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13)] {
             if version < target {
                 let tx = conn.unchecked_transaction()?;
                 tx.execute_batch(sql)?;
@@ -712,7 +721,7 @@ impl Store for SqliteStore {
         // children first
         for sql in [
             "DELETE FROM events", "DELETE FROM baselines", "DELETE FROM conversations", "DELETE FROM presence", "DELETE FROM metrics",
-            "DELETE FROM asset_meta", "DELETE FROM risk_acceptances", "DELETE FROM reports", "DELETE FROM assets", "DELETE FROM agents",
+            "DELETE FROM asset_meta", "DELETE FROM risk_acceptances", "DELETE FROM reports", "DELETE FROM topo_snapshots", "DELETE FROM assets", "DELETE FROM agents",
             // learned state that belongs to the old network
             "DELETE FROM settings WHERE key = 'dhcp_servers'",
         ] {
@@ -776,6 +785,37 @@ impl Store for SqliteStore {
     fn revoke_risk_acceptance(&self, id: i64, by: &str, ts: i64) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
         Ok(conn.execute("UPDATE risk_acceptances SET revoked_at = ?2, revoked_by = ?3 WHERE id = ?1 AND revoked_at IS NULL", params![id, ts, by])? > 0)
+    }
+
+    // ------------------------------------------------ switches (SNMP topology)
+    fn save_topo(&self, id: &str, now: i64, snapshot: Result<&str, &str>) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        match snapshot {
+            Ok(json) => conn.execute(
+                "INSERT INTO topo_snapshots (id, last_poll, last_ok, error, snapshot) VALUES (?1, ?2, ?2, NULL, ?3)
+                 ON CONFLICT(id) DO UPDATE SET last_poll = ?2, last_ok = ?2, error = NULL, snapshot = ?3",
+                params![id, now, json],
+            )?,
+            // a failed poll keeps what the switch said last time, and says why the newest one failed
+            Err(e) => conn.execute(
+                "INSERT INTO topo_snapshots (id, last_poll, last_ok, error, snapshot) VALUES (?1, ?2, NULL, ?3, NULL)
+                 ON CONFLICT(id) DO UPDATE SET last_poll = ?2, error = ?3",
+                params![id, now, e],
+            )?,
+        };
+        Ok(())
+    }
+
+    fn list_topo(&self) -> Result<Vec<TopoRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT id, last_poll, last_ok, error, snapshot FROM topo_snapshots ORDER BY id")?;
+        let rows = stmt.query_map([], |r| Ok(TopoRow { id: r.get(0)?, last_poll: r.get(1)?, last_ok: r.get(2)?, error: r.get(3)?, snapshot: r.get(4)? }))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn delete_topo(&self, id: &str) -> Result<()> {
+        self.conn.lock().unwrap().execute("DELETE FROM topo_snapshots WHERE id = ?1", [id])?;
+        Ok(())
     }
 
     // ------------------------------------------------ authenticator app (TOTP)

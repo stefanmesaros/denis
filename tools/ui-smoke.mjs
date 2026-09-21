@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import net from 'node:net';
 import { createHmac, randomBytes } from 'node:crypto';
+import dgram from 'node:dgram';
 
 import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -563,6 +564,99 @@ await check('the authenticator-app second step: set-up with a QR code and recove
     if (srv) srv.kill('SIGTERM');
     await load(base + '/#assets');
     await ready();
+  }
+});
+
+// ------------------------------------------------------------------ switches over SNMP: an independent little agent
+// (written here in JavaScript from the protocol description, not from the program's own code, so the two check each other)
+const snmpAgent = (table, community) => {
+  const berLen = (n) => { if (n < 128) return Buffer.from([n]); const b = []; while (n > 0) { b.unshift(n & 255); n >>= 8; } return Buffer.from([0x80 | b.length, ...b]); };
+  const tlv = (tag, body) => Buffer.concat([Buffer.from([tag]), berLen(body.length), body]);
+  const int = (v) => { const b = []; let n = v; do { b.unshift(n & 255); n = Math.floor(n / 256); } while (n > 0); if (b[0] & 0x80) b.unshift(0); return tlv(2, Buffer.from(b)); };
+  const oidEnc = (arcs) => { const out = [arcs[0] * 40 + arcs[1]]; for (const a of arcs.slice(2)) { const g = [a & 127]; let n = a >> 7; while (n > 0) { g.unshift((n & 127) | 128); n >>= 7; } out.push(...g); } return tlv(6, Buffer.from(out)); };
+  const read = (buf, pos) => { const tag = buf[pos]; let len = buf[pos + 1]; let hdr = 2; if (len & 0x80) { const n = len & 0x7f; len = 0; for (let i = 0; i < n; i++) len = len * 256 + buf[pos + 2 + i]; hdr = 2 + n; } return { tag, start: pos + hdr, end: pos + hdr + len }; };
+  const oidDec = (b) => { const arcs = [Math.floor(b[0] / 40), b[0] % 40]; let cur = 0; for (const x of b.slice(1)) { cur = cur * 128 + (x & 127); if (!(x & 128)) { arcs.push(cur); cur = 0; } } return arcs; };
+  const cmp = (a, b) => { for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i]; return a.length - b.length; };
+  const rows = [...table.entries()].map(([k, v]) => [k.split('.').map(Number), v]).sort((x, y) => cmp(x[0], y[0]));
+  const val = (v) => (typeof v === 'number' ? int(v) : tlv(4, Buffer.from(v)));
+  const sock = dgram.createSocket('udp4');
+  sock.on('message', (msg, rinfo) => {
+    try {
+      const top = read(msg, 0);
+      let p = top.start;
+      const ver = read(msg, p); p = ver.end;
+      const com = read(msg, p); p = com.end;
+      if (msg.subarray(com.start, com.end).toString() !== community) return;
+      const pdu = read(msg, p);
+      let q = pdu.start;
+      const id = read(msg, q); q = id.end;
+      const a = read(msg, q); q = a.end;
+      const b = read(msg, q); q = b.end;
+      const maxRep = msg.subarray(b.start, b.end).readUIntBE(0, b.end - b.start);
+      const list = read(msg, q);
+      const vb = read(msg, list.start);
+      const name = read(msg, vb.start);
+      const from = oidDec(msg.subarray(name.start, name.end));
+      let out = [];
+      if (pdu.tag === 0xa0) { const hit = rows.find(([k]) => cmp(k, from) === 0); out = [[from, hit ? hit[1] : null]]; }
+      else if (pdu.tag === 0xa1 || pdu.tag === 0xa5) {
+        const following = rows.filter(([k]) => cmp(k, from) > 0).slice(0, pdu.tag === 0xa5 ? maxRep : 1);
+        out = following.length ? following : [[from, undefined]];
+      } else return;
+      const binds = Buffer.concat(out.map(([k, v]) => tlv(0x30, Buffer.concat([oidEnc(k), v === null ? tlv(0x81, Buffer.alloc(0)) : v === undefined ? tlv(0x82, Buffer.alloc(0)) : val(v)]))));
+      const resp = tlv(0x30, Buffer.concat([int(1), tlv(4, Buffer.from(community)), tlv(0xa2, Buffer.concat([msg.subarray(id.start - 2, id.end), int(0), int(0), tlv(0x30, binds)]))]));
+      sock.send(resp, rinfo.port, rinfo.address);
+    } catch { /* a malformed request: no answer */ }
+  });
+  return new Promise((res) => sock.bind(0, '127.0.0.1', () => res({ port: sock.address().port, close: () => sock.close() })));
+};
+
+await check('a switch read over SNMP shows which port a device is plugged into: added, read, drawn, listed on the device, removed', async () => {
+  takeProblems();
+  await load(base + '/#assets');
+  if (!(await ready())) return 'the console did not start';
+  const mac = await evaluate("state.assets.find((a) => a.mac && !a.randomized_mac).mac");
+  const table = new Map([['1.3.6.1.2.1.1.1.0', 'Smoke switch'], ['1.3.6.1.2.1.1.5.0', 'smoke-sw'],
+    ['1.3.6.1.2.1.31.1.1.1.1.1', 'Gi1/0/1'], ['1.3.6.1.2.1.31.1.1.1.1.2', 'Gi1/0/2'], ['1.3.6.1.2.1.31.1.1.1.18.2', 'smoke cable'],
+    ['1.3.6.1.2.1.17.1.4.1.2.1', 1], ['1.3.6.1.2.1.17.1.4.1.2.2', 2],
+    ['1.3.6.1.2.1.17.7.1.2.2.1.2.1.' + mac.split(':').map((h) => parseInt(h, 16)).join('.'), 2]]);
+  const agent = await snmpAgent(table, 'smoke-ro');
+  try {
+    await evaluate("location.hash = '#settings/switches'; setTab('settings'); 0");
+    await sleep(900);
+    await evaluate("document.getElementById('add-switch').click(); 0");
+    await sleep(500);
+    await evaluate(`(() => { const d = document.getElementById('dialog-form'); d.querySelector('input[required]').value = 'Smoke switch'; document.getElementById('switch-address').value = '127.0.0.1:${agent.port}'; document.getElementById('switch-community').value = 'smoke-ro'; d.querySelector('button[type=submit]').click(); })()`);
+    await sleep(1500);
+    if (!(await evaluate("!!document.querySelector('#switches-body .watch[data-switch]')"))) return 'the switch was not added: ' + await evaluate("(document.querySelector('#dialog-form .form-error') || {}).textContent");
+    await evaluate("document.querySelector('#switches-body .poll-switch').click(); 0");
+    await sleep(2500);
+    const said = await evaluate("document.getElementById('msg-body').innerText");
+    await evaluate("document.getElementById('msg-dialog').close(); 0");
+    if (!/Read: 2 ports, 0 neighbours, 1 MAC/.test(said)) return 'reading it said: ' + said;
+    // drawn
+    await evaluate("location.hash = '#topology'; setTab('topology'); document.querySelector('#topo-mode button[data-mode=physical]').click(); 0");
+    await sleep(1500);
+    const drawn = await evaluate("({ switches: document.querySelectorAll('#topo-physical-body .switch-node').length, devices: document.querySelectorAll('#topo-physical-body circle.node').length, label: [...document.querySelectorAll('#topo-physical-body svg text')].map((t) => t.textContent) })");
+    if (drawn.switches !== 1 || drawn.devices !== 1 || !drawn.label.includes('Gi1/0/2')) return 'the map: ' + JSON.stringify(drawn);
+    // on the device itself
+    const id = await evaluate(`state.assets.find((a) => a.mac === ${JSON.stringify(mac)}).id`);
+    await evaluate(`showDetail(${id}); 0`);
+    await sleep(1200);
+    const detail = await evaluate("document.getElementById('detail-body').innerText");
+    if (!/Connected to\s*\n?\s*Smoke switch · Gi1\/0\/2 \(smoke cable\)/.test(detail)) return 'the device does not say where it is plugged in: ' + detail.slice(0, 400);
+    await evaluate("document.getElementById('close').click(); document.querySelector('#topo-mode button[data-mode=logical]').click(); 0");
+    // removed again
+    await evaluate("location.hash = '#settings/switches'; setTab('settings'); 0");
+    await sleep(800);
+    await evaluate("window.confirm = () => true; [...document.querySelectorAll('#switches-body .watch-actions button')].find((b) => b.textContent === 'Delete').click(); 0");
+    await sleep(1200);
+    if ((await (await fetch(base + '/api/switches')).json()).targets.length) return 'the switch was not removed';
+    const bad = await evaluate(BAD_TEXT);
+    const p = takeProblems();
+    return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
+  } finally {
+    agent.close();
   }
 });
 

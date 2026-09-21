@@ -127,9 +127,20 @@
       </section>
 
       <section id="view-topology" hidden>
-        <div id="topo-legend" class="topo-legend"></div>
-        <div id="topo" class="topo"></div>
-        <p class="muted">Links show which gateway a device sits behind, not who talks to whom: a single collector cannot see device-to-device traffic. Colour is the risk level; faded nodes were not seen recently; a red dot marks unacknowledged alerts.</p>
+        <div id="topo-mode" class="segmented" role="group" aria-label="Kind of map">
+          <button type="button" data-mode="logical" class="active">By gateway</button>
+          <button type="button" data-mode="physical">Switches and cables</button>
+        </div>
+        <div id="topo-logical">
+          <div id="topo-legend" class="topo-legend"></div>
+          <div id="topo" class="topo"></div>
+          <p class="muted">Links show which gateway a device sits behind, not who talks to whom: a single collector cannot see device-to-device traffic. Colour is the risk level; faded nodes were not seen recently; a red dot marks unacknowledged alerts.</p>
+        </div>
+        <div id="topo-physical" hidden>
+          <div id="topo-legend-physical" class="topo-legend"></div>
+          <div id="topo-physical-body" class="topo"></div>
+          <p class="muted">Read from your switches over SNMP: each device is drawn on the port where its MAC address was learned (an access port, never an uplink), and switches are joined by the links their neighbours (LLDP) report. Click a device to open it.</p>
+        </div>
       </section>
 
       <section id="view-ot" hidden>
@@ -304,8 +315,12 @@
       <section id="view-settings" hidden>
         <p class="muted">Settings for the whole installation. Only administrators see this page; every change is written to the <a href="#audit">audit log</a>.</p>
         <nav class="subnav" aria-label="Settings sections">
-          <a href="#settings/branding">Branding (white label)</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/security">Sign-in security</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
+          <a href="#settings/branding">Branding (white label)</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/switches">Switches (SNMP)</a><a href="#settings/security">Sign-in security</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
         </nav>
+        <div id="switches-box" hidden>
+          <h3 class="section">Switches (SNMP)</h3>
+          <div id="switches-body"></div>
+        </div>
         <div id="security-box" hidden>
           <h3 class="section">Sign-in security</h3>
           <div id="security-body"></div>
@@ -403,6 +418,7 @@
   <script src="tables.js"></script>
   <script src="setup.js"></script>
   <script src="totp.js"></script>
+  <script src="switches.js"></script>
   <script src="main.js"></script>
 </body>
 </html>
