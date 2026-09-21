@@ -1,8 +1,6 @@
 # Changelog
 
-## 0.2.0-rc.1: everyday devices, a better asset editor, and release checks
-
-*Release candidate: used for a while before it becomes 0.2.0.*
+## 0.2.0: everyday devices, a better asset editor, and release checks
 
 Asset editor
 * **Device type is a list**, sorted by name, with **Automatic (detected: …)** first; the icon follows the type, and
@@ -15,6 +13,8 @@ Asset editor
   smart blinds, intercom, motion/door/leak sensors, weather station, drone, irrigation controller, NVR, digital signage,
   label printer, time clock, microcontroller, mini PC, management controller (BMC), wireless bridge, powerline adapter,
   vending machine, single-board computer. Discovery recognises many of them by name or manufacturer.
+* **Fixed: the device type list could grow wider than its column and cover the field beside it** (Status). Fields now
+  always stay inside their column, whatever the text.
 * **Fixed: Status, Criticality and Purdue level showed no choices** (and the device type and icon lists were empty) after
   a first sign-in with a forced password change. The lists are now loaded again when missing.
 

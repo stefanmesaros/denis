@@ -166,6 +166,10 @@ dialog h3 { margin: 0 0 10px; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px 14px; }
 .form-grid .field-wide { grid-column: 1 / -1; display: grid; gap: 4px; }
 .form-grid .label { font-size: 13px; color: var(--muted); }
+/* a long option ("Automatic (detected: engineering workstation)") must not widen its column into the next field */
+.form-grid > *, .form-grid label { min-width: 0; }
+.form-grid select, .form-grid textarea, .form-grid input:not([type=checkbox]):not([type=radio]) { width: 100%; min-width: 0; box-sizing: border-box; }
+.form-grid select { text-overflow: ellipsis; }
 .icon-row { display: flex; align-items: center; justify-content: flex-start; gap: 12px; }
 .icon-dialog { max-width: min(860px, 96vw); height: min(680px, 90vh); display: flex; flex-direction: column; gap: 10px; }
 .icon-dialog[open] { display: flex; }

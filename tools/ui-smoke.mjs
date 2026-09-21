@@ -163,6 +163,33 @@ await check('the asset editor fetches its options itself when they were never lo
   return (n.length >= 4 && n.every((x) => x > 1)) ? null : `dropdown sizes ${JSON.stringify(n)} (options were ${missing ? 'missing' : 'present'} on the page)`;
 });
 await ready();
+await check('the asset editor fields never overlap, also with the longest device type and on a narrow window', async () => {
+  const longId = await evaluate("(state.assets.find((a) => a.meta && a.meta.display_name === 'Engineering workstation') || state.assets[0]).id");
+  for (const width of [1280, 900, 700]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    await evaluate("(() => { const d = document.getElementById('form-dialog'); if (d.open) d.close(); })()");
+    await evaluate("openAssetForm(assetById(" + longId + ")); 0");
+    await sleep(500);
+    // the longest text the type list can show, in the field itself
+    await evaluate("(() => { const t = document.getElementById('asset-type'); t.options[0].textContent = 'Automatic (detected: engineering workstation and other long words)'; })()");
+    const bad = await evaluate(`(() => {
+      const d = document.getElementById('form-dialog');
+      const boxes = [...d.querySelectorAll('.form-grid input, .form-grid select, .form-grid textarea')].filter((e) => e.type !== 'checkbox' && e.offsetParent).map((e) => ({ n: (e.closest('label')?.firstChild?.textContent || e.id || e.tagName).trim(), r: e.getBoundingClientRect() }));
+      const grid = d.querySelector('.form-grid').getBoundingClientRect();
+      const out = [];
+      for (const b of boxes) if (b.r.right > grid.right + 1 || b.r.left < grid.left - 1) out.push(b.n + ' sticks out of the form');
+      for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i].r, c = boxes[j].r;
+        if (a.left < c.right - 1 && c.left < a.right - 1 && a.top < c.bottom - 1 && c.top < a.bottom - 1) out.push(boxes[i].n + ' overlaps ' + boxes[j].n);
+      }
+      return out;
+    })()`);
+    await evaluate("document.getElementById('form-dialog').close(); 0");
+    if (bad.length) { await send('Emulation.clearDeviceMetricsOverride'); return `at ${width}px: ${bad.join('; ')}`; }
+  }
+  await send('Emulation.clearDeviceMetricsOverride');
+  return null;
+});
 await check('the icon button sits next to the icon and opens a searchable chooser', async () => {
   await evaluate("setTab('assets'); openAssetForm(assetById(" + printerId + ")); 0");
   await sleep(600);

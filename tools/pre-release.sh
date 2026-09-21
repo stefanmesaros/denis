@@ -17,7 +17,8 @@ grep -q "^## $V\b" CHANGELOG.md || { echo "CHANGELOG.md has no '## $V' section (
 echo "version $V"
 
 step "2/8 unit and integration tests"
-cargo test --locked 2>&1 | grep -E "^test result|FAILED|panicked" | sort | uniq -c
+if ! OUT=$(cargo test --locked 2>&1); then echo "$OUT" | tail -40; echo "cargo test failed (if it says the lock file needs an update: run cargo build once and commit Cargo.lock)"; exit 1; fi
+echo "$OUT" | grep -E "^test result" | sort | uniq -c
 
 step "3/8 lint (warnings are errors)"
 cargo clippy --locked --all-targets -- -D warnings
