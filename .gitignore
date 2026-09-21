@@ -1,6 +1,18 @@
 /target
 
-# Databases hold a network inventory: never commit them.
+# Databases hold a network inventory, password hashes and notification secrets: never commit them.
 *.db
 *.db-wal
 *.db-shm
+*.sqlite
+
+# runtime leftovers and secrets
+*.log
+*.pid
+*.pem
+*.key
+.env
+.DS_Store
+
+/preview
+/backups

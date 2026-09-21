@@ -1,20 +1,26 @@
 //! Master side of the agent protocol: validate a `Report`, upsert its assets
 //! under the agent's id, feed its flows to the detector.
 //!
-//! This listener is separate from the (unauthenticated, loopback) UI on purpose:
-//! it is the only thing that is meant to be reachable from other machines, and
-//! every request needs the shared bearer token.
+//! This listener is separate from the operator UI on purpose: it is the only
+//! thing meant to be reachable from other machines. Every request needs a
+//! bearer token issued *for one specific agent id* (`auth::issue_agent_token`):
+//! a stolen token can neither impersonate another agent nor be recovered from
+//! the database (only its SHA-256 is stored), and can be revoked individually.
+//! Repeated bad tokens from one address are throttled.
 
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
-use axum::extract::{DefaultBodyLimit, Request, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Extension, Request, State};
 use axum::http::{header, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 
+use crate::auth::Auth;
 use crate::detect::Detector;
 use crate::model::{now_ts, AgentInfo, Asset, Report, ReportAck};
 use crate::notify::Alerts;
@@ -22,6 +28,8 @@ use crate::store::Store;
 
 pub const MAX_ASSETS: usize = 5_000;
 pub const MAX_FLOWS: usize = 100_000;
+pub const MAX_SIGNALS: usize = 10_000;
+pub const MAX_CONVS: usize = 20_000;
 const MAX_BODY: usize = 32 * 1024 * 1024;
 
 #[derive(Debug)]
@@ -40,25 +48,56 @@ pub struct Ingest {
     store: Arc<dyn Store>,
     detector: Arc<Mutex<Detector>>,
     alerts: Arc<Alerts>,
-    token: String,
+    auth: Arc<Auth>,
+    /// address -> (bad tokens in the current window, window start)
+    failures: Mutex<HashMap<IpAddr, (u32, i64)>>,
     /// Reports are applied one at a time: simple, and plenty for this scale.
     apply_lock: Mutex<()>,
 }
+
+/// The agent id a request's token was issued for.
+#[derive(Clone)]
+pub struct AgentIdentity(pub String);
+
+/// More than this many bad tokens per window from one address are refused.
+const MAX_FAILURES: u32 = 10;
+const FAILURE_WINDOW_SECS: i64 = 60;
 
 impl Ingest {
     pub fn new(
         store: Arc<dyn Store>,
         detector: Arc<Mutex<Detector>>,
         alerts: Arc<Alerts>,
-        token: String,
+        auth: Arc<Auth>,
     ) -> Self {
         Ingest {
             store,
             detector,
             alerts,
-            token,
+            auth,
+            failures: Mutex::new(HashMap::new()),
             apply_lock: Mutex::new(()),
         }
+    }
+
+    /// Seconds an address must wait, or 0 if it may try.
+    fn throttled(&self, ip: IpAddr, now: i64) -> i64 {
+        let m = self.failures.lock().unwrap();
+        m.get(&ip)
+            .filter(|(n, start)| *n >= MAX_FAILURES && now - start < FAILURE_WINDOW_SECS)
+            .map_or(0, |(_, start)| FAILURE_WINDOW_SECS - (now - start))
+    }
+
+    fn note_failure(&self, ip: IpAddr, now: i64) {
+        let mut m = self.failures.lock().unwrap();
+        if m.len() > 10_000 {
+            m.retain(|_, (_, start)| now - *start < FAILURE_WINDOW_SECS);
+        }
+        let e = m.entry(ip).or_insert((0, now));
+        if now - e.1 >= FAILURE_WINDOW_SECS {
+            *e = (0, now);
+        }
+        e.0 += 1;
     }
 
     pub fn apply(&self, report: Report, now: i64) -> Result<ReportAck, IngestError> {
@@ -102,7 +141,11 @@ impl Ingest {
                 None => {
                     a.id = 0;
                     self.store.save_asset(&mut a)?;
-                    new_assets.push(a);
+                    // A device somebody registered by hand is known, not "new".
+                    let registered = self.store.get_meta(a.id)?.is_some_and(|m| m.manual);
+                    if !registered {
+                        new_assets.push(a);
+                    }
                 }
             }
         }
@@ -115,6 +158,8 @@ impl Ingest {
                 events.extend(det.on_new_asset(a, now));
             }
             events.extend(det.ingest_flows(Some(&id), &report.flows, &*self.store, now));
+            events.extend(det.ingest_signals(Some(&id), &report.signals, &*self.store, now));
+            events.extend(det.ingest_conversations(Some(&id), &report.conversations, &*self.store, now));
         }
         self.alerts.emit(events);
 
@@ -151,10 +196,13 @@ fn validate(r: &Report) -> Result<(), IngestError> {
     if r.agent.name.len() > 128 || r.agent.site.as_ref().is_some_and(|s| s.len() > 128) || r.run_id.len() > 64 {
         return bad("name/site/run_id too long");
     }
-    if r.assets.len() > MAX_ASSETS || r.flows.len() > MAX_FLOWS {
+    if r.assets.len() > MAX_ASSETS || r.flows.len() > MAX_FLOWS || r.signals.len() > MAX_SIGNALS || r.conversations.len() > MAX_CONVS {
         return bad("report too large");
     }
-    if r.assets.iter().any(|a| !a.mac.is_valid()) || r.flows.iter().any(|f| !f.mac.is_valid()) {
+    if r.assets.iter().any(|a| !a.mac.is_valid())
+        || r.flows.iter().any(|f| !f.mac.is_valid())
+        || r.signals.iter().any(|s| !s.mac.is_valid())
+        || r.conversations.iter().any(|c| !c.client_mac.is_valid() || !c.server_mac.is_valid()) {
         return bad("invalid MAC address in report");
     }
     Ok(())
@@ -185,20 +233,32 @@ pub fn router(ingest: Arc<Ingest>) -> Router {
         .with_state(ingest)
 }
 
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
-async fn auth(State(ing): State<Arc<Ingest>>, req: Request, next: Next) -> Response {
-    let ok = req
+/// Bearer token -> agent identity, with per-address throttling of bad tokens.
+async fn auth(State(ing): State<Arc<Ingest>>, mut req: Request, next: Next) -> Response {
+    let now = now_ts();
+    let ip = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map_or(IpAddr::from([0, 0, 0, 0]), |c| c.0.ip());
+    let wait = ing.throttled(ip, now);
+    if wait > 0 {
+        let mut r = (StatusCode::TOO_MANY_REQUESTS, Json(serde_json::json!({"error": "too many failed attempts"}))).into_response();
+        if let Ok(v) = axum::http::HeaderValue::from_str(&wait.to_string()) {
+            r.headers_mut().insert(header::RETRY_AFTER, v);
+        }
+        return r;
+    }
+    let identity = req
         .headers()
         .get(header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok())
         .and_then(|h| h.strip_prefix("Bearer "))
-        .is_some_and(|t| ct_eq(t.as_bytes(), ing.token.as_bytes()));
-    if !ok {
+        .and_then(|t| ing.auth.verify_agent_token(t, now));
+    let Some(id) = identity else {
+        ing.note_failure(ip, now);
         return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "unauthorized"}))).into_response();
-    }
+    };
+    req.extensions_mut().insert(AgentIdentity(id.agent_id));
     next.run(req).await
 }
 
@@ -206,7 +266,11 @@ async fn ping() -> Json<serde_json::Value> {
     Json(serde_json::json!({"ok": true, "version": env!("CARGO_PKG_VERSION")}))
 }
 
-async fn report(State(ing): State<Arc<Ingest>>, Json(report): Json<Report>) -> Response {
+async fn report(State(ing): State<Arc<Ingest>>, Extension(who): Extension<AgentIdentity>, Json(report): Json<Report>) -> Response {
+    // The token was issued for one agent id; it cannot speak for another.
+    if report.agent.id != who.0 {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "this token is not valid for that agent id"}))).into_response();
+    }
     let res = tokio::task::spawn_blocking(move || ing.apply(report, now_ts()))
         .await
         .context("ingest task panicked")
@@ -242,7 +306,8 @@ mod tests {
         let cfg = DetectConfig { learning_secs: learning, settle_secs: 0, ..Default::default() };
         let det = Arc::new(Mutex::new(Detector::new(cfg, vec![], 0)));
         let alerts = Arc::new(Alerts::new(store.clone(), None));
-        (Arc::new(Ingest::new(store.clone(), det, alerts, "s3cret".into())), store)
+        let auth = Arc::new(Auth::new(store.clone()));
+        (Arc::new(Ingest::new(store.clone(), det, alerts, auth)), store)
     }
 
     fn report(seq: u64, assets: Vec<Asset>, flows: Vec<FlowRecord>) -> Report {
@@ -253,6 +318,8 @@ mod tests {
             sent_at: 0,
             assets,
             flows,
+            signals: vec![],
+            conversations: vec![],
         }
     }
 
@@ -323,6 +390,32 @@ mod tests {
     }
 
     #[test]
+    fn signals_from_agents_become_scored_alerts_and_old_agents_without_them_still_parse() {
+        use crate::model::Signal;
+        let (ing, store) = setup(1000);
+        let other = Mac([0x00, 0x11, 0x22, 3, 3, 3]);
+        let mut a = asset(M, [10, 1, 0, 5]);
+        a.first_seen = 50;
+        let mut victim = asset(other, [10, 1, 0, 1]);
+        victim.first_seen = 50;
+        ing.apply(report(1, vec![a, victim], vec![]), 60).unwrap();
+        let mut r = report(2, vec![], vec![]);
+        r.signals = vec![Signal { kind: "arp_conflict".into(), ts: 70, mac: M, ip: Ipv4Addr::new(10, 1, 0, 1), other_mac: Some(other), gateway: true }];
+        ing.apply(r, 70).unwrap();
+        let alerts = store.list_events(&EventQuery { alerts_only: true, ..Default::default() }).unwrap();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!((alerts[0].kind.as_str(), alerts[0].score, alerts[0].severity.as_str()), ("arp_conflict", 95, "high"));
+        assert_eq!(alerts[0].agent_id.as_deref(), Some("site-b"));
+        // a Phase 2 agent's report has no "signals" key at all
+        let old = serde_json::json!({
+            "agent": {"id": "old", "name": "old", "site": null, "version": "0.1", "subnet": "10.0.0.0/24"},
+            "run_id": "r", "seq": 1, "sent_at": 0, "assets": [], "flows": []
+        });
+        let parsed: Report = serde_json::from_value(old).unwrap();
+        assert!(parsed.signals.is_empty());
+    }
+
+    #[test]
     fn a_newly_enrolled_agent_gets_its_own_learning_period() {
         let (ing, store) = setup(1000);
         // The local collector's learning began at t=0, long ago, but this agent
@@ -358,35 +451,59 @@ mod tests {
         (st, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
     }
 
-    #[tokio::test]
-    async fn http_requires_the_bearer_token() {
-        let (ing, store) = setup(1000);
-        let app = router(ing);
-        let body = serde_json::to_vec(&report(1, vec![asset(M, [10, 1, 0, 5])], vec![])).unwrap();
-        let post = |auth: Option<&str>| {
-            let mut b = axum::http::Request::post("/api/v1/report").header("content-type", "application/json");
-            if let Some(a) = auth {
-                b = b.header("authorization", a);
-            }
-            b.body(Body::from(body.clone())).unwrap()
-        };
-        assert_eq!(call(&app, post(None)).await.0, StatusCode::UNAUTHORIZED);
-        assert_eq!(call(&app, post(Some("Bearer wrong"))).await.0, StatusCode::UNAUTHORIZED);
-        assert_eq!(call(&app, post(Some("s3cret"))).await.0, StatusCode::UNAUTHORIZED, "scheme required");
-        assert!(store.list_agents().unwrap().is_empty(), "nothing applied when unauthorised");
-        let (st, v) = call(&app, post(Some("Bearer s3cret"))).await;
-        assert_eq!((st, v["assets"].as_u64()), (StatusCode::OK, Some(1)));
-        let ping = axum::http::Request::get("/api/v1/ping").header("authorization", "Bearer s3cret").body(Body::empty()).unwrap();
-        assert_eq!(call(&app, ping).await.0, StatusCode::OK);
-        let bad = axum::http::Request::post("/api/v1/report").header("authorization", "Bearer s3cret").header("content-type", "application/json").body(Body::from("{nope")).unwrap();
-        assert!(call(&app, bad).await.0.is_client_error());
+    fn post_report(token: Option<&str>, body: &[u8]) -> axum::http::Request<Body> {
+        let mut b = axum::http::Request::post("/api/v1/report").header("content-type", "application/json");
+        if let Some(t) = token {
+            b = b.header("authorization", t);
+        }
+        b.body(Body::from(body.to_vec())).unwrap()
     }
 
-    #[test]
-    fn constant_time_compare() {
-        assert!(ct_eq(b"abc", b"abc"));
-        assert!(!ct_eq(b"abc", b"abd"));
-        assert!(!ct_eq(b"abc", b"abcd"));
-        assert!(ct_eq(b"", b""));
+    #[tokio::test]
+    async fn http_requires_a_token_issued_for_that_agent() {
+        let (ing, store) = setup(1000);
+        let token = ing.auth.issue_agent_token("site-b", "Branch", 1).unwrap();
+        let other = ing.auth.issue_agent_token("site-c", "Other", 1).unwrap();
+        let app = router(ing);
+        let body = serde_json::to_vec(&report(1, vec![asset(M, [10, 1, 0, 5])], vec![])).unwrap();
+        assert_eq!(call(&app, post_report(None, &body)).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(call(&app, post_report(Some("Bearer wrong"), &body)).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(call(&app, post_report(Some(&token), &body)).await.0, StatusCode::UNAUTHORIZED, "scheme required");
+        assert!(store.list_agents().unwrap().is_empty(), "nothing applied when unauthorised");
+        // a valid token for a DIFFERENT agent must not be able to speak for site-b
+        let (st, v) = call(&app, post_report(Some(&format!("Bearer {other}")), &body)).await;
+        assert_eq!(st, StatusCode::FORBIDDEN, "{v}");
+        assert!(store.list_agents().unwrap().is_empty());
+        let (st, v) = call(&app, post_report(Some(&format!("Bearer {token}")), &body)).await;
+        assert_eq!((st, v["assets"].as_u64()), (StatusCode::OK, Some(1)));
+        let ping = axum::http::Request::get("/api/v1/ping").header("authorization", format!("Bearer {token}")).body(Body::empty()).unwrap();
+        assert_eq!(call(&app, ping).await.0, StatusCode::OK);
+        let bad = axum::http::Request::post("/api/v1/report").header("authorization", format!("Bearer {token}")).header("content-type", "application/json").body(Body::from("{nope")).unwrap();
+        assert!(call(&app, bad).await.0.is_client_error());
+        // revoking the token cuts the agent off immediately
+        store.revoke_agent_token("site-b").unwrap();
+        assert_eq!(call(&app, post_report(Some(&format!("Bearer {token}")), &body)).await.0, StatusCode::UNAUTHORIZED);
     }
+
+    #[tokio::test]
+    async fn repeated_bad_tokens_from_one_address_are_throttled() {
+        let (ing, _) = setup(1000);
+        let good = ing.auth.issue_agent_token("site-b", "Branch", 1).unwrap();
+        let app = router(ing);
+        let from = |t: &str| {
+            let mut r = axum::http::Request::get("/api/v1/ping").header("authorization", format!("Bearer {t}")).body(Body::empty()).unwrap();
+            r.extensions_mut().insert(ConnectInfo::<SocketAddr>("203.0.113.9:5000".parse().unwrap()));
+            r
+        };
+        for _ in 0..MAX_FAILURES {
+            assert_eq!(call(&app, from("bad")).await.0, StatusCode::UNAUTHORIZED);
+        }
+        // the address is now locked out, even with a correct token
+        assert_eq!(call(&app, from(&good)).await.0, StatusCode::TOO_MANY_REQUESTS);
+        // another address is unaffected
+        let mut other = axum::http::Request::get("/api/v1/ping").header("authorization", format!("Bearer {good}")).body(Body::empty()).unwrap();
+        other.extensions_mut().insert(ConnectInfo::<SocketAddr>("198.51.100.7:5000".parse().unwrap()));
+        assert_eq!(call(&app, other).await.0, StatusCode::OK);
+    }
+
 }

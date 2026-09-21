@@ -1,0 +1,189 @@
+# Static text of the console pages (ui/index.html) and a few messages built in the code.
+too many attempts; try again in {n} seconds || zu viele Versuche; in {n} Sekunden erneut versuchen || trop de tentatives ; réessayez dans {n} secondes || demasiados intentos; vuelva a intentarlo en {n} segundos || príliš veľa pokusov; skúste znova o {n} s
+password must be at least {n} characters || das Passwort muss mindestens {n} Zeichen lang sein || le mot de passe doit comporter au moins {n} caractères || la contraseña debe tener al menos {n} caracteres || heslo musí mať aspoň {n} znakov
+DENIS || DENIS || DENIS || DENIS || DENIS
+Username || Benutzername || Nom d'utilisateur || Usuario || Používateľské meno
+Password || Passwort || Mot de passe || Contraseña || Heslo
+Sign in || Anmelden || Se connecter || Iniciar sesión || Prihlásiť sa
+Sign in with a passkey || Mit Passkey anmelden || Se connecter avec une clé d'accès || Iniciar sesión con una clave de acceso || Prihlásiť sa cez passkey
+Help || Hilfe || Aide || Ayuda || Pomocník
+Sign out || Abmelden || Se déconnecter || Cerrar sesión || Odhlásiť sa
+Scan now || Jetzt scannen || Scanner maintenant || Escanear ahora || Skenovať teraz
+Monitor || Überwachen || Surveiller || Monitorizar || Monitorovanie
+Devices || Geräte || Appareils || Dispositivos || Zariadenia
+Findings || Befunde || Constats || Hallazgos || Zistenia
+Analyze || Analysieren || Analyser || Analizar || Analýza
+Topology || Topologie || Topologie || Topología || Topológia
+OT || OT || OT || OT || OT
+Trends || Trends || Tendances || Tendencias || Trendy
+Events || Ereignisse || Événements || Eventos || Udalosti
+Compliance || Compliance || Conformité || Cumplimiento || Súlad
+Manage || Verwalten || Gérer || Administrar || Správa
+Rules || Regeln || Règles || Reglas || Pravidlá
+Alerting || Alarmierung || Alertes sortantes || Alertas externas || Upozorňovanie
+Sites || Standorte || Sites || Sitios || Lokality
+Users || Benutzer || Utilisateurs || Usuarios || Používatelia
+Last 24 hours || Letzte 24 Stunden || 24 dernières heures || Últimas 24 horas || Posledných 24 hodín
+Last 7 days || Letzte 7 Tage || 7 derniers jours || Últimos 7 días || Posledných 7 dní
+Last 30 days || Letzte 30 Tage || 30 derniers jours || Últimos 30 días || Posledných 30 dní
++ Add asset || + Gerät hinzufügen || + Ajouter un appareil || + Añadir dispositivo || + Pridať zariadenie
+Import CSV || CSV importieren || Importer un CSV || Importar CSV || Importovať CSV
+Devices CSV || Geräte-CSV || CSV des appareils || CSV de dispositivos || CSV zariadení
+Alerts CSV || Warnungen-CSV || CSV des alertes || CSV de alertas || CSV upozornení
+Printable report || Druckbarer Bericht || Rapport imprimable || Informe imprimible || Tlačiteľný report
+online only || nur online || en ligne uniquement || solo en línea || iba online
+needs review || Prüfung nötig || à examiner || requiere revisión || treba skontrolovať
+Mark all shown as known || Alle angezeigten als bekannt markieren || Marquer tous les appareils affichés comme connus || Marcar todos los mostrados como conocidos || Označiť všetky zobrazené ako známe
+show acknowledged || Bestätigte anzeigen || afficher les acquittées || mostrar confirmadas || zobraziť potvrdené
+Site || Standort || Site || Sitio || Lokalita
+Risk || Risiko || Risque || Riesgo || Riziko
+IP || IP || IP || IP || IP
+MAC || MAC || MAC || MAC || MAC
+OS guess || Betriebssystem (Schätzung) || SE supposé || SO estimado || Odhad OS
+Type || Typ || Type || Tipo || Typ
+Time || Zeit || Heure || Hora || Čas
+Device || Gerät || Appareil || Dispositivo || Zariadenie
+What happened || Was passiert ist || Ce qui s'est passé || Qué ha pasado || Čo sa stalo
+No devices yet. The first sweep runs at startup; passive discovery fills in as devices announce themselves. Just looking around? An administrator can load demo data under Users. || Noch keine Geräte. Der erste Scan läuft beim Start; die passive Erkennung ergänzt Geräte, sobald sie sich melden. Nur mal umsehen? Ein Administrator kann unter Benutzer Demodaten laden. || Pas encore d'appareils. Le premier balayage se lance au démarrage ; la découverte passive complète au fur et à mesure que les appareils se manifestent. Simple curiosité ? Un administrateur peut charger des données de démonstration sous Utilisateurs. || Aún no hay dispositivos. El primer barrido se ejecuta al iniciar; el descubrimiento pasivo completa la lista cuando los dispositivos se anuncian. ¿Solo quiere echar un vistazo? Un administrador puede cargar datos de demostración en Usuarios. || Zatiaľ žiadne zariadenia. Prvý sken beží pri štarte; pasívne zisťovanie dopĺňa zariadenia, keď sa ohlásia. Chcete sa len rozhliadnuť? Správca môže načítať demo údaje v časti Používatelia.
+No alerts. New devices and destinations are only flagged after the learning period. || Keine Warnungen. Neue Geräte und Ziele werden erst nach der Lernphase gemeldet. || Aucune alerte. Les nouveaux appareils et destinations ne sont signalés qu'après la période d'apprentissage. || Sin alertas. Los dispositivos y destinos nuevos solo se señalan tras el periodo de aprendizaje. || Žiadne upozornenia. Nové zariadenia a ciele sa hlásia až po období učenia.
+Links show which gateway a device sits behind, not who talks to whom: a single collector cannot see device-to-device traffic. Colour is the risk level; faded nodes were not seen recently; a red dot marks unacknowledged alerts. || Die Linien zeigen, hinter welchem Gateway ein Gerät sitzt, nicht wer mit wem spricht: Ein einzelner Collector sieht keinen Verkehr zwischen Geräten. Die Farbe ist die Risikostufe; blasse Knoten wurden länger nicht gesehen; ein roter Punkt markiert unbestätigte Warnungen. || Les liens indiquent derrière quelle passerelle se trouve un appareil, pas qui parle à qui : un collecteur seul ne voit pas le trafic entre appareils. La couleur est le niveau de risque ; les nœuds estompés n'ont pas été vus récemment ; un point rouge signale des alertes non acquittées. || Los enlaces muestran tras qué puerta de enlace está un dispositivo, no quién habla con quién: un único colector no ve el tráfico entre dispositivos. El color es el nivel de riesgo; los nodos atenuados no se han visto recientemente; un punto rojo marca alertas sin confirmar. || Spojenia ukazujú, za ktorou bránou zariadenie je, nie kto s kým komunikuje: jediný kolektor nevidí prevádzku medzi zariadeniami. Farba je úroveň rizika; zoslabené uzly neboli nedávno videné; červená bodka označuje nepotvrdené upozornenia.
+Industrial devices || Industriegeräte || Appareils industriels || Dispositivos industriales || Priemyselné zariadenia
+Purdue || Purdue || Purdue || Purdue || Purdue
+Protocols || Protokolle || Protocoles || Protocolos || Protokoly
+No industrial devices identified yet. Industrial protocols are decoded passively from traffic that reaches this collector: run with || Noch keine Industriegeräte erkannt. Industrieprotokolle werden passiv aus dem Verkehr dekodiert, der diesen Collector erreicht: Starten Sie mit || Aucun appareil industriel identifié pour l'instant. Les protocoles industriels sont décodés passivement à partir du trafic qui atteint ce collecteur : lancez avec || Aún no se ha identificado ningún dispositivo industrial. Los protocolos industriales se decodifican de forma pasiva a partir del tráfico que llega a este colector: ejecute con || Zatiaľ neboli rozpoznané žiadne priemyselné zariadenia. Priemyselné protokoly sa dekódujú pasívne z prevádzky, ktorá dorazí do tohto kolektora: spustite s
+on a mirror/SPAN port or tap. Purdue level and zone can be set per device. || an einem Mirror-/SPAN-Port oder Tap. Purdue-Ebene und Zone lassen sich pro Gerät festlegen. || sur un port miroir/SPAN ou un TAP. Le niveau Purdue et la zone se règlent par appareil. || en un puerto espejo/SPAN o un tap. El nivel Purdue y la zona se pueden fijar por dispositivo. || na zrkadlovom porte/SPAN alebo TAP. Úroveň Purdue a zónu možno nastaviť pre každé zariadenie.
+Communications matrix || Kommunikationsmatrix || Matrice de communications || Matriz de comunicaciones || Komunikačná matica
+only writes / control commands || nur Schreib-/Steuerbefehle || uniquement écritures / commandes de contrôle || solo escrituras / comandos de control || iba zápisy / riadiace príkazy
+Client || Client || Client || Cliente || Klient
+Server || Server || Serveur || Servidor || Server
+Protocol || Protokoll || Protocole || Protocolo || Protokol
+Reads || Lesen || Lectures || Lecturas || Čítania
+Writes || Schreiben || Écritures || Escrituras || Zápisy
+Control || Steuerung || Contrôle || Control || Riadenie
+Who talks to whom, over which industrial protocol, and what kind of messages (read / write / control such as STOP or program download). A path that appears after the learning period raises an alert; so does any control command. || Wer mit wem über welches Industrieprotokoll spricht und welche Art von Nachrichten (Lesen / Schreiben / Steuern wie STOP oder Programm-Download). Ein Weg, der nach der Lernphase neu auftaucht, löst eine Warnung aus; ebenso jeder Steuerbefehl. || Qui parle à qui, via quel protocole industriel, et quels types de messages (lecture / écriture / contrôle comme STOP ou téléchargement de programme). Un chemin qui apparaît après la période d'apprentissage déclenche une alerte ; de même pour toute commande de contrôle. || Quién habla con quién, mediante qué protocolo industrial y qué tipo de mensajes (lectura / escritura / control como STOP o descarga de programa). Una ruta que aparece tras el periodo de aprendizaje genera una alerta; también cualquier comando de control. || Kto s kým komunikuje, cez ktorý priemyselný protokol a aké správy (čítanie / zápis / riadenie ako STOP alebo nahranie programu). Cesta, ktorá sa objaví po období učenia, vyvolá upozornenie; rovnako aj každý riadiaci príkaz.
+Standing weaknesses and housekeeping problems in your inventory: unlike alerts, these stay until you fix the cause, and disappear by themselves once you have. || Dauerhafte Schwachstellen und Aufräumprobleme in Ihrem Bestand: Anders als Warnungen bleiben sie, bis Sie die Ursache beheben, und verschwinden dann von selbst. || Faiblesses persistantes et problèmes de tenue de votre inventaire : contrairement aux alertes, ils restent tant que vous n'avez pas corrigé la cause, puis disparaissent d'eux-mêmes. || Debilidades persistentes y problemas de mantenimiento de su inventario: a diferencia de las alertas, permanecen hasta que corrige la causa y desaparecen solos después. || Trvalé slabiny a problémy s údržbou vo vašom inventári: na rozdiel od upozornení zostávajú, kým neopravíte príčinu, a potom zmiznú samy.
+Nothing to fix right now. || Im Moment nichts zu beheben. || Rien à corriger pour le moment. || Nada que corregir por ahora. || Momentálne nie je čo opravovať.
+Send alerts to the tools your team already watches. Each channel has its own minimum score. A channel that is unreachable catches up when it returns, and a burst of alerts arrives as one summary message. Secrets (webhook URLs, keys, passwords) are stored in the database and never shown again. || Senden Sie Warnungen an die Werkzeuge, die Ihr Team ohnehin beobachtet. Jeder Kanal hat seinen eigenen Mindestwert. Ein nicht erreichbarer Kanal holt nach, sobald er wieder da ist, und eine Warnungsflut kommt als eine Sammelnachricht an. Geheimnisse (Webhook-URLs, Schlüssel, Passwörter) werden in der Datenbank gespeichert und nie wieder angezeigt. || Envoyez les alertes vers les outils que votre équipe surveille déjà. Chaque canal a son propre score minimal. Un canal injoignable rattrape son retard à son retour, et une rafale d'alertes arrive sous forme d'un seul message de synthèse. Les secrets (URL de webhook, clés, mots de passe) sont stockés dans la base et jamais réaffichés. || Envíe las alertas a las herramientas que su equipo ya vigila. Cada canal tiene su propia puntuación mínima. Un canal inaccesible se pone al día cuando vuelve, y una ráfaga de alertas llega como un único mensaje resumen. Los secretos (URL de webhook, claves, contraseñas) se guardan en la base de datos y no se vuelven a mostrar. || Posielajte upozornenia do nástrojov, ktoré váš tím už sleduje. Každý kanál má vlastné minimálne skóre. Nedostupný kanál sa po návrate dobehne a série upozornení príde ako jedna súhrnná správa. Tajomstvá (URL webhookov, kľúče, heslá) sa ukladajú do databázy a už sa nikdy nezobrazia.
+Maintenance mode || Wartungsmodus || Mode maintenance || Modo de mantenimiento || Režim údržby
+30 minutes || 30 Minuten || 30 minutes || 30 minutos || 30 minút
+1 hour || 1 Stunde || 1 heure || 1 hora || 1 hodina
+4 hours || 4 Stunden || 4 heures || 4 horas || 4 hodiny
+24 hours || 24 Stunden || 24 heures || 24 horas || 24 hodín
+7 days || 7 Tage || 7 jours || 7 días || 7 dní
+Silence all notifications || Alle Benachrichtigungen stumm schalten || Suspendre toutes les notifications || Silenciar todas las notificaciones || Stíšiť všetky upozornenia
+End silence || Stummschaltung beenden || Fin de la suspension || Terminar el silencio || Ukončiť stíšenie
+Channels || Kanäle || Canaux || Canales || Kanály
+Target || Ziel || Cible || Destino || Cieľ
+Min score || Mindestwert || Score min. || Puntuación mín. || Min. skóre
+No channels yet: alerts appear only in the console. Add one below. || Noch keine Kanäle: Warnungen erscheinen nur in der Konsole. Fügen Sie unten einen hinzu. || Aucun canal pour l'instant : les alertes n'apparaissent que dans la console. Ajoutez-en un ci-dessous. || Aún no hay canales: las alertas solo aparecen en la consola. Añada uno abajo. || Zatiaľ žiadne kanály: upozornenia sa zobrazujú iba v konzole. Pridajte kanál nižšie.
+Add a channel || Kanal hinzufügen || Ajouter un canal || Añadir un canal || Pridať kanál
+Slack (incoming webhook) || Slack (Incoming Webhook) || Slack (webhook entrant) || Slack (webhook entrante) || Slack (Incoming Webhook)
+Microsoft Teams (Workflows webhook) || Microsoft Teams (Workflows-Webhook) || Microsoft Teams (webhook Workflows) || Microsoft Teams (webhook de Workflows) || Microsoft Teams (webhook Workflows)
+Discord (webhook) || Discord (Webhook) || Discord (webhook) || Discord (webhook) || Discord (webhook)
+PagerDuty (Events API v2) || PagerDuty (Events API v2) || PagerDuty (Events API v2) || PagerDuty (Events API v2) || PagerDuty (Events API v2)
+E-mail (SMTP) || E-Mail (SMTP) || E-mail (SMTP) || Correo electrónico (SMTP) || E-mail (SMTP)
+Generic webhook (signed JSON) || Generischer Webhook (signiertes JSON) || Webhook générique (JSON signé) || Webhook genérico (JSON firmado) || Všeobecný webhook (podpísaný JSON)
+Webhook URL || Webhook-URL || URL du webhook || URL del webhook || URL webhooku
+SMTP server || SMTP-Server || Serveur SMTP || Servidor SMTP || SMTP server
+Port || Port || Port || Puerto || Port
+Security || Sicherheit || Sécurité || Seguridad || Zabezpečenie
+STARTTLS (587) || STARTTLS (587) || STARTTLS (587) || STARTTLS (587) || STARTTLS (587)
+TLS (465) || TLS (465) || TLS (465) || TLS (465) || TLS (465)
+None (local relay only) || Keine (nur lokales Relay) || Aucune (relais local uniquement) || Ninguna (solo relé local) || Žiadne (iba lokálny relay)
+User name (optional) || Benutzername (optional) || Nom d'utilisateur (facultatif) || Nombre de usuario (opcional) || Používateľské meno (voliteľné)
+Password (optional) || Passwort (optional) || Mot de passe (facultatif) || Contraseña (opcional) || Heslo (voliteľné)
+From || Von || De || De || Od
+To (comma separated) || An (durch Komma getrennt) || À (séparés par des virgules) || Para (separados por comas) || Komu (oddelené čiarkou)
+Send alerts scoring at least || Warnungen senden ab Wert || Envoyer les alertes ayant au moins le score || Enviar alertas con puntuación de al menos || Odosielať upozornenia so skóre aspoň
+Add channel || Kanal hinzufügen || Ajouter le canal || Añadir canal || Pridať kanál
+How complete is your register? || Wie vollständig ist Ihr Bestandsregister? || Votre registre est-il complet ? || ¿Qué tan completo está su registro? || Ako úplný je váš register?
+Standards mapping || Zuordnung zu Standards || Correspondance avec les référentiels || Correspondencia con estándares || Mapovanie na štandardy
+What DENIS provides || Was DENIS bietet || Ce que DENIS fournit || Qué aporta DENIS || Čo poskytuje DENIS
+Print this page (Ctrl/Cmd+P) to keep it as evidence. || Drucken Sie diese Seite (Strg/Cmd+P), um sie als Nachweis aufzubewahren. || Imprimez cette page (Ctrl/Cmd+P) pour la conserver comme preuve. || Imprima esta página (Ctrl/Cmd+P) para conservarla como evidencia. || Vytlačte túto stránku (Ctrl/Cmd+P) a uschovajte ju ako dôkaz.
+Every detection DENIS runs, and how it is set. Alerts are scored 0–100; anything below the minimum score is only logged. Turning a rule off, or its weight down, is safe: nothing is deleted. Changes apply within seconds and are written to the audit log. || Jede Erkennung, die DENIS ausführt, und wie sie eingestellt ist. Warnungen werden mit 0–100 bewertet; alles unter dem Mindestwert wird nur protokolliert. Eine Regel auszuschalten oder ihr Gewicht zu senken ist unbedenklich: Nichts wird gelöscht. Änderungen gelten innerhalb von Sekunden und werden im Audit-Protokoll festgehalten. || Chaque détection exécutée par DENIS et son réglage. Les alertes sont notées de 0 à 100 ; tout ce qui est sous le score minimal est seulement consigné. Désactiver une règle ou baisser son poids est sans risque : rien n'est supprimé. Les changements s'appliquent en quelques secondes et sont inscrits au journal d'audit. || Cada detección que ejecuta DENIS y cómo está configurada. Las alertas puntúan de 0 a 100; lo que queda por debajo de la puntuación mínima solo se registra. Desactivar una regla o bajar su peso es seguro: no se borra nada. Los cambios se aplican en segundos y se anotan en el registro de auditoría. || Každá detekcia, ktorú DENIS vykonáva, a ako je nastavená. Upozornenia majú skóre 0–100; všetko pod minimálnym skóre sa len zaznamená. Vypnutie pravidla alebo zníženie jeho váhy je bezpečné: nič sa nemaže. Zmeny sa prejavia do niekoľkých sekúnd a zapíšu sa do auditného záznamu.
+How each rule scores || Wie jede Regel bewertet || Comment chaque règle note || Cómo puntúa cada regla || Ako každé pravidlo hodnotí
+Save changes || Änderungen speichern || Enregistrer les modifications || Guardar cambios || Uložiť zmeny
+Reset everything to defaults || Alles auf Standard zurücksetzen || Tout rétablir par défaut || Restablecer todo a los valores predeterminados || Obnoviť všetko na predvolené
+Severity || Schweregrad || Gravité || Gravedad || Závažnosť
+Details || Details || Détails || Detalles || Podrobnosti
+ID || ID || ID || ID || ID
+Subnet || Subnetz || Sous-réseau || Subred || Podsieť
+Version || Version || Version || Versión || Verzia
+Last report || Letzter Bericht || Dernier rapport || Último informe || Posledné hlásenie
+Agent tokens || Agent-Token || Jetons d'agent || Tokens de agente || Tokeny agentov
+Each remote agent authenticates with its own token, bound to its agent id. A token is shown once when issued; issuing a new one revokes the old one. || Jeder entfernte Agent authentifiziert sich mit einem eigenen Token, der an seine Agent-ID gebunden ist. Ein Token wird bei der Ausstellung einmal angezeigt; ein neuer widerruft den alten. || Chaque agent distant s'authentifie avec son propre jeton, lié à son identifiant d'agent. Un jeton n'est affiché qu'une fois à l'émission ; en émettre un nouveau révoque l'ancien. || Cada agente remoto se autentica con su propio token, ligado a su id de agente. Un token se muestra una vez al emitirlo; emitir uno nuevo revoca el anterior. || Každý vzdialený agent sa overuje vlastným tokenom viazaným na jeho ID. Token sa zobrazí raz pri vydaní; vydanie nového starý zruší.
+Issue token || Token ausstellen || Émettre un jeton || Emitir token || Vydať token
+Agent || Agent || Agent || Agente || Agent
+State || Zustand || État || Estado || Stav
+Label || Bezeichnung || Libellé || Etiqueta || Popis
+Created || Erstellt || Créé || Creado || Vytvorené
+Last used || Zuletzt verwendet || Dernière utilisation || Último uso || Naposledy použité
+admin || Administrator || administrateur || administrador || správca
+editor || Bearbeiter || éditeur || editor || editor
+Add user || Benutzer hinzufügen || Ajouter un utilisateur || Añadir usuario || Pridať používateľa
+Role || Rolle || Rôle || Rol || Rola
+Last sign-in || Letzte Anmeldung || Dernière connexion || Último inicio de sesión || Posledné prihlásenie
+Roles: || Rollen: || Rôles : || Roles: || Roly:
+reads everything; || liest alles; || lit tout ; || lee todo; || číta všetko;
+also edits assets, acknowledges alerts and starts scans; || bearbeitet zusätzlich Geräte, bestätigt Warnungen und startet Scans; || modifie aussi les appareils, acquitte les alertes et lance des scans ; || además edita dispositivos, confirma alertas e inicia escaneos; || navyše upravuje zariadenia, potvrdzuje upozornenia a spúšťa skeny;
+also manages users, agent tokens and can delete manual assets. || verwaltet zusätzlich Benutzer und Agent-Token und kann manuelle Geräte löschen. || gère aussi les utilisateurs et les jetons d'agent et peut supprimer les appareils saisis à la main. || además gestiona usuarios y tokens de agente y puede eliminar dispositivos manuales. || navyše spravuje používateľov a tokeny agentov a môže odstraňovať ručne pridané zariadenia.
+API tokens || API-Token || Jetons d'API || Tokens de API || API tokeny
+For scripts and integrations (Grafana, automation). A token can read (viewer) or also change assets (editor), never administer. Send it as || Für Skripte und Integrationen (Grafana, Automatisierung). Ein Token kann lesen (Betrachter) oder zusätzlich Geräte ändern (Bearbeiter), aber nie administrieren. Senden Sie ihn als || Pour les scripts et intégrations (Grafana, automatisation). Un jeton peut lire (lecteur) ou aussi modifier les appareils (éditeur), jamais administrer. Envoyez-le sous la forme || Para scripts e integraciones (Grafana, automatización). Un token puede leer (lector) o también modificar dispositivos (editor), nunca administrar. Envíelo como || Pre skripty a integrácie (Grafana, automatizácia). Token môže čítať (čitateľ) alebo aj meniť zariadenia (editor), nikdy spravovať. Posielajte ho ako
+Create token || Token erstellen || Créer un jeton || Crear token || Vytvoriť token
+Created by || Erstellt von || Créé par || Creado por || Vytvoril
+HTTPS certificate || HTTPS-Zertifikat || Certificat HTTPS || Certificado HTTPS || Certifikát HTTPS
+Download the CA certificate || CA-Zertifikat herunterladen || Télécharger le certificat de l'AC || Descargar el certificado de la CA || Stiahnuť certifikát CA
+Use my own certificate… || Eigenes Zertifikat verwenden … || Utiliser mon propre certificat… || Usar mi propio certificado… || Použiť vlastný certifikát…
+Go back to the generated certificate || Zurück zum erzeugten Zertifikat || Revenir au certificat généré || Volver al certificado generado || Späť na vygenerovaný certifikát
+Updates || Aktualisierungen || Mises à jour || Actualizaciones || Aktualizácie
+Check for updates now || Jetzt nach Aktualisierungen suchen || Rechercher des mises à jour maintenant || Buscar actualizaciones ahora || Skontrolovať aktualizácie teraz
+Update available… || Aktualisierung verfügbar … || Mise à jour disponible… || Actualización disponible… || Dostupná aktualizácia…
+Demo data and reset || Demodaten und Zurücksetzen || Données de démonstration et réinitialisation || Datos de demostración y restablecimiento || Demo údaje a obnovenie
+New here? || Neu hier? || Nouveau ici ? || ¿Es nuevo? || Ste tu noví?
+Load demo data || Demodaten laden || Charger les données de démonstration || Cargar datos de demostración || Načítať demo údaje
+fills the console with a fictional company so you can explore every screen; it never mixes with your real devices, and || füllt die Konsole mit einer fiktiven Firma, damit Sie jede Ansicht erkunden können; es vermischt sich nie mit Ihren echten Geräten, und || remplit la console avec une entreprise fictive pour explorer chaque écran ; elles ne se mélangent jamais à vos vrais appareils, et || llena la consola con una empresa ficticia para que explore todas las pantallas; nunca se mezcla con sus dispositivos reales, y || naplní konzolu fiktívnou firmou, aby ste mohli preskúmať každú obrazovku; nikdy sa nemieša s vašimi skutočnými zariadeniami, a
+Remove demo data || Demodaten entfernen || Supprimer les données de démonstration || Eliminar datos de demostración || Odstrániť demo údaje
+deletes exactly that. When you are ready for your own network, || löscht genau diese. Wenn Sie für Ihr eigenes Netzwerk bereit sind, || supprime exactement celles-ci. Quand vous serez prêt pour votre propre réseau, || elimina exactamente eso. Cuando esté listo para su propia red, || odstráni presne ich. Keď budete pripravení na vlastnú sieť,
+starts from a clean slate (accounts, settings and the audit log are kept). || beginnt bei null (Konten, Einstellungen und das Audit-Protokoll bleiben erhalten). || repart de zéro (les comptes, réglages et le journal d'audit sont conservés). || empieza desde cero (se conservan las cuentas, los ajustes y el registro de auditoría). || začne odznova (účty, nastavenia a auditný záznam zostanú).
+Erase all data… || Alle Daten löschen … || Effacer toutes les données… || Borrar todos los datos… || Vymazať všetky údaje…
+Branding (white label) || Branding (White Label) || Personnalisation (marque blanche) || Marca (marca blanca) || Vzhľad (white label)
+Product name || Produktname || Nom du produit || Nombre del producto || Názov produktu
+Accent colour || Akzentfarbe || Couleur d'accent || Color de acento || Akcentová farba
+Use default blue || Standardblau verwenden || Utiliser le bleu par défaut || Usar el azul predeterminado || Použiť predvolenú modrú
+Default theme || Standard-Farbschema || Thème par défaut || Tema predeterminado || Predvolená téma
+(for people who have not picked one) || (für Personen, die keines gewählt haben) || (pour ceux qui n'en ont pas choisi) || (para quienes no han elegido uno) || (pre tých, ktorí si žiadnu nezvolili)
+Auto (follow the device) || Automatisch (dem Gerät folgen) || Automatique (suivre l'appareil) || Automático (seguir el dispositivo) || Automaticky (podľa zariadenia)
+Day || Tag || Jour || Día || Deň
+Night || Nacht || Nuit || Noche || Noc
+Default language || Standardsprache || Langue par défaut || Idioma predeterminado || Predvolený jazyk
+Sign-in page message || Nachricht auf der Anmeldeseite || Message de la page de connexion || Mensaje de la página de inicio de sesión || Správa na prihlasovacej stránke
+Save branding || Branding speichern || Enregistrer la personnalisation || Guardar marca || Uložiť vzhľad
+Logo || Logo || Logo || Logotipo || Logo
+PNG, JPEG, GIF or WebP, at most 256 KB (SVG is not accepted). || PNG, JPEG, GIF oder WebP, höchstens 256 KB (SVG wird nicht akzeptiert). || PNG, JPEG, GIF ou WebP, 256 Ko au maximum (le SVG n'est pas accepté). || PNG, JPEG, GIF o WebP, como máximo 256 KB (no se acepta SVG). || PNG, JPEG, GIF alebo WebP, najviac 256 KB (SVG sa neakceptuje).
+Remove logo || Logo entfernen || Supprimer le logo || Quitar logotipo || Odstrániť logo
+Audit log || Audit-Protokoll || Journal d'audit || Registro de auditoría || Auditný záznam
+User || Benutzer || Utilisateur || Usuario || Používateľ
+Action || Aktion || Action || Acción || Akcia
+Detail || Detail || Détail || Detalle || Detail
+OK || OK || OK || Aceptar || OK
+Language || Sprache || Langue || Idioma || Jazyk
+Show or hide the menu || Menü ein- oder ausblenden || Afficher ou masquer le menu || Mostrar u ocultar el menú || Zobraziť alebo skryť ponuku
+Colour theme: auto / light / dark || Farbschema: automatisch / hell / dunkel || Thème de couleur : auto / clair / sombre || Tema de color: automático / claro / oscuro || Farebná téma: automatická / svetlá / tmavá
+Main menu || Hauptmenü || Menu principal || Menú principal || Hlavná ponuka
+Filter by IP, MAC, name, owner, serial, tag… || Nach IP, MAC, Name, Besitzer, Seriennummer, Tag filtern … || Filtrer par IP, MAC, nom, responsable, série, étiquette… || Filtrar por IP, MAC, nombre, responsable, serie, etiqueta… || Filtrovať podľa IP, MAC, názvu, vlastníka, sériového čísla, štítku…
+Filter devices || Geräte filtern || Filtrer les appareils || Filtrar dispositivos || Filtrovať zariadenia
+Filter by site || Nach Standort filtern || Filtrer par site || Filtrar por sitio || Filtrovať podľa lokality
+Time range || Zeitraum || Période || Intervalo de tiempo || Časové obdobie
+Accept every device shown in the list as known || Jedes in der Liste angezeigte Gerät als bekannt akzeptieren || Accepter tous les appareils de la liste comme connus || Aceptar como conocido cada dispositivo de la lista || Prijať každé zariadenie v zozname ako známe
+reason (optional), e.g. patch night || Grund (optional), z. B. Patch-Nacht || motif (facultatif), p. ex. nuit de correctifs || motivo (opcional), p. ej. noche de parches || dôvod (voliteľné), napr. noc aktualizácií
+e.g. #security-alerts || z. B. #security-alerts || p. ex. #security-alerts || p. ej. #security-alerts || napr. #security-alerts
+https://… || https://… || https://… || https://… || https://…
+smtp.example.com || smtp.example.com || smtp.example.com || smtp.example.com || smtp.example.com
+DENIS <denis@example.com> || DENIS <denis@example.com> || DENIS <denis@example.com> || DENIS <denis@example.com> || DENIS <denis@example.com>
+soc@example.com, oncall@example.com || soc@example.com, oncall@example.com || soc@example.com, oncall@example.com || soc@example.com, oncall@example.com || soc@example.com, oncall@example.com
+agent id, e.g. branch-1 || Agent-ID, z. B. branch-1 || identifiant d'agent, p. ex. branch-1 || id del agente, p. ej. branch-1 || ID agenta, napr. branch-1
+label (optional) || Bezeichnung (optional) || libellé (facultatif) || etiqueta (opcional) || popis (voliteľné)
+username || Benutzername || nom d'utilisateur || usuario || používateľské meno
+what is it for? e.g. Grafana || wofür? z. B. Grafana || à quoi sert-il ? p. ex. Grafana || ¿para qué sirve? p. ej. Grafana || načo slúži? napr. Grafana
+e.g. Managed by Example Security || z. B. Betreut von Example Security || p. ex. Géré par Example Security || p. ej. Gestionado por Example Security || napr. Spravuje Example Security
+Requirement || Anforderung || Exigence || Requisito || Požiadavka

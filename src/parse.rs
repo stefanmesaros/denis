@@ -12,7 +12,8 @@ use std::net::Ipv4Addr;
 
 use ipnet::Ipv4Net;
 
-use crate::model::{FlowSample, Mac, Observation, TcpSig, PROTO_ICMP, PROTO_TCP, PROTO_UDP};
+use crate::model::{FlowSample, LinkInfo, Mac, Observation, OtSample, Signal, TcpSig, PROTO_ICMP, PROTO_TCP, PROTO_UDP};
+use crate::ot;
 
 pub struct Ctx {
     pub subnet: Ipv4Net,
@@ -21,6 +22,9 @@ pub struct Ctx {
     /// Also account per-device traffic to/from outside the subnet (needs the
     /// wider `BPF_FILTER_FLOWS`).
     pub flows: bool,
+    /// Decode industrial protocols between local devices (needs the wide
+    /// filter too, so it is enabled together with `flows`).
+    pub ot: bool,
 }
 
 const ETH_ARP: u16 = 0x0806;
@@ -28,15 +32,21 @@ const ETH_IPV4: u16 = 0x0800;
 const ETH_VLAN: u16 = 0x8100;
 const ETH_QINQ: u16 = 0x88a8;
 
+// The filters below also capture link-layer discovery: LLDP (EtherType 0x88cc),
+// PROFINET (0x8892) and CDP (multicast to 01:00:0c:cc:cc:cc, an 802.3 frame with
+// no EtherType). All are rare, so they are captured by default: switches, access
+// points and industrial devices announcing themselves are free identity.
+
 /// Classic BPF filter matching exactly what `parse_frame` understands, so the
 /// kernel drops everything else before it reaches userspace.
 pub const BPF_FILTER: &str = "arp \
     or (udp and (port 67 or port 68 or port 5353 or port 1900)) \
     or (tcp[tcpflags] & tcp-syn != 0) \
-    or (icmp[icmptype] == icmp-echoreply)";
+    or (icmp[icmptype] == icmp-echoreply) \
+    or ether proto 0x88cc or ether proto 0x8892 or ether dst 01:00:0c:cc:cc:cc";
 
-/// With flow accounting every IPv4 frame is needed.
-pub const BPF_FILTER_FLOWS: &str = "arp or ip";
+/// With flow accounting every IPv4 frame is needed (plus the link-layer set).
+pub const BPF_FILTER_FLOWS: &str = "arp or ip or ether proto 0x88cc or ether proto 0x8892 or ether dst 01:00:0c:cc:cc:cc";
 
 pub fn bpf_filter(flows: bool) -> &'static str {
     if flows {
@@ -66,11 +76,35 @@ pub fn parse_frame(ctx: &Ctx, frame: &[u8]) -> Vec<Observation> {
         off += 4;
     }
     let payload = &frame[off..];
+    // CDP frames are 802.3 (the "EtherType" is a length) addressed to a fixed multicast.
+    if !own && dst_mac.0 == [0x01, 0x00, 0x0c, 0xcc, 0xcc, 0xcc] && ethertype <= 1500 {
+        // LLC/SNAP: AA AA 03, OUI 00 00 0c, protocol 0x2000
+        if payload.len() > 8 && payload[..8] == [0xaa, 0xaa, 0x03, 0x00, 0x00, 0x0c, 0x20, 0x00] {
+            if let Some(f) = ot::parse_cdp(&payload[8..]) {
+                out.push(Observation::Link(LinkInfo { mac: src_mac, source: "cdp", ip: None, fields: f }));
+            }
+        }
+        return out;
+    }
     match ethertype {
+        0x88cc if !own => {
+            if let Some(f) = ot::parse_lldp(payload) {
+                let ip = f.get("management_ip").and_then(|v| v.parse().ok()).filter(|ip| ctx.subnet.contains(ip));
+                out.push(Observation::Link(LinkInfo { mac: src_mac, source: "lldp", ip, fields: f }));
+            }
+        }
+        0x8892 if !own => {
+            if let Some((f, ip)) = ot::parse_profinet_dcp(payload) {
+                out.push(Observation::Link(LinkInfo { mac: src_mac, source: "profinet", ip: ip.filter(|ip| ctx.subnet.contains(ip)), fields: f }));
+            }
+        }
         ETH_ARP if !own => parse_arp(ctx, src_mac, payload, &mut out),
         ETH_IPV4 => {
             if ctx.flows {
                 parse_flow(ctx, src_mac, dst_mac, payload, own, &mut out);
+            }
+            if ctx.ot {
+                parse_ot(ctx, src_mac, dst_mac, payload, &mut out);
             }
             if !own {
                 parse_ipv4(ctx, src_mac, payload, &mut out);
@@ -90,6 +124,45 @@ fn is_external(ctx: &Ctx, ip: Ipv4Addr) -> bool {
         && !ip.is_loopback()
         && !ip.is_link_local()
         && !ip.is_unspecified()
+}
+
+/// Industrial protocol decoding for traffic between two *local* devices (the
+/// communications matrix). Traffic to the outside is handled by flow accounting,
+/// which flags OT ports leaving the network by port alone.
+fn parse_ot(ctx: &Ctx, src_mac: Mac, dst_mac: Mac, p: &[u8], out: &mut Vec<Observation>) {
+    if p.len() < 20 || p[0] >> 4 != 4 {
+        return;
+    }
+    let ihl = (p[0] & 0x0f) as usize * 4;
+    if ihl < 20 || p.len() < ihl || u16::from_be_bytes([p[6], p[7]]) & 0x1fff != 0 {
+        return;
+    }
+    let proto = p[9];
+    let src = Ipv4Addr::new(p[12], p[13], p[14], p[15]);
+    let dst = Ipv4Addr::new(p[16], p[17], p[18], p[19]);
+    if !ctx.subnet.contains(&src) || !ctx.subnet.contains(&dst) || !dst_mac.is_unicast() {
+        return;
+    }
+    let l4 = &p[ihl..];
+    let (is_tcp, hdr) = match proto {
+        PROTO_TCP if l4.len() >= 20 => (true, (l4[12] >> 4) as usize * 4),
+        PROTO_UDP if l4.len() >= 8 => (false, 8),
+        _ => return,
+    };
+    if hdr < 8 || l4.len() <= hdr {
+        return;
+    }
+    let (sport, dport) = (u16::from_be_bytes([l4[0], l4[1]]), u16::from_be_bytes([l4[2], l4[3]]));
+    if let Some(pdu) = ot::parse_pdu(is_tcp, sport, dport, &l4[hdr..]) {
+        out.push(Observation::Ot(OtSample {
+            src_mac,
+            dst_mac,
+            src_ip: src,
+            dst_ip: dst,
+            bytes: u32::from_be_bytes([0, 0, p[2], p[3]]),
+            pdu,
+        }));
+    }
 }
 
 /// Traffic accounting: bytes between a local device and an outside address.
@@ -161,15 +234,25 @@ fn parse_arp(ctx: &Ctx, eth_src: Mac, p: &[u8], out: &mut Vec<Observation>) {
     }
     let sha = Mac(p[8..14].try_into().unwrap());
     let spa = Ipv4Addr::new(p[14], p[15], p[16], p[17]);
-    // Probes (spa == 0.0.0.0) carry no binding. A sender hardware address that
-    // differs from the Ethernet source is proxy-ARP or spoofing: skip it here;
-    // Phase 3's ARP-conflict rule will look at exactly these frames.
-    if spa.is_unspecified() || !sha.is_valid() || sha != eth_src {
+    // Probes (spa == 0.0.0.0) carry no binding.
+    if spa.is_unspecified() || !sha.is_valid() || !ctx.subnet.contains(&spa) || spa == ctx.own_ip {
         return;
     }
-    if ctx.subnet.contains(&spa) && spa != ctx.own_ip {
-        out.push(Observation::Arp { mac: sha, ip: spa });
+    // A sender hardware address that differs from the Ethernet source is
+    // unusual (proxy-ARP done badly, or a crude spoofing tool). It carries no
+    // trustworthy binding, so report it as a signal instead of learning from it.
+    if sha != eth_src {
+        out.push(Observation::Signal(Signal {
+            kind: "arp_mismatch".into(),
+            ts: 0, // stamped by the aggregator: parsing has no clock
+            mac: eth_src,
+            ip: spa,
+            other_mac: Some(sha),
+            gateway: false, // the inventory knows the gateway
+        }));
+        return;
     }
+    out.push(Observation::Arp { mac: sha, ip: spa });
 }
 
 fn parse_ipv4(ctx: &Ctx, src_mac: Mac, p: &[u8], out: &mut Vec<Observation>) {
@@ -197,6 +280,17 @@ fn parse_ipv4(ctx: &Ctx, src_mac: Mac, p: &[u8], out: &mut Vec<Observation>) {
         if matches!(sport, 67 | 68) && matches!(dport, 67 | 68) {
             if let Some(obs) = parse_dhcp(ctx, &l4[8..]) {
                 out.push(obs);
+            }
+            // An offer or acknowledgement: this device is acting as a DHCP server.
+            if is_dhcp_server_reply(&l4[8..]) && src_mac.is_valid() && ctx.subnet.contains(&src) && src != ctx.own_ip {
+                out.push(Observation::Signal(Signal {
+                    kind: "dhcp_server".into(),
+                    ts: 0, // stamped by the inventory
+                    mac: src_mac,
+                    ip: src,
+                    other_mac: None,
+                    gateway: false, // the inventory knows the gateway
+                }));
             }
             return;
         }
@@ -303,6 +397,29 @@ fn parse_tcp_sig(l4: &[u8], ttl: u8) -> Option<TcpSig> {
 }
 
 // ---------------------------------------------------------------- DHCP
+
+/// Is this a DHCP server's OFFER (2) or ACK (5)? Only the fixed header and the message-type
+/// option are read.
+fn is_dhcp_server_reply(b: &[u8]) -> bool {
+    if b.len() < 241 || b[0] != 2 || b[236..240] != [0x63, 0x82, 0x53, 0x63] {
+        return false;
+    }
+    let mut i = 240;
+    while i < b.len() {
+        match b[i] {
+            255 => break,
+            0 => i += 1,
+            code => {
+                let Some(&len) = b.get(i + 1) else { break };
+                if code == 53 && len == 1 {
+                    return matches!(b.get(i + 2), Some(2 | 5));
+                }
+                i += 2 + len as usize;
+            }
+        }
+    }
+    false
+}
 
 fn parse_dhcp(ctx: &Ctx, b: &[u8]) -> Option<Observation> {
     if b.len() < 240 || b[1] != 1 || b[2] != 6 || b[236..240] != [0x63, 0x82, 0x53, 0x63] {
@@ -578,7 +695,7 @@ fn parse_ssdp(mac: Mac, ip: Ipv4Addr, d: &[u8]) -> Option<Observation> {
 // ---------------------------------------------------------------- helpers
 
 /// Network-supplied text is attacker-controlled: drop control chars, cap length.
-fn clean_str(s: &str) -> Option<String> {
+pub(crate) fn clean_str(s: &str) -> Option<String> {
     let cleaned: String = s
         .chars()
         .filter(|c| !c.is_control())
@@ -609,6 +726,7 @@ mod tests {
             own_mac: Mac([0x02, 0, 0, 0, 0, 0x99]),
             own_ip: Ipv4Addr::new(192, 168, 1, 10),
             flows: false,
+            ot: false,
         }
     }
 
@@ -675,8 +793,17 @@ mod tests {
         assert!(parse_frame(&c, &probe).is_empty());
         let foreign = eth([0xff; 6], DEV, ETH_ARP, &arp(2, DEV, [10, 0, 0, 5], [192, 168, 1, 10]));
         assert!(parse_frame(&c, &foreign).is_empty());
-        let spoof = eth([0xff; 6], DEV, ETH_ARP, &arp(2, [1, 2, 3, 4, 5, 6], [192, 168, 1, 20], [0; 4]));
-        assert!(parse_frame(&c, &spoof).is_empty());
+        // sender hardware address != Ethernet source: never learned, but reported
+        let spoof = eth([0xff; 6], DEV, ETH_ARP, &arp(2, [0x02, 2, 3, 4, 5, 6], [192, 168, 1, 20], [0; 4]));
+        let obs = parse_frame(&c, &spoof);
+        assert!(matches!(
+            obs.as_slice(),
+            [Observation::Signal(s)] if s.kind == "arp_mismatch" && s.mac.0 == DEV
+                && s.other_mac == Some(Mac([0x02, 2, 3, 4, 5, 6])) && s.ip == Ipv4Addr::new(192, 168, 1, 20)
+        ));
+        // ...but not when the claimed address is outside the subnet or our own
+        let far = eth([0xff; 6], DEV, ETH_ARP, &arp(2, [0x02, 2, 3, 4, 5, 6], [10, 0, 0, 9], [0; 4]));
+        assert!(parse_frame(&c, &far).is_empty());
         // own frames and truncated frames
         let own = eth([0xff; 6], c.own_mac.0, ETH_ARP, &arp(1, c.own_mac.0, [192, 168, 1, 10], [192, 168, 1, 20]));
         assert!(parse_frame(&c, &own).is_empty());
@@ -775,7 +902,7 @@ mod tests {
 
     #[test]
     fn dhcp_request_from_zero_ip() {
-        let d = dhcp(1, 3, DEV, [0; 4], &[(12, b"Stefans-iPhone"), (60, b"android-dhcp-13"), (55, &[1, 3, 6, 15])]);
+        let d = dhcp(1, 3, DEV, [0; 4], &[(12, b"Anns-iPhone"), (60, b"android-dhcp-13"), (55, &[1, 3, 6, 15])]);
         let f = eth([0xff; 6], DEV, ETH_IPV4, &ipv4(17, 64, [0; 4], [255; 4], &udp(68, 67, &d)));
         let obs = parse_frame(&ctx(), &f);
         let [Observation::Dhcp { mac, ip, hostname, vendor_class, param_list }] = obs.as_slice() else {
@@ -783,7 +910,7 @@ mod tests {
         };
         assert_eq!(mac.0, DEV);
         assert_eq!(*ip, None); // a bare REQUEST doesn't bind an address
-        assert_eq!(hostname.as_deref(), Some("Stefans-iPhone"));
+        assert_eq!(hostname.as_deref(), Some("Anns-iPhone"));
         assert_eq!(vendor_class.as_deref(), Some("android-dhcp-13"));
         assert_eq!(param_list.as_deref(), Some("1,3,6,15"));
     }
@@ -792,10 +919,30 @@ mod tests {
     fn dhcp_ack_binds_ip() {
         let d = dhcp(2, 5, DEV, [192, 168, 1, 77], &[]);
         let f = eth(DEV, [0x00, 0x1b, 0x63, 1, 1, 1], ETH_IPV4, &ipv4(17, 64, [192, 168, 1, 1], [192, 168, 1, 77], &udp(67, 68, &d)));
+        let obs = parse_frame(&ctx(), &f);
         assert!(matches!(
-            parse_frame(&ctx(), &f).as_slice(),
-            [Observation::Dhcp { ip: Some(ip), .. }] if *ip == Ipv4Addr::new(192,168,1,77)
-        ));
+            obs.as_slice(),
+            [Observation::Dhcp { ip: Some(ip), .. }, Observation::Signal(_)] if *ip == Ipv4Addr::new(192,168,1,77)
+        ), "{obs:?}");
+    }
+
+    #[test]
+    fn a_dhcp_offer_or_ack_marks_its_sender_as_a_server_but_requests_and_other_replies_do_not() {
+        let server = [0x00, 0x1b, 0x63, 1, 1, 1];
+        let frame = |op, ty, src: [u8; 4]| eth(DEV, server, ETH_IPV4, &ipv4(17, 64, src, [255; 4], &udp(67, 68, &dhcp(op, ty, DEV, [192, 168, 1, 77], &[]))));
+        let signal = |f: &[u8]| parse_frame(&ctx(), f).into_iter().find_map(|o| if let Observation::Signal(s) = o { Some(s) } else { None });
+        for ty in [2, 5] {
+            let s = signal(&frame(2, ty, [192, 168, 1, 1])).expect("server reply");
+            assert_eq!((s.kind.as_str(), s.mac.0, s.ip), ("dhcp_server", server, Ipv4Addr::new(192, 168, 1, 1)));
+        }
+        assert!(signal(&frame(2, 6, [192, 168, 1, 1])).is_none(), "NAK is not an offer");
+        assert!(signal(&frame(2, 3, [192, 168, 1, 1])).is_none(), "a REQUEST type in a reply");
+        assert!(signal(&frame(1, 1, [0, 0, 0, 0])).is_none(), "a client DISCOVER");
+        assert!(signal(&frame(2, 2, [10, 9, 9, 9])).is_none(), "a server outside our subnet is not ours to judge");
+        // truncated or garbage bodies never panic and never claim a server
+        for n in [0, 10, 239, 240, 241] {
+            assert!(!is_dhcp_server_reply(&vec![2u8; n]));
+        }
     }
 
     fn dns_name(name: &str) -> Vec<u8> {
@@ -945,5 +1092,204 @@ mod tests {
         assert_eq!(clean_str("a\u{0}b\r\n<x>").as_deref(), Some("ab<x>"));
         assert_eq!(clean_str(&"x".repeat(500)).unwrap().len(), 96);
         assert_eq!(clean_str("\u{1}\u{2}"), None);
+    }
+
+    // ------------------------------------------------------------------ fuzz
+
+    /// Small deterministic PRNG (xorshift64*) so failures are reproducible.
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 >> 12;
+            self.0 ^= self.0 << 25;
+            self.0 ^= self.0 >> 27;
+            self.0.wrapping_mul(0x2545_f491_4f6c_dd1d)
+        }
+        fn below(&mut self, n: usize) -> usize {
+            (self.next() % n.max(1) as u64) as usize
+        }
+    }
+
+    /// One valid frame of every kind the parser understands, as fuzzing seeds.
+    fn seed_frames() -> Vec<Vec<u8>> {
+        let mut m = vec![0, 0, 0x84, 0, 0, 0, 0, 3, 0, 0, 0, 0];
+        m.extend(rr(&dns_name("_ipp._tcp.local"), 12, &dns_name("Printer._ipp._tcp.local")));
+        let mut srv = vec![0, 0, 0, 0, 0x02, 0x77];
+        srv.extend(dns_name("host.local"));
+        m.extend(rr(&dns_name("Printer._ipp._tcp.local"), 33, &srv));
+        m.extend(rr(&dns_name("host.local"), 1, &[192, 168, 1, 50]));
+        let dhcp_body = dhcp(1, 3, DEV, [0; 4], &[(12, b"host"), (60, b"MSFT 5.0"), (55, &[1, 3, 6])]);
+        let ssdp = b"NOTIFY * HTTP/1.1\r\nNT: upnp:rootdevice\r\nSERVER: Linux UPnP/1.0\r\n\r\n";
+        let syn = tcp_syn(0x02, 64240, &[2, 4, 5, 0xb4, 1, 3, 3, 8, 1, 1, 4, 2]);
+        vec![
+            eth([0xff; 6], DEV, ETH_ARP, &arp(2, DEV, [192, 168, 1, 20], [192, 168, 1, 10])),
+            eth([0xff; 6], DEV, ETH_ARP, &arp(2, [0x02, 2, 3, 4, 5, 6], [192, 168, 1, 20], [0; 4])),
+            eth([0xff; 6], DEV, ETH_IPV4, &ipv4(17, 64, [0; 4], [255; 4], &udp(68, 67, &dhcp_body))),
+            eth([0x01, 0, 0x5e, 0, 0, 0xfb], DEV, ETH_IPV4, &ipv4(17, 255, [192, 168, 1, 50], [224, 0, 0, 251], &udp(5353, 5353, &m))),
+            eth([0xff; 6], DEV, ETH_IPV4, &ipv4(17, 64, [192, 168, 1, 1], [239, 255, 255, 250], &udp(1900, 1900, ssdp))),
+            eth([0xff; 6], DEV, ETH_IPV4, &ipv4(6, 128, [192, 168, 1, 30], [93, 184, 216, 34], &syn)),
+            eth([0xff; 6], DEV, ETH_IPV4, &ipv4(1, 64, [192, 168, 1, 40], [192, 168, 1, 10], &[0, 0, 0, 0, 0, 1, 0, 1])),
+            eth([0xff; 6], DEV, ETH_VLAN, &[0x00, 0x05, 0x08, 0x06]),
+        ]
+    }
+
+    /// The parser reads bytes from the network, i.e. from an attacker: whatever
+    /// arrives, it must neither panic nor loop. Every truncation of every valid
+    /// frame, tens of thousands of mutations of them, and pure noise.
+    #[test]
+    fn hostile_frames_never_panic_the_parser() {
+        let with_flows = Ctx { flows: true, ..ctx() };
+        let without = ctx();
+        let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
+        let mut frames_tried = 0u32;
+        let mut run = |f: &[u8]| {
+            let _ = parse_frame(&with_flows, f);
+            let _ = parse_frame(&without, f);
+            frames_tried += 1;
+        };
+        for seed in seed_frames() {
+            // 1. every truncation
+            for n in 0..=seed.len() {
+                run(&seed[..n]);
+            }
+            // 2. random byte/bit mutations, sometimes combined with truncation
+            for _ in 0..4000 {
+                let mut f = seed.clone();
+                for _ in 0..1 + rng.below(4) {
+                    let i = rng.below(f.len());
+                    match rng.below(3) {
+                        0 => f[i] = rng.next() as u8,
+                        1 => f[i] ^= 1 << rng.below(8),
+                        _ => f[i] = [0x00, 0xff, 0x7f, 0x80, 0xc0][rng.below(5)],
+                    }
+                }
+                if rng.below(4) == 0 {
+                    f.truncate(rng.below(f.len() + 1));
+                }
+                run(&f);
+            }
+        }
+        // 3. pure noise, half of it dressed up with a plausible Ethernet header
+        for _ in 0..30_000 {
+            let len = rng.below(400);
+            let mut f: Vec<u8> = (0..len).map(|_| rng.next() as u8).collect();
+            if f.len() >= 14 && rng.below(2) == 0 {
+                f[0..6].copy_from_slice(&[0xff; 6]);
+                f[6..12].copy_from_slice(&DEV);
+                let et = [ETH_ARP, ETH_IPV4, ETH_VLAN][rng.below(3)];
+                f[12..14].copy_from_slice(&et.to_be_bytes());
+                if et == ETH_IPV4 && f.len() > 14 {
+                    f[14] = 0x40 | (f[14] & 0x0f).max(5); // valid-looking IPv4 header
+                }
+            }
+            run(&f);
+        }
+        assert!(frames_tried > 60_000, "{frames_tried}");
+    }
+
+    /// DNS compression pointers that form a cycle, point forward, or point
+    /// outside the message must terminate quickly with a rejection.
+    #[test]
+    fn dns_name_pointer_tricks_terminate() {
+        let m = [0u8; 12];
+        for evil in [
+            vec![0xc0, 12],                     // points at itself
+            vec![0xc0, 14, 0xc0, 12],           // two-node cycle
+            vec![0xc0, 0xff],                   // outside the message
+            vec![0x3f],                         // label longer than the buffer
+            vec![0x40, 0, 0],                   // reserved label type
+            [[1u8, b'a'].repeat(200), vec![0]].concat(), // absurdly many labels
+        ] {
+            let mut d = m.to_vec();
+            d.extend(&evil);
+            assert!(read_name(&d, 12).is_none(), "{evil:?}");
+        }
+    }
+
+    // ------------------------------------------------------- OT integration
+
+    fn ot_ctx() -> Ctx {
+        Ctx { flows: true, ot: true, ..ctx() }
+    }
+
+    /// Ethernet+IPv4+TCP frame carrying `payload` from 192.168.1.<src> to 192.168.1.<dst>.
+    fn tcp_frame(src_mac: [u8; 6], dst_mac: [u8; 6], src: u8, dst: u8, sport: u16, dport: u16, payload: &[u8]) -> Vec<u8> {
+        let mut t = tcp_hdr(sport, dport);
+        t.extend_from_slice(payload);
+        eth(dst_mac, src_mac, ETH_IPV4, &ipv4(6, 64, [192, 168, 1, src], [192, 168, 1, dst], &t))
+    }
+
+    const PLC: [u8; 6] = [0x00, 0x1b, 0x1b, 9, 9, 9];
+
+    fn modbus_read() -> Vec<u8> {
+        vec![0, 1, 0, 0, 0, 6, 1, 3, 0, 0, 0, 10]
+    }
+
+    #[test]
+    fn modbus_between_local_devices_becomes_an_oriented_sample() {
+        let f = tcp_frame(DEV, PLC, 30, 31, 50_000, 502, &modbus_read());
+        let obs = parse_frame(&ot_ctx(), &f);
+        let sample = obs.iter().find_map(|o| match o { Observation::Ot(s) => Some(s), _ => None }).expect("an OT sample");
+        assert_eq!((sample.pdu.proto, sample.pdu.server_is_src, sample.pdu.class), ("modbus", false, crate::model::OtClass::Read));
+        assert_eq!((sample.src_mac.0, sample.dst_mac.0), (DEV, PLC));
+        assert_eq!((sample.src_ip, sample.dst_ip), (Ipv4Addr::new(192, 168, 1, 30), Ipv4Addr::new(192, 168, 1, 31)));
+        // the PLC's answer is the same conversation seen from the server side
+        let reply = tcp_frame(PLC, DEV, 31, 30, 502, 50_000, &[0, 1, 0, 0, 0, 5, 1, 3, 2, 0, 5]);
+        let obs = parse_frame(&ot_ctx(), &reply);
+        assert!(obs.iter().any(|o| matches!(o, Observation::Ot(s) if s.pdu.server_is_src && s.pdu.proto == "modbus")));
+    }
+
+    #[test]
+    fn industrial_decoding_is_opt_in_local_only_and_signature_checked() {
+        let f = tcp_frame(DEV, PLC, 30, 31, 50_000, 502, &modbus_read());
+        assert!(!parse_frame(&flow_ctx(), &f).iter().any(|o| matches!(o, Observation::Ot(_))), "off unless ot is enabled");
+        // towards the outside it is flow accounting's business (flagged by port), not a local conversation
+        let mut t = tcp_hdr(50_000, 502);
+        t.extend_from_slice(&modbus_read());
+        let out = eth(PLC, DEV, ETH_IPV4, &ipv4(6, 64, [192, 168, 1, 30], [8, 8, 8, 8], &t));
+        let obs = parse_frame(&ot_ctx(), &out);
+        assert!(!obs.iter().any(|o| matches!(o, Observation::Ot(_))));
+        assert!(obs.iter().any(|o| matches!(o, Observation::FlowSample(s) if s.port == 502 && s.remote == Ipv4Addr::new(8, 8, 8, 8))));
+        // same port, but not Modbus: no sample
+        let web = tcp_frame(DEV, PLC, 30, 31, 50_000, 502, b"GET / HTTP/1.1\r\n\r\n");
+        assert!(!parse_frame(&ot_ctx(), &web).iter().any(|o| matches!(o, Observation::Ot(_))));
+        // the collector's own host is a participant like any other (as in flow accounting)
+        let own = tcp_frame(ot_ctx().own_mac.0, PLC, 10, 31, 50_000, 502, &modbus_read());
+        assert!(parse_frame(&ot_ctx(), &own).iter().any(|o| matches!(o, Observation::Ot(s) if s.src_mac == ot_ctx().own_mac)));
+    }
+
+    #[test]
+    fn link_layer_announcements_become_identity() {
+        // LLDP
+        let mut lldp = vec![0x02, 0x07, 4, 0x00, 0x1b, 0x63, 1, 2, 3]; // chassis id (MAC)
+        lldp.extend([0x0a, 0x08]); // system name TLV, 8 bytes
+        lldp.extend(b"edge-sw1");
+        lldp.extend([0, 0]);
+        let f = eth([0x01, 0x80, 0xc2, 0, 0, 0x0e], DEV, 0x88cc, &lldp);
+        let obs = parse_frame(&ctx(), &f);
+        assert!(matches!(obs.as_slice(), [Observation::Link(l)] if l.source == "lldp" && l.mac.0 == DEV && l.fields["system_name"] == "edge-sw1"));
+
+        // CDP: 802.3 length, LLC/SNAP, then TLVs
+        let mut cdp = vec![0xaa, 0xaa, 0x03, 0x00, 0x00, 0x0c, 0x20, 0x00, 2, 180, 0, 0];
+        cdp.extend([0x00, 0x01, 0x00, 0x0c]); // device id, 8 bytes of value
+        cdp.extend(b"core-sw1");
+        let len = cdp.len() as u16;
+        let f = eth([0x01, 0x00, 0x0c, 0xcc, 0xcc, 0xcc], DEV, len, &cdp);
+        let obs = parse_frame(&ctx(), &f);
+        assert!(matches!(obs.as_slice(), [Observation::Link(l)] if l.source == "cdp" && l.fields["system_name"] == "core-sw1"));
+
+        // PROFINET DCP identify response with a station name
+        let name = b"plc-a";
+        let mut block = vec![2, 2, 0, (name.len() + 2) as u8, 0, 0];
+        block.extend(name);
+        block.push(0); // pad to even
+        let mut dcp = vec![0xfe, 0xff, 5, 1, 0, 0, 0, 1, 0, 0];
+        dcp.extend((block.len() as u16).to_be_bytes());
+        dcp.extend(&block);
+        let f = eth([0xff; 6], DEV, 0x8892, &dcp);
+        assert!(matches!(parse_frame(&ctx(), &f).as_slice(), [Observation::Link(l)] if l.source == "profinet" && l.fields["station_name"] == "plc-a"));
+        // and the capture filters really ask the kernel for these frames
+        assert!(BPF_FILTER.contains("0x88cc") && BPF_FILTER.contains("0x8892") && BPF_FILTER.contains("01:00:0c:cc:cc:cc"));
+        assert!(BPF_FILTER_FLOWS.contains("0x88cc"));
     }
 }

@@ -1,0 +1,130 @@
+# Words the server sends as identifiers (device types, icons, statuses, severities) and messages with values in them.
+Updated to {version}. DENIS is restarting. || Auf {version} aktualisiert. DENIS startet neu. || Mise à jour vers {version} effectuée. DENIS redémarre. || Actualizado a {version}. DENIS se está reiniciando. || Aktualizované na {version}. DENIS sa reštartuje.
+The update was not installed and nothing was changed: {error} || Die Aktualisierung wurde nicht installiert und nichts wurde verändert: {error} || La mise à jour n'a pas été installée et rien n'a été modifié : {error} || La actualización no se instaló y no se cambió nada: {error} || Aktualizácia sa nenainštalovala a nič sa nezmenilo: {error}
+DENIS {to} did not start, so version {from} was put back. || DENIS {to} ist nicht gestartet, daher wurde Version {from} wiederhergestellt. || DENIS {to} n'a pas démarré, la version {from} a donc été remise en place. || DENIS {to} no arrancó, así que se restauró la versión {from}. || DENIS {to} sa nespustil, preto sa vrátila verzia {from}.
+The database format had changed, so the backup taken before the update was restored (the newer one is kept as {path}). || Das Datenbankformat hatte sich geändert, daher wurde das vor der Aktualisierung erstellte Backup wiederhergestellt (die neuere Datenbank bleibt als {path} erhalten). || Le format de la base avait changé ; la sauvegarde faite avant la mise à jour a donc été restaurée (la plus récente est conservée sous {path}). || El formato de la base de datos había cambiado, así que se restauró la copia hecha antes de la actualización (la más nueva se conserva como {path}). || Formát databázy sa zmenil, preto sa obnovila záloha vytvorená pred aktualizáciou (novšia sa ponechala ako {path}).
+Checking the release || Version wird geprüft || Vérification de la version || Comprobando la versión || Kontrola vydania
+Verifying the signature || Signatur wird geprüft || Vérification de la signature || Verificando la firma || Overovanie podpisu
+Downloading || Wird heruntergeladen || Téléchargement || Descargando || Sťahovanie
+Testing the new program || Neues Programm wird getestet || Test du nouveau programme || Probando el nuevo programa || Testovanie nového programu
+Backing up the database || Datenbank wird gesichert || Sauvegarde de la base de données || Copia de seguridad de la base de datos || Zálohovanie databázy
+Installing || Wird installiert || Installation || Instalando || Inštalácia
+Restarting || Neustart || Redémarrage || Reiniciando || Reštart
+light || hell || clair || claro || svetlá
+dark || dunkel || sombre || oscuro || tmavá
+info || Info || info || info || info
+medium || mittel || moyen || medio || stredná
+high || hoch || élevé || alto || vysoká
+low || niedrig || faible || bajo || nízka
+critical || kritisch || critique || crítico || kritická
+normal || normal || normale || normal || normálna
+spare || Ersatz || de rechange || de repuesto || náhradné
+retired || ausgemustert || retiré || retirado || vyradené
+lost || verloren || perdu || perdido || stratené
+stolen || gestohlen || volé || robado || ukradnuté
+computer || Computer || ordinateur || ordenador || počítač
+laptop || Laptop || portable || portátil || notebook
+server || Server || serveur || servidor || server
+virtual machine || virtuelle Maschine || machine virtuelle || máquina virtual || virtuálny stroj
+phone || Telefon || téléphone || teléfono || telefón
+tablet || Tablet || tablette || tableta || tablet
+printer || Drucker || imprimante || impresora || tlačiareň
+router || Router || routeur || router || router
+network device || Netzwerkgerät || équipement réseau || dispositivo de red || sieťové zariadenie
+access point || Access Point || point d'accès || punto de acceso || prístupový bod
+nas || NAS || NAS || NAS || NAS
+camera || Kamera || caméra || cámara || kamera
+media device || Mediengerät || appareil multimédia || dispositivo multimedia || multimediálne zariadenie
+smart speaker || Smart Speaker || enceinte connectée || altavoz inteligente || inteligentný reproduktor
+tv || Fernseher || téléviseur || televisor || televízor
+iot || IoT || IoT || IoT || IoT
+unknown || unbekannt || inconnu || desconocido || neznáme
+thin client || Thin Client || client léger || cliente ligero || tenký klient
+point of sale || Kassensystem || point de vente || punto de venta || pokladničný systém
+kiosk || Kiosk || borne || quiosco || kiosk
+hypervisor || Hypervisor || hyperviseur || hipervisor || hypervízor
+database server || Datenbankserver || serveur de base de données || servidor de base de datos || databázový server
+storage array || Speicher-Array || baie de stockage || matriz de almacenamiento || diskové pole
+kvm || KVM || KVM || KVM || KVM
+pdu || PDU || PDU || PDU || PDU
+ups || USV || onduleur || SAI || UPS
+load balancer || Load Balancer || répartiteur de charge || balanceador de carga || vyvažovač záťaže
+vpn gateway || VPN-Gateway || passerelle VPN || puerta de enlace VPN || brána VPN
+firewall || Firewall || pare-feu || cortafuegos || firewall
+security appliance || Sicherheits-Appliance || appliance de sécurité || appliance de seguridad || bezpečnostné zariadenie
+modem || Modem || modem || módem || modem
+mesh node || Mesh-Knoten || nœud maillé || nodo mesh || mesh uzol
+wireless controller || WLAN-Controller || contrôleur sans fil || controlador inalámbrico || bezdrôtový kontrolér
+cloud service || Cloud-Dienst || service cloud || servicio en la nube || cloudová služba
+projector || Projektor || projecteur || proyector || projektor
+conference system || Konferenzsystem || système de conférence || sistema de conferencias || konferenčný systém
+voip phone || VoIP-Telefon || téléphone VoIP || teléfono VoIP || VoIP telefón
+3d printer || 3D-Drucker || imprimante 3D || impresora 3D || 3D tlačiareň
+scanner || Scanner || scanner || escáner || skener
+barcode scanner || Barcode-Scanner || lecteur de codes-barres || lector de códigos de barras || čítačka čiarových kódov
+set-top box || Set-Top-Box || décodeur || decodificador || set-top box
+streaming stick || Streaming-Stick || clé de streaming || dispositivo de streaming || streamovací kľúč
+game console || Spielkonsole || console de jeu || consola de juegos || herná konzola
+wearable || Wearable || objet connecté porté || dispositivo vestible || nositeľné zariadenie
+smart plug || Smart-Steckdose || prise connectée || enchufe inteligente || inteligentná zásuvka
+smart light || Smart-Leuchte || lampe connectée || luz inteligente || inteligentné svetlo
+smart lock || Smart-Schloss || serrure connectée || cerradura inteligente || inteligentný zámok
+doorbell || Türklingel || sonnette || timbre || zvonček
+badge reader || Ausweisleser || lecteur de badges || lector de tarjetas || čítačka kariet
+alarm panel || Alarmzentrale || centrale d'alarme || panel de alarma || alarmová ústredňa
+smoke detector || Rauchmelder || détecteur de fumée || detector de humo || detektor dymu
+thermostat || Thermostat || thermostat || termostato || termostat
+hvac controller || Klimaregler (HVAC) || contrôleur CVC || controlador HVAC || regulátor HVAC
+smart hub || Smart-Hub || hub connecté || concentrador inteligente || inteligentný hub
+robot vacuum || Saugroboter || robot aspirateur || robot aspirador || robotický vysávač
+appliance || Haushaltsgerät || appareil électroménager || electrodoméstico || spotrebič
+medical device || Medizingerät || dispositif médical || dispositivo médico || zdravotnícke zariadenie
+ev charger || E-Auto-Ladestation || borne de recharge || cargador de VE || nabíjačka elektromobilov
+solar inverter || Solar-Wechselrichter || onduleur solaire || inversor solar || solárny menič
+vehicle || Fahrzeug || véhicule || vehículo || vozidlo
+plc || SPS || automate (PLC) || PLC || PLC
+hmi || HMI || IHM || HMI || HMI
+rtu || RTU || RTU || RTU || RTU
+scada server || SCADA-Server || serveur SCADA || servidor SCADA || SCADA server
+engineering workstation || Engineering-Arbeitsplatz || poste d'ingénierie || estación de ingeniería || inžinierska stanica
+historian || Historian || historien de données || historiador de datos || historian
+industrial switch || Industrie-Switch || commutateur industriel || switch industrial || priemyselný switch
+industrial gateway || Industrie-Gateway || passerelle industrielle || puerta de enlace industrial || priemyselná brána
+drive || Antrieb || variateur || variador || pohon
+sensor || Sensor || capteur || sensor || senzor
+building controller || Gebäuderegler || contrôleur de bâtiment || controlador de edificio || regulátor budovy
+industrial device || Industriegerät || appareil industriel || dispositivo industrial || priemyselné zariadenie
+safety controller || Sicherheitssteuerung || contrôleur de sécurité || controlador de seguridad || bezpečnostný riadiaci systém
+protection relay || Schutzrelais || relais de protection || relé de protección || ochranné relé
+power meter || Leistungsmesser || compteur d'énergie || medidor de energía || merač výkonu
+remote io || Remote-I/O || E/S déportées || E/S remotas || vzdialené I/O
+industrial pc || Industrie-PC || PC industriel || PC industrial || priemyselný PC
+cnc machine || CNC-Maschine || machine CNC || máquina CNC || CNC stroj
+rfid reader || RFID-Leser || lecteur RFID || lector RFID || RFID čítačka
+robot || Roboter || robot || robot || robot
+pump || Pumpe || pompe || bomba || čerpadlo
+valve || Ventil || vanne || válvula || ventil
+motor || Motor || moteur || motor || motor
+desktop || Desktop || poste fixe || sobremesa || stolný počítač
+switch || Switch || commutateur || switch || switch
+media player || Mediaplayer || lecteur multimédia || reproductor multimedia || multimediálny prehrávač
+speaker || Lautsprecher || haut-parleur || altavoz || reproduktor
+watch || Uhr || montre || reloj || hodinky
+raspberry pi || Raspberry Pi || Raspberry Pi || Raspberry Pi || Raspberry Pi
+scada || SCADA || SCADA || SCADA || SCADA
+building || Gebäude || bâtiment || edificio || budova
+apple || Apple || Apple || Apple || Apple
+linux || Linux || Linux || Linux || Linux
+android || Android || Android || Android || Android
+pos || Kasse || caisse || TPV || pokladňa
+database || Datenbank || base de données || base de datos || databáza
+vpn || VPN || VPN || VPN || VPN
+cloud || Cloud || cloud || nube || cloud
+conference || Konferenz || conférence || conferencia || konferencia
+hvac || Klima (HVAC) || CVC || HVAC || HVAC
+vacuum || Staubsauger || aspirateur || aspirador || vysávač
+printer 3d || 3D-Drucker || imprimante 3D || impresora 3D || 3D tlačiareň
+medical || Medizin || médical || médico || zdravotníctvo
+inverter || Wechselrichter || onduleur || inversor || menič
+cnc || CNC || CNC || CNC || CNC
+rfid || RFID || RFID || RFID || RFID

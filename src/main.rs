@@ -4,12 +4,12 @@ use std::time::Duration;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use netscope::agent::AgentConfig;
-use netscope::detect::{DetectConfig, RULE_NEW_DESTINATION, RULE_NEW_DEVICE, RULE_VOLUME};
-use netscope::model::{now_ts, AgentMeta};
-use netscope::store::sqlite::SqliteStore;
-use netscope::store::{EventQuery, Store};
-use netscope::{engine, net};
+use denis::agent::AgentConfig;
+use denis::detect::{DetectConfig, RULES};
+use denis::model::{now_ts, AgentMeta};
+use denis::store::sqlite::SqliteStore;
+use denis::store::{EventQuery, Store};
+use denis::{engine, net};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -34,47 +34,105 @@ struct Collect {
     /// Capture only; never transmit ARP, ICMP or TCP probes.
     #[arg(long)]
     passive_only: bool,
-    /// Account traffic to/from outside the subnet (input for the anomaly rules).
-    /// Captures every IPv4 frame, so it only sees traffic that crosses this
-    /// interface: run on the gateway or a mirror port for whole-network coverage.
+    /// Account traffic to/from outside the subnet (input for the anomaly rules)
+    /// and decode industrial protocols between local devices. Captures every
+    /// IPv4 frame, so it only sees traffic that crosses this interface: run on
+    /// the gateway or a mirror/SPAN port for whole-network coverage.
     #[arg(long)]
     flows: bool,
+    /// `it` (default) or `ot`. The OT profile is for industrial networks: it
+    /// listens only (no probes at all unless you add --active), turns on traffic
+    /// analysis, and paces any active discovery gently. Industrial devices are
+    /// never pinged or port-scanned in either profile.
+    #[arg(long, default_value = "it", value_parser = ["it", "ot"])]
+    profile: String,
+    /// With `--profile ot`, allow gentle active discovery (a slow ARP sweep).
+    #[arg(long)]
+    active: bool,
+    /// Never send probes to this range (repeatable). Still observed passively.
+    #[arg(long = "exclude", value_name = "CIDR")]
+    exclude: Vec<ipnet::Ipv4Net>,
 }
 
 impl Collect {
     fn into_config(self, db: PathBuf) -> engine::CollectorConfig {
+        let ot = self.profile == "ot";
         engine::CollectorConfig {
             iface: self.iface,
             db,
             sweep_interval: Duration::from_secs(self.sweep_interval.max(30)),
             rescan_interval: Duration::from_secs(self.rescan_interval),
-            passive_only: self.passive_only,
-            flows: self.flows,
+            // OT: listen only, unless the operator explicitly allows gentle probing.
+            passive_only: self.passive_only || (ot && !self.active),
+            flows: self.flows || ot,
+            exclude: self.exclude,
+            arp_pace: Duration::from_millis(if ot { 50 } else { 2 }),
             ..Default::default()
         }
     }
 }
 
 #[derive(Subcommand)]
+// `Run` carries every command-line option; the enum is built once at start-up
+#[allow(clippy::large_enum_variant)]
 enum Cmd {
     /// Standalone or master: discover devices, detect anomalies, serve the web UI.
     /// Add --ingest-listen to also accept remote agents.
     Run {
         #[command(flatten)]
         collect: Collect,
-        /// Web UI listen address. The UI has no authentication: keep it on loopback.
+        /// Web UI listen address. Sign-in is required. The connection is plain HTTP:
+        /// keep it on loopback and reach it through an SSH tunnel or a TLS reverse
+        /// proxy (then add --secure-cookies).
         #[arg(short, long, default_value = "127.0.0.1:8080")]
         listen: SocketAddr,
-        /// SQLite database file.
-        #[arg(long, default_value = "netscope.db")]
-        db: PathBuf,
-        /// Accept remote agents on this address (bearer-token authenticated).
+        /// SQLite database file (default: denis.db; an existing netscope.db from
+        /// before the rename is used automatically).
+        #[arg(long)]
+        db: Option<PathBuf>,
+        /// Accept remote agents on this address. Each agent needs its own token:
+        /// `denis agent-token issue --id <agent-id>`.
         #[arg(long)]
         ingest_listen: Option<SocketAddr>,
-        /// Shared secret agents must present (>= 16 chars). Prefer the environment
-        /// variable: command-line arguments are visible to other local users.
-        #[arg(long, env = "NETSCOPE_AGENT_TOKEN", hide_env_values = true)]
-        agent_token: Option<String>,
+        /// Turn login off. For development only: anyone who can reach the UI gets
+        /// full control. Refused unless the UI listens on a loopback address.
+        #[arg(long)]
+        insecure_no_auth: bool,
+        /// The address people type to reach the console, e.g. https://denis.example.com.
+        /// Passkeys (sign-in with fingerprint, face or a security key) are bound to it;
+        /// without it they work only when you browse to http://localhost.
+        #[arg(long, env = "DENIS_PUBLIC_URL")]
+        public_url: Option<String>,
+        /// Public host name a reverse proxy on this machine forwards to the UI
+        /// (repeatable, or comma-separated in the environment). Needed when the
+        /// UI listens on loopback and the proxy passes the original Host header on
+        /// (Caddy does by default; nginx with `proxy_set_header Host $host`).
+        #[arg(long = "allowed-host", env = "DENIS_ALLOWED_HOSTS", value_delimiter = ',')]
+        allowed_hosts: Vec<String>,
+        /// Serve plain HTTP instead of HTTPS. Only for a reverse proxy that terminates TLS
+        /// or an SSH tunnel: by default the console and the agent port use HTTPS with a
+        /// certificate DENIS creates (replaceable in the console, see `--tls-cert`).
+        #[arg(long, env = "DENIS_NO_TLS")]
+        no_tls: bool,
+        /// Extra names or addresses to put in the generated certificate (repeatable), e.g. the
+        /// name people type. Addresses of this machine are included automatically.
+        #[arg(long = "tls-name", env = "DENIS_TLS_NAMES", value_delimiter = ',')]
+        tls_names: Vec<String>,
+        /// Folder for the generated certificate and its authority (default: `tls` beside the database).
+        #[arg(long, env = "DENIS_TLS_DIR")]
+        tls_dir: Option<PathBuf>,
+        /// Use your own PEM certificate chain instead of the generated one (needs --tls-key).
+        /// Re-read every hour, so a renewed certificate needs no restart. To swap certificates
+        /// from the console instead, leave this out.
+        #[arg(long, env = "DENIS_TLS_CERT", requires = "tls_key")]
+        tls_cert: Option<PathBuf>,
+        /// PEM private key (unencrypted) for --tls-cert.
+        #[arg(long, env = "DENIS_TLS_KEY", requires = "tls_cert")]
+        tls_key: Option<PathBuf>,
+        /// Mark the session cookie `Secure`. Use when a TLS-terminating reverse
+        /// proxy is in front of the UI.
+        #[arg(long)]
+        secure_cookies: bool,
         /// Minutes a device/site is observed before its new destinations and
         /// devices count as anomalies (until then they are just learned).
         #[arg(long, default_value_t = 1440)]
@@ -83,12 +141,50 @@ enum Cmd {
         #[arg(long, default_value_t = 30)]
         min_score: i32,
         /// Scale a rule's score: RULE=WEIGHT, e.g. new_destination=0.5 (0 disables).
-        /// Rules: new_device, new_destination, volume_anomaly. Repeatable.
+        /// Rules: new_device, new_destination, volume_anomaly, new_port,
+        /// unusual_hours, arp_conflict, device_silent, ot_new_conversation,
+        /// ot_control_command, ot_internet_exposure. Repeatable.
         #[arg(long = "rule-weight", value_parser = parse_weight)]
         rule_weights: Vec<(String, f64)>,
         /// POST alerts as JSON to this URL (Slack/Discord-compatible).
-        #[arg(long, env = "NETSCOPE_WEBHOOK", hide_env_values = true)]
+        #[arg(long, env = "DENIS_WEBHOOK", hide_env_values = true)]
         webhook: Option<String>,
+        /// Export events, audit log, trend samples and the asset inventory to
+        /// OpenObserve at this base URL (e.g. https://openobserve.example.com).
+        /// Credentials come from DENIS_OPENOBSERVE_USER / DENIS_OPENOBSERVE_PASSWORD
+        /// (environment only, so they do not show in the process list).
+        #[arg(long, env = "DENIS_OPENOBSERVE_URL")]
+        openobserve_url: Option<String>,
+        /// OpenObserve organisation.
+        #[arg(long, default_value = "default", env = "DENIS_OPENOBSERVE_ORG")]
+        openobserve_org: String,
+        /// Stream name prefix (streams: <prefix>_events, _audit, _metrics, _assets).
+        #[arg(long, default_value = "denis")]
+        openobserve_prefix: String,
+        /// Seconds between export cycles.
+        #[arg(long, default_value_t = 15)]
+        openobserve_interval: u64,
+        /// Text file of known-bad IPv4 addresses and networks, one per line (the format of
+        /// abuse.ch and Spamhaus DROP lists). Devices contacting them raise an alert.
+        /// Needs --flows. Re-read when the file changes.
+        #[arg(long, env = "DENIS_THREAT_LIST")]
+        threat_list: Option<PathBuf>,
+        /// Never contact GitHub to look for a new version (air-gapped installs, or if you
+        /// prefer to update by hand). Checking sends one anonymous HTTPS request every few hours.
+        #[arg(long, env = "DENIS_NO_UPDATE_CHECK")]
+        no_update_check: bool,
+        /// `owner/repo` on GitHub whose releases DENIS updates from (default: the project's).
+        #[arg(long, env = "DENIS_UPDATE_REPO")]
+        update_repo: Option<String>,
+        /// GitHub Enterprise: the API address (default https://api.github.com).
+        #[arg(long, env = "DENIS_UPDATE_API_BASE", hide = true)]
+        update_api_base: Option<String>,
+        /// GitHub Enterprise: where release files are downloaded from.
+        #[arg(long, env = "DENIS_UPDATE_DOWNLOAD_PREFIX", hide = true)]
+        update_download_prefix: Option<String>,
+        /// Send alerts to a SIEM as syslog/CEF: udp://host:514 or tcp://host:514.
+        #[arg(long, env = "DENIS_SYSLOG")]
+        syslog: Option<String>,
         /// Only alerts at or above this score go to the webhook.
         #[arg(long, default_value_t = 60)]
         webhook_min_score: i32,
@@ -101,6 +197,17 @@ enum Cmd {
         /// Volume rule: buckets needed before a device's baseline is trusted.
         #[arg(long, default_value_t = 12)]
         min_samples: u32,
+        /// Unusual-hours rule: days a device is observed before its daily
+        /// pattern is judged.
+        #[arg(long, default_value_t = 7.0)]
+        hours_learning_days: f64,
+        /// Silent-device rule: minutes without a sign of life before a
+        /// reliably-online device is reported. Needs active sweeps (not --passive-only).
+        #[arg(long, default_value_t = 120)]
+        silent_minutes: i64,
+        /// Delete trend samples older than this many days.
+        #[arg(long, default_value_t = 90)]
+        retention_days: i64,
     },
     /// Remote agent: collect on this network and report to a master.
     Agent {
@@ -109,8 +216,12 @@ enum Cmd {
         /// Master ingest URL, e.g. http://192.168.1.10:8081
         #[arg(long)]
         master: String,
-        #[arg(long, env = "NETSCOPE_AGENT_TOKEN", hide_env_values = true)]
+        #[arg(long, env = "DENIS_AGENT_TOKEN", hide_env_values = true)]
         token: String,
+        /// PEM file with the CA (or self-signed certificate) that signed the
+        /// master's HTTPS certificate; trusted instead of the public web roots.
+        #[arg(long, env = "DENIS_MASTER_CA")]
+        master_ca: Option<PathBuf>,
         /// Stable identifier for this agent ([A-Za-z0-9._-], default: hostname).
         #[arg(long)]
         id: Option<String>,
@@ -120,9 +231,9 @@ enum Cmd {
         /// Site/location label.
         #[arg(long)]
         site: Option<String>,
-        /// The agent's own database (its inventory survives restarts).
-        #[arg(long, default_value = "netscope-agent.db")]
-        db: PathBuf,
+        /// The agent's own database (default: denis-agent.db).
+        #[arg(long)]
+        db: Option<PathBuf>,
         /// Seconds between reports.
         #[arg(long, default_value_t = 15)]
         report_interval: u64,
@@ -131,23 +242,145 @@ enum Cmd {
     Interfaces,
     /// Print the inventory from the database.
     List {
-        #[arg(long, default_value = "netscope.db")]
-        db: PathBuf,
+        #[arg(long)]
+        db: Option<PathBuf>,
+    },
+    /// Write a report or export from the database (works offline).
+    Report {
+        #[arg(long)]
+        db: Option<PathBuf>,
+        /// Period to cover.
+        #[arg(long, default_value_t = 7)]
+        days: i64,
+        /// html (printable; open it and print to PDF), assets-csv or alerts-csv.
+        #[arg(long, default_value = "html")]
+        format: String,
+        /// Output file (default: standard output).
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
+    /// Manage user accounts directly in the database (also the way back in if
+    /// the last administrator password is lost: whoever can read the database
+    /// file is an administrator anyway).
+    User {
+        #[command(subcommand)]
+        action: UserCmd,
+        #[arg(long, global = true)]
+        db: Option<PathBuf>,
+    },
+    /// Web console over an existing database, with no capture, probing or detection:
+    /// for looking at a backup or a copy, for training and for demonstrations.
+    Serve {
+        #[arg(short, long, default_value = "127.0.0.1:8080")]
+        listen: SocketAddr,
+        #[arg(long)]
+        db: Option<PathBuf>,
+        /// Turn login off (loopback only). For demonstrations and documentation screenshots.
+        #[arg(long)]
+        insecure_no_auth: bool,
+        #[arg(long, env = "DENIS_PUBLIC_URL")]
+        public_url: Option<String>,
+    },
+    /// Load or remove the built-in demo data (a fictional company) in a database. Works while
+    /// DENIS is stopped; while it runs, use the console (Users → Demo data).
+    Demo {
+        #[command(subcommand)]
+        action: DemoCmd,
+        #[arg(long, global = true)]
+        db: Option<PathBuf>,
+    },
+    /// Erase every device, alert and record from a database (accounts, settings and the audit
+    /// log are kept). DENIS must be stopped. Cannot be undone: take a backup first.
+    Erase {
+        /// Required: confirms you mean it.
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        db: Option<PathBuf>,
+    },
+    /// Print a new release-signing key pair (for whoever publishes releases). The private key
+    /// must be kept secret; the public key goes into src/update_key.rs.
+    ReleaseKeygen,
+    /// Sign release files with the private key in the environment variable named by --key-env,
+    /// writing FILE.sig next to each file (hex). Used by the release pipeline.
+    ReleaseSign {
+        #[arg(long, default_value = "DENIS_RELEASE_KEY")]
+        key_env: String,
+        files: Vec<PathBuf>,
+    },
+    /// Write a verified copy of the database to FILE while the program keeps running.
+    /// Meant for cron or a systemd timer. The copy holds password hashes and
+    /// notification secrets, so it is readable by its owner only; keep it that way.
+    Backup {
+        /// Where to write the copy (must not exist yet).
+        out: PathBuf,
+        #[arg(long)]
+        db: Option<PathBuf>,
+    },
+    /// Issue, list or revoke the per-agent tokens remote agents authenticate with.
+    AgentToken {
+        #[command(subcommand)]
+        action: TokenCmd,
+        #[arg(long, global = true)]
+        db: Option<PathBuf>,
     },
     /// Print alerts from the database.
     Alerts {
-        #[arg(long, default_value = "netscope.db")]
-        db: PathBuf,
+        #[arg(long)]
+        db: Option<PathBuf>,
         /// Include info-level events (e.g. devices learned during the learning period).
         #[arg(long)]
         all: bool,
     },
 }
 
+#[derive(Subcommand)]
+enum DemoCmd {
+    /// Fill the database with the fictional demo company.
+    Load,
+    /// Remove the demo data (real data is untouched).
+    Remove,
+}
+
+#[derive(Subcommand)]
+enum UserCmd {
+    /// List accounts.
+    List,
+    /// Create an account with a random one-time password.
+    Add {
+        username: String,
+        #[arg(long, default_value = "viewer")]
+        role: String,
+    },
+    /// Set a new random one-time password (the user must change it at next login).
+    Reset { username: String },
+    /// Disable an account (signs it out everywhere).
+    Disable { username: String },
+    /// Re-enable an account.
+    Enable { username: String },
+}
+
+#[derive(Subcommand)]
+enum TokenCmd {
+    /// Create (or rotate) the token for an agent id. Shown once.
+    Issue {
+        #[arg(long)]
+        id: String,
+        #[arg(long, default_value = "")]
+        label: String,
+    },
+    List,
+    /// Revoke an agent's token immediately.
+    Revoke {
+        #[arg(long)]
+        id: String,
+    },
+}
+
 fn parse_weight(s: &str) -> Result<(String, f64), String> {
     let (rule, w) = s.split_once('=').ok_or("expected RULE=WEIGHT")?;
-    if ![RULE_NEW_DEVICE, RULE_NEW_DESTINATION, RULE_VOLUME].contains(&rule) {
-        return Err(format!("unknown rule {rule:?} (new_device, new_destination, volume_anomaly)"));
+    if !RULES.contains(&rule) {
+        return Err(format!("unknown rule {rule:?} ({})", RULES.join(", ")));
     }
     let w: f64 = w.parse().map_err(|_| format!("bad weight {w:?}"))?;
     if !(0.0..=5.0).contains(&w) {
@@ -159,7 +392,7 @@ fn parse_weight(s: &str) -> Result<(String, f64), String> {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "netscope=info".into()))
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "denis=info".into()))
         .with_target(false)
         .init();
 
@@ -169,15 +402,36 @@ async fn main() -> Result<()> {
             listen,
             db,
             ingest_listen,
-            agent_token,
+            insecure_no_auth,
+            secure_cookies,
+            no_tls,
+            tls_names,
+            tls_dir,
+            tls_cert,
+            tls_key,
+            allowed_hosts,
+            public_url,
             learning_minutes,
             min_score,
             rule_weights,
             webhook,
             webhook_min_score,
+            syslog,
+            threat_list,
+            no_update_check,
+            update_repo,
+            update_api_base,
+            update_download_prefix,
+            openobserve_url,
+            openobserve_org,
+            openobserve_prefix,
+            openobserve_interval,
             bucket_secs,
             min_volume_mb,
             min_samples,
+            hours_learning_days,
+            silent_minutes,
+            retention_days,
         } => {
             let detect = DetectConfig {
                 learning_secs: learning_minutes.max(0) * 60,
@@ -186,23 +440,78 @@ async fn main() -> Result<()> {
                 bucket_secs: bucket_secs.max(10),
                 min_volume_bytes: (min_volume_mb.max(0.0) * 1e6) as u64,
                 min_samples,
+                hours_learning_secs: (hours_learning_days.max(0.0) * 86_400.0) as i64,
+                silent_secs: silent_minutes.max(1) * 60,
+                tz_offset_secs: net::local_utc_offset_secs(),
                 ..Default::default()
             };
-            engine::run(engine::Config {
-                collector: collect.into_config(db),
+            let openobserve = openobserve_url.map(|url| denis::sink::SinkConfig {
+                url,
+                org: openobserve_org,
+                prefix: openobserve_prefix,
+                user: std::env::var("DENIS_OPENOBSERVE_USER").unwrap_or_default(),
+                password: std::env::var("DENIS_OPENOBSERVE_PASSWORD").unwrap_or_default(),
+                interval: std::time::Duration::from_secs(openobserve_interval.clamp(5, 3600)),
+            });
+            if let Some(o) = &openobserve {
+                o.validate()?;
+            }
+            let syslog = syslog.map(|u| denis::syslog::SyslogConfig::parse(&u, Duration::from_secs(10))).transpose()?;
+            let db_path = resolve_db(db, "denis.db", "netscope.db");
+            // A freshly installed version that keeps failing is replaced by the previous one (and
+            // its database, if the format changed) before anything else happens.
+            let exe = std::env::current_exe().ok();
+            if let denis::update::Guard::RolledBack { exe: previous } = denis::update::startup_guard(&db_path) {
+                eprintln!("the updated version did not start; starting the previous version (details in the console)");
+                anyhow::bail!("could not start the previous version: {}", denis::update::exec(&previous));
+            }
+            // HTTPS by default. The certificate is generated on first start (and can be replaced in the
+            // console); your own files, or explicitly no TLS, are the alternatives.
+            let tls = match (tls_cert, tls_key, no_tls) {
+                (Some(c), Some(k), _) => engine::TlsMode::Files(c, k),
+                (_, _, true) => engine::TlsMode::Off,
+                _ => {
+                    let mut names = tls_names;
+                    if let Some(h) = public_url.as_deref().and_then(|u| u.split_once("://")).map(|(_, r)| r.trim_end_matches('/')) {
+                        names.push(h.rsplit_once(':').filter(|(_, p)| p.chars().all(|c| c.is_ascii_digit())).map_or(h, |(h, _)| h).to_string());
+                    }
+                    let dir = tls_dir.unwrap_or_else(|| db_path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(std::path::Path::new(".")).join("tls"));
+                    engine::TlsMode::Managed { dir, names }
+                }
+            };
+            let update = denis::update::UpdateConfig::new(update_repo, !no_update_check, db_path.clone())?.with_endpoints(update_api_base, update_download_prefix)?;
+            let result = engine::run(engine::Config {
+                collector: collect.into_config(db_path),
                 listen,
                 ingest_listen,
-                agent_token,
+                no_auth: insecure_no_auth,
+                secure_cookie: secure_cookies,
                 detect,
                 webhook,
                 webhook_min_score,
+                openobserve,
+                syslog,
+                update: Some(update),
+                threat_list,
+                tls,
+                allowed_hosts,
+                public_url,
+                retention_days,
             })
-            .await
+            .await;
+            // an update was installed: continue as the new program (same arguments, same process)
+            if denis::update::restart_wanted() {
+                if let Some(exe) = exe {
+                    anyhow::bail!("the update was installed but restarting failed: {}", denis::update::exec(&exe));
+                }
+            }
+            result
         }
         Cmd::Agent {
             collect,
             master,
             token,
+            master_ca,
             id,
             name,
             site,
@@ -211,10 +520,11 @@ async fn main() -> Result<()> {
         } => {
             let id = id.unwrap_or_else(|| slug(&net::local_hostname().unwrap_or_else(|| "agent".into())));
             engine::run_agent(engine::AgentRunConfig {
-                collector: collect.into_config(db),
+                collector: collect.into_config(resolve_db(db, "denis-agent.db", "netscope-agent.db")),
                 agent: AgentConfig {
                     master_url: master,
                     token,
+                    ca_cert: master_ca,
                     meta: AgentMeta {
                         name: name.unwrap_or_else(|| id.clone()),
                         id,
@@ -236,9 +546,167 @@ async fn main() -> Result<()> {
             println!("(* = default choice)");
             Ok(())
         }
-        Cmd::List { db } => list(&db),
-        Cmd::Alerts { db, all } => alerts(&db, all),
+        Cmd::Serve { listen, db, insecure_no_auth, public_url } => {
+            engine::serve_only(engine::ServeConfig { db: resolve_db(db, "denis.db", "netscope.db"), listen, no_auth: insecure_no_auth, public_url }).await
+        }
+        Cmd::Demo { action, db } => {
+            let path = resolve_db(db, "denis.db", "netscope.db");
+            let store = SqliteStore::open(&path)?;
+            match action {
+                DemoCmd::Load => {
+                    let l = denis::demo::load(&store, now_ts())?;
+                    println!("demo data loaded: {} devices, {} alerts", l.assets, l.events);
+                }
+                DemoCmd::Remove => println!("demo data removed: {} devices", denis::demo::remove(&store)?),
+            }
+            Ok(())
+        }
+        Cmd::Erase { yes, db } => {
+            if !yes {
+                anyhow::bail!("this deletes every device, alert and record in the database; add --yes if you mean it (and stop DENIS first; take a backup with `denis backup`)");
+            }
+            let path = resolve_db(db, "denis.db", "netscope.db");
+            SqliteStore::open(&path)?.erase_inventory()?;
+            println!("erased: {}", path.display());
+            Ok(())
+        }
+        Cmd::ReleaseKeygen => {
+            let (private, public) = denis::update::generate_keypair()?;
+            println!("private key (keep SECRET, e.g. as a GitHub Actions secret named DENIS_RELEASE_KEY):\n  {private}\n");
+            let bytes: Vec<String> = (0..32).map(|i| format!("0x{}", &public[i * 2..i * 2 + 2])).collect();
+            println!("public key (paste into src/update_key.rs):\n  pub const RELEASE_PUBLIC_KEY: Option<[u8; 32]> = Some([{}]);", bytes.join(", "));
+            Ok(())
+        }
+        Cmd::ReleaseSign { key_env, files } => {
+            let key = std::env::var(&key_env).map_err(|_| anyhow::anyhow!("set the private key in the environment variable {key_env}"))?;
+            for f in files {
+                let sig = denis::update::sign(key.trim(), &std::fs::read(&f)?)?;
+                let out = PathBuf::from(format!("{}.sig", f.display()));
+                std::fs::write(&out, sig)?;
+                println!("signed {} -> {}", f.display(), out.display());
+            }
+            Ok(())
+        }
+        Cmd::Backup { out, db } => {
+            let path = resolve_db(db, "denis.db", "netscope.db");
+            if !path.exists() {
+                anyhow::bail!("no database at {}", path.display());
+            }
+            SqliteStore::open(&path)?.backup_to(&out)?;
+            println!("backup written to {} (verified)", out.display());
+            Ok(())
+        }
+        Cmd::List { db } => list(&resolve_db(db, "denis.db", "netscope.db")),
+        Cmd::User { action, db } => user_cmd(&resolve_db(db, "denis.db", "netscope.db"), action),
+        Cmd::AgentToken { action, db } => token_cmd(&resolve_db(db, "denis.db", "netscope.db"), action),
+        Cmd::Alerts { db, all } => alerts(&resolve_db(db, "denis.db", "netscope.db"), all),
+        Cmd::Report { db, days, format, out } => write_report(&resolve_db(db, "denis.db", "netscope.db"), days, &format, out.as_deref()),
     }
+}
+
+fn write_report(db: &std::path::Path, days: i64, format: &str, out: Option<&std::path::Path>) -> Result<()> {
+    use denis::report;
+    let store = SqliteStore::open(db)?;
+    let data = report::gather(&store, days, now_ts())?;
+    let body = match format {
+        "html" => report::html(&data),
+        "assets-csv" => report::assets_csv(&data),
+        "alerts-csv" => report::alerts_csv(&data),
+        other => anyhow::bail!("unknown format {other:?} (html, assets-csv, alerts-csv)"),
+    };
+    match out {
+        Some(p) => {
+            std::fs::write(p, body)?;
+            eprintln!("wrote {} ({} devices, {} alerts in the last {} days)", p.display(), data.devices.len(), data.alerts.len(), data.days);
+        }
+        None => print!("{body}"),
+    }
+    Ok(())
+}
+
+fn user_cmd(db: &std::path::Path, action: UserCmd) -> Result<()> {
+    use denis::auth::Auth;
+    let store = std::sync::Arc::new(SqliteStore::open(db)?);
+    let auth = Auth::new(store.clone());
+    let find = |name: &str| -> Result<i64> {
+        Ok(store.find_user(name)?.ok_or_else(|| anyhow::anyhow!("no such user: {name}"))?.user.id)
+    };
+    match action {
+        UserCmd::List => {
+            println!("{:<24} {:<8} {:<9} LAST LOGIN", "USERNAME", "ROLE", "STATE");
+            for u in store.list_users()? {
+                println!(
+                    "{:<24} {:<8} {:<9} {}",
+                    u.username,
+                    u.role,
+                    if u.disabled { "disabled" } else if u.must_change { "pw-reset" } else { "active" },
+                    u.last_login.map_or("never".into(), denis::report::iso)
+                );
+            }
+        }
+        UserCmd::Add { username, role } => {
+            let (u, pw) = auth.create_user(&username, &role, now_ts()).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            println!("created {} ({}); one-time password (must be changed at first login):\n{pw}", u.username, u.role);
+        }
+        UserCmd::Reset { username } => {
+            let pw = auth.reset_password(find(&username)?).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            println!("new one-time password for {username} (must be changed at next login):\n{pw}");
+        }
+        UserCmd::Disable { username } => {
+            auth.update_user(find(&username)?, None, Some(true)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            println!("{username} disabled");
+        }
+        UserCmd::Enable { username } => {
+            auth.update_user(find(&username)?, None, Some(false)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            println!("{username} enabled");
+        }
+    }
+    Ok(())
+}
+
+fn token_cmd(db: &std::path::Path, action: TokenCmd) -> Result<()> {
+    use denis::auth::Auth;
+    let store = std::sync::Arc::new(SqliteStore::open(db)?);
+    match action {
+        TokenCmd::Issue { id, label } => {
+            let t = Auth::new(store).issue_agent_token(&id, &label, now_ts()).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            println!("token for agent {id} (shown once; any earlier token for it is now revoked):\n{t}\n\nOn the agent:  DENIS_AGENT_TOKEN={t} denis agent --master URL --id {id}");
+        }
+        TokenCmd::List => {
+            println!("{:<24} {:<8} {:<24} LABEL", "AGENT", "STATE", "LAST USED");
+            for t in store.list_agent_tokens()? {
+                println!(
+                    "{:<24} {:<8} {:<24} {}",
+                    t.agent_id,
+                    if t.revoked { "revoked" } else { "active" },
+                    t.last_used.map_or("never".into(), denis::report::iso),
+                    t.label
+                );
+            }
+        }
+        TokenCmd::Revoke { id } => {
+            if store.revoke_agent_token(&id)? {
+                println!("token for {id} revoked");
+            } else {
+                anyhow::bail!("no active token for {id}");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The database to use: the explicit path, else `name` in the current directory,
+/// else a database left by the pre-rename build (`legacy`) if one exists there.
+fn resolve_db(explicit: Option<PathBuf>, name: &str, legacy: &str) -> PathBuf {
+    if let Some(p) = explicit {
+        return p;
+    }
+    let (new, old) = (PathBuf::from(name), PathBuf::from(legacy));
+    if !new.exists() && old.exists() {
+        eprintln!("note: using existing {legacy} (rename it to {name} when convenient; nothing is lost either way)");
+        return old;
+    }
+    new
 }
 
 /// Hostname -> a valid agent id.

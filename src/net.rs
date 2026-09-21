@@ -75,7 +75,7 @@ pub fn select(name: Option<&str>) -> Result<Iface> {
     let all = list_interfaces()?;
     if let Some(name) = name {
         return all.into_iter().find(|i| i.name == name).ok_or_else(|| {
-            anyhow::anyhow!("interface {name:?} not found, not up, or has no IPv4 address (try `netscope interfaces`)")
+            anyhow::anyhow!("interface {name:?} not found, not up, or has no IPv4 address (try `denis interfaces`)")
         });
     }
     if all.is_empty() {
@@ -145,6 +145,23 @@ pub fn sweep_targets(net: Ipv4Net, own_ip: Ipv4Addr) -> (Vec<Ipv4Addr>, bool) {
     (range.hosts().filter(|ip| *ip != own_ip).collect(), clamped)
 }
 
+/// Seconds east of UTC for the local time zone right now (so "03:00" means the
+/// owner's 03:00). 0 if it cannot be determined.
+pub fn local_utc_offset_secs() -> i64 {
+    // SAFETY: localtime_r only reads `t` and writes the zero-initialised `tm`.
+    unsafe {
+        let t: libc::time_t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as libc::time_t)
+            .unwrap_or(0);
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&t, &mut tm).is_null() {
+            return 0;
+        }
+        tm.tm_gmtoff as i64
+    }
+}
+
 pub fn local_hostname() -> Option<String> {
     nix::unistd::gethostname()
         .ok()
@@ -190,6 +207,13 @@ mod tests {
         // 192.168.1.1 encodes as 0101A8C0
         let t = "Iface\tDestination\tGateway\tFlags\neth0\t00000000\t0101A8C0\t0003\n";
         assert_eq!(parse_proc_net_route(t), Some(Ipv4Addr::new(192, 168, 1, 1)));
+    }
+
+    #[test]
+    fn local_utc_offset_is_a_plausible_zone() {
+        let o = local_utc_offset_secs();
+        assert!((-12 * 3600..=14 * 3600).contains(&o), "{o}");
+        assert_eq!(o % 900, 0, "zones are whole quarter-hours");
     }
 
     #[test]

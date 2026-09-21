@@ -3,85 +3,314 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>netscope</title>
+  <title>DENIS</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <h1>netscope</h1>
-    <div id="status" class="status" aria-live="polite"></div>
-    <button id="scan" type="button">Scan now</button>
-  </header>
+  <!-- Sign-in. Shown until /api/auth/me succeeds; the shell contains no data. -->
+  <div id="login" class="login" hidden>
+    <form id="login-form" class="login-card" autocomplete="on">
+      <div class="brand"><span class="brand-logo" id="login-logo"></span><b class="brand-name">DENIS</b></div>
+      <p class="muted" id="login-sub">Device Enumeration &amp; Network Inventory Security</p>
+      <label>Username<input id="login-user" name="username" autocomplete="username" required autofocus></label>
+      <label>Password<input id="login-pass" name="password" type="password" autocomplete="current-password" required></label>
+      <div id="login-error" class="form-error" role="alert" hidden></div>
+      <button type="submit" class="primary">Sign in</button>
+      <button type="button" id="login-passkey" class="passkey-btn" hidden>Sign in with a passkey</button>
+      <select id="login-lang" class="lang-select" aria-label="Language"></select>
+    </form>
+  </div>
 
-  <nav>
-    <button class="tab active" data-tab="assets" type="button">Devices <span id="count-assets"></span></button>
-    <button class="tab" data-tab="alerts" type="button">Alerts <span id="count-alerts" class="badge" hidden></span></button>
-    <button class="tab" data-tab="events" type="button">Events</button>
-    <button class="tab" data-tab="agents" type="button">Sites <span id="count-agents"></span></button>
-    <input id="search" type="search" placeholder="Filter by IP, MAC, vendor, name, type…" aria-label="Filter devices">
-    <select id="site" aria-label="Filter by site" hidden></select>
-    <label class="check" id="online-label"><input id="only-online" type="checkbox"> online only</label>
-    <label class="check" id="acked-label" hidden><input id="show-acked" type="checkbox"> show acknowledged</label>
-  </nav>
+  <div id="app" hidden>
+    <header>
+      <button id="menu-toggle" type="button" class="menu-toggle" aria-label="Show or hide the menu" aria-expanded="true">☰</button>
+      <div class="brand"><span class="brand-logo" id="brand-logo"></span><b class="brand-name" id="brand-name">DENIS</b></div>
+      <div id="status" class="status" aria-live="polite"></div>
+      <select id="lang" class="lang-select" aria-label="Language"></select>
+      <button id="theme" type="button" title="Colour theme: auto / light / dark">◐</button>
+      <span class="userbox">
+        <span id="whoami" class="muted"></span>
+        <a class="help-link" href="/docs/" target="_blank" rel="noopener">Help</a>
+        <button id="change-pw" type="button">Password</button>
+        <button id="passkeys" type="button" hidden>Passkeys</button>
+        <button id="logout" type="button">Sign out</button>
+      </span>
+      <button id="scan" type="button">Scan now</button>
+    </header>
+    <div id="maint-banner" class="banner-warn" hidden></div>
+    <div id="demo-banner" class="banner-info" hidden></div>
+    <div id="update-banner" class="banner-info" hidden></div>
 
-  <main>
-    <section id="view-assets">
-      <div class="table-wrap">
-        <table id="assets-table">
-          <thead><tr>
-            <th data-sort="online"></th>
-            <th data-sort="site" class="site-col" hidden>Site</th>
-            <th data-sort="ip">IP</th>
-            <th data-sort="mac">MAC</th>
-            <th data-sort="vendor">Vendor</th>
-            <th data-sort="name">Name</th>
-            <th data-sort="device_type">Type</th>
-            <th data-sort="os_guess">OS guess</th>
-            <th data-sort="ports">Open ports</th>
-            <th data-sort="last_seen">Last seen</th>
-          </tr></thead>
-          <tbody></tbody>
-        </table>
+    <div class="shell">
+      <aside id="sidebar" aria-label="Main menu">
+        <nav id="menu">
+          <div class="navgroup">Monitor</div>
+          <button class="tab active" data-tab="assets" type="button"><span class="label">Devices</span> <span id="count-assets" class="count"></span></button>
+          <button class="tab" data-tab="alerts" type="button"><span class="label">Alerts</span> <span id="count-alerts" class="badge" hidden></span></button>
+          <button class="tab" data-tab="findings" type="button"><span class="label">Findings</span> <span id="count-findings" class="badge" hidden></span></button>
+          <div class="navgroup">Analyze</div>
+          <button class="tab" data-tab="topology" type="button"><span class="label">Topology</span></button>
+          <button class="tab" data-tab="ot" type="button"><span class="label">OT</span></button>
+          <button class="tab" data-tab="trends" type="button"><span class="label">Trends</span></button>
+          <button class="tab" data-tab="events" type="button"><span class="label">Events</span></button>
+          <button class="tab" data-tab="compliance" type="button"><span class="label">Compliance</span></button>
+          <div class="navgroup">Manage</div>
+          <button class="tab" data-tab="rules" type="button"><span class="label">Rules</span></button>
+          <button class="tab" data-tab="alerting" type="button" id="tab-alerting" hidden><span class="label">Alerting</span></button>
+          <button class="tab" data-tab="agents" type="button"><span class="label">Sites</span> <span id="count-agents" class="count"></span></button>
+          <button class="tab" data-tab="users" type="button" id="tab-users" hidden><span class="label">Users</span></button>
+        </nav>
+      </aside>
+      <div class="content">
+        <div class="toolbar">
+          <input id="search" type="search" placeholder="Filter by IP, MAC, name, owner, serial, tag…" aria-label="Filter devices">
+          <select id="site" aria-label="Filter by site" hidden></select>
+          <select id="range" aria-label="Time range" hidden>
+            <option value="24">Last 24 hours</option>
+            <option value="168">Last 7 days</option>
+            <option value="720">Last 30 days</option>
+          </select>
+          <span class="spacer"></span>
+          <span class="exports">
+            <button id="add-asset" type="button" hidden>+ Add asset</button>
+            <button id="import-assets" type="button" hidden>Import CSV</button>
+            <input id="import-file" type="file" accept=".csv,text/csv" hidden>
+            <a id="export-assets" href="/api/export/assets.csv?days=7" download>Devices CSV</a>
+            <a id="export-alerts" href="/api/export/alerts.csv?days=30" download>Alerts CSV</a>
+            <a id="report-link" href="/report?days=7" target="_blank" rel="noopener">Printable report</a>
+          </span>
+          <label class="check" id="online-label"><input id="only-online" type="checkbox"> online only</label>
+          <label class="check" id="review-label"><input id="only-review" type="checkbox"> needs review <span id="review-count" class="muted"></span></label>
+          <button id="review-all" type="button" hidden title="Accept every device shown in the list as known">Mark all shown as known</button>
+          <label class="check" id="acked-label" hidden><input id="show-acked" type="checkbox"> show acknowledged</label>
+        </div>
+
+
+    <main>
+      <section id="view-assets">
+        <div class="table-wrap">
+          <table id="assets-table">
+            <thead><tr>
+              <th data-sort="online"></th>
+              <th data-sort="site" class="site-col" hidden>Site</th>
+              <th data-sort="risk">Risk</th>
+              <th data-sort="ip">IP</th>
+              <th data-sort="mac">MAC</th>
+              <th data-sort="vendor">Vendor</th>
+              <th data-sort="name">Name</th>
+              <th data-sort="device_type">Type</th>
+              <th data-sort="os_guess">OS guess</th>
+              <th data-sort="ports">Open ports</th>
+              <th data-sort="last_seen">Last seen</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p id="empty" class="muted" hidden>No devices yet. The first sweep runs at startup; passive discovery fills in as devices announce themselves. Just looking around? An administrator can load demo data under Users.</p>
+      </section>
+
+      <section id="view-alerts" hidden>
+        <div id="learning" class="banner" hidden></div>
+        <div class="table-wrap">
+          <table id="alerts-table">
+            <thead><tr><th>Time</th><th>Score</th><th>Type</th><th>Device</th><th>What happened</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p id="no-alerts" class="muted" hidden>No alerts. New devices and destinations are only flagged after the learning period.</p>
+      </section>
+
+      <section id="view-topology" hidden>
+        <div id="topo-legend" class="topo-legend"></div>
+        <div id="topo" class="topo"></div>
+        <p class="muted">Links show which gateway a device sits behind, not who talks to whom: a single collector cannot see device-to-device traffic. Colour is the risk level; faded nodes were not seen recently; a red dot marks unacknowledged alerts.</p>
+      </section>
+
+      <section id="view-ot" hidden>
+        <div id="ot-cards" class="cards"></div>
+        <h3 class="section">Industrial devices</h3>
+        <div class="table-wrap"><table id="ot-devices"><thead><tr><th>Device</th><th>IP</th><th>Purdue</th><th>Zone</th><th>Type</th><th>Protocols</th><th>Identity</th><th>Last seen</th></tr></thead><tbody></tbody></table></div>
+        <p id="ot-empty" class="muted" hidden>No industrial devices identified yet. Industrial protocols are decoded passively from traffic that reaches this collector: run with <code>--profile ot</code> on a mirror/SPAN port or tap. Purdue level and zone can be set per device.</p>
+        <h3 class="section">Communications matrix</h3>
+        <div class="inline-form"><select id="ot-proto" aria-label="Protocol"></select><label class="check"><input id="ot-risky" type="checkbox"> only writes / control commands</label></div>
+        <div class="table-wrap"><table id="ot-matrix"><thead><tr><th>Client</th><th></th><th>Server</th><th>Protocol</th><th>Reads</th><th>Writes</th><th>Control</th><th>Last seen</th></tr></thead><tbody></tbody></table></div>
+        <p class="muted">Who talks to whom, over which industrial protocol, and what kind of messages (read / write / control such as STOP or program download). A path that appears after the learning period raises an alert; so does any control command.</p>
+      </section>
+
+      <section id="view-trends" hidden>
+        <div id="trends" class="trends"></div>
+        <p class="muted" id="trends-note"></p>
+      </section>
+
+      <section id="view-findings" hidden>
+        <p class="muted">Standing weaknesses and housekeeping problems in your inventory: unlike alerts, these stay until you fix the cause, and disappear by themselves once you have.</p>
+        <div id="findings-list"></div>
+        <p id="no-findings" class="muted" hidden>Nothing to fix right now.</p>
+      </section>
+
+      <section id="view-alerting" hidden>
+        <p class="muted">Send alerts to the tools your team already watches. Each channel has its own minimum score. A channel that is unreachable catches up when it returns, and a burst of alerts arrives as one summary message. Secrets (webhook URLs, keys, passwords) are stored in the database and never shown again.</p>
+        <h3 class="section">Maintenance mode</h3>
+        <div id="maint-status" class="muted"></div>
+        <form id="maint-form" class="inline-form">
+          <select id="maint-minutes"><option value="30">30 minutes</option><option value="60" selected>1 hour</option><option value="240">4 hours</option><option value="1440">24 hours</option><option value="10080">7 days</option></select>
+          <input id="maint-note" placeholder="reason (optional), e.g. patch night" maxlength="200">
+          <button type="submit" class="primary">Silence all notifications</button>
+          <button type="button" id="maint-end">End silence</button>
+        </form>
+        <h3 class="section">Channels</h3>
+        <div class="table-wrap"><table id="channels-table"><thead><tr><th>Name</th><th>Type</th><th>Target</th><th>Min score</th><th>Status</th><th></th></tr></thead><tbody></tbody></table></div>
+        <p id="no-channels" class="muted" hidden>No channels yet: alerts appear only in the console. Add one below.</p>
+        <h3 class="section">Add a channel</h3>
+        <form id="channel-form" class="brand-form">
+          <label>Type
+            <select id="ch-kind">
+              <option value="slack">Slack (incoming webhook)</option>
+              <option value="teams">Microsoft Teams (Workflows webhook)</option>
+              <option value="discord">Discord (webhook)</option>
+              <option value="pagerduty">PagerDuty (Events API v2)</option>
+              <option value="email">E-mail (SMTP)</option>
+              <option value="webhook">Generic webhook (signed JSON)</option>
+            </select>
+          </label>
+          <label>Name<input id="ch-name" maxlength="60" required placeholder="e.g. #security-alerts"></label>
+          <label id="ch-url-row">Webhook URL<input id="ch-url" type="url" autocomplete="off" placeholder="https://…"></label>
+          <label id="ch-secret-row">Integration key<input id="ch-secret" type="password" autocomplete="off"></label>
+          <div id="ch-smtp" hidden class="brand-form">
+            <label>SMTP server<input id="ch-smtp-host" placeholder="smtp.example.com"></label>
+            <label>Port<input id="ch-smtp-port" type="number" min="1" max="65535" value="587"></label>
+            <label>Security<select id="ch-smtp-sec"><option value="starttls">STARTTLS (587)</option><option value="tls">TLS (465)</option><option value="none">None (local relay only)</option></select></label>
+            <label>User name (optional)<input id="ch-smtp-user" autocomplete="off"></label>
+            <label>Password (optional)<input id="ch-smtp-pass" type="password" autocomplete="new-password"></label>
+            <label>From<input id="ch-smtp-from" placeholder="DENIS &lt;denis@example.com&gt;"></label>
+            <label>To (comma separated)<input id="ch-smtp-to" placeholder="soc@example.com, oncall@example.com"></label>
+          </div>
+          <label>Send alerts scoring at least<input id="ch-min" type="number" min="0" max="100" value="50"></label>
+          <div class="row"><button type="submit" class="primary">Add channel</button><span id="ch-status" class="muted"></span></div>
+        </form>
+        <p class="muted small" id="ch-help"></p>
+      </section>
+
+      <section id="view-compliance" hidden>
+        <p class="muted" id="compliance-note"></p>
+        <h3 class="section">How complete is your register?</h3>
+        <div id="compliance-measures" class="measures"></div>
+        <h3 class="section">Standards mapping</h3>
+        <div class="table-wrap"><table id="compliance-table"><thead><tr><th>Requirement</th><th>What DENIS provides</th><th>Status</th></tr></thead><tbody></tbody></table></div>
+        <p class="muted small">Print this page (Ctrl/Cmd+P) to keep it as evidence.</p>
+      </section>
+
+      <section id="view-rules" hidden>
+        <p class="muted">Every detection DENIS runs, and how it is set. Alerts are scored 0–100; anything below the minimum score is only logged. Turning a rule off, or its weight down, is safe: nothing is deleted. Changes apply within seconds and are written to the audit log. <a href="/docs/detection-rules" target="_blank" rel="noopener">How each rule scores</a></p>
+        <div id="rules-global" class="rule-card"></div>
+        <div id="rules-list"></div>
+        <div class="row" id="rules-actions" hidden><button id="rules-save" type="button" class="primary">Save changes</button><button id="rules-reset" type="button">Reset everything to defaults</button><span id="rules-status" class="muted"></span></div>
+      </section>
+
+      <section id="view-events" hidden>
+        <div class="table-wrap">
+          <table id="events-table">
+            <thead><tr><th>Time</th><th>Type</th><th>Severity</th><th>Score</th><th>Device</th><th>Details</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="view-agents" hidden>
+        <div class="table-wrap">
+          <table id="agents-table">
+            <thead><tr><th></th><th>Name</th><th>Site</th><th>ID</th><th>Subnet</th><th>Devices</th><th>Version</th><th>Last report</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="tokens-box" hidden>
+          <h3 class="section">Agent tokens</h3>
+          <p class="muted">Each remote agent authenticates with its own token, bound to its agent id. A token is shown once when issued; issuing a new one revokes the old one.</p>
+          <form id="token-form" class="inline-form">
+            <input id="token-agent" placeholder="agent id, e.g. branch-1" pattern="[A-Za-z0-9._-]{1,64}" required>
+            <input id="token-label" placeholder="label (optional)" maxlength="100">
+            <button type="submit" class="primary">Issue token</button>
+          </form>
+          <div class="table-wrap"><table id="tokens-table"><thead><tr><th>Agent</th><th>State</th><th>Label</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody></tbody></table></div>
+        </div>
+      </section>
+
+      <section id="view-users" hidden>
+        <h3 class="section">Users</h3>
+        <form id="user-form" class="inline-form">
+          <input id="user-name" placeholder="username" pattern="[A-Za-z0-9][A-Za-z0-9._@-]{2,63}" required>
+          <select id="user-role"><option>viewer</option><option>editor</option><option>admin</option></select>
+          <button type="submit" class="primary">Add user</button>
+        </form>
+        <div class="table-wrap"><table id="users-table"><thead><tr><th>Username</th><th>Role</th><th>State</th><th>Last sign-in</th><th></th></tr></thead><tbody></tbody></table></div>
+        <p class="muted">Roles: <b>viewer</b> reads everything; <b>editor</b> also edits assets, acknowledges alerts and starts scans; <b>admin</b> also manages users, agent tokens and can delete manual assets.</p>
+        <h3 class="section">API tokens</h3>
+        <p class="muted">For scripts and integrations (Grafana, automation). A token can read (viewer) or also change assets (editor), never administer. Send it as <code>Authorization: Bearer &lt;token&gt;</code>.</p>
+        <form id="apitoken-form" class="inline-form">
+          <input id="apitoken-label" placeholder="what is it for? e.g. Grafana" maxlength="60" required>
+          <select id="apitoken-role"><option>viewer</option><option>editor</option></select>
+          <button type="submit" class="primary">Create token</button>
+        </form>
+        <div class="table-wrap"><table id="apitokens-table"><thead><tr><th>Label</th><th>Role</th><th>State</th><th>Created by</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div id="tls-box" hidden>
+          <h3 class="section">HTTPS certificate</h3>
+          <div id="tls-status" class="muted"></div>
+          <div class="row"><a id="tls-ca" href="/tls/ca.pem" download="denis-local-ca.pem" hidden>Download the CA certificate</a><button id="tls-replace" type="button">Use my own certificate…</button><button id="tls-reset" type="button" hidden>Go back to the generated certificate</button><span id="tls-msg" class="muted"></span></div>
+        </div>
+        <div id="update-box" hidden>
+          <h3 class="section">Updates</h3>
+          <div id="update-status" class="muted"></div>
+          <div class="row"><button id="update-check" type="button">Check for updates now</button><button id="update-open" type="button" hidden>Update available…</button><span id="update-msg" class="muted"></span></div>
+        </div>
+        <div id="data-box" hidden>
+          <h3 class="section">Demo data and reset</h3>
+          <p class="muted">New here? <b>Load demo data</b> fills the console with a fictional company so you can explore every screen; it never mixes with your real devices, and <b>Remove demo data</b> deletes exactly that. When you are ready for your own network, <b>Erase all data</b> starts from a clean slate (accounts, settings and the audit log are kept).</p>
+          <div class="row"><button id="demo-load" type="button">Load demo data</button><button id="demo-remove" type="button">Remove demo data</button><button id="erase-all" type="button" class="danger">Erase all data…</button><span id="demo-status" class="muted"></span></div>
+        </div>
+        <div id="branding-box" hidden>
+          <h3 class="section">Branding (white label)</h3>
+          <form id="branding-form" class="brand-form">
+            <label>Product name<input id="br-name" maxlength="40" required></label>
+            <label>Accent colour
+              <span class="row"><input id="br-accent" type="color" value="#2563eb"><button id="br-accent-reset" type="button">Use default blue</button></span>
+            </label>
+            <label>Default theme <span class="muted">(for people who have not picked one)</span>
+              <select id="br-theme"><option value="auto">Auto (follow the device)</option><option value="light">Day</option><option value="dark">Night</option></select>
+            </label>
+            <label>Default language <span class="muted">(for people who have not picked one)</span>
+              <select id="br-lang"></select>
+            </label>
+            <label>Sign-in page message<input id="br-msg" maxlength="200" placeholder="e.g. Managed by Example Security"></label>
+            <div class="row"><button type="submit" class="primary">Save branding</button><span id="br-status" class="muted"></span></div>
+          </form>
+          <div class="brand-logo-box">
+            <b>Logo</b> <span class="muted">PNG, JPEG, GIF or WebP, at most 256 KB (SVG is not accepted).</span>
+            <div class="row"><span id="br-preview" class="brand-logo"></span>
+              <input id="br-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
+              <button id="br-remove" type="button">Remove logo</button></div>
+          </div>
+        </div>
+        <h3 class="section">Audit log</h3>
+        <div class="table-wrap"><table id="audit-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th></tr></thead><tbody></tbody></table></div>
+      </section>
+    </main>
       </div>
-      <p id="empty" class="muted" hidden>No devices yet. The first sweep runs at startup; passive discovery fills in as devices announce themselves.</p>
-    </section>
+    </div>
 
-    <section id="view-alerts" hidden>
-      <div id="learning" class="banner" hidden></div>
-      <div class="table-wrap">
-        <table id="alerts-table">
-          <thead><tr><th>Time</th><th>Score</th><th>Type</th><th>Device</th><th>What happened</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <p id="no-alerts" class="muted" hidden>No alerts. New devices and destinations are only flagged after the learning period.</p>
-    </section>
+    <aside id="detail" hidden>
+      <button id="close" type="button" aria-label="Close">×</button>
+      <div id="detail-body"></div>
+    </aside>
+  </div>
 
-    <section id="view-agents" hidden>
-      <div class="table-wrap">
-        <table id="agents-table">
-          <thead><tr><th></th><th>Name</th><th>Site</th><th>ID</th><th>Subnet</th><th>Devices</th><th>Version</th><th>Last report</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <p class="muted">Remote agents report here; this machine is the "local" row. Start an agent with <code>netscope agent --master URL</code>.</p>
-    </section>
+  <!-- One dialog for forms (asset editor, password change), one for messages. -->
+  <dialog id="form-dialog"><form method="dialog" id="dialog-form"></form></dialog>
+  <dialog id="msg-dialog"><div id="msg-body"></div><div class="dialog-actions"><button id="msg-ok" class="primary" type="button">OK</button></div></dialog>
 
-    <section id="view-events" hidden>
-      <div class="table-wrap">
-        <table id="events-table">
-          <thead><tr><th>Time</th><th>Type</th><th>Severity</th><th>Score</th><th>Device</th><th>Details</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-  </main>
-
-  <aside id="detail" hidden>
-    <button id="close" type="button" aria-label="Close">×</button>
-    <div id="detail-body"></div>
-  </aside>
-
+  <script src="icons.js"></script>
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
+  <script src="admin.js"></script>
+  <script src="main.js"></script>
 </body>
 </html>

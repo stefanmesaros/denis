@@ -1,24 +1,24 @@
 # Remote agent (a second site / network segment). UNTESTED under systemd:
-#   systemd-analyze verify netscope-agent.service
+#   systemd-analyze verify denis-agent.service
 # Install (same binary and user as the master unit):
-#   sudo mkdir -p /etc/netscope && sudo install -m600 /dev/null /etc/netscope/agent.env
-#   echo 'NETSCOPE_AGENT_TOKEN=<the master's token>' | sudo tee -a /etc/netscope/agent.env
-#   sudo cp packaging/netscope-agent.service /etc/systemd/system/
-#   sudo systemctl daemon-reload && sudo systemctl enable --now netscope-agent
+#   sudo mkdir -p /etc/denis && sudo install -m600 /dev/null /etc/denis/agent.env
+#   echo 'DENIS_AGENT_TOKEN=<the token from: denis agent-token issue --id branch-1>' | sudo tee -a /etc/denis/agent.env
+#   sudo cp packaging/denis-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now denis-agent
 # The agent only makes OUTBOUND connections to the master, so it works behind NAT.
 [Unit]
-Description=netscope remote agent
+Description=denis remote agent
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=netscope
-EnvironmentFile=/etc/netscope/agent.env
+User=denis
+EnvironmentFile=/etc/denis/agent.env
 # Edit --master (the master's --ingest-listen address) and the id/name/site.
-ExecStart=/usr/local/bin/netscope agent --master http://MASTER-HOST:8081 --id branch-1 --name "Branch office" --site Branch --flows --db /var/lib/netscope-agent/agent.db
+ExecStart=/usr/local/bin/denis agent --master http://MASTER-HOST:8081 --id branch-1 --name "Branch office" --site Branch --flows --db /var/lib/denis-agent/agent.db
 Restart=on-failure
 RestartSec=5
-StateDirectory=netscope-agent
+StateDirectory=denis-agent
 
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN

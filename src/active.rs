@@ -35,8 +35,9 @@ pub fn build_arp_request(src_mac: Mac, src_ip: Ipv4Addr, target: Ipv4Addr) -> Ve
 }
 
 /// Blocking: two passes of ARP requests (second pass catches replies lost to
-/// Wi-Fi power save). Paced so a /24 takes under a second per pass.
-pub fn arp_sweep(iface: &Iface, targets: &[Ipv4Addr]) -> Result<()> {
+/// Wi-Fi power save). Paced (`pace` between requests) so a /24 takes under a
+/// second per pass by default, and much gentler on OT networks.
+pub fn arp_sweep(iface: &Iface, targets: &[Ipv4Addr], pace: Duration) -> Result<()> {
     let mut tx = Capture::from_device(iface.name.as_str())
         .and_then(|c| c.open())
         .with_context(|| format!("opening {} for sending", iface.name))?;
@@ -44,7 +45,7 @@ pub fn arp_sweep(iface: &Iface, targets: &[Ipv4Addr]) -> Result<()> {
         for ip in targets {
             tx.sendpacket(build_arp_request(iface.mac, iface.ip, *ip))
                 .with_context(|| format!("sending ARP request for {ip}"))?;
-            std::thread::sleep(Duration::from_millis(2));
+            std::thread::sleep(pace);
         }
         if pass == 0 {
             std::thread::sleep(Duration::from_secs(1));
@@ -146,6 +147,7 @@ mod tests {
             own_mac: mac,
             own_ip: Ipv4Addr::new(192, 168, 1, 10),
             flows: false,
+            ot: false,
         };
         let f = build_arp_request(mac, ctx.own_ip, Ipv4Addr::new(192, 168, 1, 20));
         assert!(parse_frame(&ctx, &f).is_empty());
@@ -160,6 +162,7 @@ mod tests {
             own_mac: Mac([2, 0, 0, 0, 0, 9]),
             own_ip: Ipv4Addr::new(192, 168, 1, 10),
             flows: false,
+            ot: false,
         };
         let f = build_arp_request(other, Ipv4Addr::new(192, 168, 1, 44), Ipv4Addr::new(192, 168, 1, 1));
         assert!(matches!(parse_frame(&ctx, &f).as_slice(), [Observation::Arp { .. }]));

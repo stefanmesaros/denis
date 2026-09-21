@@ -32,6 +32,34 @@ fn short_vendor(org: &str) -> String {
     s
 }
 
+/// Device types that belong to industrial / building automation.
+pub const OT_TYPES: &[&str] = &[
+    "plc", "hmi", "rtu", "scada server", "engineering workstation", "historian", "industrial switch",
+    "industrial gateway", "drive", "sensor", "building controller", "industrial device",
+    "safety controller", "protection relay", "power meter", "remote io", "industrial pc", "cnc machine",
+    "rfid reader", "robot", "pump", "valve", "motor",
+];
+
+/// Manufacturers whose products are (almost) exclusively industrial.
+const ICS_VENDORS: &[&str] = &[
+    "siemens", "rockwell", "allen-bradley", "schneider", "modicon", "abb ", "mitsubishi electric", "omron", "beckhoff",
+    "wago", "phoenix contact", "moxa", "hirschmann", "belden", "honeywell", "emerson", "yokogawa", "advantech",
+    "b&r", "festo", "pilz", "endress", "bosch rexroth", "turck", "lenze", "sick ag", "keyence", "fuji electric",
+    "red lion", "prosoft", "hms industrial", "eaton", "danfoss", "sew-eurodrive", "pepperl", "weidmuller", "weidmüller",
+    "brainboxes", "digi international", "lantronix", "opto 22", "unitronics", "delta electronics", "schweitzer",
+];
+
+/// Is this an industrial device? Then it is never port-scanned, and it is
+/// treated as fragile: some PLC firmware crashes on unexpected connections.
+pub fn is_ot_device(a: &Asset) -> bool {
+    !a.fingerprint.ot.is_empty()
+        || OT_TYPES.contains(&a.device_type.as_str())
+        || a.vendor.as_deref().is_some_and(|v| {
+            let l = v.to_ascii_lowercase();
+            ICS_VENDORS.iter().any(|i| l.contains(i))
+        })
+}
+
 /// Initial-TTL family from an observed TTL (packets lose one per hop).
 pub fn initial_ttl(observed: u8) -> u8 {
     match observed {
@@ -93,6 +121,39 @@ fn winner(map: &HashMap<&'static str, i32>) -> Option<&'static str> {
         .map(|(k, _)| *k)
 }
 
+/// Vote from a DHCP parameter request list such as `"1,121,3,6,15,119,252"`.
+///
+/// Only the option *sets* that are characteristic of a client family are used,
+/// and each vote is deliberately modest (3–4): a list identifies software, not a
+/// product, and other clients can copy it. The Apple pattern (options 121, 119
+/// and 252 together) and the Windows pattern (249 with 31/33/43) come from the
+/// widely published DHCP fingerprint databases and, for Apple, were confirmed on
+/// a real macOS 15 client; the Android and Linux ones have not been checked
+/// against real devices here.
+fn dhcp_param_votes(v: &mut Votes, list: &str) {
+    let opts: Vec<u8> = list.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+    let has = |n: u8| opts.contains(&n);
+    let why = || format!("DHCP option list {list}");
+    if has(121) && has(119) && has(252) && !has(249) {
+        // Apple: 95 (LDAP), 44/46 (NetBIOS) are only asked for by macOS.
+        if has(95) || has(44) || has(46) {
+            v.both("computer", "macOS", 4, format!("{} (Apple client that also asks for NetBIOS/LDAP: macOS)", why()));
+        } else {
+            v.os("iOS", 3, format!("{} (Apple client without NetBIOS/LDAP: iOS/iPadOS)", why()));
+            v.ty("phone", 2, why());
+        }
+    } else if has(249) && has(252) && has(31) && has(33) {
+        v.both("computer", "Windows", 4, format!("{} (Windows DHCP client)", why()));
+    } else if has(26) && has(28) && has(51) && has(58) && has(59) && !has(121) {
+        v.both("phone", "Android", 3, format!("{} (Android DHCP client)", why()));
+    } else if opts.starts_with(&[1, 28, 2, 3, 15, 6]) && has(119) && has(12) {
+        v.os("Linux", 3, format!("{} (dhclient / NetworkManager)", why()));
+    } else if opts == [1, 3, 28, 6, 42] {
+        // Seen on a Shelly plug (ESP32): a minimal embedded DHCP client.
+        v.ty("iot", 2, format!("{} (minimal embedded DHCP client)", why()));
+    }
+}
+
 pub fn guess(a: &Asset) -> Guess {
     let mut v = Votes::default();
     let fp = &a.fingerprint;
@@ -111,6 +172,13 @@ pub fn guess(a: &Asset) -> Guess {
         } else if l.starts_with("dhcpcd") || l.starts_with("udhcp") {
             v.os("Linux", 3, format!("DHCP vendor class {vc:?}"));
         }
+    }
+
+    // --- DHCP option 55 (the list of options a client asks for). It identifies the
+    // DHCP client software, and it is sent even by devices with no vendor class and
+    // a private MAC (iPhones and Macs send no option 60 at all).
+    if let Some(list) = &fp.dhcp_param_list {
+        dhcp_param_votes(&mut v, list);
     }
 
     // --- hostnames (DHCP option 12 and mDNS)
@@ -143,6 +211,10 @@ pub fn guess(a: &Asset) -> Guess {
             }
             "_googlecast._tcp" => v.ty("media device", 4, "mDNS _googlecast._tcp"),
             "_airplay._tcp" | "_raop._tcp" => v.os("Apple", 2, format!("mDNS {s}")),
+            // Apple AirPort base stations announce themselves as `_airport._tcp`
+            "_airport._tcp" | "_acp-sync._tcp" => v.ty("access point", 5, format!("mDNS {s} (AirPort base station)")),
+            // Apple Continuity ("Nearby") beacons: an iPhone, iPad, Watch or Mac, often with a private MAC
+            "_nearbypresence._tcp" => v.os("Apple", 3, "mDNS _nearbypresence._tcp (Apple Nearby)"),
             "_companion-link._tcp" | "_rdlink._tcp" | "_sleep-proxy._udp" => v.os("Apple", 3, format!("mDNS {s}")),
             "_apple-mobdev2._tcp" => v.both("phone", "iOS", 2, "mDNS _apple-mobdev2._tcp"),
             "_hap._tcp" | "_homekit._tcp" | "_matter._tcp" | "_meshcop._udp" => v.ty("iot", 3, format!("mDNS {s}")),
@@ -174,6 +246,11 @@ pub fn guess(a: &Asset) -> Guess {
         let l = s.to_ascii_lowercase();
         if l.contains("miniupnpd") || l.contains("igd") {
             v.ty("router", 3, format!("SSDP server {s:?}"));
+        }
+        // "Unspecified, UPnP/1.0, Unspecified" is how ASUS (and similar) router firmware
+        // introduces its UPnP gateway service.
+        if l.starts_with("unspecified, upnp/1.0") {
+            v.ty("router", 3, format!("SSDP server {s:?} (router UPnP service)"));
         }
         if l.contains("microsoft-windows") || l.contains("windows/") {
             v.both("computer", "Windows", 4, format!("SSDP agent {s:?}"));
@@ -229,7 +306,7 @@ pub fn guess(a: &Asset) -> Guess {
         if has(&["hikvision", "dahua", "axis comm", "reolink", "amcrest", "ring ", "arlo", "wyze"]) {
             v.ty("camera", 4, format!("vendor {vendor}"));
         }
-        if has(&["espressif", "tuya", "shelly", "sonoff", "itead", "ecobee", "signify", "philips lighting", "nest labs", "lifx", "meross", "kasa"]) {
+        if has(&["espressif", "tuya", "shelly", "sonoff", "itead", "ecobee", "signify", "philips lighting", "nest labs", "lifx", "meross", "kasa", "altobeam", "high-flying", "samjin"]) {
             v.ty("iot", 3, format!("vendor {vendor}"));
         }
         if has(&["raspberry"]) {
@@ -305,6 +382,61 @@ pub fn guess(a: &Asset) -> Guess {
         v.ty("iot", 1, "MQTT (1883)");
     }
 
+    // --- industrial protocols: who serves, who polls
+    for (proto, role) in &fp.ot {
+        let p = proto.as_str();
+        match (p, role.server, role.client) {
+            ("s7" | "enip", true, _) => v.ty("plc", 5, format!("serves {p} (a controller)")),
+            ("modbus", true, _) => v.ty("plc", 4, "serves Modbus/TCP"),
+            ("dnp3" | "iec104", true, _) => v.ty("rtu", 4, format!("serves {p} (an outstation)")),
+            ("bacnet", true, _) => v.ty("building controller", 4, "serves BACnet"),
+            ("opcua", true, _) => v.ty("industrial gateway", 3, "serves OPC UA"),
+            (_, false, true) => v.ty("hmi", 2, format!("polls {p} devices")),
+            _ => {}
+        }
+        if p == "s7" && role.client {
+            v.os("Siemens engineering/HMI", 1, "speaks S7 as a client");
+        }
+    }
+    if let Some(sys) = fp.identity.get("lldp.system_description").or_else(|| fp.identity.get("cdp.system_description")) {
+        let l = sys.to_ascii_lowercase();
+        if ["scalance", "hirschmann", "moxa", "stratix", "westermo", "ruggedcom", "industrial ethernet"].iter().any(|k| l.contains(k)) {
+            v.ty("industrial switch", 5, format!("LLDP/CDP description {sys:?}"));
+        }
+    }
+    for key in ["lldp.capabilities", "cdp.capabilities"] {
+        if let Some(c) = fp.identity.get(key) {
+            if c.contains("wlan-ap") {
+                v.ty("access point", 5, format!("{key} = {c}"));
+            } else if c.contains("router") {
+                v.ty("router", 3, format!("{key} = {c}"));
+            } else if c.contains("bridge") || c.contains("switch") {
+                v.ty("network device", 4, format!("{key} = {c}"));
+            }
+        }
+    }
+    if let Some(role) = fp.identity.get("profinet.role") {
+        if role.contains("io-controller") {
+            v.ty("plc", 4, "PROFINET IO controller");
+        } else if role.contains("io-device") {
+            v.ty("industrial device", 3, "PROFINET IO device");
+        }
+    }
+    if let Some(vendor) = &a.vendor {
+        let l = vendor.to_ascii_lowercase();
+        if ICS_VENDORS.iter().any(|i| l.contains(i)) {
+            v.ty("industrial device", 2, format!("vendor {vendor} builds industrial equipment"));
+        }
+    }
+    for h in a.hostnames.iter() {
+        let l = h.to_ascii_lowercase();
+        for (needle, ty) in [("plc", "plc"), ("hmi", "hmi"), ("rtu", "rtu"), ("scada", "scada server"), ("historian", "historian")] {
+            if l.split(|c: char| !c.is_alphanumeric()).any(|t| t == needle || t.starts_with(needle) && t[needle.len()..].chars().all(|c| c.is_ascii_digit())) {
+                v.ty(ty, 4, format!("name {h:?}"));
+            }
+        }
+    }
+
     // --- passive TCP/IP fingerprint
     if let Some(sig) = &fp.tcp_sig {
         if let Some((os, w)) = os_from_tcp(sig) {
@@ -331,6 +463,26 @@ pub fn guess(a: &Asset) -> Guess {
         reasons: v.reasons,
     }
 }
+
+/// Device types the guesser can produce (and the edit form offers). Users may
+/// also type their own via the override field.
+pub const DEVICE_TYPES: &[&str] = &[
+    "computer", "laptop", "server", "virtual machine", "phone", "tablet", "printer", "router", "network device",
+    "access point", "nas", "camera", "media device", "smart speaker", "tv", "iot", "unknown",
+    // more office / IT
+    "thin client", "point of sale", "kiosk", "hypervisor", "database server", "storage array", "kvm", "pdu", "ups",
+    "load balancer", "vpn gateway", "firewall", "security appliance", "modem", "mesh node", "wireless controller",
+    "cloud service", "projector", "conference system", "voip phone", "3d printer", "scanner", "barcode scanner",
+    // home, building and consumer
+    "set-top box", "streaming stick", "game console", "wearable", "smart plug", "smart light", "smart lock", "doorbell",
+    "badge reader", "alarm panel", "smoke detector", "thermostat", "hvac controller", "smart hub", "robot vacuum",
+    "appliance", "medical device", "ev charger", "solar inverter", "vehicle",
+    // operational technology
+    "plc", "hmi", "rtu", "scada server", "engineering workstation", "historian", "industrial switch",
+    "industrial gateway", "drive", "sensor", "building controller", "industrial device",
+    "safety controller", "protection relay", "power meter", "remote io", "industrial pc", "cnc machine",
+    "rfid reader", "robot", "pump", "valve", "motor",
+];
 
 /// Well-known TCP port -> service label (also the scan list).
 pub const SCAN_PORTS: &[(u16, &str)] = &[
@@ -425,7 +577,7 @@ mod tests {
     #[test]
     fn iphone_from_hostname() {
         let mut a = asset();
-        a.hostnames = vec!["Stefans-iPhone".into()];
+        a.hostnames = vec!["Anns-iPhone".into()];
         let g = guess(&a);
         assert_eq!(g.device_type, "phone");
         assert_eq!(g.os.as_deref(), Some("iOS"));
@@ -471,6 +623,48 @@ mod tests {
     }
 
     #[test]
+    fn industrial_roles_identity_and_names_type_ot_devices() {
+        use crate::model::OtRole;
+        let role = |server, client| OtRole { server, client, first_seen: 0, last_seen: 0 };
+        let mut plc = asset();
+        plc.fingerprint.ot.insert("s7".into(), role(true, false));
+        assert_eq!(guess(&plc).device_type, "plc");
+        assert!(is_ot_device(&plc));
+
+        let mut hmi = asset();
+        hmi.fingerprint.ot.insert("modbus".into(), role(false, true));
+        assert_eq!(guess(&hmi).device_type, "hmi");
+
+        let mut rtu = asset();
+        rtu.fingerprint.ot.insert("dnp3".into(), role(true, false));
+        assert_eq!(guess(&rtu).device_type, "rtu");
+
+        let mut bms = asset();
+        bms.fingerprint.ot.insert("bacnet".into(), role(true, false));
+        assert_eq!(guess(&bms).device_type, "building controller");
+
+        let mut sw = asset();
+        sw.fingerprint.identity.insert("lldp.system_description".into(), "SCALANCE XC208 Industrial Ethernet switch".into());
+        assert_eq!(guess(&sw).device_type, "industrial switch");
+        let mut ap = asset();
+        ap.fingerprint.identity.insert("lldp.capabilities".into(), "bridge,wlan-ap".into());
+        assert_eq!(guess(&ap).device_type, "access point");
+
+        // a vendor alone is weak evidence (2) but is enough for "industrial device"; names help too
+        let mut v = asset();
+        v.vendor = Some("Siemens AG".into());
+        assert_eq!(guess(&v).device_type, "industrial device");
+        assert!(is_ot_device(&v));
+        let mut named = asset();
+        named.hostnames = vec!["plc-line3".into()];
+        assert_eq!(guess(&named).device_type, "plc");
+        let mut not = asset();
+        not.hostnames = vec!["couplet".into(), "plcx".into()]; // substrings must not match
+        assert_eq!(guess(&not).device_type, "unknown");
+        assert!(!is_ot_device(&not));
+    }
+
+    #[test]
     fn apple_tcp_signature() {
         let sig = TcpSig { ttl: 64, window: 65535, options: "MNWNNTSE".into(), mss: Some(1460), wscale: Some(6) };
         assert_eq!(os_from_tcp(&sig).unwrap().0, "Apple (macOS/iOS)");
@@ -481,5 +675,50 @@ mod tests {
         assert_eq!(short_vendor("Apple, Inc."), "Apple");
         assert_eq!(short_vendor("TP-LINK TECHNOLOGIES CO.,LTD."), "TP-LINK");
         assert_eq!(short_vendor("Seongji Industry Company Limited"), "Seongji Industry");
+    }
+
+    #[test]
+    fn dhcp_option_lists_identify_the_client_family_even_without_a_vendor_class() {
+        let with = |list: &str| {
+            let mut a = Asset::new(Mac([0x02, 0, 0, 0, 0, 9]), 0);
+            a.fingerprint.dhcp_param_list = Some(list.into());
+            a
+        };
+        // captured from a real Mac on the development network (hostname just "Mac")
+        let g = guess(&with("1,121,3,6,15,108,114,119,162,252,95,44,46"));
+        assert_eq!((g.device_type.as_str(), g.os.as_deref()), ("computer", Some("macOS")));
+        assert!(g.reasons.iter().any(|r| r.contains("DHCP option list")));
+        assert_eq!(guess(&with("1,121,3,6,15,119,252")).os.as_deref(), Some("iOS"));
+        assert_eq!(guess(&with("1,3,6,15,31,33,43,44,46,47,119,121,249,252")).os.as_deref(), Some("Windows"));
+        assert_eq!(guess(&with("1,3,6,15,26,28,51,58,59,43")).os.as_deref(), Some("Android"));
+        assert_eq!(guess(&with("1,28,2,3,15,6,119,12,44,47,26,121,42")).os.as_deref(), Some("Linux"));
+        // unknown or garbage lists vote for nothing
+        for l in ["", "1,3,6", "abc,,999", "1,121"] {
+            assert_eq!(guess(&with(l)).os, None, "{l:?}");
+        }
+    }
+
+    #[test]
+    fn devices_seen_on_a_real_home_network_that_used_to_stay_unknown() {
+        let mut asus = Asset::new(Mac([0xc8, 0x7f, 0x54, 0x8f, 0x10, 0xa0]), 0);
+        asus.vendor = Some("ASUSTek COMPUTER INC.".into());
+        asus.fingerprint.ssdp_server = Some("Unspecified, UPnP/1.0, Unspecified".into());
+        assert_eq!(guess(&asus).device_type, "router");
+
+        let mut airport = Asset::new(Mac([0x90, 0x84, 0x0d, 0, 0, 1]), 0);
+        airport.vendor = Some("Apple".into());
+        airport.fingerprint.mdns_services = vec!["_airport._tcp".into(), "_raop._tcp".into(), "_acp-sync._tcp".into()];
+        assert_eq!(guess(&airport).device_type, "access point");
+
+        for vendor in ["AltoBeam", "Shanghai High-Flying Electronics\nTechnology Co., Ltd", "SAMJIN"] {
+            let mut a = Asset::new(Mac([0x68, 0x3a, 0x48, 0, 0, 1]), 0);
+            a.vendor = Some(vendor.into());
+            assert_eq!(guess(&a).device_type, "iot", "{vendor}");
+        }
+        // a Windows PC's UPnP string must not be mistaken for a router
+        let mut pc = Asset::new(Mac([0x00, 0x1b, 0x63, 0, 0, 2]), 0);
+        pc.vendor = Some("ASUSTek COMPUTER INC.".into());
+        pc.fingerprint.ssdp_server = Some("Microsoft-Windows/10.0 UPnP/1.0 UPnP-Device-Host/1.0".into());
+        assert_eq!(guess(&pc).device_type, "computer");
     }
 }

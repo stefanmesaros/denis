@@ -67,7 +67,7 @@ pub fn permission_hint() -> &'static str {
          access once via a launchd job that chmods /dev/bpf* (this is what Wireshark's \"ChmodBPF\" does)."
     } else {
         "Linux: packet capture needs CAP_NET_RAW. Run as root, or grant it to the binary once:\n\
-         sudo setcap cap_net_raw,cap_net_admin=eip /path/to/netscope"
+         sudo setcap cap_net_raw,cap_net_admin=eip /path/to/denis"
     }
 }
 
@@ -101,8 +101,8 @@ pub fn spawn(
             let mut agg = FlowAgg::new(FLOW_WINDOW_SECS, now_ts());
             while !stop_flag.load(Ordering::Relaxed) {
                 if ctx.flows {
-                    if let Some(records) = agg.take_if_due(now_ts()) {
-                        if tx.blocking_send(Observation::Flows(records)).is_err() {
+                    if let Some(batch) = agg.take_if_due(now_ts()) {
+                        if tx.blocking_send(Observation::Flows(batch)).is_err() {
                             return;
                         }
                     }
@@ -119,6 +119,11 @@ pub fn spawn(
                     if let Observation::FlowSample(s) = &obs {
                         agg.add(s);
                         continue;
+                    }
+                    // Every industrial message feeds the conversation matrix; only a
+                    // throttled sample goes on to the inventory (roles, identity).
+                    if let Observation::Ot(s) = &obs {
+                        agg.add_conv(s);
                     }
                     frames.fetch_add(1, Ordering::Relaxed);
                     if let Some(key) = throttle_key(&obs) {
@@ -144,6 +149,11 @@ pub fn spawn(
     }
 }
 
+/// Small stable code per protocol name, so throttling is per (device, protocol).
+fn proto_code(name: &str) -> u8 {
+    name.bytes().fold(0u8, |a, b| a.wrapping_mul(31).wrapping_add(b)) % 100
+}
+
 /// Only high-rate, low-information observations are throttled. DHCP/mDNS/SSDP
 /// carry distinct content per packet and are rare, so they always pass.
 fn throttle_key(obs: &Observation) -> Option<(Mac, u8)> {
@@ -151,6 +161,11 @@ fn throttle_key(obs: &Observation) -> Option<(Mac, u8)> {
         Observation::Arp { mac, .. } => Some((*mac, 0)),
         Observation::Tcp { mac, .. } => Some((*mac, 1)),
         Observation::Ttl { mac, .. } => Some((*mac, 2)),
+        // DHCP-server sightings get their own slot so they never hide an ARP signal from the same device
+        Observation::Signal(sig) => Some((sig.mac, if sig.kind == "dhcp_server" { 5 } else { 3 })),
+        // Roles and identity change rarely: once per 5 s per (device, protocol) is plenty.
+        Observation::Ot(s) => Some((s.src_mac, 100 + proto_code(s.pdu.proto))),
+        Observation::Link(l) => Some((l.mac, 4)),
         _ => None,
     }
 }

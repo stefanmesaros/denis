@@ -78,7 +78,7 @@ pub fn spawn_webhook(url: String) -> mpsc::Sender<Event> {
 }
 
 pub fn payload(e: &Event) -> serde_json::Value {
-    let text = format!("netscope {}", one_line(e));
+    let text = format!("denis {}", one_line(e));
     serde_json::json!({ "text": text, "content": text, "event": e })
 }
 

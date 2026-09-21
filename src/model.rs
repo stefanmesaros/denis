@@ -120,6 +120,25 @@ pub struct Fingerprint {
     pub ssdp_types: Vec<String>,
     pub tcp_sig: Option<TcpSig>,
     pub ttl: Option<u8>,
+    /// Industrial / building-automation protocols this device speaks, and in
+    /// which role (learned passively from the wire).
+    #[serde(default)]
+    pub ot: std::collections::BTreeMap<String, OtRole>,
+    /// Self-reported identity from LLDP/CDP/PROFINET/EtherNet-IP/BACnet, keyed
+    /// `source.field` (e.g. `lldp.system_name`, `enip.product_name`).
+    #[serde(default)]
+    pub identity: std::collections::BTreeMap<String, String>,
+}
+
+/// Role of a device in one industrial protocol.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct OtRole {
+    /// Answers requests (PLC, RTU, drive, sensor...).
+    pub server: bool,
+    /// Sends requests (HMI, SCADA, engineering workstation...).
+    pub client: bool,
+    pub first_seen: i64,
+    pub last_seen: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -250,8 +269,97 @@ pub enum Observation {
     /// One packet's worth of traffic. Folded into `Flows` by the capture thread
     /// and never reaches the inventory.
     FlowSample(FlowSample),
-    /// A closed aggregation window of flow records.
-    Flows(Vec<FlowRecord>),
+    /// A closed aggregation window of flow and conversation records.
+    Flows(FlowBatch),
+    /// A suspicious fact noticed on the wire (e.g. an ARP sender-address mismatch).
+    Signal(Signal),
+    /// One industrial-protocol message between two local devices.
+    Ot(OtSample),
+    /// Self-reported identity from a link-layer or industrial protocol.
+    Link(LinkInfo),
+}
+
+/// What an industrial message *does*, coarse enough to reason about safely.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OtClass {
+    /// Reads values or configuration.
+    Read,
+    /// Writes values (registers, coils, tags, setpoints).
+    Write,
+    /// Changes the controller's state: STOP/START, program download, restart,
+    /// operate/select commands. The actions that matter most in OT.
+    Control,
+    /// Asks a device who it is (device identification, Who-Is, ListIdentity).
+    Identify,
+    /// Session set-up, acknowledgements, responses, anything else.
+    Other,
+}
+
+/// A decoded industrial protocol data unit.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OtPdu {
+    /// Protocol name: `modbus`, `s7`, `enip`, `dnp3`, `bacnet`, `opcua`, `iec104`.
+    pub proto: &'static str,
+    /// The source is the server/outstation/PLC side (a response or announcement).
+    pub server_is_src: bool,
+    /// Only requests carry a class; responses are `Other`.
+    pub class: OtClass,
+    /// Human-readable function, e.g. `write multiple registers (16)`.
+    pub detail: String,
+    /// The transport port of the server side.
+    pub port: u16,
+    /// Identity announced by this message (EtherNet/IP ListIdentity, BACnet I-Am).
+    pub identity: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OtSample {
+    pub src_mac: Mac,
+    pub dst_mac: Mac,
+    pub src_ip: Ipv4Addr,
+    pub dst_ip: Ipv4Addr,
+    pub bytes: u32,
+    pub pdu: OtPdu,
+}
+
+/// Identity learned from a discovery protocol, attached to the sending MAC.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LinkInfo {
+    pub mac: Mac,
+    /// `lldp`, `cdp` or `profinet`.
+    pub source: &'static str,
+    pub ip: Option<Ipv4Addr>,
+    pub fields: std::collections::BTreeMap<String, String>,
+}
+
+/// One conversation between a client and a server over one industrial
+/// protocol in one window (the "communications matrix" row).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ConvRecord {
+    pub client_mac: Mac,
+    pub server_mac: Mac,
+    pub client_ip: Ipv4Addr,
+    pub server_ip: Ipv4Addr,
+    pub proto: String,
+    pub port: u16,
+    pub packets: u64,
+    pub bytes: u64,
+    pub reads: u64,
+    pub writes: u64,
+    /// STOP/START, download, restart, operate: the alarming ones.
+    pub controls: u64,
+    /// Example of the most severe function seen (`PLC stop (0x29)`).
+    pub note: Option<String>,
+    pub window_start: i64,
+    pub window_secs: u32,
+}
+
+/// Everything one closed capture window produced.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FlowBatch {
+    pub flows: Vec<FlowRecord>,
+    pub convs: Vec<ConvRecord>,
 }
 
 pub const PROTO_ICMP: u8 = 1;
@@ -374,6 +482,12 @@ pub struct Report {
     pub sent_at: i64,
     pub assets: Vec<Asset>,
     pub flows: Vec<FlowRecord>,
+    /// Absent in reports from Phase 2 agents.
+    #[serde(default)]
+    pub signals: Vec<Signal>,
+    /// Industrial conversations (absent in reports from older agents).
+    #[serde(default)]
+    pub conversations: Vec<ConvRecord>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -413,4 +527,150 @@ mod tests {
         assert!(private.is_valid() && private.is_locally_administered());
         assert!(!Mac([0x00, 0x1b, 0x63, 1, 2, 3]).is_locally_administered());
     }
+}
+
+
+/// A raw suspicious observation from a collector. Collectors *notice* (only
+/// they see the frames); the master *judges* (scores, deduplicates, alerts).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Signal {
+    /// `arp_conflict`: an address is claimed by a second MAC while the first
+    /// still holds it. `arp_mismatch`: ARP sender hardware address differs
+    /// from the Ethernet source.
+    pub kind: String,
+    pub ts: i64,
+    /// The claimant (the MAC that appeared).
+    pub mac: Mac,
+    pub ip: Ipv4Addr,
+    /// The previous holder of `ip`, or the hardware address the frame claimed.
+    pub other_mac: Option<Mac>,
+    /// The contested address is the default gateway.
+    pub gateway: bool,
+}
+
+/// Hours in which a device was seen, for "was reliably online" judgements.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Presence {
+    pub asset_id: i64,
+    /// Unix hour indices (`ts / 3600`), pruned to the last 14 days.
+    pub hours: std::collections::BTreeSet<i64>,
+    /// A silence alert has been raised and the device has not been seen since.
+    pub silent_alerted: bool,
+}
+
+/// One 5-minute sample of network health for the trend charts.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Metric {
+    pub ts: i64,
+    /// `""` for the local collector, else the agent id.
+    pub agent_id: String,
+    pub devices_total: i64,
+    pub devices_online: i64,
+    /// Bytes to/from outside the LAN during this interval.
+    pub bytes_out: i64,
+    pub bytes_in: i64,
+    pub alerts: i64,
+}
+
+
+/// Manually maintained information about an asset. Kept apart from everything
+/// discovered so a re-scan never overwrites what a person typed, and an edit
+/// never gets lost when a device is re-fingerprinted.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AssetMeta {
+    /// Shown instead of the discovered hostname.
+    pub display_name: Option<String>,
+    pub asset_tag: Option<String>,
+    pub serial_number: Option<String>,
+    pub model: Option<String>,
+    /// Overrides the OUI vendor.
+    pub manufacturer: Option<String>,
+    /// Corrects a wrong device-type guess.
+    pub type_override: Option<String>,
+    pub os_override: Option<String>,
+    pub owner: Option<String>,
+    pub department: Option<String>,
+    pub location: Option<String>,
+    pub supplier: Option<String>,
+    /// `YYYY-MM-DD`
+    pub purchase_date: Option<String>,
+    pub purchase_price: Option<String>,
+    /// `YYYY-MM-DD`
+    pub warranty_expires: Option<String>,
+    /// `active` (default), `spare`, `retired`, `lost`, `stolen`.
+    pub status: Option<String>,
+    /// `low`, `normal` (default), `high`, `critical`: scales how much its
+    /// alerts weigh in the risk score.
+    pub criticality: Option<String>,
+    pub notes: Option<String>,
+    /// Icon shown in the UI; `None` = chosen automatically from the device type.
+    pub icon: Option<String>,
+    /// Network zone / cell, free text (e.g. "Line 3 cell", "DMZ").
+    pub zone: Option<String>,
+    /// Purdue model level for OT assets: `0`, `1`, `2`, `3`, `3.5`, `4`, `5`.
+    pub purdue_level: Option<String>,
+    /// `YYYY-MM-DD`: no outgoing notifications (chat, e-mail, …) about this device until the
+    /// end of that day (planned maintenance, a test bench). Alerts still show in the console.
+    pub muted_until: Option<String>,
+    pub tags: Vec<String>,
+    pub custom: std::collections::BTreeMap<String, String>,
+    /// Created by hand rather than discovered (may not exist on the wire yet).
+    pub manual: bool,
+    /// A person has looked at this device and accepted it as known (the review queue).
+    #[serde(default)]
+    pub reviewed: bool,
+    /// Part of the built-in demo data (fictional; removable in one step).
+    #[serde(default)]
+    pub demo: bool,
+}
+
+/// One accepted change, for the audit trail.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Change {
+    pub field: String,
+    pub old: Option<String>,
+    pub new: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct User {
+    pub id: i64,
+    pub username: String,
+    /// `viewer`, `editor`, `admin`
+    pub role: String,
+    pub created_at: i64,
+    pub disabled: bool,
+    /// The password was set by someone else; it must be changed at next login.
+    pub must_change: bool,
+    pub last_login: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AuditEntry {
+    pub id: i64,
+    pub ts: i64,
+    pub user: String,
+    pub action: String,
+    pub asset_id: Option<i64>,
+    pub detail: serde_json::Value,
+}
+
+
+/// A persistent row of the communications matrix: which asset talks to which
+/// over which industrial protocol, and what kind of messages it sends.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Conversation {
+    pub client_id: i64,
+    pub server_id: i64,
+    pub proto: String,
+    pub port: u16,
+    pub first_seen: i64,
+    pub last_seen: i64,
+    pub packets: i64,
+    pub bytes: i64,
+    pub reads: i64,
+    pub writes: i64,
+    pub controls: i64,
+    /// Example of the most severe function ever seen on this path.
+    pub note: Option<String>,
 }

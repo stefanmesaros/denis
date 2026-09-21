@@ -1,10 +1,18 @@
 //! JSON API + embedded static UI.
 //!
-//! Phase 1 has no authentication (local-only use), so the defences here are the
-//! ones that protect a localhost service from *the browser*: Host-header
-//! validation (DNS rebinding), a custom header on state-changing requests (CSRF),
-//! and a strict CSP (hostnames come from the network and are attacker-controlled).
+//! Request pipeline (outermost first):
+//! 1. `guard`: Host-header validation (DNS rebinding), the custom
+//!    `X-Denis` header on state-changing requests (CSRF), security headers.
+//! 2. `authn`: session cookie -> user, role check by method/path, forced
+//!    password change. Static UI files and `/api/auth/login` are public;
+//!    everything else needs a session.
+//! 3. the handler (reads in this file, state changes in `web_admin`).
+//!
+//! Defence in depth for a UI that shows attacker-influenced strings (hostnames
+//! arrive from the network): strict CSP, DOM built with `textContent`, cookies
+//! that are HttpOnly + SameSite=Strict.
 
+use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
@@ -12,13 +20,19 @@ use axum::extract::{Path, Query, Request, State};
 use axum::http::{header, HeaderValue, StatusCode, Uri};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::extract::DefaultBodyLimit;
+use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 
 use crate::engine::Shared;
-use crate::model::Asset;
+use crate::auth::{role_rank, Auth};
+use crate::model::{now_ts, Asset, AssetMeta, User};
+use crate::web_admin as admin;
+use crate::web_passkey as passkey;
+use crate::risk::{self, Risk};
+use crate::{report, trends};
 use crate::store::{EventQuery, Store};
 
 #[derive(RustEmbed)]
@@ -31,60 +45,231 @@ pub struct AppState {
     pub shared: Arc<Shared>,
     /// Bound to a loopback address: enforce Host-header checking.
     pub loopback_only: bool,
+    /// Extra `Host` names accepted on a loopback bind (the public name a reverse
+    /// proxy on this machine forwards). Anything else is refused: DNS rebinding.
+    pub allowed_hosts: Vec<String>,
+    pub auth: Arc<Auth>,
+    /// Skip login entirely. Development and tests only; the engine refuses it
+    /// on a non-loopback address.
+    pub no_auth: bool,
+    /// Mark the session cookie `Secure` (set when a TLS-terminating proxy is in front).
+    pub secure_cookie: bool,
 }
 
+/// Name of the session cookie.
+pub const SESSION_COOKIE: &str = "denis_session";
+
+/// Inserted into request extensions by `authn` for handlers that audit.
+#[derive(Clone)]
+pub struct AuthUser(pub User);
+
 pub async fn serve(listener: tokio::net::TcpListener, state: AppState) -> std::io::Result<()> {
-    axum::serve(listener, router(state)).await
+    // ConnectInfo gives handlers the peer address (used to rate-limit sign-in attempts).
+    axum::serve(listener, router(state).into_make_service_with_connect_info::<std::net::SocketAddr>()).await
+}
+
+/// Like `serve`, but over TLS.
+pub async fn serve_tls(listener: tokio::net::TcpListener, state: AppState, cfg: axum_server::tls_rustls::RustlsConfig) -> std::io::Result<()> {
+    crate::tls::serve(listener, router(state), cfg).await
 }
 
 pub fn router(state: AppState) -> Router {
     Router::new()
+        .route("/docs", get(|| async { axum::response::Redirect::to("/docs/index") }))
+        .route("/docs/", get(|| async { axum::response::Redirect::to("/docs/index") }))
+        .route("/docs/img/{file}", get(docs_image))
+        .route("/docs/{page}", get(docs_page))
+        .route("/api/health", get(|| async { Json(serde_json::json!({ "ok": true })) }))
+        // session
+        .route("/api/auth/login", post(admin::login))
+        .route("/api/auth/logout", post(admin::logout))
+        .route("/api/auth/methods", get(passkey::methods))
+        .route("/api/auth/passkey/login/begin", post(passkey::login_begin))
+        .route("/api/auth/passkey/login/finish", post(passkey::login_finish))
+        .route("/api/auth/passkey/register/begin", post(passkey::register_begin))
+        .route("/api/auth/passkey/register/finish", post(passkey::register_finish))
+        .route("/api/auth/passkeys", get(passkey::list))
+        .route("/api/auth/passkeys/{id}", delete(passkey::delete))
+        .route("/api/users/{id}/passkeys", delete(passkey::admin_revoke_all))
+        .route("/api/auth/me", get(admin::me))
+        .route("/api/auth/password", post(admin::change_password))
+        // read
         .route("/api/status", get(status))
-        .route("/api/assets", get(assets))
-        .route("/api/assets/{id}", get(asset))
+        .route("/api/meta/options", get(admin::options))
+        .route("/api/channels", get(admin::channels_list).post(admin::channels_create))
+        .route("/api/channels/{id}", axum::routing::put(admin::channels_update).delete(admin::channels_delete))
+        .route("/api/channels/{id}/test", post(admin::channels_test))
+        .route("/api/maintenance", get(admin::maintenance_get).put(admin::maintenance_put))
+        .route("/metrics", get(metrics))
+        .route("/api/compliance", get(compliance))
+        .route("/api/tls", get(admin::tls_get))
+        .route("/api/tls/certificate", post(admin::tls_upload).delete(admin::tls_reset))
+        .route("/tls/ca.pem", get(admin::tls_ca))
+        .route("/api/update", get(admin::update_get))
+        .route("/api/update/check", post(admin::update_check))
+        .route("/api/update/install", post(admin::update_install))
+        .route("/api/update/snooze", post(admin::update_snooze))
+        .route("/api/update/skip", post(admin::update_skip))
+        .route("/api/update/schedule", delete(admin::update_unschedule))
+        .route("/api/demo", get(admin::demo_get).post(admin::demo_load).delete(admin::demo_remove))
+        .route("/api/data/erase", post(admin::data_erase))
+        .route("/api/findings", get(findings))
+        .route("/api/rules", get(admin::rules_get).put(admin::rules_put).delete(admin::rules_reset))
+        .route("/api/assets", get(assets).post(admin::create_asset))
+        .route("/api/assets/import", post(admin::import_assets))
+        .route("/api/assets/review", post(admin::review_assets))
+        .route("/api/assets/{id}", get(asset).delete(admin::delete_asset))
+        .route("/api/assets/{id}/meta", patch(admin::patch_meta))
+        .route("/api/assets/{id}/history", get(admin::history))
         .route("/api/assets/{id}/baseline", get(baseline))
         .route("/api/events", get(events))
         .route("/api/alerts", get(alerts))
         .route("/api/alerts/{id}/ack", post(ack))
         .route("/api/alerts/{id}/unack", post(unack))
         .route("/api/agents", get(agents))
+        .route("/api/conversations", get(conversations))
+        .route("/api/trends", get(trend_points))
+        .route("/api/export/assets.csv", get(export_assets))
+        .route("/api/export/alerts.csv", get(export_alerts))
+        .route("/report", get(report_page))
         .route("/api/scan", post(scan))
+        // administration
+        .route("/api/users", get(admin::users_list).post(admin::users_create))
+        .route("/api/users/{id}", patch(admin::users_update))
+        .route("/api/users/{id}/reset-password", post(admin::users_reset))
+        .route("/api/api-tokens", get(admin::api_tokens_list).post(admin::api_tokens_create))
+        .route("/api/api-tokens/{id}", delete(admin::api_tokens_revoke))
+        .route("/api/agent-tokens", get(admin::tokens_list).post(admin::tokens_issue))
+        .route("/api/agent-tokens/{agent_id}", delete(admin::tokens_revoke))
+        .route("/api/audit", get(admin::audit_list))
+        .route("/api/branding", get(admin::branding_get).put(admin::branding_put))
+        .route("/api/branding/logo", axum::routing::put(admin::logo_put).delete(admin::logo_delete).layer(DefaultBodyLimit::max(crate::branding::MAX_LOGO_BYTES + 1024)))
+        .route("/branding/logo", get(admin::logo_get))
         .fallback(static_file)
+        .layer(middleware::from_fn_with_state(state.clone(), authn))
         .layer(middleware::from_fn_with_state(state.clone(), guard))
         .with_state(state)
 }
 
+/// Paths reachable without a session: the static UI shell (it contains no
+/// data), the login call and the liveness probe.
+fn is_public(method: &axum::http::Method, path: &str) -> bool {
+    !(path.starts_with("/api/") || path.starts_with("/report") || path.starts_with("/docs") || path == "/metrics")
+        || matches!(path, "/api/auth/login" | "/api/health" | "/api/auth/methods" | "/api/auth/passkey/login/begin" | "/api/auth/passkey/login/finish")
+        // branding is read before anybody can sign in; changing it is admin-only
+        || (path == "/api/branding" && method == axum::http::Method::GET)
+}
+
+/// Lowest role that may call `method path`. Reads need `viewer`; changing
+/// anything needs `editor`; managing users, tokens and the audit log, or
+/// deleting assets, needs `admin`.
+pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static str {
+    if path.starts_with("/api/users") || path.starts_with("/api/tls") || path.starts_with("/api/data") || path.starts_with("/api/channels") || path.starts_with("/api/agent-tokens") || path.starts_with("/api/api-tokens") || path.starts_with("/api/audit") {
+        return "admin";
+    }
+    if path.starts_with("/api/auth/") {
+        return "viewer"; // any signed-in user may log out / change own password
+    }
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update")) && method != axum::http::Method::GET {
+        return "admin";
+    }
+    if method == axum::http::Method::DELETE {
+        return "admin";
+    }
+    if method == axum::http::Method::GET || method == axum::http::Method::HEAD {
+        return "viewer";
+    }
+    "editor"
+}
+
+/// Session -> user, then role enforcement. See the module docs.
+async fn authn(State(st): State<AppState>, mut req: Request, next: Next) -> Response {
+    let path = req.uri().path().to_string();
+    // An Authorization header means "this is a script": only the bearer token is
+    // considered, never a cookie that might ride along. (A cross-site page cannot
+    // set this header, which is also why such requests need no CSRF header.)
+    let bearer = req.headers().get(header::AUTHORIZATION).and_then(|h| h.to_str().ok()).map(|h| h.strip_prefix("Bearer ").unwrap_or("").to_string());
+    let via_token = bearer.is_some();
+    let user = if st.no_auth {
+        Some(User { id: 0, username: "local".into(), role: "admin".into(), created_at: 0, disabled: false, must_change: false, last_login: None })
+    } else if let Some(t) = bearer {
+        st.auth.verify_api_token(&t, now_ts()).map(|t| User {
+            id: -1, username: format!("token:{}", t.label), role: t.role, created_at: t.created_at, disabled: false, must_change: false, last_login: t.last_used,
+        })
+    } else {
+        admin::session_token(req.headers()).and_then(|t| st.auth.session_user(&t, now_ts()))
+    };
+    if let Some(u) = &user {
+        req.extensions_mut().insert(AuthUser(u.clone()));
+    }
+    if is_public(req.method(), &path) {
+        return next.run(req).await;
+    }
+    let deny = |code: StatusCode, msg: &str, extra: &str| {
+        (code, Json(serde_json::json!({ "error": msg, "code": extra }))).into_response()
+    };
+    let Some(u) = user else {
+        return deny(StatusCode::UNAUTHORIZED, "authentication required", "unauthenticated");
+    };
+    // Tokens have no password or session to manage.
+    if via_token && !st.no_auth && path.starts_with("/api/auth/") && path != "/api/auth/me" {
+        return deny(StatusCode::FORBIDDEN, "not available to API tokens", "forbidden");
+    }
+    // A password set by someone else must be changed before anything else works.
+    if u.must_change && !path.starts_with("/api/auth/") {
+        return deny(StatusCode::FORBIDDEN, "password change required", "must_change");
+    }
+    if role_rank(&u.role) < role_rank(required_role(req.method(), &path)) {
+        return deny(StatusCode::FORBIDDEN, "your role does not allow this", "forbidden");
+    }
+    next.run(req).await
+}
+
 /// Host check (loopback binds only), CSRF header on POST, and response hardening.
 async fn guard(State(st): State<AppState>, req: Request, next: Next) -> Response {
+    let path = req.uri().path().to_string();
     if st.loopback_only {
+        // HTTP/1 sends a Host header; HTTP/2 (TLS with ALPN) puts the name in the
+        // URI's :authority instead.
         let host = req
             .headers()
             .get(header::HOST)
             .and_then(|h| h.to_str().ok())
+            .or_else(|| req.uri().authority().map(|a| a.as_str()))
             .unwrap_or("");
         let name = host
             .rsplit_once(':')
             .filter(|(_, port)| port.chars().all(|c| c.is_ascii_digit()))
             .map_or(host, |(n, _)| n);
-        if !matches!(name, "localhost" | "127.0.0.1" | "[::1]") {
+        if !(matches!(name, "localhost" | "127.0.0.1" | "[::1]") || st.allowed_hosts.iter().any(|h| h.eq_ignore_ascii_case(name))) {
             return (StatusCode::FORBIDDEN, "unexpected Host header").into_response();
         }
     }
-    if req.method() != axum::http::Method::GET && !req.headers().contains_key("x-netscope") {
-        return (StatusCode::FORBIDDEN, "missing X-Netscope header").into_response();
+    let scripted = req.headers().get(header::AUTHORIZATION).and_then(|h| h.to_str().ok()).is_some_and(|h| h.starts_with("Bearer dnt_"));
+    if req.method() != axum::http::Method::GET && !scripted && !req.headers().contains_key("x-denis") {
+        return (StatusCode::FORBIDDEN, "missing X-Denis header").into_response();
     }
     let mut resp = next.run(req).await;
     let h = resp.headers_mut();
-    h.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static("default-src 'self'; frame-ancestors 'none'; base-uri 'none'"),
-    );
+    if !h.contains_key(header::CONTENT_SECURITY_POLICY) {
+        h.insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("default-src 'self'; frame-ancestors 'none'; base-uri 'none'"),
+        );
+    }
     h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
-    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    h.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    h.insert("cross-origin-opener-policy", HeaderValue::from_static("same-origin"));
+    h.insert("cross-origin-resource-policy", HeaderValue::from_static("same-origin"));
+    h.insert("permissions-policy", HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=()"));
+    // API answers hold inventory data: never let a browser or proxy keep them.
+    let cache = if path.starts_with("/api/") || path.starts_with("/report") { "no-store" } else { "no-cache" };
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
     resp
 }
 
-struct ApiError(anyhow::Error);
+pub(crate) struct ApiError(anyhow::Error);
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
@@ -104,7 +289,7 @@ impl<E: Into<anyhow::Error>> From<E> for ApiError {
 }
 
 /// Run a blocking store call off the async executor.
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     store: &Arc<dyn Store>,
     f: impl FnOnce(&dyn Store) -> anyhow::Result<T> + Send + 'static,
 ) -> Result<T, ApiError> {
@@ -112,19 +297,63 @@ async fn blocking<T: Send + 'static>(
     Ok(tokio::task::spawn_blocking(move || f(&*store)).await??)
 }
 
+/// What the discovery engine concluded, before any manual override.
 #[derive(Serialize)]
-struct AssetView {
+struct Detected {
+    device_type: String,
+    os_guess: Option<String>,
+    vendor: Option<String>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct AssetView {
+    /// The asset with manual overrides applied to `device_type`, `os_guess`
+    /// and `vendor`; the raw values are in `detected`.
     #[serde(flatten)]
     asset: Asset,
     /// Convenience: the most recently seen IP.
     ip: Option<Ipv4Addr>,
+    risk: Risk,
+    /// Everything entered by hand (owner, serial number, icon, ...).
+    meta: AssetMeta,
+    /// The name to show: manual name, else discovered hostname.
+    display_name: Option<String>,
+    detected: Detected,
+    /// `{state: expired|expiring|ok, days}` when a warranty date is set.
+    warranty: Option<serde_json::Value>,
 }
 
-impl From<Asset> for AssetView {
-    fn from(asset: Asset) -> Self {
-        let ip = asset.current_ip();
-        AssetView { asset, ip }
+/// Unacknowledged alerts grouped by device, for risk scoring.
+fn open_alerts(store: &dyn Store) -> anyhow::Result<std::collections::HashMap<i64, Vec<crate::model::Event>>> {
+    let q = EventQuery { limit: 5000, alerts_only: true, unacked_only: true, ..Default::default() };
+    let mut m: std::collections::HashMap<i64, Vec<crate::model::Event>> = Default::default();
+    for e in store.list_events(&q)? {
+        m.entry(e.asset_id).or_default().push(e);
     }
+    Ok(m)
+}
+
+fn view(
+    mut asset: Asset,
+    alerts: &std::collections::HashMap<i64, Vec<crate::model::Event>>,
+    meta: AssetMeta,
+    now: i64,
+) -> AssetView {
+    let detected = Detected { device_type: asset.device_type.clone(), os_guess: asset.os_guess.clone(), vendor: asset.vendor.clone() };
+    // Manual values win over guesses everywhere: display, risk, exports.
+    crate::tracking::apply_overrides(&mut asset, &meta);
+    let refs: Vec<&crate::model::Event> = alerts.get(&asset.id).map(|v| v.iter().collect()).unwrap_or_default();
+    let risk = risk::assess_with(&asset, &refs, now, meta.criticality.as_deref());
+    let ip = asset.current_ip();
+    let warranty = crate::tracking::warranty_state(&meta, now).map(|(s, d)| serde_json::json!({ "state": s, "days": d }));
+    AssetView { display_name: meta.display_name.clone(), asset, ip, risk, meta, detected, warranty }
+}
+
+/// One asset's full view (used after edits).
+pub(crate) async fn asset_view(st: &AppState, id: i64) -> Result<Option<AssetView>, ApiError> {
+    let now = now_ts();
+    let (a, alerts, meta) = blocking(&st.store, move |s| Ok((s.get_asset(id)?, open_alerts(s)?, s.get_meta(id)?))).await?;
+    Ok(a.map(|a| view(a, &alerts, meta.unwrap_or_default(), now)))
 }
 
 async fn status(State(st): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
@@ -136,19 +365,140 @@ async fn status(State(st): State<AppState>) -> Result<Json<serde_json::Value>, A
     let mut v = serde_json::to_value(st.shared.snapshot())?;
     v["asset_count"] = count.into();
     v["alerts_unacked"] = unacked.into();
+    v["auth_required"] = (!st.no_auth).into();
     v["now"] = crate::model::now_ts().into();
     Ok(Json(v))
 }
 
+/// Prometheus exposition: counts and health, never names or alert text.
+async fn metrics(State(st): State<AppState>) -> Result<Response, ApiError> {
+    use crate::metrics::Exposition;
+    let now = now_ts();
+    let (mut assets, metas, alerts, agents) = blocking(&st.store, |s| {
+        let q = EventQuery { limit: 5000, alerts_only: true, unacked_only: true, ..Default::default() };
+        Ok((s.load_assets()?, s.load_all_meta()?, s.list_events(&q)?, s.list_agents()?))
+    })
+    .await?;
+    for a in &mut assets {
+        if let Some(m) = metas.get(&a.id) {
+            crate::tracking::apply_overrides(a, m);
+        }
+    }
+    let info = st.shared.snapshot();
+    let online_window = (info.sweep_interval_secs as i64) * 2 + 60;
+    let mut e = Exposition::new();
+    e.gauge("denis_up", "1 while the console is running.", 1.0);
+    e.family("denis_build_info", "gauge", "Version of the running program.");
+    e.sample("denis_build_info", &[("version", info.version), ("mode", info.mode)], 1.0);
+    e.gauge("denis_uptime_seconds", "Seconds since start.", (now - info.started_at).max(0) as f64);
+    e.family("denis_frames_matched_total", "counter", "Network frames the collector has matched.");
+    e.sample("denis_frames_matched_total", &[], info.frames_matched as f64);
+    e.gauge("denis_devices", "Devices in the inventory.", assets.len() as f64);
+    e.gauge("denis_devices_online", "Devices seen recently.", assets.iter().filter(|a| now - a.last_seen <= online_window).count() as f64);
+    e.family("denis_devices_by_type", "gauge", "Devices per device type.");
+    let mut by_type: std::collections::BTreeMap<&str, u64> = Default::default();
+    for a in &assets {
+        *by_type.entry(a.device_type.as_str()).or_default() += 1;
+    }
+    for (t, n) in by_type {
+        e.sample("denis_devices_by_type", &[("type", t)], n as f64);
+    }
+    e.family("denis_alerts_unacknowledged", "gauge", "Alerts nobody has acknowledged yet, by severity.");
+    for sev in ["high", "medium", "low"] {
+        e.sample("denis_alerts_unacknowledged", &[("severity", sev)], alerts.iter().filter(|a| a.severity == sev).count() as f64);
+    }
+    let findings = crate::findings::compute(&assets, &metas, now);
+    e.family("denis_findings", "gauge", "Standing problems to fix, by severity.");
+    for sev in ["high", "medium", "low", "info"] {
+        e.sample("denis_findings", &[("severity", sev)], findings.iter().filter(|f| f.severity == sev).count() as f64);
+    }
+    e.gauge("denis_learning_seconds_remaining", "Seconds until the learning period ends (0 = detecting).", info.learning_ends_at.map_or(0, |t| (t - now).max(0)) as f64);
+    e.gauge("denis_sites", "Remote sites (agents) that ever reported.", agents.len() as f64);
+    e.family("denis_site_last_report_age_seconds", "gauge", "Seconds since each remote site last reported.");
+    for a in &agents {
+        e.sample("denis_site_last_report_age_seconds", &[("site", &a.id)], (now - a.last_report_at).max(0) as f64);
+    }
+    e.family("denis_export_failing", "gauge", "1 if an export (OpenObserve, syslog) is failing.");
+    for x in &info.exports {
+        e.sample("denis_export_failing", &[("target", x.target.split("://").next().unwrap_or("export"))], x.last_error.is_some() as u8 as f64);
+    }
+    let channels = blocking(&st.store, |s| crate::channels::load(s)).await?;
+    let cstat = st.shared.channel_status.lock().unwrap().clone();
+    e.family("denis_channel_failing", "gauge", "1 if a notification channel could not deliver its last message.");
+    for c in &channels {
+        e.sample("denis_channel_failing", &[("channel", &c.name), ("kind", &c.kind)], cstat.get(&c.id).is_some_and(|s| s.last_error.is_some()) as u8 as f64);
+    }
+    let maint = blocking(&st.store, |s| crate::channels::load_maintenance(s)).await?;
+    e.gauge("denis_maintenance_mode", "1 while outgoing notifications are silenced.", maint.active(now) as u8 as f64);
+    Ok((
+        [(header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8".to_string())],
+        e.finish(),
+    )
+        .into_response())
+}
+
+/// Coverage of the register and a mapping onto CIS / NIST CSF / IEC 62443 controls.
+async fn compliance(State(st): State<AppState>) -> Result<Json<crate::compliance::Report>, ApiError> {
+    let now = now_ts();
+    let info = st.shared.snapshot();
+    let base = st.shared.detect_base().unwrap_or_default();
+    let (mut assets, metas, channels, users, overrides, per_user) = blocking(&st.store, |s| {
+        let users = s.list_users()?;
+        let mut with_passkey = std::collections::HashSet::new();
+        for u in &users {
+            if !s.list_passkeys(u.id)?.is_empty() {
+                with_passkey.insert(u.id);
+            }
+        }
+        Ok((s.load_assets()?, s.load_all_meta()?, crate::channels::load(s)?, users, crate::rules::load(s)?, with_passkey))
+    })
+    .await?;
+    for a in &mut assets {
+        if let Some(m) = metas.get(&a.id) {
+            crate::tracking::apply_overrides(a, m);
+        }
+    }
+    let eff = overrides.apply(&base);
+    let rules_enabled = crate::detect::RULES.iter().filter(|r| eff.weights.get(**r).copied().unwrap_or(1.0) > 0.0).count();
+    let admins: Vec<&User> = users.iter().filter(|u| u.role == "admin" && !u.disabled).collect();
+    let inputs = crate::compliance::Inputs {
+        assets: &assets, metas: &metas, now,
+        passive_discovery: true,
+        active_discovery: !info.passive_only,
+        traffic_analysis: info.flows_enabled,
+        learning_finished: info.learning_ends_at.is_none_or(|t| t <= now),
+        rules_enabled, rules_total: crate::detect::RULES.len(),
+        channels_enabled: channels.iter().filter(|c| c.enabled).count(),
+        exports_configured: info.exports.len(),
+        users: users.len(), users_with_passkey: users.iter().filter(|u| per_user.contains(&u.id)).count(),
+        admins: admins.len(), admins_with_passkey: admins.iter().filter(|u| per_user.contains(&u.id)).count(),
+    };
+    Ok(Json(crate::compliance::assess(&inputs)))
+}
+
 async fn assets(State(st): State<AppState>) -> Result<Json<Vec<AssetView>>, ApiError> {
-    let mut list = blocking(&st.store, |s| s.load_assets()).await?;
+    let now = now_ts();
+    let (mut list, alerts, mut metas) = blocking(&st.store, |s| Ok((s.load_assets()?, open_alerts(s)?, s.load_all_meta()?))).await?;
     list.sort_by(|a, b| b.last_seen.cmp(&a.last_seen).then(a.id.cmp(&b.id)));
-    Ok(Json(list.into_iter().map(AssetView::from).collect()))
+    Ok(Json(list.into_iter().map(|a| { let m = metas.remove(&a.id).unwrap_or_default(); view(a, &alerts, m, now) }).collect()))
+}
+
+/// Standing weaknesses and housekeeping problems, with what to do about each.
+async fn findings(State(st): State<AppState>) -> Result<Json<Vec<crate::findings::Finding>>, ApiError> {
+    let now = now_ts();
+    let (mut list, metas) = blocking(&st.store, |s| Ok((s.load_assets()?, s.load_all_meta()?))).await?;
+    // the same corrections the asset list applies, so both views agree
+    for a in &mut list {
+        if let Some(m) = metas.get(&a.id) {
+            crate::tracking::apply_overrides(a, m);
+        }
+    }
+    Ok(Json(crate::findings::compute(&list, &metas, now)))
 }
 
 async fn asset(State(st): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    Ok(match blocking(&st.store, move |s| s.get_asset(id)).await? {
-        Some(a) => Json(AssetView::from(a)).into_response(),
+    Ok(match asset_view(&st, id).await? {
+        Some(v) => Json(v).into_response(),
         None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "not found"}))).into_response(),
     })
 }
@@ -208,6 +558,37 @@ async fn unack(State(st): State<AppState>, Path(id): Path<i64>) -> Result<Respon
     set_ack(st, id, false).await
 }
 
+/// The industrial communications matrix, joined with device names so the UI
+/// can show "HMI-3 → PLC-line2 (s7): 1,204 reads, 3 writes, 1 control".
+async fn conversations(State(st): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+    let (convs, assets, metas) = blocking(&st.store, |s| Ok((s.list_conversations()?, s.load_assets()?, s.load_all_meta()?))).await?;
+    let by_id: std::collections::HashMap<i64, &Asset> = assets.iter().map(|a| (a.id, a)).collect();
+    let party = |id: i64| {
+        by_id.get(&id).map(|a| {
+            let m = metas.get(&id);
+            serde_json::json!({
+                "id": id, "mac": a.mac, "ip": a.current_ip(),
+                "name": m.and_then(|m| m.display_name.clone()).or_else(|| a.hostnames.first().cloned()),
+                "device_type": m.and_then(|m| m.type_override.clone()).unwrap_or_else(|| a.device_type.clone()),
+                "purdue_level": m.and_then(|m| m.purdue_level.clone()),
+                "zone": m.and_then(|m| m.zone.clone()),
+            })
+        })
+    };
+    let rows: Vec<_> = convs
+        .into_iter()
+        .filter_map(|c| {
+            let (cl, sv) = (party(c.client_id)?, party(c.server_id)?);
+            Some(serde_json::json!({
+                "client": cl, "server": sv, "protocol": c.proto, "port": c.port,
+                "first_seen": c.first_seen, "last_seen": c.last_seen, "packets": c.packets, "bytes": c.bytes,
+                "reads": c.reads, "writes": c.writes, "controls": c.controls, "note": c.note,
+            }))
+        })
+        .collect();
+    Ok(Json(serde_json::json!(rows)))
+}
+
 async fn agents(State(st): State<AppState>) -> Result<Json<Vec<crate::model::AgentInfo>>, ApiError> {
     Ok(Json(blocking(&st.store, |s| s.list_agents()).await?))
 }
@@ -236,7 +617,94 @@ async fn baseline(State(st): State<AppState>, Path(id): Path<i64>) -> Result<Res
             }))
             .into_response()
         }
-        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "no baseline yet"}))).into_response(),
+        // `null`, not 404: most devices have no traffic baseline (no flow
+        // accounting), and the browser logs every 404 as a console error.
+        None => Json(serde_json::Value::Null).into_response(),
+    })
+}
+
+#[derive(Deserialize)]
+struct TrendQuery {
+    hours: Option<i64>,
+    /// `local`, an agent id, or absent for everything combined.
+    agent: Option<String>,
+}
+
+async fn trend_points(State(st): State<AppState>, Query(q): Query<TrendQuery>) -> Result<Json<serde_json::Value>, ApiError> {
+    let hours = q.hours.unwrap_or(24).clamp(1, 24 * 365);
+    let now = crate::model::now_ts();
+    let agent = q.agent.map(|a| if a == "local" { String::new() } else { a });
+    let samples = blocking(&st.store, move |s| s.list_metrics(now - hours * 3600, now + 1, agent.as_deref())).await?;
+    let (points, step) = trends::downsample(&samples, 240);
+    Ok(Json(serde_json::json!({ "hours": hours, "step_secs": step, "points": points })))
+}
+
+#[derive(Deserialize)]
+struct DaysQuery {
+    days: Option<i64>,
+}
+
+async fn gather(st: &AppState, days: Option<i64>) -> Result<report::ReportData, ApiError> {
+    let (days, now) = (days.unwrap_or(7), crate::model::now_ts());
+    blocking(&st.store, move |s| report::gather(s, days, now)).await
+}
+
+fn csv_response(name: &str, body: String) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8".to_string()),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\"")),
+        ],
+        body,
+    )
+        .into_response()
+}
+
+async fn export_assets(State(st): State<AppState>, Query(q): Query<DaysQuery>) -> Result<Response, ApiError> {
+    Ok(csv_response("denis-devices.csv", report::assets_csv(&gather(&st, q.days).await?)))
+}
+
+async fn export_alerts(State(st): State<AppState>, Query(q): Query<DaysQuery>) -> Result<Response, ApiError> {
+    Ok(csv_response("denis-alerts.csv", report::alerts_csv(&gather(&st, q.days).await?)))
+}
+
+/// Self-contained, printable report. Inline styles only, so it gets its own CSP.
+async fn report_page(State(st): State<AppState>, Query(q): Query<DaysQuery>) -> Result<Response, ApiError> {
+    let html = report::html(&gather(&st, q.days).await?);
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'; base-uri 'none'".to_string(),
+            ),
+        ],
+        html,
+    )
+        .into_response())
+}
+
+/// A documentation screenshot.
+async fn docs_image(Path(file): Path<String>) -> Response {
+    match crate::docs::image(&file) {
+        Some(bytes) => ([(header::CONTENT_TYPE, "image/png".to_string()), (header::CACHE_CONTROL, "private, max-age=3600".to_string())], bytes).into_response(),
+        None => (StatusCode::NOT_FOUND, "no such image").into_response(),
+    }
+}
+
+/// One page of the built-in documentation (sign-in required, like the console).
+async fn docs_page(State(st): State<AppState>, Path(page): Path<String>, Query(q): Query<HashMap<String, String>>) -> Result<Response, ApiError> {
+    let brand = blocking(&st.store, |s| crate::branding::load(s)).await?;
+    Ok(match crate::docs::page(&page, &brand, q.get("lang").map(String::as_str)) {
+        Some(html) => (
+            [
+                (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
+                (header::CONTENT_SECURITY_POLICY, "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'".to_string()),
+            ],
+            html,
+        )
+            .into_response(),
+        None => (StatusCode::NOT_FOUND, "no such page").into_response(),
     })
 }
 
@@ -269,11 +737,17 @@ mod tests {
     use axum::body::Body;
     use tower::ServiceExt;
 
+    /// App with login disabled: the pre-existing API tests exercise handlers, not auth.
     fn app(loopback_only: bool) -> (Router, Arc<dyn Store>) {
+        app_with(loopback_only, true)
+    }
+
+    fn app_with(loopback_only: bool, no_auth: bool) -> (Router, Arc<dyn Store>) {
         let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
         let shared = crate::engine::test_shared();
+        let auth = Arc::new(crate::auth::Auth::new(store.clone()));
         (
-            router(AppState { store: store.clone(), shared, loopback_only }),
+            router(AppState { store: store.clone(), shared, loopback_only, allowed_hosts: vec![], auth, no_auth, secure_cookie: false }),
             store,
         )
     }
@@ -323,7 +797,7 @@ mod tests {
         assert_eq!(app.clone().oneshot(bare).await.unwrap().status(), StatusCode::FORBIDDEN);
         let ok = axum::http::Request::post("/api/scan")
             .header("host", "localhost")
-            .header("x-netscope", "1")
+            .header("x-denis", "1")
             .body(Body::empty())
             .unwrap();
         assert_eq!(app.clone().oneshot(ok).await.unwrap().status(), StatusCode::ACCEPTED);
@@ -352,7 +826,7 @@ mod tests {
         assert_eq!(get_json(&app, "/api/events", "localhost").await.1.as_array().unwrap().len(), 2);
         let id = v[0]["id"].as_i64().unwrap();
 
-        let post = |path: String| axum::http::Request::post(path).header("host", "localhost").header("x-netscope", "1").body(Body::empty()).unwrap();
+        let post = |path: String| axum::http::Request::post(path).header("host", "localhost").header("x-denis", "1").body(Body::empty()).unwrap();
         assert_eq!(app.clone().oneshot(post(format!("/api/alerts/{id}/ack"))).await.unwrap().status(), StatusCode::NO_CONTENT);
         assert!(get_json(&app, "/api/alerts?unacked=1", "localhost").await.1.as_array().unwrap().is_empty());
         assert_eq!(get_json(&app, "/api/alerts", "localhost").await.1[0]["acked"], true);
@@ -364,8 +838,9 @@ mod tests {
         let bare = axum::http::Request::post(format!("/api/alerts/{id}/ack")).header("host", "localhost").body(Body::empty()).unwrap();
         assert_eq!(app.clone().oneshot(bare).await.unwrap().status(), StatusCode::FORBIDDEN);
 
-        // baseline: 404 until one exists, then destinations come back recent-first
-        assert_eq!(get_json(&app, &format!("/api/assets/{}/baseline", a.id), "localhost").await.0, StatusCode::NOT_FOUND);
+        // baseline: null until one exists, then destinations come back recent-first
+        let (code, v) = get_json(&app, &format!("/api/assets/{}/baseline", a.id), "localhost").await;
+        assert_eq!((code, v.is_null()), (StatusCode::OK, true));
         let mut b = Baseline::new(a.id, 1);
         b.typical_destinations.insert("1.1.1.1".into(), DestStat { first_seen: 1, last_seen: 5, bytes: 9 });
         b.typical_destinations.insert("2.2.2.2".into(), DestStat { first_seen: 1, last_seen: 50, bytes: 9 });
@@ -377,5 +852,1040 @@ mod tests {
         assert!(get_json(&app, "/api/agents", "localhost").await.1.as_array().unwrap().is_empty());
         store.upsert_agent(&AgentInfo { id: "site-b".into(), name: "Office".into(), site: None, version: "t".into(), subnet: "10.0.0.0/24".into(), first_seen: 1, last_report_at: 2, last_run_id: "r".into(), last_seq: 1 }).unwrap();
         assert_eq!(get_json(&app, "/api/agents", "localhost").await.1[0]["id"], "site-b");
+    }
+
+    #[tokio::test]
+    async fn assets_carry_a_risk_score_and_open_alerts_raise_it() {
+        use crate::model::{Event, OpenPort};
+        let (app, store) = app(true);
+        let mut a = Asset::new(Mac([0x00, 0x1b, 0x63, 1, 2, 3]), 10);
+        a.vendor = Some("Acme".into());
+        a.device_type = "iot".into();
+        a.open_ports = vec![OpenPort { port: 23, proto: "tcp".into(), service: None }];
+        store.save_asset(&mut a).unwrap();
+        let (_, v) = get_json(&app, "/api/assets", "localhost").await;
+        assert_eq!(v[0]["risk"]["score"], 40);
+        assert_eq!(v[0]["risk"]["level"], "medium");
+        assert!(v[0]["risk"]["factors"][0].as_str().unwrap().contains("Telnet"));
+        let mut e = Event {
+            id: 0, agent_id: None, asset_id: a.id, kind: "arp_conflict".into(), timestamp: crate::model::now_ts(),
+            severity: "high".into(), score: 95, acked: false, raw_details: serde_json::json!({}),
+        };
+        store.insert_event(&mut e).unwrap();
+        let (_, v) = get_json(&app, &format!("/api/assets/{}", a.id), "localhost").await;
+        assert_eq!(v["risk"]["level"], "high");
+        // acknowledging removes the alert's contribution
+        store.set_event_acked(e.id, true).unwrap();
+        assert_eq!(get_json(&app, &format!("/api/assets/{}", a.id), "localhost").await.1["risk"]["score"], 40);
+    }
+
+    #[tokio::test]
+    async fn trends_exports_and_report_are_served_safely() {
+        use crate::model::Metric;
+        let (app, store) = app(true);
+        let mut a = Asset::new(Mac([0x00, 0x1b, 0x63, 1, 2, 3]), 10);
+        a.hostnames = vec!["=HYPERLINK(\"http://evil\")".into()];
+        store.save_asset(&mut a).unwrap();
+        let now = crate::model::now_ts();
+        store.insert_metrics(&[
+            Metric { ts: now - 600, agent_id: "".into(), devices_total: 3, devices_online: 2, bytes_out: 10, bytes_in: 1, alerts: 0 },
+            Metric { ts: now - 300, agent_id: "b".into(), devices_total: 1, devices_online: 1, bytes_out: 5, bytes_in: 1, alerts: 1 },
+        ]).unwrap();
+
+        let (code, v) = get_json(&app, "/api/trends?hours=1", "localhost").await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(v["points"].as_array().unwrap().len(), 2);
+        assert_eq!(get_json(&app, "/api/trends?hours=1&agent=b", "localhost").await.1["points"].as_array().unwrap().len(), 1);
+        assert_eq!(get_json(&app, "/api/trends?hours=1&agent=local", "localhost").await.1["points"][0]["devices_total"], 3);
+
+        let req = |p: &str| axum::http::Request::get(p).header("host", "localhost").body(Body::empty()).unwrap();
+        let resp = app.clone().oneshot(req("/api/export/assets.csv")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/csv"));
+        assert!(resp.headers()[header::CONTENT_DISPOSITION].to_str().unwrap().contains("denis-devices.csv"));
+        let body = String::from_utf8(axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap().to_vec()).unwrap();
+        assert!(body.contains("\"'=HYPERLINK("), "formula neutralised: {body}");
+
+        let resp = app.clone().oneshot(req("/report?days=3")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let csp = resp.headers()[header::CONTENT_SECURITY_POLICY].to_str().unwrap().to_string();
+        assert!(csp.contains("default-src 'none'") && csp.contains("style-src 'unsafe-inline'") && !csp.contains("script-src"));
+        let html = String::from_utf8(axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap().to_vec()).unwrap();
+        assert!(html.contains("Network report") && html.contains("Last 3 day(s)"));
+        assert!(!html.contains("<script"));
+        // the normal UI keeps the strict default policy
+        let idx = app.oneshot(req("/")).await.unwrap();
+        assert!(idx.headers()[header::CONTENT_SECURITY_POLICY].to_str().unwrap().contains("default-src 'self'"));
+    }
+
+    // ------------------------------------------------------------ auth / RBAC
+
+    /// A request as a browser would send it: Host, session cookie, CSRF header.
+    fn req(method: &str, uri: &str, cookie: Option<&str>, body: Option<serde_json::Value>) -> axum::http::Request<Body> {
+        let mut b = axum::http::Request::builder().method(method).uri(uri).header("host", "localhost");
+        if let Some(c) = cookie {
+            b = b.header("cookie", format!("{SESSION_COOKIE}={c}"));
+        }
+        if method != "GET" {
+            b = b.header("x-denis", "1");
+        }
+        match body {
+            Some(v) => b.header("content-type", "application/json").body(Body::from(v.to_string())).unwrap(),
+            None => b.body(Body::empty()).unwrap(),
+        }
+    }
+
+    async fn send(app: &Router, r: axum::http::Request<Body>) -> (StatusCode, axum::http::HeaderMap, serde_json::Value) {
+        let resp = app.clone().oneshot(r).await.unwrap();
+        let (st, h) = (resp.status(), resp.headers().clone());
+        let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        (st, h, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
+    }
+
+    fn cookie_of(h: &axum::http::HeaderMap) -> String {
+        h[header::SET_COOKIE].to_str().unwrap().split(';').next().unwrap().split_once('=').unwrap().1.to_string()
+    }
+
+    /// An app with real login and one user per role; returns each user's session cookie.
+    async fn secured() -> (Router, Arc<dyn Store>, [String; 3]) {
+        let (app, store) = app_with(true, false);
+        let auth = crate::auth::Auth::new(store.clone());
+        let mut cookies = Vec::new();
+        for (name, role) in [("vera", "viewer"), ("eda", "editor"), ("adam", "admin")] {
+            store.create_user(name, &crate::auth::hash_password("a-long-passphrase-1").unwrap(), role, false, 0).unwrap();
+            let (st, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": name, "password": "a-long-passphrase-1"})))).await;
+            assert_eq!(st, StatusCode::OK, "{name}");
+            cookies.push(cookie_of(&h));
+        }
+        let _ = auth;
+        (app, store, [cookies.remove(0), cookies.remove(0), cookies.remove(0)])
+    }
+
+    #[test]
+    fn required_role_table() {
+        use axum::http::Method as M;
+        for (m, p, want) in [
+            (M::GET, "/api/assets", "viewer"), (M::GET, "/report", "viewer"), (M::GET, "/api/export/assets.csv", "viewer"),
+            (M::POST, "/api/alerts/1/ack", "editor"), (M::PATCH, "/api/assets/1/meta", "editor"), (M::POST, "/api/assets", "editor"),
+            (M::POST, "/api/assets/import", "editor"), (M::POST, "/api/scan", "editor"), (M::DELETE, "/api/assets/1", "admin"),
+            (M::GET, "/api/users", "admin"), (M::POST, "/api/users", "admin"), (M::GET, "/api/audit", "admin"),
+            (M::GET, "/api/agent-tokens", "admin"), (M::GET, "/api/api-tokens", "admin"), (M::DELETE, "/api/api-tokens/1", "admin"), (M::DELETE, "/api/agent-tokens/x", "admin"),
+            (M::PUT, "/api/branding", "admin"), (M::PUT, "/api/branding/logo", "admin"), (M::DELETE, "/api/branding/logo", "admin"),
+            (M::GET, "/api/branding", "viewer"), (M::GET, "/api/rules", "viewer"), (M::PUT, "/api/rules", "admin"), (M::DELETE, "/api/rules", "admin"),
+            (M::POST, "/api/auth/password", "viewer"), (M::POST, "/api/auth/logout", "viewer"),
+        ] {
+            assert_eq!(required_role(&m, p), want, "{m} {p}");
+        }
+    }
+
+    #[tokio::test]
+    async fn everything_but_the_shell_and_login_needs_a_session() {
+        let (app, _store, _) = secured().await;
+        for uri in ["/api/assets", "/api/status", "/api/alerts", "/api/users", "/api/audit", "/api/export/assets.csv", "/report", "/docs/index", "/docs/", "/api/meta/options", "/api/findings", "/api/compliance", "/api/update", "/api/rules", "/api/channels", "/api/maintenance", "/api/trends?hours=1", "/api/auth/me"] {
+            let (st, _, v) = send(&app, req("GET", uri, None, None)).await;
+            assert_eq!(st, StatusCode::UNAUTHORIZED, "{uri}");
+            assert_eq!(v["code"], "unauthenticated");
+        }
+        for (m, uri) in [("POST", "/api/scan"), ("POST", "/api/alerts/1/ack"), ("PATCH", "/api/assets/1/meta"), ("POST", "/api/assets")] {
+            assert_eq!(send(&app, req(m, uri, None, Some(serde_json::json!({})))).await.0, StatusCode::UNAUTHORIZED, "{m} {uri}");
+        }
+        // public: the UI shell (it carries no data), liveness, and the login call itself
+        for uri in ["/", "/app.js", "/style.css", "/api/health"] {
+            assert_eq!(send(&app, req("GET", uri, None, None)).await.0, StatusCode::OK, "{uri}");
+        }
+        // garbage or forged cookies are just "not logged in"
+        for c in ["", "x", &"0".repeat(64), &"g".repeat(64)] {
+            assert_eq!(send(&app, req("GET", "/api/assets", Some(c), None)).await.0, StatusCode::UNAUTHORIZED, "{c:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn login_sets_a_hardened_cookie_and_gives_no_hints() {
+        let (app, store) = app_with(true, false);
+        store.create_user("vera", &crate::auth::hash_password("a-long-passphrase-1").unwrap(), "viewer", false, 0).unwrap();
+        let login = |u: &str, p: &str| req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": u, "password": p})));
+        let (st, h, v) = send(&app, login("vera", "a-long-passphrase-1")).await;
+        assert_eq!(st, StatusCode::OK);
+        let c = h[header::SET_COOKIE].to_str().unwrap().to_string();
+        assert!(c.starts_with("denis_session=") && c.contains("HttpOnly") && c.contains("SameSite=Strict") && c.contains("Path=/"), "{c}");
+        assert!(!c.contains("Secure"), "Secure only behind TLS");
+        assert_eq!(v["user"]["username"], "vera");
+        assert!(v["user"].get("password_hash").is_none(), "hashes never leave the server: {v}");
+        // wrong password and unknown user are indistinguishable
+        let (s1, _, e1) = send(&app, login("vera", "nope")).await;
+        let (s2, _, e2) = send(&app, login("nobody", "nope")).await;
+        assert_eq!((s1, s2), (StatusCode::UNAUTHORIZED, StatusCode::UNAUTHORIZED));
+        assert_eq!(e1, e2);
+        // login is a state change: the CSRF header is required
+        let no_csrf = axum::http::Request::post("/api/auth/login").header("host", "localhost").header("content-type", "application/json")
+            .body(Body::from(r#"{"username":"vera","password":"a-long-passphrase-1"}"#)).unwrap();
+        assert_eq!(send(&app, no_csrf).await.0, StatusCode::FORBIDDEN);
+        // absurdly long input is refused cheaply
+        assert_eq!(send(&app, login(&"u".repeat(500), "x")).await.0, StatusCode::UNAUTHORIZED);
+        // lockout after repeated failures, with Retry-After
+        for _ in 0..6 {
+            let _ = send(&app, login("vera", "bad")).await;
+        }
+        let (st, h, _) = send(&app, login("vera", "a-long-passphrase-1")).await;
+        assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
+        assert!(h.contains_key(header::RETRY_AFTER));
+    }
+
+    #[tokio::test]
+    async fn secure_flag_is_added_behind_tls_and_logout_revokes_the_session() {
+        let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
+        store.create_user("vera", &crate::auth::hash_password("a-long-passphrase-1").unwrap(), "viewer", false, 0).unwrap();
+        let app = router(AppState { store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: vec![],
+            auth: Arc::new(crate::auth::Auth::new(store.clone())), no_auth: false, secure_cookie: true });
+        let (_, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "vera", "password": "a-long-passphrase-1"})))).await;
+        assert!(h[header::SET_COOKIE].to_str().unwrap().contains("Secure"));
+        let c = cookie_of(&h);
+        assert_eq!(send(&app, req("GET", "/api/auth/me", Some(&c), None)).await.0, StatusCode::OK);
+        let (st, h, _) = send(&app, req("POST", "/api/auth/logout", Some(&c), None)).await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+        assert!(h[header::SET_COOKIE].to_str().unwrap().contains("Max-Age=0"));
+        // the old cookie is dead server-side, not just deleted in the browser
+        assert_eq!(send(&app, req("GET", "/api/auth/me", Some(&c), None)).await.0, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn roles_are_enforced_on_every_kind_of_route() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let mut a = Asset::new(Mac([0x00, 0x1b, 0x63, 1, 2, 3]), 10);
+        store.save_asset(&mut a).unwrap();
+        let meta = format!("/api/assets/{}/meta", a.id);
+        let patch = serde_json::json!({"owner": "Jana"});
+        // (method, uri, body, viewer, editor, admin) -> expected status is "allowed?" (anything but 401/403)
+        let cases: Vec<(&str, String, Option<serde_json::Value>, [bool; 3])> = vec![
+            ("GET", "/api/assets".into(), None, [true, true, true]),
+            ("GET", "/report".into(), None, [true, true, true]),
+            ("PATCH", meta.clone(), Some(patch.clone()), [false, true, true]),
+            ("POST", "/api/assets".into(), Some(serde_json::json!({"display_name": "x"})), [false, true, true]),
+            ("POST", "/api/scan".into(), None, [false, true, true]),
+            ("GET", "/api/users".into(), None, [false, false, true]),
+            ("POST", "/api/users".into(), Some(serde_json::json!({"username": "newbie", "role": "viewer"})), [false, false, true]),
+            ("GET", "/api/audit".into(), None, [false, false, true]),
+            ("GET", "/api/agent-tokens".into(), None, [false, false, true]),
+            ("POST", "/api/agent-tokens".into(), Some(serde_json::json!({"agent_id": "b1"})), [false, false, true]),
+            ("DELETE", format!("/api/assets/{}", a.id), None, [false, false, true]),
+        ];
+        for (m, uri, body, allowed) in cases {
+            for (who, cookie, ok) in [("viewer", &viewer, allowed[0]), ("editor", &editor, allowed[1]), ("admin", &admin, allowed[2])] {
+                let (st, _, _) = send(&app, req(m, &uri, Some(cookie), body.clone())).await;
+                let denied = st == StatusCode::FORBIDDEN || st == StatusCode::UNAUTHORIZED;
+                assert_eq!(!denied, ok, "{who} {m} {uri} -> {st}");
+            }
+        }
+        // the state-changing calls really did nothing for the denied roles
+        assert!(store.get_meta(a.id).unwrap().is_some(), "editor's PATCH applied");
+    }
+
+    #[tokio::test]
+    async fn an_admin_set_password_must_be_changed_before_anything_else() {
+        let (app, store) = app_with(true, false);
+        let auth = crate::auth::Auth::new(store.clone());
+        store.create_user("root", &crate::auth::hash_password("a-long-passphrase-1").unwrap(), "admin", false, 0).unwrap();
+        let (_, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "root", "password": "a-long-passphrase-1"})))).await;
+        let admin = cookie_of(&h);
+        let (st, _, v) = send(&app, req("POST", "/api/users", Some(&admin), Some(serde_json::json!({"username": "jana", "role": "editor"})))).await;
+        assert_eq!(st, StatusCode::CREATED);
+        let temp = v["temporary_password"].as_str().unwrap().to_string();
+        assert!(v["user"].get("password_hash").is_none());
+        let (_, h, v) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "jana", "password": temp})))).await;
+        assert_eq!(v["must_change"], true);
+        let jana = cookie_of(&h);
+        // everything except the self-service endpoints is blocked
+        for uri in ["/api/assets", "/api/status", "/report"] {
+            let (st, _, v) = send(&app, req("GET", uri, Some(&jana), None)).await;
+            assert_eq!((st, v["code"].as_str()), (StatusCode::FORBIDDEN, Some("must_change")), "{uri}");
+        }
+        assert_eq!(send(&app, req("GET", "/api/auth/me", Some(&jana), None)).await.0, StatusCode::OK);
+        // a weak replacement is refused, a good one unlocks the account
+        let bad = send(&app, req("POST", "/api/auth/password", Some(&jana), Some(serde_json::json!({"current": temp, "new": "short"})))).await;
+        assert_eq!(bad.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, req("POST", "/api/auth/password", Some(&jana), Some(serde_json::json!({"current": "wrong", "new": "a-brand-new-passphrase"})))).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(send(&app, req("POST", "/api/auth/password", Some(&jana), Some(serde_json::json!({"current": temp, "new": "a-brand-new-passphrase"})))).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, req("GET", "/api/assets", Some(&jana), None)).await.0, StatusCode::OK);
+        let _ = auth;
+    }
+
+    #[tokio::test]
+    async fn user_admin_protects_the_last_admin_and_hides_secrets() {
+        let (app, store, [_, _, admin]) = secured().await;
+        let users = send(&app, req("GET", "/api/users", Some(&admin), None)).await.2;
+        assert_eq!(users.as_array().unwrap().len(), 3);
+        assert!(users.to_string().find("argon2").is_none() && users.to_string().find("password").is_none());
+        let adam = users.as_array().unwrap().iter().find(|u| u["username"] == "adam").unwrap()["id"].as_i64().unwrap();
+        for body in [serde_json::json!({"disabled": true}), serde_json::json!({"role": "viewer"})] {
+            assert_eq!(send(&app, req("PATCH", &format!("/api/users/{adam}"), Some(&admin), Some(body))).await.0, StatusCode::BAD_REQUEST, "the only admin cannot be removed");
+        }
+        // agent tokens: issued once, listed without the secret, revocable
+        let (st, _, v) = send(&app, req("POST", "/api/agent-tokens", Some(&admin), Some(serde_json::json!({"agent_id": "branch-1", "label": "HQ"})))).await;
+        assert_eq!(st, StatusCode::CREATED);
+        let tok = v["token"].as_str().unwrap().to_string();
+        assert!(tok.starts_with("dat_"));
+        let listed = send(&app, req("GET", "/api/agent-tokens", Some(&admin), None)).await.2.to_string();
+        assert!(listed.contains("branch-1") && !listed.contains(&tok) && !listed.contains(&crate::auth::sha256_hex(&tok)));
+        assert_eq!(send(&app, req("DELETE", "/api/agent-tokens/branch-1", Some(&admin), None)).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, req("DELETE", "/api/agent-tokens/branch-1", Some(&admin), None)).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(send(&app, req("POST", "/api/agent-tokens", Some(&admin), Some(serde_json::json!({"agent_id": "../x"})))).await.0, StatusCode::BAD_REQUEST);
+        // all of it is in the audit trail, attributed
+        let audit = store.list_audit(None, 50).unwrap();
+        let actions: Vec<&str> = audit.iter().map(|a| a.action.as_str()).collect();
+        assert!(actions.contains(&"agent_token.issue") && actions.contains(&"agent_token.revoke") && actions.contains(&"auth.login"), "{actions:?}");
+        assert!(audit.iter().any(|a| a.action == "agent_token.issue" && a.user == "adam"));
+    }
+
+    #[tokio::test]
+    async fn responses_carry_security_headers_and_api_answers_are_not_cacheable() {
+        let (app, _, [viewer, ..]) = secured().await;
+        let (_, h, _) = send(&app, req("GET", "/api/assets", Some(&viewer), None)).await;
+        for (k, v) in [("x-content-type-options", "nosniff"), ("x-frame-options", "DENY"), ("referrer-policy", "no-referrer"),
+                       ("cache-control", "no-store"), ("cross-origin-opener-policy", "same-origin")] {
+            assert_eq!(h[k], v, "{k}");
+        }
+        assert!(h["content-security-policy"].to_str().unwrap().contains("frame-ancestors 'none'"));
+        let (_, h, _) = send(&app, req("GET", "/", None, None)).await;
+        assert_eq!(h["x-frame-options"], "DENY");
+    }
+
+    // ------------------------------------------------------- asset tracking
+
+    #[tokio::test]
+    async fn asset_tracking_edit_create_history_and_delete() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let mut found = Asset::new(Mac([0x00, 0x1b, 0x63, 1, 2, 3]), 100);
+        found.hostnames = vec!["hp-laser".into()];
+        found.device_type = "unknown".into();
+        found.ip_history.push(crate::model::IpRecord { ip: Ipv4Addr::new(10, 0, 0, 9), first_seen: 100, last_seen: 100 });
+        store.save_asset(&mut found).unwrap();
+        let uri = format!("/api/assets/{}", found.id);
+
+        // edit: the manual values are returned, overrides win, raw guess preserved
+        let (st, _, v) = send(&app, req("PATCH", &format!("{uri}/meta"), Some(&editor), Some(serde_json::json!({
+            "display_name": "Reception printer", "serial_number": "SN-42", "owner": "Jana", "type_override": "printer",
+            "icon": "printer", "criticality": "high", "warranty_expires": "2020-01-01", "tags": ["Floor 1"],
+            "custom": {"Cost centre": "CC-7"}, "zone": "Office", "purdue_level": "4"})))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!((v["display_name"].as_str(), v["device_type"].as_str(), v["detected"]["device_type"].as_str()), (Some("Reception printer"), Some("printer"), Some("unknown")));
+        assert_eq!((v["meta"]["serial_number"].as_str(), v["meta"]["icon"].as_str(), v["meta"]["tags"][0].as_str()), (Some("SN-42"), Some("printer"), Some("floor 1")));
+        assert_eq!(v["warranty"]["state"], "expired");
+        // validation errors are 400 and change nothing
+        for bad in [serde_json::json!({"icon": "bomb"}), serde_json::json!({"status": "borrowed"}), serde_json::json!({"warranty_expires": "soon"}), serde_json::json!({"nope": 1})] {
+            assert_eq!(send(&app, req("PATCH", &format!("{uri}/meta"), Some(&editor), Some(bad))).await.0, StatusCode::BAD_REQUEST);
+        }
+        assert_eq!(send(&app, req("PATCH", "/api/assets/9999/meta", Some(&editor), Some(serde_json::json!({"owner": "x"})))).await.0, StatusCode::NOT_FOUND);
+        // the edit shows in the list too, and the history names who did it
+        let list = send(&app, req("GET", "/api/assets", Some(&viewer), None)).await.2;
+        assert_eq!(list[0]["meta"]["owner"], "Jana");
+        let hist = send(&app, req("GET", &format!("{uri}/history"), Some(&viewer), None)).await.2;
+        assert_eq!(hist.as_array().unwrap().len(), 1);
+        assert_eq!((hist[0]["user"].as_str(), hist[0]["action"].as_str()), (Some("eda"), Some("asset.edit")));
+        assert!(hist[0]["detail"]["changes"].to_string().contains("SN-42"));
+        // a second identical edit is a no-op and adds no history
+        send(&app, req("PATCH", &format!("{uri}/meta"), Some(&editor), Some(serde_json::json!({"owner": "Jana"})))).await;
+        assert_eq!(send(&app, req("GET", &format!("{uri}/history"), Some(&viewer), None)).await.2.as_array().unwrap().len(), 1);
+
+        // discovered assets cannot be deleted
+        let (st, _, v) = send(&app, req("DELETE", &uri, Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST);
+        assert!(v["error"].as_str().unwrap().contains("retired"));
+
+        // a manual asset with no MAC gets a private placeholder and is a record, not a sighting
+        let (st, _, v) = send(&app, req("POST", "/api/assets", Some(&editor), Some(serde_json::json!({"display_name": "Spare laptop", "type_override": "laptop", "status": "spare"})))).await;
+        assert_eq!(st, StatusCode::CREATED, "{v}");
+        let (mid, mac) = (v["id"].as_i64().unwrap(), v["mac"].as_str().unwrap().to_string());
+        assert!(mac.starts_with("02:54:42:"));
+        assert_eq!((v["meta"]["manual"].as_bool(), v["last_seen"].as_i64(), v["device_type"].as_str()), (Some(true), Some(0), Some("laptop")));
+        // with a MAC; a duplicate MAC is a conflict; a bad one a 400
+        let (st, _, _) = send(&app, req("POST", "/api/assets", Some(&editor), Some(serde_json::json!({"mac": "3C:22:FB:AA:00:01", "display_name": "Switch"})))).await;
+        assert_eq!(st, StatusCode::CREATED);
+        assert_eq!(send(&app, req("POST", "/api/assets", Some(&editor), Some(serde_json::json!({"mac": "3c:22:fb:aa:00:01"})))).await.0, StatusCode::CONFLICT);
+        for bad in ["nonsense", "ff:ff:ff:ff:ff:ff", "01:00:5e:00:00:01"] {
+            assert_eq!(send(&app, req("POST", "/api/assets", Some(&editor), Some(serde_json::json!({"mac": bad})))).await.0, StatusCode::BAD_REQUEST, "{bad}");
+        }
+        // discovery of that MAC later adopts the same row instead of duplicating it
+        let mut seen = Asset::new(mac.parse().unwrap(), 500);
+        store.save_asset(&mut seen).unwrap();
+        assert_eq!(seen.id, mid);
+        // manual assets can be deleted, by an admin only
+        assert_eq!(send(&app, req("DELETE", &format!("/api/assets/{mid}"), Some(&editor), None)).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("DELETE", &format!("/api/assets/{mid}"), Some(&admin), None)).await.0, StatusCode::NO_CONTENT);
+        assert!(store.get_asset(mid).unwrap().is_none() && store.get_meta(mid).unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn csv_import_creates_updates_and_reports_bad_rows() {
+        let (app, store, [_, editor, _]) = secured().await;
+        let mut existing = Asset::new(Mac([0x00, 0x1b, 0x63, 1, 2, 3]), 100);
+        store.save_asset(&mut existing).unwrap();
+        let csv = "mac,display_name,serial_number,owner,tags,status,custom.VLAN\n\
+                   00:1B:63:01:02:03,Old printer,SN-1,Jana,\"a; b\",active,10\n\
+                   3c:22:fb:00:00:09,New NAS,SN-2,,storage,,20\n\
+                   bogus,X,,,,,\n\
+                   3c:22:fb:00:00:0a,Bad status,,,,borrowed,\n";
+        let post = |body: &str| {
+            let mut r = axum::http::Request::post("/api/assets/import").header("host", "localhost").header("x-denis", "1")
+                .header("cookie", format!("{SESSION_COOKIE}={editor}")).body(Body::from(body.to_string())).unwrap();
+            r.headers_mut().insert("content-type", "text/csv".parse().unwrap());
+            r
+        };
+        let (st, _, v) = send(&app, post(csv)).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!((v["created"].as_i64(), v["updated"].as_i64(), v["unchanged"].as_i64()), (Some(1), Some(1), Some(0)));
+        let errs: Vec<(i64, String)> = v["errors"].as_array().unwrap().iter().map(|e| (e["line"].as_i64().unwrap(), e["error"].as_str().unwrap().to_string())).collect();
+        assert_eq!(errs.iter().map(|e| e.0).collect::<Vec<_>>(), [4, 5]);
+        assert!(errs[1].1.contains("status"));
+        let m = store.get_meta(existing.id).unwrap().unwrap();
+        assert_eq!((m.display_name.as_deref(), m.tags.clone(), m.custom["VLAN"].as_str()), (Some("Old printer"), vec!["a".to_string(), "b".to_string()], "10"));
+        let created = store.find_asset(None, &"3c:22:fb:00:00:09".parse().unwrap()).unwrap().unwrap();
+        assert!(store.get_meta(created.id).unwrap().unwrap().manual);
+        // importing the same file again changes nothing
+        let (_, _, v) = send(&app, post(csv)).await;
+        assert_eq!((v["created"].as_i64(), v["updated"].as_i64(), v["unchanged"].as_i64()), (Some(0), Some(0), Some(2)));
+        // structural problems reject the whole file
+        assert_eq!(send(&app, post("serial_number\nx")).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, post("mac,colour\n3c:22:fb:00:00:0b,red")).await.0, StatusCode::BAD_REQUEST);
+        // the audit trail records the import and per-asset changes
+        let actions: Vec<String> = store.list_audit(None, 50).unwrap().into_iter().map(|a| a.action).collect();
+        assert!(actions.contains(&"asset.import".to_string()) && actions.contains(&"asset.create".to_string()));
+    }
+
+    #[tokio::test]
+    async fn the_conversation_matrix_is_served_with_names_and_purdue_levels() {
+        use crate::model::Conversation;
+        let (app, store, [viewer, ..]) = secured().await;
+        let (mut hmi, mut plc) = (Asset::new(Mac([0x3c, 0x22, 0xfb, 1, 1, 1]), 10), Asset::new(Mac([0x00, 0x1b, 0x1b, 2, 2, 2]), 10));
+        hmi.hostnames = vec!["hmi-line2".into()];
+        store.save_asset(&mut hmi).unwrap();
+        store.save_asset(&mut plc).unwrap();
+        store.save_meta(plc.id, &AssetMeta { display_name: Some("PLC line 2".into()), purdue_level: Some("1".into()), type_override: Some("plc".into()), ..Default::default() }, "eda", 1).unwrap();
+        store.save_conversations(&[Conversation { client_id: hmi.id, server_id: plc.id, proto: "s7".into(), port: 102, first_seen: 1, last_seen: 9, packets: 50, bytes: 4000, reads: 40, writes: 5, controls: 1, note: Some("PLC stop (0x29)".into()) },
+            Conversation { client_id: hmi.id, server_id: 9999, proto: "modbus".into(), port: 502, first_seen: 1, last_seen: 9, packets: 1, bytes: 1, reads: 1, writes: 0, controls: 0, note: None }]).unwrap();
+        let (st, _, v) = send(&app, req("GET", "/api/conversations", Some(&viewer), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v.as_array().unwrap().len(), 1, "a row whose asset no longer exists is not shown");
+        assert_eq!((v[0]["client"]["name"].as_str(), v[0]["server"]["name"].as_str()), (Some("hmi-line2"), Some("PLC line 2")));
+        assert_eq!((v[0]["server"]["purdue_level"].as_str(), v[0]["server"]["device_type"].as_str()), (Some("1"), Some("plc")));
+        assert_eq!((v[0]["protocol"].as_str(), v[0]["writes"].as_i64(), v[0]["controls"].as_i64(), v[0]["note"].as_str()), (Some("s7"), Some(5), Some(1), Some("PLC stop (0x29)")));
+        // needs a session like everything else
+        assert_eq!(send(&app, req("GET", "/api/conversations", None, None)).await.0, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_proxys_public_name_is_accepted_only_when_allowed_and_http2_authority_counts_as_host() {
+        let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
+        let mk = |hosts: Vec<String>| router(AppState {
+            store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: hosts,
+            auth: Arc::new(crate::auth::Auth::new(store.clone())), no_auth: true, secure_cookie: false,
+        });
+        let health = |host: &str| axum::http::Request::get("/api/health").header("host", host).body(Body::empty()).unwrap();
+        let strict = mk(vec![]);
+        assert_eq!(strict.clone().oneshot(health("denis.example.com")).await.unwrap().status(), StatusCode::FORBIDDEN);
+        let open = mk(vec!["denis.example.com".into()]);
+        assert_eq!(open.clone().oneshot(health("denis.example.com")).await.unwrap().status(), StatusCode::OK);
+        assert_eq!(open.clone().oneshot(health("DENIS.example.com:8443")).await.unwrap().status(), StatusCode::OK, "case and port");
+        assert_eq!(open.clone().oneshot(health("evil.example.net")).await.unwrap().status(), StatusCode::FORBIDDEN, "others stay out");
+        assert_eq!(open.clone().oneshot(health("denis.example.com.evil.net")).await.unwrap().status(), StatusCode::FORBIDDEN, "no suffix tricks");
+        // HTTP/2 has no Host header: the name is in the request URI
+        let h2 = axum::http::Request::get("https://localhost:8093/api/health").body(Body::empty()).unwrap();
+        assert_eq!(strict.clone().oneshot(h2).await.unwrap().status(), StatusCode::OK);
+        let h2_evil = axum::http::Request::get("https://evil.example.net/api/health").body(Body::empty()).unwrap();
+        assert_eq!(strict.oneshot(h2_evil).await.unwrap().status(), StatusCode::FORBIDDEN);
+    }
+
+    fn bearer(method: &str, uri: &str, token: &str, body: Option<serde_json::Value>) -> axum::http::Request<Body> {
+        // deliberately no X-Denis header: scripts do not send one
+        let b = axum::http::Request::builder().method(method).uri(uri).header("host", "localhost").header("authorization", format!("Bearer {token}"));
+        match body {
+            Some(v) => b.header("content-type", "application/json").body(Body::from(v.to_string())).unwrap(),
+            None => b.body(Body::empty()).unwrap(),
+        }
+    }
+
+    #[tokio::test]
+    async fn api_tokens_are_admin_managed_role_limited_revocable_and_never_stored_in_clear() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let make = |label: &str, role: &str| req("POST", "/api/api-tokens", Some(&admin), Some(serde_json::json!({"label": label, "role": role})));
+        // only admins manage tokens; a token can never be admin
+        assert_eq!(send(&app, req("POST", "/api/api-tokens", Some(&editor), Some(serde_json::json!({"label": "x", "role": "viewer"})))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("GET", "/api/api-tokens", Some(&viewer), None)).await.0, StatusCode::FORBIDDEN);
+        for bad in [("x", "admin"), ("", "viewer"), ("   ", "viewer"), ("a\nb", "viewer")] {
+            assert_eq!(send(&app, make(bad.0, bad.1)).await.0, StatusCode::BAD_REQUEST, "{bad:?}");
+        }
+        let (st, _, v) = send(&app, make("grafana", "viewer")).await;
+        assert_eq!(st, StatusCode::CREATED);
+        let ro = v["token"].as_str().unwrap().to_string();
+        let ro_id = v["id"].as_i64().unwrap();
+        assert!(ro.starts_with("dnt_") && ro.len() == 68);
+        let rw = send(&app, make("automation", "editor")).await.2["token"].as_str().unwrap().to_string();
+        // the database holds only a hash, and the list never shows the token
+        assert!(store.find_api_token(&ro).unwrap().is_none(), "raw token is not a key");
+        assert!(store.find_api_token(&crate::auth::sha256_hex(&ro)).unwrap().is_some());
+        let (_, _, list) = send(&app, req("GET", "/api/api-tokens", Some(&admin), None)).await;
+        assert_eq!(list.as_array().unwrap().len(), 2);
+        assert!(!list.to_string().contains(&ro) && !list.to_string().contains("token_hash"));
+
+        // a viewer token reads without any cookie, but cannot change things
+        assert_eq!(send(&app, bearer("GET", "/api/assets", &ro, None)).await.0, StatusCode::OK);
+        assert_eq!(send(&app, bearer("POST", "/api/scan", &ro, None)).await.0, StatusCode::FORBIDDEN);
+        // an editor token may write, without the CSRF header (it is not cookie based)
+        let (st, ..) = send(&app, bearer("POST", "/api/assets", &rw, Some(serde_json::json!({"display_name": "Made by script"})))).await;
+        assert_eq!(st, StatusCode::CREATED);
+        // ...but never reaches administration, and has no password or session to manage
+        for (m, u) in [("GET", "/api/users"), ("GET", "/api/api-tokens"), ("POST", "/api/api-tokens"), ("GET", "/api/audit"), ("GET", "/api/agent-tokens")] {
+            assert_eq!(send(&app, bearer(m, u, &rw, Some(serde_json::json!({"label": "x", "role": "viewer"})))).await.0, StatusCode::FORBIDDEN, "{m} {u}");
+        }
+        assert_eq!(send(&app, bearer("POST", "/api/auth/password", &rw, Some(serde_json::json!({"current": "a", "new": "b"})))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, bearer("GET", "/api/auth/me", &rw, None)).await.2["user"]["username"], "token:automation");
+        // the audit log names the token, not a person
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("token:automation"), "{audit}");
+
+        // an Authorization header means bearer only: a valid cookie does not rescue a bad token
+        for bad in ["dnt_".to_string() + &"0".repeat(64), "garbage".into(), String::new()] {
+            let mut r = bearer("GET", "/api/assets", &bad, None);
+            r.headers_mut().insert("cookie", format!("{SESSION_COOKIE}={admin}").parse().unwrap());
+            assert_eq!(send(&app, r).await.0, StatusCode::UNAUTHORIZED, "{bad:?}");
+        }
+        // revoked tokens stop working at once
+        assert_eq!(send(&app, req("DELETE", &format!("/api/api-tokens/{ro_id}"), Some(&admin), None)).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, bearer("GET", "/api/assets", &ro, None)).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(send(&app, req("DELETE", &format!("/api/api-tokens/{ro_id}"), Some(&admin), None)).await.0, StatusCode::NOT_FOUND);
+        // and a cookie session still needs the CSRF header
+        let mut no_csrf = req("POST", "/api/scan", Some(&editor), None);
+        no_csrf.headers_mut().remove("x-denis");
+        assert_eq!(send(&app, no_csrf).await.0, StatusCode::FORBIDDEN);
+    }
+
+    // ------------------------------------------------- per-address sign-in limit
+
+    /// A sign-in request as if it came from `peer` (optionally through a proxy header).
+    fn login_from(peer: &str, xff: Option<&str>, user: &str, pw: &str) -> axum::http::Request<Body> {
+        let mut r = req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": user, "password": pw})));
+        r.extensions_mut().insert(axum::extract::ConnectInfo(format!("{peer}:5555").parse::<std::net::SocketAddr>().unwrap()));
+        if let Some(x) = xff {
+            r.headers_mut().insert("x-forwarded-for", x.parse().unwrap());
+        }
+        r
+    }
+
+    #[tokio::test]
+    async fn one_address_cannot_guess_across_many_accounts_and_the_proxy_header_is_only_trusted_from_loopback() {
+        let (app, ..) = secured().await;
+        // 20 wrong guesses, each for a different account name: the per-account lock never triggers
+        for i in 0..20 {
+            let (st, ..) = send(&app, login_from("203.0.113.9", None, &format!("nobody{i}"), "wrong-password-1")).await;
+            assert_eq!(st, StatusCode::UNAUTHORIZED);
+        }
+        // the address is now refused, even with correct credentials
+        let (st, h, _) = send(&app, login_from("203.0.113.9", None, "vera", "a-long-passphrase-1")).await;
+        assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
+        assert!(h.contains_key(header::RETRY_AFTER));
+        // other addresses are unaffected
+        assert_eq!(send(&app, login_from("203.0.113.10", None, "vera", "a-long-passphrase-1")).await.0, StatusCode::OK);
+        // a remote peer cannot pick its own identity with X-Forwarded-For
+        assert_eq!(send(&app, login_from("203.0.113.9", Some("198.51.100.1"), "vera", "a-long-passphrase-1")).await.0, StatusCode::TOO_MANY_REQUESTS);
+        // a local reverse proxy is believed: the client it names (last entry) is judged, not the proxy
+        assert_eq!(send(&app, login_from("127.0.0.1", Some("1.2.3.4, 198.51.100.7"), "vera", "a-long-passphrase-1")).await.0, StatusCode::OK);
+        for i in 0..20 {
+            send(&app, login_from("127.0.0.1", Some("198.51.100.66"), &format!("ghost{i}"), "wrong-password-1")).await;
+        }
+        assert_eq!(send(&app, login_from("127.0.0.1", Some("198.51.100.66"), "vera", "a-long-passphrase-1")).await.0, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(send(&app, login_from("127.0.0.1", Some("198.51.100.67"), "vera", "a-long-passphrase-1")).await.0, StatusCode::OK, "one client behind the proxy does not lock out the others");
+    }
+
+    #[tokio::test]
+    async fn rules_are_visible_to_everyone_editable_by_admins_only_and_validated_on_the_server() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let (st, _, v) = send(&app, req("GET", "/api/rules", Some(&viewer), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["rules"].as_array().unwrap().len(), crate::detect::RULES.len());
+        assert_eq!(v["min_score"]["value"], 30);
+        let patch = serde_json::json!({"min_score": 55, "weights": {"new_device": 0}, "params": {"silent_minutes": 240}});
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("PUT", "/api/rules", Some(c), Some(patch.clone()))).await.0, StatusCode::FORBIDDEN);
+            assert_eq!(send(&app, req("DELETE", "/api/rules", Some(c), None)).await.0, StatusCode::FORBIDDEN);
+        }
+        let (st, _, v) = send(&app, req("PUT", "/api/rules", Some(&admin), Some(patch))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(v["min_score"]["value"], 55);
+        let nd = v["rules"].as_array().unwrap().iter().find(|r| r["id"] == "new_device").unwrap().clone();
+        assert_eq!((nd["enabled"].as_bool(), nd["weight"].as_f64()), (Some(false), Some(0.0)));
+        // stored, so the running detector (and a restart) will pick it up
+        assert_eq!(crate::rules::load(&*store).unwrap().min_score, Some(55));
+        // bad values are refused and change nothing
+        for bad in [serde_json::json!({"min_score": 500}), serde_json::json!({"weights": {"bogus": 1}}), serde_json::json!({"params": {"volume_z_threshold": 0}})] {
+            assert_eq!(send(&app, req("PUT", "/api/rules", Some(&admin), Some(bad))).await.0, StatusCode::BAD_REQUEST);
+        }
+        assert_eq!(crate::rules::load(&*store).unwrap().min_score, Some(55));
+        assert!(send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string().contains("rules.update"));
+        let (st, _, v) = send(&app, req("DELETE", "/api/rules", Some(&admin), None)).await;
+        assert_eq!((st, v["any_override"].as_bool()), (StatusCode::OK, Some(false)));
+        assert_eq!(v["min_score"]["value"], 30);
+    }
+
+    #[tokio::test]
+    async fn notification_channels_are_admin_only_never_reveal_secrets_and_can_be_tested() {
+        use std::io::{Read, Write};
+        // a stand-in for Slack: answers 200 to anything and remembers the last body
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/services/T1/B2/SUPERSECRETTOKEN", l.local_addr().unwrap());
+        let got = Arc::new(std::sync::Mutex::new(String::new()));
+        let g2 = got.clone();
+        std::thread::spawn(move || {
+            for c in l.incoming() {
+                let Ok(mut c) = c else { return };
+                // the headers and the body can arrive in separate reads: keep reading until the body is complete
+                let mut req = Vec::new();
+                let mut buf = [0u8; 4096];
+                loop {
+                    let n = c.read(&mut buf).unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    req.extend_from_slice(&buf[..n]);
+                    let text = String::from_utf8_lossy(&req).to_string();
+                    let Some((head, body)) = text.split_once("\r\n\r\n") else { continue };
+                    let want = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse::<usize>().ok())).unwrap_or(0);
+                    if body.len() >= want {
+                        break;
+                    }
+                }
+                *g2.lock().unwrap() = String::from_utf8_lossy(&req).to_string();
+                let _ = c.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+            }
+        });
+        let (app, _store, [viewer, editor, admin]) = secured().await;
+        let body = serde_json::json!({"name": "ops-slack", "kind": "slack", "url": url, "min_score": 40});
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("GET", "/api/channels", Some(c), None)).await.0, StatusCode::FORBIDDEN);
+            assert_eq!(send(&app, req("POST", "/api/channels", Some(c), Some(body.clone()))).await.0, StatusCode::FORBIDDEN);
+        }
+        let (st, _, v) = send(&app, req("POST", "/api/channels", Some(&admin), Some(body))).await;
+        assert_eq!(st, StatusCode::CREATED, "{v}");
+        let id = v["id"].as_str().unwrap().to_string();
+        let (_, _, list) = send(&app, req("GET", "/api/channels", Some(&admin), None)).await;
+        assert!(!list.to_string().contains("SUPERSECRET") && list[0]["has_url"] == true, "{list}");
+        assert_eq!(send(&app, req("POST", "/api/channels", Some(&admin), Some(serde_json::json!({"name": "x", "kind": "slack", "url": "javascript:alert(1)"})))).await.0, StatusCode::BAD_REQUEST);
+        // the test button really sends, and reports success
+        let (st, _, v) = send(&app, req("POST", &format!("/api/channels/{id}/test"), Some(&admin), None)).await;
+        assert_eq!((st, v["ok"].as_bool()), (StatusCode::OK, Some(true)), "{v}");
+        assert!(got.lock().unwrap().contains("DENIS test notification"));
+        // disable, then edit without re-sending the secret: the URL is kept
+        let (st, _, v) = send(&app, req("PUT", &format!("/api/channels/{id}"), Some(&admin), Some(serde_json::json!({"enabled": false, "min_score": 70})))).await;
+        assert_eq!((st, v["enabled"].as_bool(), v["min_score"].as_i64(), v["has_url"].as_bool()), (StatusCode::OK, Some(false), Some(70), Some(true)));
+        assert_eq!(send(&app, req("PUT", "/api/channels/nope", Some(&admin), Some(serde_json::json!({})))).await.0, StatusCode::NOT_FOUND);
+        // the audit log records the changes but not the URL
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("channel.create") && audit.contains("channel.test") && !audit.contains("SUPERSECRET"), "{audit}");
+        // a channel that fails to deliver reports why, without leaking the token
+        assert_eq!(send(&app, req("DELETE", &format!("/api/channels/{id}"), Some(&admin), None)).await.0, StatusCode::NO_CONTENT);
+        let dead = serde_json::json!({"name": "dead", "kind": "webhook", "url": "http://127.0.0.1:1/hook/PRIVATETOKEN123"});
+        let did = send(&app, req("POST", "/api/channels", Some(&admin), Some(dead))).await.2["id"].as_str().unwrap().to_string();
+        let (st, _, v) = send(&app, req("POST", &format!("/api/channels/{did}/test"), Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::BAD_GATEWAY);
+        assert!(!v.to_string().contains("PRIVATETOKEN"), "{v}");
+    }
+
+    #[tokio::test]
+    async fn maintenance_mode_is_readable_by_all_and_settable_by_admins() {
+        let (app, _, [viewer, editor, admin]) = secured().await;
+        assert_eq!(send(&app, req("GET", "/api/maintenance", Some(&viewer), None)).await.2["active"], false);
+        let on = serde_json::json!({"minutes": 60, "note": "patch night"});
+        assert_eq!(send(&app, req("PUT", "/api/maintenance", Some(&editor), Some(on.clone()))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("PUT", "/api/maintenance", Some(&admin), Some(serde_json::json!({"minutes": 999999})))).await.0, StatusCode::BAD_REQUEST);
+        let (st, _, v) = send(&app, req("PUT", "/api/maintenance", Some(&admin), Some(on))).await;
+        assert_eq!((st, v["active"].as_bool(), v["note"].as_str()), (StatusCode::OK, Some(true), Some("patch night")));
+        assert_eq!(send(&app, req("GET", "/api/maintenance", Some(&viewer), None)).await.2["active"], true);
+        let (_, _, v) = send(&app, req("PUT", "/api/maintenance", Some(&admin), Some(serde_json::json!({"minutes": null})))).await;
+        assert_eq!(v["active"], false);
+    }
+
+    #[tokio::test]
+    async fn metrics_need_a_sign_in_or_token_and_expose_counts_but_no_names() {
+        let (app, store, [viewer, _, admin]) = secured().await;
+        let mut a = Asset::new(Mac([2, 0, 0, 0, 0, 9]), 1);
+        a.hostnames = vec!["secret-host-name".into()];
+        a.device_type = "camera".into();
+        a.last_seen = now_ts();
+        store.save_asset(&mut a).unwrap();
+        assert_eq!(send(&app, req("GET", "/metrics", None, None)).await.0, StatusCode::UNAUTHORIZED);
+        let scrape = |r: axum::http::Request<Body>| { let app = app.clone(); async move {
+            let resp = app.oneshot(r).await.unwrap();
+            (resp.status(), String::from_utf8(axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap().to_vec()).unwrap())
+        } };
+        let (st, body) = scrape(req("GET", "/metrics", Some(&viewer), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        for want in ["denis_up 1", "denis_devices 1", "denis_devices_online 1", "denis_devices_by_type{type=\"camera\"} 1", "denis_alerts_unacknowledged{severity=\"high\"} 0", "denis_maintenance_mode 0", "denis_build_info{version="] {
+            assert!(body.contains(want), "{want}\n{body}");
+        }
+        assert!(!body.contains("secret-host-name") && !body.contains("02:00:00"), "no names or addresses");
+        // a Prometheus server uses an API token
+        let (_, _, v) = send(&app, req("POST", "/api/api-tokens", Some(&admin), Some(serde_json::json!({"label": "prometheus", "role": "viewer"})))).await;
+        let token = v["token"].as_str().unwrap().to_string();
+        assert_eq!(scrape(bearer("GET", "/metrics", &token, None)).await.0, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn the_review_queue_marks_devices_as_known_by_id_or_all_at_once_for_editors() {
+        let (app, store, [viewer, editor, _]) = secured().await;
+        let mut ids = Vec::new();
+        for n in 1..=3u8 {
+            let mut a = Asset::new(Mac([2, 0, 0, 0, 0, n]), 1);
+            a.last_seen = now_ts();
+            store.save_asset(&mut a).unwrap();
+            ids.push(a.id);
+        }
+        let reviewed = |id: i64| store.get_meta(id).unwrap().is_some_and(|m| m.reviewed);
+        assert_eq!(send(&app, req("POST", "/api/assets/review", Some(&viewer), Some(serde_json::json!({"ids": [ids[0]]})))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("POST", "/api/assets/review", Some(&editor), Some(serde_json::json!({})))).await.0, StatusCode::BAD_REQUEST);
+        let (st, _, v) = send(&app, req("POST", "/api/assets/review", Some(&editor), Some(serde_json::json!({"ids": [ids[0], 99999]})))).await;
+        assert_eq!((st, v["reviewed"].as_i64()), (StatusCode::OK, Some(1)));
+        assert!(reviewed(ids[0]) && !reviewed(ids[1]));
+        let f = send(&app, req("GET", "/api/findings", Some(&editor), None)).await.2;
+        assert_eq!(f.as_array().unwrap().iter().find(|x| x["id"] == "unreviewed").unwrap()["assets"].as_array().unwrap().len(), 2);
+        let (_, _, v) = send(&app, req("POST", "/api/assets/review", Some(&editor), Some(serde_json::json!({"all": true})))).await;
+        assert_eq!(v["reviewed"].as_i64(), Some(2), "only the ones not yet reviewed change");
+        assert!(ids.iter().all(|i| reviewed(*i)));
+        assert!(send(&app, req("GET", "/api/findings", Some(&editor), None)).await.2.as_array().unwrap().iter().all(|x| x["id"] != "unreviewed"));
+        // it survives a normal edit, and reviewed can be undone through the ordinary patch
+        let (st, ..) = send(&app, req("PATCH", &format!("/api/assets/{}/meta", ids[0]), Some(&editor), Some(serde_json::json!({"owner": "Ann"})))).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(reviewed(ids[0]));
+    }
+
+    /// A console with passkeys on for `http://localhost:8080`, and one signed-in viewer "vera".
+    async fn with_passkeys() -> (Router, Arc<dyn Store>, String, crate::passkey::Config) {
+        let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
+        let auth = Arc::new(crate::auth::Auth::new(store.clone()));
+        let cfg = crate::passkey::Config { rp_id: "localhost".into(), origins: vec!["http://localhost:8080".into()] };
+        *auth.passkey_cfg.lock().unwrap() = Some(cfg.clone());
+        store.create_user("vera", &crate::auth::hash_password("a-long-passphrase-1").unwrap(), "viewer", false, 0).unwrap();
+        let app = router(AppState { store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false });
+        let (st, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "vera", "password": "a-long-passphrase-1"})))).await;
+        assert_eq!(st, StatusCode::OK);
+        (app, store, cookie_of(&h), cfg)
+    }
+
+    fn b64(b: &[u8]) -> String {
+        crate::passkey::b64url(b)
+    }
+
+    /// Register `auth` for the signed-in user; returns the HTTP status.
+    async fn register(app: &Router, cookie: &str, cfg: &crate::passkey::Config, auth: &crate::passkey::soft::Authenticator, name: &str) -> StatusCode {
+        let (_, _, v) = send(app, req("POST", "/api/auth/passkey/register/begin", Some(cookie), Some(serde_json::json!({})))).await;
+        let challenge = crate::passkey::unb64url(v["publicKey"]["challenge"].as_str().unwrap()).unwrap();
+        let (cd, att) = auth.register(cfg, &challenge);
+        let body = serde_json::json!({"ceremony": v["ceremony"], "name": name, "credential": {"id": b64(&auth.credential_id), "response": {"clientDataJSON": b64(&cd), "attestationObject": b64(&att)}}});
+        send(app, req("POST", "/api/auth/passkey/register/finish", Some(cookie), Some(body))).await.0
+    }
+
+    /// Sign in with `auth`; returns the status and the cookie, if any.
+    async fn passkey_login(app: &Router, cfg: &crate::passkey::Config, auth: &mut crate::passkey::soft::Authenticator) -> (StatusCode, Option<String>) {
+        let (_, _, v) = send(app, req("POST", "/api/auth/passkey/login/begin", None, Some(serde_json::json!({})))).await;
+        let challenge = crate::passkey::unb64url(v["publicKey"]["challenge"].as_str().unwrap()).unwrap();
+        let (cd, ad, sig) = auth.assert(cfg, &challenge);
+        let body = serde_json::json!({"ceremony": v["ceremony"], "credential": {"id": b64(&auth.credential_id), "response": {"clientDataJSON": b64(&cd), "authenticatorData": b64(&ad), "signature": b64(&sig), "userHandle": ""}}});
+        let (st, h, _) = send(app, req("POST", "/api/auth/passkey/login/finish", None, Some(body))).await;
+        (st, h.get(header::SET_COOKIE).map(|_| cookie_of(&h)))
+    }
+
+    #[tokio::test]
+    async fn a_user_can_register_a_passkey_and_sign_in_with_it_and_only_with_it() {
+        use crate::passkey::soft::Authenticator;
+        let (app, store, cookie, cfg) = with_passkeys().await;
+        // the sign-in page can ask what is offered, before anybody is signed in
+        let (_, _, m) = send(&app, req("GET", "/api/auth/methods", None, None)).await;
+        assert_eq!((m["passkey"].as_bool(), m["rp_id"].as_str()), (Some(true), Some("localhost")));
+        // registering needs a session
+        assert_eq!(send(&app, req("POST", "/api/auth/passkey/register/begin", None, Some(serde_json::json!({})))).await.0, StatusCode::UNAUTHORIZED);
+        let mut mine = Authenticator::new();
+        assert_eq!(register(&app, &cookie, &cfg, &mine, "Work laptop").await, StatusCode::CREATED);
+        let (_, _, list) = send(&app, req("GET", "/api/auth/passkeys", Some(&cookie), None)).await;
+        assert_eq!(list[0]["name"], "Work laptop");
+        assert!(!list.to_string().contains("public_key") && !list.to_string().contains(&b64(&mine.credential_id)), "no key material is ever listed");
+        // registering the same credential twice is refused
+        assert_eq!(register(&app, &cookie, &cfg, &mine, "again").await, StatusCode::BAD_REQUEST);
+
+        // sign in: a fresh session that works
+        let (st, fresh) = passkey_login(&app, &cfg, &mut mine).await;
+        assert_eq!(st, StatusCode::OK);
+        let fresh = fresh.expect("session cookie");
+        assert_eq!(send(&app, req("GET", "/api/auth/me", Some(&fresh), None)).await.2["user"]["username"], "vera");
+        // the audit trail and last-used time record it
+        assert!(store.list_audit(None, 50).unwrap().iter().any(|a| a.action == "auth.passkey_login"));
+        assert!(store.list_passkeys(1).unwrap()[0].last_used.is_some());
+
+        // a stranger's passkey (never registered) gets nowhere
+        let mut stranger = Authenticator::new();
+        assert_eq!(passkey_login(&app, &cfg, &mut stranger).await, (StatusCode::UNAUTHORIZED, None));
+        // a cloned key: its counter goes back to 1 after the real one reached 2
+        mine.counter = 0;
+        assert_eq!(passkey_login(&app, &cfg, &mut mine).await.0, StatusCode::UNAUTHORIZED);
+        // a finished (or made-up) ceremony cannot be replayed
+        let replay = serde_json::json!({"ceremony": "abc", "credential": {"id": b64(&mine.credential_id), "response": {"clientDataJSON": "e30", "authenticatorData": "AA", "signature": "AA"}}});
+        assert_eq!(send(&app, req("POST", "/api/auth/passkey/login/finish", None, Some(replay))).await.0, StatusCode::UNAUTHORIZED);
+        // another person cannot remove it, its owner can, and then it no longer signs in
+        store.create_user("eda", &crate::auth::hash_password("a-long-passphrase-1").unwrap(), "editor", false, 0).unwrap();
+        let (_, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "eda", "password": "a-long-passphrase-1"})))).await;
+        let eda = cookie_of(&h);
+        let pid = list[0]["id"].as_i64().unwrap();
+        assert_eq!(send(&app, req("DELETE", &format!("/api/auth/passkeys/{pid}"), Some(&eda), None)).await.0, StatusCode::NOT_FOUND);
+        mine.counter = 10;
+        assert_eq!(passkey_login(&app, &cfg, &mut mine).await.0, StatusCode::OK);
+        assert_eq!(send(&app, req("DELETE", &format!("/api/auth/passkeys/{pid}"), Some(&cookie), None)).await.0, StatusCode::NO_CONTENT);
+        mine.counter = 20;
+        assert_eq!(passkey_login(&app, &cfg, &mut mine).await.0, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn passkeys_respect_disabled_accounts_pending_password_changes_and_the_off_switch() {
+        use crate::passkey::soft::Authenticator;
+        let (app, store, cookie, cfg) = with_passkeys().await;
+        let mut mine = Authenticator::new();
+        assert_eq!(register(&app, &cookie, &cfg, &mine, "phone").await, StatusCode::CREATED);
+        // an account that owes a password change cannot skip it with a passkey
+        store.update_user(1, None, None, None, Some(true)).unwrap();
+        assert_eq!(passkey_login(&app, &cfg, &mut mine).await.0, StatusCode::FORBIDDEN);
+        store.update_user(1, None, None, None, Some(false)).unwrap();
+        // a disabled account cannot sign in at all
+        store.update_user(1, None, Some(true), None, None).unwrap();
+        assert_eq!(passkey_login(&app, &cfg, &mut mine).await.0, StatusCode::UNAUTHORIZED);
+        store.update_user(1, None, Some(false), None, None).unwrap();
+        assert_eq!(passkey_login(&app, &cfg, &mut mine).await.0, StatusCode::OK);
+        // an administrator can revoke everything a user has (lost device)
+        store.create_user("adam", &crate::auth::hash_password("a-long-passphrase-1").unwrap(), "admin", false, 0).unwrap();
+        let (_, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "adam", "password": "a-long-passphrase-1"})))).await;
+        let adam = cookie_of(&h);
+        assert_eq!(send(&app, req("DELETE", "/api/users/1/passkeys", Some(&cookie), None)).await.0, StatusCode::FORBIDDEN);
+        let (st, _, v) = send(&app, req("DELETE", "/api/users/1/passkeys", Some(&adam), None)).await;
+        assert_eq!((st, v["removed"].as_i64()), (StatusCode::OK, Some(1)));
+        assert_eq!(passkey_login(&app, &cfg, &mut mine).await.0, StatusCode::UNAUTHORIZED);
+        // where passkeys are off, everything says so
+        let (app2, ..) = secured().await;
+        assert_eq!(send(&app2, req("GET", "/api/auth/methods", None, None)).await.2["passkey"], false);
+        assert_eq!(send(&app2, req("POST", "/api/auth/passkey/login/begin", None, Some(serde_json::json!({})))).await.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn the_compliance_view_reflects_the_register_and_is_readable_by_viewers() {
+        let (app, store, [viewer, ..]) = secured().await;
+        let mut a = Asset::new(Mac([2, 0, 0, 0, 0, 5]), 1);
+        a.last_seen = now_ts();
+        a.device_type = "computer".into();
+        store.save_asset(&mut a).unwrap();
+        let (st, _, v) = send(&app, req("GET", "/api/compliance", Some(&viewer), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        let reviewed = v["measures"].as_array().unwrap().iter().find(|m| m["label"].as_str().unwrap().contains("reviewed")).unwrap();
+        assert_eq!(reviewed["percent"], 0);
+        store.save_meta(a.id, &AssetMeta { reviewed: true, owner: Some("Ops".into()), ..Default::default() }, "t", 1).unwrap();
+        let (_, _, v) = send(&app, req("GET", "/api/compliance", Some(&viewer), None)).await;
+        let r = v["measures"].as_array().unwrap().iter().find(|m| m["label"].as_str().unwrap().contains("reviewed")).unwrap();
+        assert_eq!(r["percent"], 100);
+        assert!(v["controls"].as_array().unwrap().len() >= 10 && v["disclaimer"].as_str().unwrap().contains("not a certification"));
+    }
+
+    #[tokio::test]
+    async fn demo_data_can_be_loaded_and_removed_by_admins_and_everything_can_be_erased_only_with_the_exact_words() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let mut real = Asset::new(Mac([2, 0, 0, 0, 0, 77]), 1);
+        store.save_asset(&mut real).unwrap();
+        assert_eq!(send(&app, req("GET", "/api/demo", Some(&viewer), None)).await.2["loaded"], false);
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("POST", "/api/demo", Some(c), None)).await.0, StatusCode::FORBIDDEN);
+            assert_eq!(send(&app, req("DELETE", "/api/demo", Some(c), None)).await.0, StatusCode::FORBIDDEN);
+            assert_eq!(send(&app, req("POST", "/api/data/erase", Some(c), Some(serde_json::json!({"confirm": "ERASE ALL DATA"})))).await.0, StatusCode::FORBIDDEN);
+        }
+        let (st, _, v) = send(&app, req("POST", "/api/demo", Some(&admin), None)).await;
+        assert_eq!((st, v["assets"].as_i64()), (StatusCode::CREATED, Some(42)));
+        assert_eq!(send(&app, req("POST", "/api/demo", Some(&admin), None)).await.0, StatusCode::CONFLICT);
+        assert_eq!(send(&app, req("GET", "/api/demo", Some(&viewer), None)).await.2["loaded"], true);
+        let assets = send(&app, req("GET", "/api/assets", Some(&viewer), None)).await.2;
+        assert_eq!(assets.as_array().unwrap().len(), 43, "demo devices show like any other");
+        let (_, _, v) = send(&app, req("DELETE", "/api/demo", Some(&admin), None)).await;
+        assert_eq!(v["removed"], 42);
+        assert_eq!(send(&app, req("GET", "/api/assets", Some(&viewer), None)).await.2.as_array().unwrap().len(), 1, "the real device stayed");
+        // erase: wrong or missing words change nothing
+        for bad in [serde_json::json!({}), serde_json::json!({"confirm": "erase all data"}), serde_json::json!({"confirm": "yes"})] {
+            let (st, ..) = send(&app, req("POST", "/api/data/erase", Some(&admin), Some(bad))).await;
+            assert!(st == StatusCode::BAD_REQUEST || st == StatusCode::UNPROCESSABLE_ENTITY, "{st}");
+        }
+        assert_eq!(store.load_assets().unwrap().len(), 1);
+        let (st, ..) = send(&app, req("POST", "/api/data/erase", Some(&admin), Some(serde_json::json!({"confirm": "ERASE ALL DATA"})))).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(store.load_assets().unwrap().is_empty());
+        assert_eq!(store.list_users().unwrap().len(), 3, "accounts survive");
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("demo.load") && audit.contains("demo.remove") && audit.contains("data.erase"), "{audit}");
+    }
+
+    #[tokio::test]
+    async fn update_status_is_readable_by_everyone_and_every_action_needs_an_administrator() {
+        let (app, _, [viewer, editor, admin]) = secured().await;
+        let (st, _, v) = send(&app, req("GET", "/api/update", Some(&viewer), None)).await;
+        assert_eq!((st, v["available"].as_bool(), v["current"].as_str()), (StatusCode::OK, Some(false), Some(env!("CARGO_PKG_VERSION"))));
+        for c in [&viewer, &editor] {
+            for (m, u, body) in [("POST", "/api/update/check", None), ("POST", "/api/update/install", Some(serde_json::json!({}))), ("POST", "/api/update/snooze", Some(serde_json::json!({"days": 3}))), ("POST", "/api/update/skip", None), ("DELETE", "/api/update/schedule", None)] {
+                assert_eq!(send(&app, req(m, u, Some(c), body)).await.0, StatusCode::FORBIDDEN, "{m} {u}");
+            }
+        }
+        // this test console has no updater: an administrator is told so, not crashed on
+        let (st, ..) = send(&app, req("POST", "/api/update/install", Some(&admin), Some(serde_json::json!({})))).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn the_certificate_can_be_inspected_replaced_and_reset_only_by_admins_and_the_ca_is_public() {
+        let dir = tempfile::tempdir().unwrap();
+        let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
+        let shared = crate::engine::test_shared();
+        // without TLS the API says so
+        let auth = Arc::new(crate::auth::Auth::new(store.clone()));
+        let app_off = router(AppState { store: store.clone(), shared: shared.clone(), loopback_only: true, allowed_hosts: vec![], auth: auth.clone(), no_auth: true, secure_cookie: false });
+        assert_eq!(send(&app_off, req("GET", "/api/tls", None, None)).await.2["enabled"], false);
+        assert_eq!(send(&app_off, req("POST", "/api/tls/certificate", None, Some(serde_json::json!({"certificate": "x", "key": "y"})))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(app_off.clone().oneshot(req("GET", "/tls/ca.pem", None, None)).await.unwrap().status(), StatusCode::NOT_FOUND);
+
+        // with a managed certificate
+        crate::certs::ensure(dir.path(), &[], now_ts()).unwrap();
+        let config = crate::tls::load(&dir.path().join(crate::certs::SERVER_CERT), &dir.path().join(crate::certs::SERVER_KEY)).await.unwrap();
+        shared.set_tls_for_test(Arc::new(crate::tls::TlsHandle { config, dir: Some(dir.path().to_path_buf()), names: vec![] }));
+        for u in ["viewer", "editor", "adam"] {
+            let role = match u { "viewer" => "viewer", "editor" => "editor", _ => "admin" };
+            store.create_user(u, &crate::auth::hash_password("a-long-passphrase-1").unwrap(), role, false, 0).unwrap();
+        }
+        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false });
+        let login = |u: &'static str| { let app = app.clone(); async move {
+            let (_, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": u, "password": "a-long-passphrase-1"})))).await;
+            cookie_of(&h)
+        } };
+        let (viewer, editor, admin) = (login("viewer").await, login("editor").await, login("adam").await);
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("GET", "/api/tls", Some(c), None)).await.0, StatusCode::FORBIDDEN);
+            assert_eq!(send(&app, req("POST", "/api/tls/certificate", Some(c), Some(serde_json::json!({"certificate": "x", "key": "y"})))).await.0, StatusCode::FORBIDDEN);
+            assert_eq!(send(&app, req("DELETE", "/api/tls/certificate", Some(c), None)).await.0, StatusCode::FORBIDDEN);
+        }
+        let (_, _, v) = send(&app, req("GET", "/api/tls", Some(&admin), None)).await;
+        assert_eq!((v["enabled"].as_bool(), v["info"]["source"].as_str(), v["has_ca"].as_bool()), (Some(true), Some("generated"), Some(true)));
+        // the authority's certificate is downloadable before anyone signs in, and it is only the certificate
+        let resp = app.clone().oneshot(req("GET", "/tls/ca.pem", None, None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = String::from_utf8(axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap().to_vec()).unwrap();
+        assert!(body.contains("BEGIN CERTIFICATE") && !body.contains("PRIVATE"), "never the key");
+        // uploads are validated
+        let bad = serde_json::json!({"certificate": "nonsense", "key": "nonsense"});
+        assert_eq!(send(&app, req("POST", "/api/tls/certificate", Some(&admin), Some(bad))).await.0, StatusCode::BAD_REQUEST);
+        let key = rcgen::KeyPair::generate().unwrap();
+        let cert = rcgen::CertificateParams::new(vec!["denis.corp.example".to_string()]).unwrap().self_signed(&key).unwrap();
+        let good = serde_json::json!({"certificate": cert.pem(), "key": key.serialize_pem()});
+        let (st, _, v) = send(&app, req("POST", "/api/tls/certificate", Some(&admin), Some(good))).await;
+        assert_eq!((st, v["source"].as_str(), v["names"][0].as_str()), (StatusCode::OK, Some("custom"), Some("denis.corp.example")), "{v}");
+        assert_eq!(send(&app, req("GET", "/api/tls", Some(&admin), None)).await.2["info"]["source"], "custom");
+        // the audit log knows, without the key
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("tls.replace") && !audit.contains("PRIVATE"), "{audit}");
+        // and the generated certificate can be brought back
+        let (st, _, v) = send(&app, req("DELETE", "/api/tls/certificate", Some(&admin), None)).await;
+        assert_eq!((st, v["source"].as_str()), (StatusCode::OK, Some("generated")));
+    }
+
+    #[tokio::test]
+    async fn the_documentation_needs_sign_in_serves_known_pages_only_and_never_allows_script() {
+        let (app, _, [viewer, ..]) = secured().await;
+        let (st, ..) = send(&app, req("GET", "/docs/index", None, None)).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED);
+        let resp = app.clone().oneshot(req("GET", "/docs/detection-rules", Some(&viewer), None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let csp = resp.headers()[header::CONTENT_SECURITY_POLICY].to_str().unwrap().to_string();
+        assert!(csp.contains("default-src 'none'") && !csp.contains("script-src"), "{csp}");
+        let body = String::from_utf8(axum::body::to_bytes(resp.into_body(), 1 << 22).await.unwrap().to_vec()).unwrap();
+        assert!(body.contains("Detection rules") && body.contains("<nav>") && !body.contains("<script"));
+        for bad in ["/docs/nope", "/docs/..%2Fsecret", "/docs/index.md"] {
+            assert_eq!(send(&app, req("GET", bad, Some(&viewer), None)).await.0, StatusCode::NOT_FOUND, "{bad}");
+        }
+        assert_eq!(app.clone().oneshot(req("GET", "/docs/", Some(&viewer), None)).await.unwrap().status(), StatusCode::SEE_OTHER);
+    }
+
+    #[tokio::test]
+    async fn findings_list_what_is_wrong_with_the_stored_inventory_and_respect_corrections() {
+        let (app, store) = app(true);
+        let mut cam = Asset::new(Mac([2, 0, 0, 0, 0, 1]), 10);
+        cam.device_type = "camera".into();
+        cam.vendor = Some("Acme".into());
+        cam.last_seen = now_ts();
+        cam.open_ports = vec![crate::model::OpenPort { port: 23, proto: "tcp".into(), service: None }];
+        store.save_asset(&mut cam).unwrap();
+        let (code, v) = get_json(&app, "/api/findings", "localhost").await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(v[0]["id"], "telnet_open");
+        assert_eq!(v[0]["assets"], serde_json::json!([cam.id]));
+        assert!(v[0]["fix"].as_str().unwrap().contains("SSH"));
+        // marking the device as spare takes it out of the list
+        store.save_meta(cam.id, &crate::model::AssetMeta { status: Some("spare".into()), ..Default::default() }, "t", 1).unwrap();
+        assert!(get_json(&app, "/api/findings", "localhost").await.1.as_array().unwrap().is_empty());
+    }
+
+    // -------------------------------------------------------------- branding
+
+    fn png() -> Vec<u8> {
+        [&[0x89u8, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a][..], &[7; 32]].concat()
+    }
+
+    fn put_raw(uri: &str, cookie: &str, ctype: &str, body: Vec<u8>) -> axum::http::Request<Body> {
+        axum::http::Request::put(uri).header("host", "localhost").header("x-denis", "1").header("content-type", ctype)
+            .header("cookie", format!("{SESSION_COOKIE}={cookie}")).body(Body::from(body)).unwrap()
+    }
+
+    #[tokio::test]
+    async fn branding_is_public_to_read_admin_only_to_change_and_the_logo_is_safe() {
+        let (app, _store, [viewer, editor, admin]) = secured().await;
+        // readable before sign-in (the login page needs it)
+        let (st, _, v) = send(&app, req("GET", "/api/branding", None, None)).await;
+        assert_eq!((st, v["product_name"].as_str(), v["logo"].is_null()), (StatusCode::OK, Some("DENIS"), true));
+        // only admins change it
+        let patch = serde_json::json!({"product_name": "Acme Guard", "accent": "#dc2626", "theme_default": "dark", "login_message": "Authorised use only"});
+        for c in [None, Some(&viewer), Some(&editor)] {
+            let (st, ..) = send(&app, req("PUT", "/api/branding", c.map(String::as_str), Some(patch.clone()))).await;
+            assert!(st == StatusCode::UNAUTHORIZED || st == StatusCode::FORBIDDEN, "{st}");
+        }
+        assert_eq!(send(&app, req("PUT", "/api/branding", Some(&admin), Some(patch))).await.0, StatusCode::OK);
+        let v = send(&app, req("GET", "/api/branding", None, None)).await.2;
+        assert_eq!((v["product_name"].as_str(), v["accent"].as_str(), v["accent_text"].as_str(), v["theme_default"].as_str()), (Some("Acme Guard"), Some("#dc2626"), Some("#ffffff"), Some("dark")));
+        // invalid values are refused and change nothing
+        for bad in [serde_json::json!({"accent": "red;}</style><script>"}), serde_json::json!({"product_name": "<script>"}), serde_json::json!({"theme_default": "x"}), serde_json::json!({"default_language": "xx"})] {
+            let (st, ..) = send(&app, req("PUT", "/api/branding", Some(&admin), Some(bad.clone()))).await;
+            // a name with markup is *stored as text* (the UI never renders HTML), so only the other two are refused
+            if bad.get("product_name").is_none() {
+                assert_eq!(st, StatusCode::BAD_REQUEST, "{bad}");
+            }
+        }
+        assert_eq!(send(&app, req("GET", "/api/branding", None, None)).await.2["accent"], "#dc2626");
+        // the default language is one of the translated ones, English until an administrator says otherwise
+        assert_eq!(send(&app, req("GET", "/api/branding", None, None)).await.2["default_language"], "en");
+        assert_eq!(send(&app, req("PUT", "/api/branding", Some(&admin), Some(serde_json::json!({"default_language": "sk"})))).await.0, StatusCode::OK);
+        assert_eq!(send(&app, req("GET", "/api/branding", None, None)).await.2["default_language"], "sk");
+
+        // logo: real images only, admin only, size-limited; served locked-down
+        assert_eq!(send(&app, put_raw("/api/branding/logo", &editor, "image/png", png())).await.0, StatusCode::FORBIDDEN);
+        for (body, why) in [(b"<svg onload=alert(1)/>".to_vec(), "svg"), (b"GIF89".to_vec(), "truncated"), (vec![], "empty")] {
+            assert_eq!(send(&app, put_raw("/api/branding/logo", &admin, "image/png", body)).await.0, StatusCode::BAD_REQUEST, "{why}");
+        }
+        // the client-declared type is irrelevant: an SVG labelled image/png is still refused
+        assert_eq!(send(&app, put_raw("/api/branding/logo", &admin, "image/png", b"<svg/>".to_vec())).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, put_raw("/api/branding/logo", &admin, "image/png", [png(), vec![0u8; 300_000]].concat())).await.0, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(send(&app, put_raw("/api/branding/logo", &admin, "text/html", png())).await.0, StatusCode::NO_CONTENT);
+        let v = send(&app, req("GET", "/api/branding", None, None)).await.2;
+        assert!(v["logo"].as_str().unwrap().starts_with("/branding/logo?v="));
+        let resp = app.clone().oneshot(req("GET", "/branding/logo", None, None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.headers()[header::CONTENT_TYPE], "image/png");
+        assert_eq!(resp.headers()[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+        assert!(resp.headers()[header::CONTENT_SECURITY_POLICY].to_str().unwrap().contains("sandbox"));
+        assert_eq!(axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap().to_vec(), png());
+        // remove it
+        assert_eq!(send(&app, req("DELETE", "/api/branding/logo", Some(&admin), None)).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, req("GET", "/branding/logo", None, None)).await.0, StatusCode::NOT_FOUND);
+        assert!(send(&app, req("GET", "/api/branding", None, None)).await.2["logo"].is_null());
     }
 }

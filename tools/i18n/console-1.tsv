@@ -1,0 +1,167 @@
+# English || Deutsch || Français || Español || Slovenčina   (one entry per line; {name} placeholders must be kept)
+{t} ago || vor {t} || il y a {t} || hace {t} || pred {t}
+(private MAC) || (private MAC) || (MAC privée) || (MAC privada) || (súkromná MAC)
+local || lokal || local || local || lokálne
+no risk factors || keine Risikofaktoren || aucun facteur de risque || sin factores de riesgo || žiadne rizikové faktory
+Mark the {n} devices shown as known? || Die {n} angezeigten Geräte als bekannt markieren? || Marquer les {n} appareils affichés comme connus ? || ¿Marcar los {n} dispositivos mostrados como conocidos? || Označiť {n} zobrazených zariadení ako známe?
+Could not save || Speichern nicht möglich || Enregistrement impossible || No se pudo guardar || Nepodarilo sa uložiť
+online || online || en ligne || en línea || online
+not seen recently || zuletzt nicht gesehen || pas vu récemment || no visto recientemente || nedávno nevidené
+manual || manuell || manuel || manual || ručne
+joined recently and nobody has reviewed it || kürzlich hinzugekommen, noch von niemandem geprüft || récemment ajouté, pas encore examiné || se unió hace poco y nadie lo ha revisado || pripojené nedávno, nikto ho ešte nekontroloval
+new || neu || nouveau || nuevo || nové
+agent host || Agent-Rechner || hôte de l'agent || equipo del agente || počítač agenta
+this device || dieses Gerät || cet appareil || este dispositivo || toto zariadenie
+All sites || Alle Standorte || Tous les sites || Todos los sitios || Všetky lokality
+Local || Lokal || Local || Local || Lokálne
+Undo || Rückgängig || Annuler || Deshacer || Späť
+Acknowledge || Bestätigen || Acquitter || Confirmar || Potvrdiť
+Learning: new devices and destinations are learned, not alerted on, for another {time}. Unusually large transfers are only flagged once a device has enough history. || Lernphase: Neue Geräte und Ziele werden noch {time} lang gelernt und nicht gemeldet. Ungewöhnlich große Übertragungen werden erst gemeldet, wenn ein Gerät genug Verlauf hat. || Apprentissage : pendant encore {time}, les nouveaux appareils et destinations sont appris sans alerte. Les transferts inhabituellement volumineux ne sont signalés qu'une fois l'historique d'un appareil suffisant. || Aprendizaje: durante {time} más, los dispositivos y destinos nuevos se aprenden sin generar alertas. Las transferencias inusualmente grandes solo se señalan cuando un dispositivo tiene suficiente historial. || Učenie: nové zariadenia a ciele sa ešte {time} iba učia a nehlásia. Neobvykle veľké prenosy sa hlásia, až keď má zariadenie dostatok histórie.
+Detecting. Alerts score 0–100; anything under {min} is only logged. || Erkennung aktiv. Warnungen werden mit 0–100 bewertet; alles unter {min} wird nur protokolliert. || Détection active. Les alertes sont notées de 0 à 100 ; tout ce qui est sous {min} est seulement consigné. || Detección activa. Las alertas puntúan de 0 a 100; lo que queda por debajo de {min} solo se registra. || Detekcia beží. Upozornenia majú skóre 0–100; všetko pod {min} sa len zaznamená.
+Traffic rules are active for devices whose traffic crosses this interface. || Verkehrsregeln sind für Geräte aktiv, deren Datenverkehr über diese Schnittstelle läuft. || Les règles de trafic sont actives pour les appareils dont le trafic passe par cette interface. || Las reglas de tráfico están activas para los dispositivos cuyo tráfico pasa por esta interfaz. || Pravidlá pre prevádzku sú aktívne pre zariadenia, ktorých prevádzka prechádza cez toto rozhranie.
+Traffic rules (new destination, volume) are off: start with --flows. || Verkehrsregeln (neues Ziel, Volumen) sind aus: mit --flows starten. || Les règles de trafic (nouvelle destination, volume) sont désactivées : démarrez avec --flows. || Las reglas de tráfico (nuevo destino, volumen) están desactivadas: inicie con --flows. || Pravidlá pre prevádzku (nový cieľ, objem) sú vypnuté: spustite s --flows.
+score {n} || Wert {n} || score {n} || puntuación {n} || skóre {n}
+Device: {name} || Gerät: {name} || Appareil : {name} || Dispositivo: {name} || Zariadenie: {name}
+Why this score || Warum diese Bewertung || Pourquoi ce score || Por qué esta puntuación || Prečo toto skóre
+What to do || Was zu tun ist || Que faire || Qué hacer || Čo robiť
+Open device || Gerät öffnen || Ouvrir l'appareil || Abrir dispositivo || Otvoriť zariadenie
+Alert || Warnung || Alerte || Alerta || Upozornenie
+master (embedded collector) || Master (eingebauter Collector) || maître (collecteur intégré) || maestro (colector integrado) || hlavný (vstavaný kolektor)
+this machine || dieser Rechner || cette machine || este equipo || tento počítač
+now || jetzt || maintenant || ahora || teraz
+reporting || meldet sich || rapporte || informando || hlási sa
+not reporting || meldet sich nicht || ne rapporte pas || sin informar || nehlási sa
+connecting… || verbinde … || connexion… || conectando… || pripája sa…
+mode || Modus || mode || modo || režim
+viewer || Betrachter || lecteur || lector || čitateľ
+iface || Schnittstelle || interface || interfaz || rozhranie
+devices || Geräte || appareils || dispositivos || zariadenia
+sweep || Scan || balayage || barrido || sken
+running… || läuft … || en cours… || en curso… || beží…
+passive only || nur passiv || passif uniquement || solo pasivo || len pasívne
+frames || Frames || trames || tramas || rámce
+export || Export || export || exportación || export
+FAILING || FEHLER || ÉCHEC || FALLA || CHYBA
+ok {t} || ok {t} || ok {t} || ok {t} || ok {t}
+starting || startet || démarrage || iniciando || spúšťa sa
+Export to {target}: {error} || Export nach {target}: {error} || Export vers {target} : {error} || Exportación a {target}: {error} || Export do {target}: {error}
+Disabled in passive-only mode || Im passiven Modus deaktiviert || Désactivé en mode passif uniquement || Desactivado en modo solo pasivo || Vypnuté v pasívnom režime
+Run an ARP sweep and port scan now || ARP-Scan und Portscan jetzt ausführen || Lancer maintenant un balayage ARP et un scan de ports || Ejecutar ahora un barrido ARP y un escaneo de puertos || Spustiť ARP sken a sken portov teraz
+Observed since || Beobachtet seit || Observé depuis || Observado desde || Sledované od
+Destinations || Ziele || Destinations || Destinos || Ciele
+Outbound per bucket || Ausgehend pro Intervall || Sortant par intervalle || Salida por intervalo || Odchádzajúce za interval
+Ports || Ports || Ports || Puertos || Porty
+Recent destinations || Letzte Ziele || Destinations récentes || Destinos recientes || Posledné ciele
+Active hours (local time) || Aktive Stunden (Ortszeit) || Heures d'activité (heure locale) || Horas de actividad (hora local) || Aktívne hodiny (miestny čas)
+No traffic baseline yet. It is built from flow accounting (--flows) for traffic that crosses the monitoring interface. || Noch keine Verkehrs-Baseline. Sie entsteht aus der Flow-Erfassung (--flows) für Verkehr, der über die Überwachungsschnittstelle läuft. || Pas encore de référence de trafic. Elle est construite à partir de la comptabilité des flux (--flows) pour le trafic qui traverse l'interface de surveillance. || Todavía no hay una línea base de tráfico. Se construye con la contabilidad de flujos (--flows) del tráfico que pasa por la interfaz de monitorización. || Zatiaľ nie je základná línia prevádzky. Vzniká z evidencie tokov (--flows) pre prevádzku, ktorá prechádza monitorovacím rozhraním.
+expired {d} d ago || vor {d} Tg. abgelaufen || expiré il y a {d} j || caducó hace {d} d || vypršalo pred {d} d
+expires in {d} d || läuft in {d} Tg. ab || expire dans {d} j || caduca en {d} d || vyprší o {d} d
+ok || ok || ok || ok || ok
+Status || Status || Statut || Estado || Stav
+Criticality || Kritikalität || Criticité || Criticidad || Kritickosť
+Owner || Besitzer || Responsable || Responsable || Vlastník
+Department || Abteilung || Service || Departamento || Oddelenie
+Location || Standort || Emplacement || Ubicación || Umiestnenie
+Zone || Zone || Zone || Zona || Zóna
+Purdue level || Purdue-Ebene || Niveau Purdue || Nivel Purdue || Úroveň Purdue
+Asset tag || Inventarnummer || Numéro d'inventaire || Etiqueta de activo || Inventárne číslo
+Serial number || Seriennummer || Numéro de série || Número de serie || Sériové číslo
+Model || Modell || Modèle || Modelo || Model
+Manufacturer || Hersteller || Fabricant || Fabricante || Výrobca
+Supplier || Lieferant || Fournisseur || Proveedor || Dodávateľ
+Purchased || Gekauft || Acheté || Comprado || Zakúpené
+Warranty until || Garantie bis || Garantie jusqu'au || Garantía hasta || Záruka do
+Tags || Tags || Étiquettes || Etiquetas || Štítky
+Notes || Notizen || Notes || Notas || Poznámky
+site {name} || Standort {name} || site {name} || sitio {name} || lokalita {name}
+Edit asset || Gerät bearbeiten || Modifier l'appareil || Editar dispositivo || Upraviť zariadenie
+Mark as known || Als bekannt markieren || Marquer comme connu || Marcar como conocido || Označiť ako známe
+Delete || Löschen || Supprimer || Eliminar || Odstrániť
+Discovery guessed: {what} || Die Erkennung vermutete: {what} || La détection supposait : {what} || La detección supuso: {what} || Zisťovanie odhadlo: {what}
+Asset information || Geräteinformationen || Informations sur l'appareil || Información del dispositivo || Informácie o zariadení
+Nothing entered yet. Use "Edit asset" to add an owner, serial number, location, warranty… || Noch nichts eingetragen. Mit „Gerät bearbeiten“ Besitzer, Seriennummer, Standort, Garantie … hinzufügen. || Rien de saisi pour l'instant. Utilisez « Modifier l'appareil » pour ajouter un responsable, un numéro de série, un emplacement, une garantie… || Aún no se ha introducido nada. Use «Editar dispositivo» para añadir responsable, número de serie, ubicación, garantía… || Zatiaľ nič nezadané. Cez „Upraviť zariadenie“ pridajte vlastníka, sériové číslo, umiestnenie, záruku…
+Nothing entered yet. || Noch nichts eingetragen. || Rien de saisi pour l'instant. || Aún no se ha introducido nada. || Zatiaľ nič nezadané.
+Risk {score} ({level}) || Risiko {score} ({level}) || Risque {score} ({level}) || Riesgo {score} ({level}) || Riziko {score} ({level})
+No risk factors. || Keine Risikofaktoren. || Aucun facteur de risque. || Sin factores de riesgo. || Žiadne rizikové faktory.
+Alerts || Warnungen || Alertes || Alertas || Upozornenia
+Baseline || Baseline || Référence || Línea base || Základná línia
+Identity || Identität || Identité || Identidad || Identita
+(private/randomised) || (privat/zufällig) || (privée/aléatoire) || (privada/aleatoria) || (súkromná/náhodná)
+Vendor || Hersteller || Constructeur || Fabricante || Výrobca
+Hostnames || Hostnamen || Noms d'hôte || Nombres de host || Názvy hostiteľa
+First seen || Erstmals gesehen || Première apparition || Visto por primera vez || Prvý výskyt
+Last seen || Zuletzt gesehen || Dernière apparition || Visto por última vez || Naposledy videné
+never (entered by hand) || nie (manuell erfasst) || jamais (saisi à la main) || nunca (introducido a mano) || nikdy (zadané ručne)
+IP history || IP-Verlauf || Historique IP || Historial de IP || História IP
+none || keine || aucun || ninguno || žiadne
+Open ports || Offene Ports || Ports ouverts || Puertos abiertos || Otvorené porty
+scanned {t} || gescannt {t} || scanné {t} || escaneado {t} || skenované {t}
+none of the scanned ports are open || keiner der gescannten Ports ist offen || aucun des ports scannés n'est ouvert || ninguno de los puertos escaneados está abierto || žiadny zo skenovaných portov nie je otvorený
+not scanned yet || noch nicht gescannt || pas encore scanné || aún no escaneado || zatiaľ neskenované
+Fingerprint evidence || Fingerprint-Belege || Éléments d'empreinte || Evidencia de huella || Podklady odtlačku
+DHCP vendor class || DHCP-Herstellerklasse || Classe de fabricant DHCP || Clase de fabricante DHCP || Trieda výrobcu DHCP
+DHCP options || DHCP-Optionen || Options DHCP || Opciones DHCP || Možnosti DHCP
+mDNS services || mDNS-Dienste || Services mDNS || Servicios mDNS || Služby mDNS
+mDNS names || mDNS-Namen || Noms mDNS || Nombres mDNS || Názvy mDNS
+mDNS models || mDNS-Modelle || Modèles mDNS || Modelos mDNS || Modely mDNS
+SSDP server || SSDP-Server || Serveur SSDP || Servidor SSDP || Server SSDP
+SSDP types || SSDP-Typen || Types SSDP || Tipos SSDP || Typy SSDP
+TCP SYN || TCP-SYN || TCP SYN || TCP SYN || TCP SYN
+TTL seen || Beobachtete TTL || TTL observé || TTL observado || Pozorované TTL
+Why this guess || Warum diese Vermutung || Pourquoi cette supposition || Por qué esta suposición || Prečo tento odhad
+not enough evidence yet || noch nicht genug Belege || pas encore assez d'éléments || aún no hay evidencia suficiente || zatiaľ nedostatok podkladov
+Change history || Änderungsverlauf || Historique des modifications || Historial de cambios || História zmien
+No manual changes yet. || Noch keine manuellen Änderungen. || Aucune modification manuelle pour l'instant. || Aún no hay cambios manuales. || Zatiaľ žiadne ručné zmeny.
+no risk || kein Risiko || aucun risque || sin riesgo || bez rizika
+{site} gateway {ip} || {site}-Gateway {ip} || passerelle {site} {ip} || puerta de enlace {site} {ip} || brána {site} {ip}
+network (gateway not identified) || Netzwerk (Gateway nicht erkannt) || réseau (passerelle non identifiée) || red (puerta de enlace no identificada) || sieť (brána nebola zistená)
+gateway || Gateway || passerelle || puerta de enlace || brána
+network || Netzwerk || réseau || red || sieť
+unnamed || ohne Namen || sans nom || sin nombre || bez názvu
+risk {n} || Risiko {n} || risque {n} || riesgo {n} || riziko {n}
+{n} devices || {n} Geräte || {n} appareils || {n} dispositivos || {n} zariadení
+Topology of {site} || Topologie von {site} || Topologie de {site} || Topología de {site} || Topológia lokality {site}
+industrial devices || Industriegeräte || appareils industriels || dispositivos industriales || priemyselné zariadenia
+industrial protocols seen || erkannte Industrieprotokolle || protocoles industriels observés || protocolos industriales vistos || zistené priemyselné protokoly
+communication paths || Kommunikationswege || chemins de communication || rutas de comunicación || komunikačné cesty
+devices that write / control || Geräte, die schreiben / steuern || appareils qui écrivent / commandent || dispositivos que escriben / controlan || zariadenia, ktoré zapisujú / riadia
+open OT alerts || offene OT-Warnungen || alertes OT ouvertes || alertas OT abiertas || otvorené OT upozornenia
+answers requests || beantwortet Anfragen || répond aux requêtes || responde solicitudes || odpovedá na požiadavky
+sends requests || sendet Anfragen || envoie des requêtes || envía solicitudes || posiela požiadavky
+All protocols || Alle Protokolle || Tous les protocoles || Todos los protocolos || Všetky protokoly
+No samples yet. They are recorded every 5 minutes. || Noch keine Messwerte. Sie werden alle 5 Minuten erfasst. || Pas encore d'échantillons. Ils sont enregistrés toutes les 5 minutes. || Aún no hay muestras. Se registran cada 5 minutos. || Zatiaľ žiadne vzorky. Zaznamenávajú sa každých 5 minút.
+Devices online || Geräte online || Appareils en ligne || Dispositivos en línea || Zariadenia online
+{n} of {total} || {n} von {total} || {n} sur {total} || {n} de {total} || {n} z {total}
+Sent outside the network || Ins Internet gesendet || Envoyé hors du réseau || Enviado fuera de la red || Odoslané mimo siete
+Alerts raised || Ausgelöste Warnungen || Alertes déclenchées || Alertas generadas || Vyvolané upozornenia
+{n} points, {step} each. || {n} Punkte, je {step}. || {n} points, {step} chacun. || {n} puntos, {step} cada uno. || {n} bodov, každý {step}.
+Traffic is only counted with --flows. || Verkehr wird nur mit --flows gezählt. || Le trafic n'est compté qu'avec --flows. || El tráfico solo se cuenta con --flows. || Prevádzka sa počíta iba s --flows.
+1 device || 1 Gerät || 1 appareil || 1 dispositivo || 1 zariadenie
+What to do: || Was zu tun ist: || Que faire : || Qué hacer: || Čo robiť:
+in place || umgesetzt || en place || implantado || zavedené
+partly || teilweise || partiel || parcial || čiastočne
+not in place || nicht umgesetzt || non en place || no implantado || nezavedené
+Cannot reach the server || Server nicht erreichbar || Serveur injoignable || No se puede contactar con el servidor || Server je nedostupný
+Request failed ({status}) || Anfrage fehlgeschlagen ({status}) || La requête a échoué ({status}) || La solicitud falló ({status}) || Požiadavka zlyhala ({status})
+Copy || Kopieren || Copier || Copiar || Kopírovať
+Save || Speichern || Enregistrer || Guardar || Uložiť
+Cancel || Abbrechen || Annuler || Cancelar || Zrušiť
+Colour theme: {theme} (click to change) || Farbschema: {theme} (zum Ändern klicken) || Thème de couleur : {theme} (cliquer pour changer) || Tema de color: {theme} (clic para cambiar) || Farebná téma: {theme} (kliknutím zmeníte)
+Device Enumeration & Network Inventory Security || Device Enumeration & Network Inventory Security || Device Enumeration & Network Inventory Security || Device Enumeration & Network Inventory Security || Device Enumeration & Network Inventory Security
+Current logo || Aktuelles Logo || Logo actuel || Logotipo actual || Aktuálne logo
+no logo || kein Logo || pas de logo || sin logotipo || žiadne logo
+Saved. || Gespeichert. || Enregistré. || Guardado. || Uložené.
+Press Save to use the default colour. || Auf „Speichern“ klicken, um die Standardfarbe zu verwenden. || Cliquez sur Enregistrer pour utiliser la couleur par défaut. || Pulse Guardar para usar el color predeterminado. || Stlačením Uložiť použijete predvolenú farbu.
+Logo updated. || Logo aktualisiert. || Logo mis à jour. || Logotipo actualizado. || Logo bolo aktualizované.
+Upload failed ({status}). || Hochladen fehlgeschlagen ({status}). || Échec du téléversement ({status}). || Falló la subida ({status}). || Nahrávanie zlyhalo ({status}).
+Logo removed. || Logo entfernt. || Logo supprimé. || Logotipo eliminado. || Logo bolo odstránené.
+Your session has ended. Please sign in again. || Ihre Sitzung ist beendet. Bitte melden Sie sich erneut an. || Votre session a pris fin. Veuillez vous reconnecter. || Su sesión ha terminado. Vuelva a iniciar sesión. || Vaša relácia sa skončila. Prihláste sa znova.
+Choose a new password || Neues Passwort wählen || Choisir un nouveau mot de passe || Elija una contraseña nueva || Zvoľte nové heslo
+Change password || Passwort ändern || Changer le mot de passe || Cambiar contraseña || Zmeniť heslo
+Your password was set by an administrator. Choose your own before continuing. || Ihr Passwort wurde von einem Administrator festgelegt. Wählen Sie ein eigenes, bevor Sie fortfahren. || Votre mot de passe a été défini par un administrateur. Choisissez le vôtre avant de continuer. || Un administrador estableció su contraseña. Elija la suya antes de continuar. || Vaše heslo nastavil správca. Pred pokračovaním si zvoľte vlastné.
+Current password || Aktuelles Passwort || Mot de passe actuel || Contraseña actual || Aktuálne heslo
+New password (at least 12 characters) || Neues Passwort (mindestens 12 Zeichen) || Nouveau mot de passe (au moins 12 caractères) || Contraseña nueva (al menos 12 caracteres) || Nové heslo (aspoň 12 znakov)
+Repeat new password || Neues Passwort wiederholen || Répéter le nouveau mot de passe || Repita la contraseña nueva || Zopakujte nové heslo
+The two new passwords do not match. || Die beiden neuen Passwörter stimmen nicht überein. || Les deux nouveaux mots de passe ne correspondent pas. || Las dos contraseñas nuevas no coinciden. || Obe nové heslá sa nezhodujú.
+Password changed || Passwort geändert || Mot de passe modifié || Contraseña cambiada || Heslo bolo zmenené
+Your other sessions have been signed out. || Ihre anderen Sitzungen wurden abgemeldet. || Vos autres sessions ont été fermées. || Sus otras sesiones se han cerrado. || Vaše ostatné relácie boli odhlásené.

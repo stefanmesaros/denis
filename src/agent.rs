@@ -13,12 +13,15 @@ use anyhow::{bail, Context, Result};
 use tokio::sync::mpsc;
 
 use crate::inventory::Inventory;
-use crate::model::{now_ts, AgentMeta, FlowRecord, Report, ReportAck};
+use crate::model::{now_ts, AgentMeta, ConvRecord, FlowBatch, FlowRecord, Report, ReportAck, Signal};
 
 /// Flow windows held while the master is unreachable (~ hours at typical rates).
 pub const SPOOL_MAX: usize = 200_000;
 /// Records per report; keeps bodies to a few MB.
 pub const BATCH_FLOWS: usize = 20_000;
+const SIGNALS_MAX: usize = 10_000;
+const CONVS_MAX: usize = 50_000;
+const BATCH_CONVS: usize = 5_000;
 const HEARTBEAT: Duration = Duration::from_secs(60);
 const BACKOFF_MAX: Duration = Duration::from_secs(300);
 
@@ -27,6 +30,9 @@ pub struct AgentConfig {
     pub token: String,
     pub meta: AgentMeta,
     pub interval: Duration,
+    /// PEM file with the CA (or the self-signed certificate) that signed the
+    /// master's HTTPS certificate. When given it is the *only* trust anchor.
+    pub ca_cert: Option<std::path::PathBuf>,
 }
 
 struct Pending {
@@ -42,6 +48,8 @@ pub struct Reporter {
     seq: u64,
     last_rev: u64,
     spool: VecDeque<FlowRecord>,
+    convs: VecDeque<ConvRecord>,
+    signals: VecDeque<Signal>,
     pub dropped: u64,
     pending: Option<Pending>,
     last_sent: Option<Instant>,
@@ -58,6 +66,8 @@ impl Reporter {
             seq: 0,
             last_rev: 0,
             spool: VecDeque::new(),
+            convs: VecDeque::new(),
+            signals: VecDeque::new(),
             dropped: 0,
             pending: None,
             last_sent: None,
@@ -74,6 +84,26 @@ impl Reporter {
         }
     }
 
+    pub fn spool_convs(&mut self, convs: Vec<ConvRecord>) {
+        for c in convs {
+            if self.convs.len() >= CONVS_MAX {
+                self.convs.pop_front();
+                self.dropped += 1;
+            }
+            self.convs.push_back(c);
+        }
+    }
+
+    pub fn spool_signals(&mut self, signals: Vec<Signal>) {
+        for s in signals {
+            if self.signals.len() >= SIGNALS_MAX {
+                self.signals.pop_front();
+                self.dropped += 1;
+            }
+            self.signals.push_back(s);
+        }
+    }
+
     pub fn spooled(&self) -> usize {
         self.spool.len()
     }
@@ -85,10 +115,12 @@ impl Reporter {
             let (assets, rev) = inv.lock().unwrap().changed_since(self.last_rev);
             let take = self.spool.len().min(BATCH_FLOWS);
             let heartbeat_due = self.last_sent.is_none_or(|t| t.elapsed() >= HEARTBEAT);
-            if assets.is_empty() && take == 0 && !heartbeat_due {
+            if assets.is_empty() && take == 0 && self.signals.is_empty() && self.convs.is_empty() && !heartbeat_due {
                 return None;
             }
             let flows: Vec<FlowRecord> = self.spool.drain(..take).collect();
+            let signals: Vec<Signal> = self.signals.drain(..).collect();
+            let conversations: Vec<ConvRecord> = self.convs.drain(..self.convs.len().min(BATCH_CONVS)).collect();
             self.seq += 1;
             self.pending = Some(Pending {
                 report: Report {
@@ -98,6 +130,8 @@ impl Reporter {
                     sent_at: now,
                     assets,
                     flows,
+                    signals,
+                    conversations,
                 },
                 rev,
             });
@@ -140,11 +174,28 @@ pub enum PostError {
     Transient(String),
 }
 
-pub fn post_report(base: &str, token: &str, report: &Report) -> std::result::Result<ReportAck, PostError> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(30)))
-        .build()
-        .into();
+/// The HTTP client used to talk to the master. With `ca_cert` the connection is
+/// only trusted if the master's certificate chains to that file (pinning the
+/// deployment's own CA); without it the usual public web roots apply.
+pub fn http_client(ca_cert: Option<&std::path::Path>) -> Result<ureq::Agent> {
+    let mut cfg = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(30)));
+    if let Some(path) = ca_cert {
+        let pem = std::fs::read_to_string(path).with_context(|| format!("reading the CA certificate {}", path.display()))?;
+        let mut certs = Vec::new();
+        for block in pem.split_inclusive("-----END CERTIFICATE-----") {
+            if block.contains("-----BEGIN CERTIFICATE-----") {
+                certs.push(ureq::tls::Certificate::from_pem(block.trim().as_bytes()).with_context(|| format!("parsing a certificate in {}", path.display()))?);
+            }
+        }
+        if certs.is_empty() {
+            bail!("{} contains no PEM certificate", path.display());
+        }
+        cfg = cfg.tls_config(ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::new_with_certs(&certs)).build());
+    }
+    Ok(cfg.build().into())
+}
+
+pub fn post_report(agent: &ureq::Agent, base: &str, token: &str, report: &Report) -> std::result::Result<ReportAck, PostError> {
     let url = format!("{}/api/v1/report", base.trim_end_matches('/'));
     match agent
         .post(&url)
@@ -162,11 +213,7 @@ pub fn post_report(base: &str, token: &str, report: &Report) -> std::result::Res
 }
 
 /// Check the master is reachable and the token is accepted, before starting.
-pub fn check_master(base: &str, token: &str) -> Result<()> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(10)))
-        .build()
-        .into();
+pub fn check_master(agent: &ureq::Agent, base: &str, token: &str) -> Result<()> {
     let url = format!("{}/api/v1/ping", base.trim_end_matches('/'));
     match agent.get(&url).header("Authorization", format!("Bearer {token}")).call() {
         Ok(_) => Ok(()),
@@ -179,22 +226,35 @@ pub fn check_master(base: &str, token: &str) -> Result<()> {
 pub async fn run(
     cfg: AgentConfig,
     inv: Arc<Mutex<Inventory>>,
-    mut flow_rx: mpsc::Receiver<Vec<FlowRecord>>,
+    mut flow_rx: mpsc::Receiver<FlowBatch>,
+    mut signal_rx: mpsc::UnboundedReceiver<Vec<Signal>>,
 ) {
+    let client = match http_client(cfg.ca_cert.as_deref()) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("{e:#}");
+            return;
+        }
+    };
     let mut rep = Reporter::new(cfg.meta.clone());
     let mut tick = tokio::time::interval(cfg.interval);
     let mut backoff = Duration::ZERO;
     let mut retry_at = Instant::now();
     loop {
         tokio::select! {
-            Some(flows) = flow_rx.recv() => rep.spool(flows),
+            Some(batch) = flow_rx.recv() => {
+                rep.spool(batch.flows);
+                rep.spool_convs(batch.convs);
+            }
+            Some(sigs) = signal_rx.recv() => rep.spool_signals(sigs),
             _ = tick.tick() => {
                 if Instant::now() < retry_at {
                     continue;
                 }
                 let Some(report) = rep.next_batch(&inv, now_ts()).cloned() else { continue };
                 let (base, token) = (cfg.master_url.clone(), cfg.token.clone());
-                let res = tokio::task::spawn_blocking(move || post_report(&base, &token, &report)).await;
+                let c = client.clone();
+                let res = tokio::task::spawn_blocking(move || post_report(&c, &base, &token, &report)).await;
                 match res {
                     Ok(Ok(ack)) => {
                         tracing::debug!("report {} acknowledged ({} assets, {} flows)", ack.seq, ack.assets, ack.flows);
@@ -290,6 +350,20 @@ mod tests {
         // does not re-include the rejected assets.
         let next = r.next_batch(&inv, 2).unwrap().clone();
         assert_eq!((next.seq, next.assets.len()), (2, 0), "rev advanced past the bad batch");
+    }
+
+    #[test]
+    fn signals_ride_in_the_next_batch_and_wake_an_idle_agent() {
+        let inv = inv_with(1);
+        let mut r = Reporter::new(meta());
+        r.next_batch(&inv, 1).unwrap();
+        r.on_ack(&ReportAck { seq: 1, assets: 1, flows: 0, duplicate: false });
+        assert!(r.next_batch(&inv, 2).is_none(), "idle");
+        r.spool_signals(vec![Signal { kind: "arp_conflict".into(), ts: 5, mac: Mac([0x3c, 0, 0, 0, 0, 9]), ip: Ipv4Addr::new(10, 0, 0, 1), other_mac: None, gateway: true }]);
+        let b = r.next_batch(&inv, 3).unwrap().clone();
+        assert_eq!((b.seq, b.signals.len(), b.assets.len()), (2, 1, 0));
+        // and are re-sent unchanged until acknowledged
+        assert_eq!(r.next_batch(&inv, 9).unwrap().signals.len(), 1);
     }
 
     #[test]

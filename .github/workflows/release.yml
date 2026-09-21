@@ -1,0 +1,76 @@
+# Publishes a release when a tag like v0.2.0 is pushed:
+#   1. builds the program for each platform,
+#   2. writes SHA256SUMS and signs it with the release key (secret DENIS_RELEASE_KEY),
+#   3. attaches everything to a GitHub release whose notes come from CHANGELOG.md.
+# The installed programs verify that signature before they update themselves (see RELEASING.md).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # the oldest runners, so the binaries run on as many Linux systems as possible
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: macos-latest, target: x86_64-apple-darwin }
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag must match the version in Cargo.toml
+        shell: bash
+        run: |
+          v=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          test "v$v" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != Cargo.toml version v$v"; exit 1; }
+      - name: Install libpcap (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: cargo test --locked --target ${{ matrix.target }}
+        if: matrix.target != 'x86_64-apple-darwin'   # cannot run Intel test binaries on the Apple-silicon runner
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - run: cp target/${{ matrix.target }}/release/denis denis-${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: denis-${{ matrix.target }}
+          path: denis-${{ matrix.target }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums and signature
+        env:
+          DENIS_RELEASE_KEY: ${{ secrets.DENIS_RELEASE_KEY }}
+        run: |
+          cd dist
+          chmod +x denis-x86_64-unknown-linux-gnu
+          sha256sum denis-* > SHA256SUMS
+          ./denis-x86_64-unknown-linux-gnu release-sign SHA256SUMS
+          cat SHA256SUMS
+      - name: Release notes from CHANGELOG.md
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" '$0 ~ "^## " v {f=1; next} /^## / {f=0} f' CHANGELOG.md > notes.md
+          test -s notes.md || echo "See CHANGELOG.md" > notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: notes.md
+          files: dist/*
