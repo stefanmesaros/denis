@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.3.0-rc.1: verify a fix, accept a risk
+## 0.3.0: verify a fix, accept a risk
 
-*Release candidate: used for a while before it becomes 0.3.0.*
+*Used for a while as 0.3.0-rc.1 on a real network before this release.*
 
 Findings
 * **Verify fix** on every finding: DENIS scans the devices again right now and says, per device, **fixed**, **still
