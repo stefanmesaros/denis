@@ -153,7 +153,7 @@ fn parse_ot(ctx: &Ctx, src_mac: Mac, dst_mac: Mac, p: &[u8], out: &mut Vec<Obser
         return;
     }
     let (sport, dport) = (u16::from_be_bytes([l4[0], l4[1]]), u16::from_be_bytes([l4[2], l4[3]]));
-    if let Some(pdu) = ot::parse_pdu(is_tcp, sport, dport, &l4[hdr..]) {
+    if let Some(pdu) = ot::parse_pdu(is_tcp, sport, dport, &l4[hdr..]).or_else(|| ot::parse_opaque(is_tcp, sport, dport, &l4[hdr..])) {
         out.push(Observation::Ot(OtSample {
             src_mac,
             dst_mac,
@@ -1237,6 +1237,27 @@ mod tests {
         let reply = tcp_frame(PLC, DEV, 31, 30, 502, 50_000, &[0, 1, 0, 0, 0, 5, 1, 3, 2, 0, 5]);
         let obs = parse_frame(&ot_ctx(), &reply);
         assert!(obs.iter().any(|o| matches!(o, Observation::Ot(s) if s.pdu.server_is_src && s.pdu.proto == "modbus")));
+    }
+
+    #[test]
+    fn encrypted_traffic_between_local_devices_is_a_path_with_its_handshake_metadata_and_needs_no_industrial_port() {
+        let hello: Vec<u8> = (0..250).map(|i| u8::from_str_radix(&"16030100f5010000f103030fa623c5423c7f6a6b13f467d45a8e8d9b2996fde3ab0deb2fd075d0e6a3352720fc60ed75deb6ce734c292061782722550ecc57a98166d4d318a3d359cc40a1e2000813021303130100ff010000a0000000150013000010706c63312e706c616e742e6c6f63616c000b000403000102000a00160014001d0017001e0019001801000101010201030104002300000016000000170000000d001e001c040305030603080708080809080a080b080408050806040105010601002b0003020304002d00020101003300260024001d0020099865fe339018d045a3f56bff77221709a47c4e04d2927373447f08e3763618"[2 * i..2 * i + 2], 16).unwrap()).collect();
+        // a client opens TLS to 192.168.1.31:8443: who talks to whom is visible although nothing else is
+        let f = tcp_frame(DEV, PLC, 30, 31, 50_000, 8443, &hello);
+        let obs = parse_frame(&ot_ctx(), &f);
+        let s = obs.iter().find_map(|o| match o { Observation::Ot(s) => Some(s), _ => None }).expect("a path");
+        assert_eq!((s.pdu.proto, s.pdu.server_is_src, s.pdu.class, s.pdu.port), ("tls", false, crate::model::OtClass::Opaque, 8443));
+        assert!(s.pdu.detail.contains("TLS 1.3") && s.pdu.detail.contains("plc1.plant.local"), "{}", s.pdu.detail);
+        assert_eq!((s.src_mac.0, s.dst_mac.0), (DEV, PLC));
+        // application data on a secured OPC UA port names the protocol by its port
+        let data = tcp_frame(PLC, DEV, 31, 30, 4843, 50_000, &[0x17, 3, 3, 0, 5, 1, 2, 3, 4, 5]);
+        assert!(parse_frame(&ot_ctx(), &data).iter().any(|o| matches!(o, Observation::Ot(s) if s.pdu.proto == "opcua-tls" && s.pdu.server_is_src)));
+        // TLS towards the outside is flow accounting's business, not a local path; and it is opt-in like the rest
+        let out = eth(PLC, DEV, ETH_IPV4, &ipv4(6, 64, [192, 168, 1, 30], [8, 8, 8, 8], &{ let mut t = tcp_hdr(50_000, 443); t.extend_from_slice(&hello); t }));
+        assert!(!parse_frame(&ot_ctx(), &out).iter().any(|o| matches!(o, Observation::Ot(_))));
+        assert!(!parse_frame(&flow_ctx(), &f).iter().any(|o| matches!(o, Observation::Ot(_))));
+        // a decoded protocol is still decoded, not called opaque
+        assert!(parse_frame(&ot_ctx(), &tcp_frame(DEV, PLC, 30, 31, 50_000, 502, &modbus_read())).iter().any(|o| matches!(o, Observation::Ot(s) if s.pdu.proto == "modbus")));
     }
 
     #[test]

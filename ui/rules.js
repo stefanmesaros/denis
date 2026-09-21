@@ -159,6 +159,7 @@ $('rules-reset').onclick = async () => {
 
 /** Ready-made watches: a click fills the form, the person adjusts it. */
 const WATCH_PRESETS = () => [
+  { label: tr('Only these devices may talk to it (any communication, also encrypted)'), proto: 'any', any_traffic: true },
   { label: tr('Any write command (registers, coils, tags)'), proto: 'any', writes: true },
   { label: tr('Any control command (stop, start, download, restart)'), proto: 'any', controls: true },
   { label: tr('Siemens S7: CPU stop'), proto: 's7', commands: ['PLC stop'] },
@@ -172,7 +173,7 @@ const WATCH_PRESETS = () => [
   { label: tr('IEC 60870-5-104: any command'), proto: 'iec104', controls: true },
 ];
 
-const PROTO_NAMES = () => ({ any: tr('any protocol'), modbus: 'Modbus', s7: 'Siemens S7', enip: 'EtherNet/IP', dnp3: 'DNP3', bacnet: 'BACnet', opcua: 'OPC UA', iec104: 'IEC 60870-5-104' });
+const PROTO_NAMES = () => ({ any: tr('any protocol'), modbus: 'Modbus', s7: 'Siemens S7', enip: 'EtherNet/IP', dnp3: 'DNP3', bacnet: 'BACnet', opcua: 'OPC UA', iec104: 'IEC 60870-5-104', tls: tr('any TLS (encrypted)'), 'modbus-tls': 'Modbus/TCP Security (TLS)', 'opcua-tls': 'OPC UA (TLS)', 'iec104-tls': 'IEC 104 (TLS)', 'dnp3-tls': 'DNP3 (TLS)', 'mqtt-tls': 'MQTT (TLS)' });
 
 /** From the communications matrix: start a watch for one command on one path. */
 function watchFor(conv, cmd) {
@@ -185,6 +186,7 @@ function watchFor(conv, cmd) {
 /** What a watch looks for, in one line. */
 function watchText(w) {
   const what = [];
+  if (w.any_traffic) what.push(tr('any communication'));
   if (w.controls) what.push(tr('any control command'));
   if (w.writes) what.push(tr('any write'));
   what.push(...w.commands.map((c) => '"' + c + '"'));
@@ -220,7 +222,7 @@ function watchesSection(edit, saveNow) {
  * called with the finished watch when the person saves.
  */
 async function openWatchForm(prefill, done) {
-  const w = { name: '', enabled: true, proto: 'any', writes: false, controls: false, commands: [], targets: [], allowed_senders: [], score: 80, cooldown_minutes: 10, ...(prefill || {}) };
+  const w = { name: '', enabled: true, proto: 'any', writes: false, controls: false, any_traffic: false, commands: [], targets: [], allowed_senders: [], score: 80, cooldown_minutes: 10, ...(prefill || {}) };
   const isNew = !prefill || !prefill.id;
   let targets = w.targets.slice();
   let senders = w.allowed_senders.slice();
@@ -235,6 +237,7 @@ async function openWatchForm(prefill, done) {
   proto.value = w.proto;
   const writes = el('input', { type: 'checkbox', checked: w.writes });
   const controls = el('input', { type: 'checkbox', checked: w.controls });
+  const anyTraffic = el('input', { type: 'checkbox', checked: w.any_traffic });
   const words = el('input', { value: w.commands.join(', '), placeholder: tr('e.g. write single register, 0x29, restart') });
   const seenBox = el('div', { class: 'chips' });
   const drawSeen = () => seenBox.replaceChildren(...[...seen.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([cmd, n]) => el('button', {
@@ -251,6 +254,7 @@ async function openWatchForm(prefill, done) {
     proto.value = p.proto;
     writes.checked = !!p.writes;
     controls.checked = !!p.controls;
+    anyTraffic.checked = !!p.any_traffic;
     words.value = (p.commands || []).join(', ');
     if (!nameIn.value.trim()) nameIn.value = p.label;
   };
@@ -266,6 +270,7 @@ async function openWatchForm(prefill, done) {
     field(tr('Start from'), preset),
     field(tr('Protocol'), proto),
     el('div', { class: 'field-wide' }, el('span', { class: 'label', text: tr('Alert when the command is') }),
+      el('label', { class: 'check' }, anyTraffic, ' ' + tr('any communication at all, encrypted or not (use it with the targets and allowed senders below)')),
       el('label', { class: 'check' }, controls, ' ' + tr('any control command (stop, start, download, restart, operate)')),
       el('label', { class: 'check' }, writes, ' ' + tr('any write (registers, coils, tags, setpoints)')),
       el('label', {}, tr('or a function whose name contains (comma separated)'), words),
@@ -279,11 +284,11 @@ async function openWatchForm(prefill, done) {
       const commands = words.value.split(',').map((x) => x.trim()).filter(Boolean);
       const nw = {
         id: w.id || Math.random().toString(36).slice(2, 10).replace(/[^a-z0-9]/g, 'x'), name: nameIn.value.trim(), enabled: enabled.checked, proto: proto.value,
-        writes: writes.checked, controls: controls.checked, commands, targets, allowed_senders: senders,
+        writes: writes.checked, controls: controls.checked, any_traffic: anyTraffic.checked, commands, targets, allowed_senders: senders,
         score: Number(score.value), cooldown_minutes: Number(gap.value),
       };
       if (!nw.name) return tr('Give the watch a name.');
-      if (!nw.writes && !nw.controls && !nw.commands.length) return tr('Choose what to watch for: a kind of command or a function name.');
+      if (!nw.writes && !nw.controls && !nw.any_traffic && !nw.commands.length) return tr('Choose what to watch for: any communication, a kind of command or a function name.');
       const res = await done(nw);
       return res && !res.ok ? apiError(res) : null;
     },

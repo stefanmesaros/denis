@@ -43,8 +43,122 @@ pub fn ot_proto_for_port(port: u16) -> Option<&'static str> {
     OT_PORTS.iter().find(|(p, _)| *p == port).map(|(_, n)| *n)
 }
 
+/// Industrial protocols that run inside TLS on their own port: what is on the wire is encrypted, but the port says which protocol it is.
+pub const SECURE_OT_PORTS: &[(u16, &str)] = &[(802, "modbus-tls"), (4843, "opcua-tls"), (19998, "iec104-tls"), (19999, "dnp3-tls"), (8883, "mqtt-tls")];
+
+/// Is this the protocol name of traffic DENIS cannot read into (TLS, or a secured industrial protocol)?
+pub fn is_encrypted_proto(proto: &str) -> bool {
+    proto == "tls" || proto.ends_with("-tls")
+}
+
 fn pdu(proto: &'static str, server_is_src: bool, class: OtClass, detail: impl Into<String>, port: u16) -> OtPdu {
     OtPdu { proto, server_is_src, class, detail: detail.into(), port, identity: BTreeMap::new() }
+}
+
+// ------------------------------------------------------------------ what cannot be read
+
+/// A TLS record header: content type 20-23, version 3.1-3.4, a plausible length. Encrypted payloads are opaque, but the
+/// header, the handshake (protocol version, the server name the client asked for) and the direction are in the clear.
+fn tls_record(p: &[u8]) -> Option<(u8, u16)> {
+    let (t, major, minor) = (*p.first()?, *p.get(1)?, *p.get(2)?);
+    let len = u16::from_be_bytes([*p.get(3)?, *p.get(4)?]);
+    ((0x14..=0x17).contains(&t) && major == 3 && (1..=4).contains(&minor) && len > 0 && len <= 16384 + 2048).then_some((t, len))
+}
+
+fn tls_version(v: u16) -> Option<&'static str> {
+    match v {
+        0x0301 => Some("1.0"),
+        0x0302 => Some("1.1"),
+        0x0303 => Some("1.2"),
+        0x0304 => Some("1.3"),
+        _ => None,
+    }
+}
+
+/// What a ClientHello or ServerHello says: the protocol version and (client) the server name asked for. Every read is
+/// bounds-checked; a hello cut short by the capture just gives less.
+fn tls_hello(p: &[u8], client: bool) -> (Option<&'static str>, Option<String>) {
+    let rd16 = |i: usize| p.get(i..i + 2).map(|b| u16::from_be_bytes([b[0], b[1]]));
+    let mut version = rd16(9).and_then(tls_version);
+    let mut sni = None;
+    let mut step = || -> Option<()> {
+        let mut i = 43; // record 5 + handshake 4 + version 2 + random 32
+        i += 1 + *p.get(i)? as usize; // session id
+        if client {
+            i += 2 + rd16(i)? as usize; // cipher suites
+            i += 1 + *p.get(i)? as usize; // compression methods
+        } else {
+            i += 3; // the chosen cipher suite and compression method
+        }
+        let end = (i + 2 + rd16(i)? as usize).min(p.len());
+        i += 2;
+        while i + 4 <= end {
+            let (t, l) = (rd16(i)?, rd16(i + 2)? as usize);
+            let body = p.get(i + 4..(i + 4 + l).min(end))?;
+            match (t, client) {
+                (0, true) if body.len() >= 5 => {
+                    let n = u16::from_be_bytes([body[3], body[4]]) as usize;
+                    sni = body.get(5..5 + n).and_then(|b| crate::parse::clean_str(&String::from_utf8_lossy(b)));
+                }
+                // supported_versions: the client lists them (the newest wins), the server names the one it chose
+                (43, true) if body.len() >= 3 => {
+                    let newest = body[1..].as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes(*c)).filter(|v| tls_version(*v).is_some()).max();
+                    version = newest.and_then(tls_version).or(version);
+                }
+                (43, false) if body.len() == 2 => version = tls_version(u16::from_be_bytes([body[0], body[1]])).or(version),
+                _ => {}
+            }
+            i += 4 + l;
+        }
+        Some(())
+    };
+    let _ = step();
+    (version, sni)
+}
+
+/// Traffic between two devices that is not decoded: TLS on any port, a secured industrial protocol on its port, or a
+/// known industrial port whose payload is not the protocol DENIS decodes. The content is unknown; the path is not.
+pub fn parse_opaque(is_tcp: bool, sport: u16, dport: u16, payload: &[u8]) -> Option<OtPdu> {
+    let known = |p: u16| SECURE_OT_PORTS.iter().find(|(q, _)| *q == p).map(|(q, n)| (*q, *n)).or_else(|| ot_proto_for_port(p).map(|n| (p, n)));
+    let named = known(dport).or_else(|| known(sport));
+    if is_tcp {
+        if let Some((t, _)) = tls_record(payload) {
+            let (mut src_is_server, mut detail) = match &named {
+                Some((p, _)) => (sport == *p && dport != *p, String::new()),
+                None => (sport < dport, String::new()), // the server is on the lower (well-known) port
+            };
+            let mut version = tls_version(u16::from_be_bytes([*payload.get(1)?, *payload.get(2)?]));
+            if t == 0x16 && payload.len() > 9 {
+                match payload[5] {
+                    1 | 2 => {
+                        let client = payload[5] == 1;
+                        src_is_server = !client;
+                        let (v, sni) = tls_hello(payload, client);
+                        version = v.or(version);
+                        detail = format!("TLS {} handshake{}", version.unwrap_or("?"), sni.map(|s| format!(" (server name {s})")).unwrap_or_default());
+                    }
+                    _ => detail = "TLS handshake".into(),
+                }
+            }
+            if detail.is_empty() {
+                detail = match t {
+                    0x17 => "TLS data".into(),
+                    0x15 => "TLS alert".into(),
+                    _ => "TLS handshake".into(),
+                };
+            }
+            let (port, proto) = match named {
+                Some((p, n)) if SECURE_OT_PORTS.iter().any(|(q, _)| *q == p) => (p, n),
+                _ => (if src_is_server { sport } else { dport }, "tls"),
+            };
+            return Some(pdu(proto, src_is_server, OtClass::Opaque, detail, port));
+        }
+    }
+    // an industrial protocol DENIS does not decode (its port is the evidence). A port of a protocol that *is* decoded, with
+    // something else on it, is not counted: ordinary traffic that merely uses the number is not industrial traffic.
+    let (p, n) = named?;
+    let decoded = matches!(p, 502 | 102 | 44818 | 20000 | 47808 | 4840 | 2404);
+    (!decoded && !payload.is_empty()).then(|| pdu(n, sport == p && dport != p, OtClass::Opaque, "content not decoded", p))
 }
 
 /// Decode one TCP/UDP payload as an industrial protocol, choosing the decoder
@@ -961,5 +1075,74 @@ mod tests {
             }
             let _ = (parse_lldp(&payload), parse_cdp(&payload), parse_profinet_dcp(&payload));
         }
+    }
+
+    // Real TLS handshakes, captured from OpenSSL (Python's ssl over memory buffers): a client asking for the server name
+    // "plc1.plant.local" and the server's answer, for TLS 1.3 and TLS 1.2.
+    const CH13: &str = "16030100f5010000f103030fa623c5423c7f6a6b13f467d45a8e8d9b2996fde3ab0deb2fd075d0e6a3352720fc60ed75deb6ce734c292061782722550ecc57a98166d4d318a3d359cc40a1e2000813021303130100ff010000a0000000150013000010706c63312e706c616e742e6c6f63616c000b000403000102000a00160014001d0017001e0019001801000101010201030104002300000016000000170000000d001e001c040305030603080708080809080a080b080408050806040105010601002b0003020304002d00020101003300260024001d0020099865fe339018d045a3f56bff77221709a47c4e04d2927373447f08e3763618";
+    const SH13: &str = "160303007a02000076030390270d1d1332bef2dae3874f44db3602ba33c00dba0edddff5e742ddad57c2b320fc60ed75deb6ce734c292061782722550ecc57a98166d4d318a3d359cc40a1e2130200002e002b0002030400330024001d002041c915f8f2b1fbf4e424636b0f46cc74302e81774e0271a457ba915740ffce751403030001011703030017054121be38534f1d71150eb6779fb2098e59d50e5c5cda17030303398f6c8d3bfd16a8e5346801fc2c8cc5a13c33a8e504cc036d953f3153afde1bfe82d3";
+    const CH12: &str = "16030100b6010000b203033e524f541158034b7959d9fcd0df491917236716a0dd21bcd4aa7507804281b800001ec02cc030c02bc02fcca9cca8c024c028c023c027009f009e006b006700ff0100006b000000150013000010706c63312e706c616e742e6c6f63616c000b000403000102000a000c000a001d0017001e00190018002300000016000000170000000d002a0028040305030603080708080809080a080b080408050806040105010601030303010302040205020602";
+    const SH12: &str = "16030300410200003d0303cc741492be19e37fee390c0532dccaa52fcc5c6dee5039f9ebf2731e2f61ea6f00c030000015ff01000100000b000403000102002300000017000016030303250b00032100031e00031b30820317308201ffa00302010202141d17203d338e9504ffdef86c470d69ddf216dd72300d06092a864886f70d01010b0500301b3119301706035504030c10706c63312e706c616e742e6c6f63616c301e170d3236303932313139323934395a170d3236303932333139323934395a301b3119";
+
+    fn unhex(s: &str) -> Vec<u8> {
+        (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect()
+    }
+
+    #[test]
+    fn a_tls_handshake_gives_the_version_the_direction_and_the_server_name_without_reading_any_content() {
+        for (ch, sh, version) in [(CH13, SH13, "1.3"), (CH12, SH12, "1.2")] {
+            // on an unknown port the server is the lower one; the hello decides the direction anyway
+            let c = parse_opaque(true, 51_000, 8443, &unhex(ch)).unwrap();
+            assert_eq!((c.proto, c.server_is_src, c.class, c.port), ("tls", false, OtClass::Opaque, 8443));
+            assert_eq!(c.detail, format!("TLS {version} handshake (server name plc1.plant.local)"));
+            let s = parse_opaque(true, 8443, 51_000, &unhex(sh)).unwrap();
+            assert_eq!((s.proto, s.server_is_src, s.detail.as_str()), ("tls", true, format!("TLS {version} handshake").as_str()));
+        }
+        // application data and alerts carry no names, only the direction the ports give
+        let data = [0x17, 3, 3, 0, 5, 1, 2, 3, 4, 5];
+        let d = parse_opaque(true, 51_000, 4843, &data).unwrap();
+        assert_eq!((d.proto, d.port, d.server_is_src, d.detail.as_str()), ("opcua-tls", 4843, false, "TLS data"), "a secured OPC UA port names the protocol");
+        let r = parse_opaque(true, 4843, 51_000, &[0x15, 3, 3, 0, 2, 2, 40]).unwrap();
+        assert_eq!((r.server_is_src, r.detail.as_str()), (true, "TLS alert"));
+        // secured industrial protocols by port
+        for (port, name) in [(802, "modbus-tls"), (19998, "iec104-tls"), (19999, "dnp3-tls"), (8883, "mqtt-tls")] {
+            assert_eq!(parse_opaque(true, 40_000, port, &data).unwrap().proto, name);
+            assert!(is_encrypted_proto(name));
+        }
+        assert!(is_encrypted_proto("tls") && !is_encrypted_proto("modbus") && !is_encrypted_proto("s7"));
+    }
+
+    #[test]
+    fn a_known_industrial_port_with_content_that_is_not_decoded_is_still_a_path() {
+        let p = parse_opaque(false, 40_000, 9600, b"\x80\x00\x02\x00\x00\x00").unwrap();
+        assert_eq!((p.proto, p.port, p.server_is_src, p.class, p.detail.as_str()), ("omron-fins", 9600, false, OtClass::Opaque, "content not decoded"));
+        assert!(parse_opaque(true, 9600, 40_000, b"x").unwrap().server_is_src);
+        // an empty segment says nothing; ordinary traffic on an ordinary port is not industrial
+        assert!(parse_opaque(true, 40_000, 9600, b"").is_none());
+        assert!(parse_opaque(true, 40_000, 8080, b"GET / HTTP/1.1\r\n").is_none());
+        assert!(parse_opaque(false, 5353, 40_000, b"\x17\x03\x03\x00\x05abcde").is_none(), "TLS is looked for over TCP only");
+    }
+
+    #[test]
+    fn hostile_and_truncated_bytes_never_panic_and_never_invent_a_name() {
+        let full = unhex(CH13);
+        for n in 0..full.len() {
+            let _ = parse_opaque(true, 51_000, 8443, &full[..n]);
+        }
+        for i in 0..full.len().min(120) {
+            for v in [0u8, 0xff, 0x80, 0x01, 0x16] {
+                let mut bad = full.clone();
+                bad[i] = v;
+                let _ = parse_opaque(true, 51_000, 8443, &bad);
+            }
+        }
+        // a control-character-laden name is cleaned; an absurd record length is not TLS
+        let mut c = full.clone();
+        let at = c.windows(16).position(|w| w == b"plc1.plant.local").unwrap();
+        c[at] = 0x07;
+        let d = parse_opaque(true, 51_000, 8443, &c).unwrap();
+        assert!(!d.detail.chars().any(|ch| ch.is_control()), "{}", d.detail);
+        assert!(parse_opaque(true, 51_000, 8443, &[0x16, 3, 3, 0xff, 0xff, 1, 2, 3]).is_none());
+        assert!(parse_opaque(true, 51_000, 8443, &[0x16, 2, 3, 0, 10, 1, 2, 3]).is_none());
     }
 }

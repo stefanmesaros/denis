@@ -743,6 +743,14 @@ impl Detector {
             ) else {
                 continue; // an endpoint discovery has not stored yet: it will be seen again
             };
+            let (Ok(Some(client)), Ok(Some(server))) = (store.get_asset(cid), store.get_asset(sid)) else {
+                continue;
+            };
+            let encrypted = crate::ot::is_encrypted_proto(&c.proto);
+            // TLS between two ordinary machines is none of this matrix's business: only paths that involve an industrial device
+            if c.proto == "tls" && !crate::fingerprint::is_ot_device(&client) && !crate::fingerprint::is_ot_device(&server) {
+                continue;
+            }
             let key = (cid, sid, c.proto.clone(), c.port);
             let prior = self.convs.get(&key).cloned();
             let mature = c.window_start - self.learning_start(agent) >= self.cfg.learning_secs;
@@ -768,9 +776,6 @@ impl Detector {
             }
             self.convs_dirty.insert(key);
 
-            let (Ok(Some(client)), Ok(Some(server))) = (store.get_asset(cid), store.get_asset(sid)) else {
-                continue;
-            };
             let cname = asset_label(&client);
             let sname = asset_label(&server);
             let server_is_ot = crate::fingerprint::is_ot_device(&server);
@@ -801,7 +806,9 @@ impl Detector {
                     raw += 10;
                     why.push("+10 the client device itself appeared on the network within the last hour".into());
                 }
-                if c.reads + c.writes + c.controls == 0 {
+                if encrypted {
+                    why.push("+0 the content is encrypted: DENIS sees who talks to whom, not what is said".into());
+                } else if c.reads + c.writes + c.controls == 0 {
                     raw -= 15;
                     why.push("-15 only session set-up / discovery traffic so far".into());
                 }
@@ -889,6 +896,10 @@ impl Detector {
                     }
                     if w.writes && c.writes > 0 && hits.is_empty() {
                         hits.push("write command".into());
+                    }
+                    // "any communication": the path itself, whatever it carries (also traffic that cannot be read)
+                    if w.any_traffic && hits.is_empty() {
+                        hits.push(if crate::ot::is_encrypted_proto(&c.proto) { "encrypted communication" } else { "communication" }.into());
                     }
                     if hits.is_empty() {
                         continue;
@@ -2246,6 +2257,69 @@ mod tests {
         }
     }
 
+    fn tls_conv(client: Mac, server: Mac, proto: &str, port: u16, ts: i64) -> ConvRecord {
+        ConvRecord { proto: proto.into(), port, packets: 12, bytes: 4000, ..conv(client, server, 0, 0, 0, ts) }
+    }
+
+    #[test]
+    fn encrypted_paths_to_an_industrial_device_are_seen_and_judged_by_who_talks_to_whom_and_others_are_ignored() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        ot_world(&s);
+        let laptop = Mac([0x3c, 0x22, 0xfb, 9, 9, 9]);
+        let printer = Mac([0x3c, 0x22, 0xfb, 8, 8, 8]);
+        asset(&s, laptop, -1_000_000);
+        asset(&s, printer, -1_000_000);
+        let mut d = Detector::new(cfg(), vec![], 0);
+        // learning: the HMI talks TLS to PLC #1 (secured OPC UA); nothing alerts
+        assert!(d.ingest_conversations(None, &[tls_conv(HMI, PLC, "opcua-tls", 4843, 10)], &s, 20).is_empty());
+        // routine afterwards; another secured path to the same PLC is a new path even though nothing can be read
+        assert!(d.ingest_conversations(None, &[tls_conv(HMI, PLC, "opcua-tls", 4843, 2000)], &s, 2010).is_empty());
+        let ev = d.ingest_conversations(None, &[tls_conv(laptop, PLC, "opcua-tls", 4843, 2100)], &s, 2110);
+        assert_eq!(ev.len(), 1, "{ev:?}");
+        assert_eq!(ev[0].kind, RULE_OT_NEW_CONV);
+        let why = ev[0].raw_details["reasons"].to_string();
+        assert!(why.contains("encrypted") && !why.contains("-15"), "an unreadable path is not marked down as 'set-up only': {why}");
+        assert_eq!(ev[0].raw_details["protocol"], "opcua-tls");
+        assert!(ev[0].score >= 50, "{}", ev[0].score);
+        // TLS between two ordinary machines is not recorded at all; TLS involving an industrial device is
+        assert!(d.ingest_conversations(None, &[tls_conv(laptop, printer, "tls", 443, 2200)], &s, 2210).is_empty());
+        assert!(!d.convs.keys().any(|k| k.2 == "tls"), "an ordinary TLS path is not kept");
+        let ev = d.ingest_conversations(None, &[tls_conv(laptop, PLC2, "tls", 8443, 2300)], &s, 2310);
+        assert_eq!((ev.len(), ev[0].kind.as_str()), (1, RULE_OT_NEW_CONV));
+        assert!(d.convs.keys().any(|k| k.2 == "tls" && k.3 == 8443));
+    }
+
+    #[test]
+    fn an_allow_list_watch_alerts_on_any_communication_from_a_sender_that_is_not_allowed_also_when_it_is_encrypted() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        ot_world(&s);
+        let laptop = Mac([0x3c, 0x22, 0xfb, 9, 9, 9]);
+        let laptop_asset = asset(&s, laptop, -1_000_000);
+        let hmi_asset = s.find_asset(None, &HMI).unwrap().unwrap();
+        let plc = s.find_asset(None, &PLC).unwrap().unwrap();
+        let mut w = watch("allow", "Only the HMI may talk to PLC 1");
+        w.proto = "any".into();
+        w.any_traffic = true;
+        w.targets = vec![crate::rules::Scope { kind: "device".into(), value: plc.id.to_string() }];
+        w.allowed_senders = vec![crate::rules::Scope { kind: "device".into(), value: hmi_asset.id.to_string() }];
+        let mut c = cfg();
+        c.ot_watches = vec![w];
+        let mut d = Detector::new(c, vec![], 0);
+        // the watch fires from the first minute (you asked for it), also while everything else is still learning
+        let ev = d.ingest_conversations(None, &[tls_conv(laptop, PLC, "opcua-tls", 4843, 10)], &s, 20);
+        let hit = ev.iter().find(|e| e.kind == RULE_OT_WATCH).expect("the allow-list fires for an encrypted path");
+        assert!(hit.raw_details["summary"].as_str().unwrap().contains("Only the HMI may talk to PLC 1"));
+        assert_eq!(hit.raw_details["command"], "encrypted communication");
+        assert_eq!(hit.asset_id, plc.id);
+        // the allowed sender, in the clear or not, is silent; another device as target is not covered
+        assert!(d.ingest_conversations(None, &[tls_conv(HMI, PLC, "opcua-tls", 4843, 30), conv(HMI, PLC, 3, 0, 0, 30)], &s, 40).iter().all(|e| e.kind != RULE_OT_WATCH));
+        assert!(d.ingest_conversations(None, &[tls_conv(laptop, PLC2, "opcua-tls", 4843, 50)], &s, 60).iter().all(|e| e.kind != RULE_OT_WATCH));
+        // in the clear it says "communication"; the same watch works for a protocol that is decoded
+        let ev = d.ingest_conversations(None, &[conv(laptop, PLC, 2, 0, 0, 5000)], &s, 5010);
+        assert_eq!(ev.iter().find(|e| e.kind == RULE_OT_WATCH).map(|e| e.raw_details["command"].clone()), Some(json!("communication")));
+        let _ = laptop_asset;
+    }
+
     #[test]
     fn a_new_communication_path_after_learning_is_an_alert_with_context() {
         let s = SqliteStore::open_in_memory().unwrap();
@@ -2275,7 +2349,7 @@ mod tests {
 
     fn watch(id: &str, name: &str) -> crate::rules::OtWatch {
         crate::rules::OtWatch {
-            id: id.into(), name: name.into(), enabled: true, proto: "s7".into(), writes: false, controls: false, commands: vec![],
+            id: id.into(), name: name.into(), enabled: true, proto: "s7".into(), writes: false, controls: false, any_traffic: false, commands: vec![],
             targets: vec![], allowed_senders: vec![], score: 80, cooldown_minutes: 10,
         }
     }

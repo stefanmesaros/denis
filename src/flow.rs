@@ -96,7 +96,7 @@ impl FlowAgg {
                 a.controls += 1;
                 a.note.get_or_insert_with(|| s.pdu.detail.clone());
             }
-            OtClass::Other => {}
+            OtClass::Other | OtClass::Opaque => {}
         }
     }
 

@@ -90,8 +90,8 @@ and target scores 45 instead of 85 and is held for 10 minutes; if it is routine 
 | Field | Meaning |
 |---|---|
 | Name | Shown in the alert: `Stop commands to line 1: HMI sent PLC stop (0x29) to PLC Line 1 (s7)`. |
-| Protocol | one protocol (Modbus, Siemens S7, EtherNet/IP, DNP3, BACnet, OPC UA, IEC 104) or any. |
-| What | **any control command** (stop, start, download, restart, operate), **any write** (registers, coils, tags, setpoints), and/or **functions whose name contains** words you type (`PLC stop`, `write single register`, `0x29`, `restart`). Any of them matching is enough. The form offers the functions actually seen on your network. |
+| Protocol | one protocol (Modbus, Siemens S7, EtherNet/IP, DNP3, BACnet, OPC UA, IEC 104, or *any TLS* and the secured variants) or any. |
+| What | **any communication at all** (also encrypted: see below), **any control command** (stop, start, download, restart, operate), **any write** (registers, coils, tags, setpoints), and/or **functions whose name contains** words you type (`PLC stop`, `write single register`, `0x29`, `restart`). Any of them matching is enough. The form offers the functions actually seen on your network. |
 | Targets | only when the receiving device is one of these: devices, device types, tags or networks. Empty = any device. |
 | Allowed senders | never for these senders: your **engineering workstation**, for example. |
 | Score / gap | the score the alert gets (1-100; it is raised even if it is under the global minimum, because you asked for it) and at most one alert per sender, target and protocol in this many minutes. |
@@ -99,15 +99,61 @@ and target scores 45 instead of 85 and is held for 10 minutes; if it is routine 
 Start from a ready-made one ("Siemens S7: CPU stop", "Modbus: any write", "DNP3: restart", "BACnet: reinitialize
 device"…) and adjust it. Watches also work during the learning period. They are on the same footing as the built-in
 rules: the *weight* of `ot_command_watch` scales or switches off all of them, and its alerts carry the same advice
-and go to the same channels. A watch matches what DENIS decodes from the wire (see *What it recognises*); it cannot
-see encrypted or unrecognised traffic.
+and go to the same channels. A watch on commands matches what DENIS decodes from the wire (see *What it recognises*);
+**any communication** needs no decoding at all (next section).
+
+## Encrypted traffic: who talks to whom is still visible
+
+When a protocol is encrypted (OPC UA over TLS, Modbus/TCP Security, IEC 104 or DNP3 over TLS, MQTT over TLS, or plain TLS to a
+controller's web or management port) DENIS cannot read what is said, but the headers are in the clear, and for OT security
+that is often enough: **a device that should never talk to a client, and does, is the problem, whatever it says.**
+
+DENIS sees, between two local devices, without reading any content:
+
+* **that they talk**, over which port, in which direction (who opened the session), how many packets and bytes, and when;
+* the **protocol**, when the port names it: `opcua-tls` (4843), `modbus-tls` (802), `iec104-tls` (19998), `dnp3-tls` (19999),
+  `mqtt-tls` (8883), or `tls` on any other port. Protocols DENIS does not decode but whose port is known (Omron FINS, GE SRTP,
+  MELSEC, PCWorx, CODESYS, Niagara Fox) are paths too, marked *content not decoded*;
+* from the **TLS handshake**: the protocol version (1.0 to 1.3: a controller still on TLS 1.0 is worth knowing about) and the
+  **server name** the client asked for (SNI). They appear in the OT tab's *commands seen* column, for example
+  `TLS 1.3 handshake (server name plc1.plant.local)`.
+
+These paths feed the same rules as decoded ones: `ot_new_conversation` alerts when a path appears that never existed (with the reason
+"the content is encrypted: DENIS sees who talks to whom, not what is said", and without the deduction for "only set-up traffic"),
+and the **OT matrix** lists them. TLS between two ordinary machines (two office PCs) is **not** recorded: only paths that involve an
+industrial device or a known industrial port. A path never marks a device as industrial by itself.
+
+### An allow-list: only these devices may talk to it
+
+The strongest rule for encrypted OT is not about content but about **who**. Add a command watch (*Rules* → *Add a watch*, or start
+from **Only these devices may talk to it**), tick **any communication at all**, set the **targets** to the controller and the
+**allowed senders** to the devices that are meant to talk to it (the HMI, the engineering workstation). Any other device that
+talks to that controller, over any protocol, encrypted or not, raises the alert `ot_command_watch` with the watch's name, the
+sender, the target and "communication" or "encrypted communication". It fires from the first minute, while everything else is still
+learning. Give a protocol (for example *OPC UA (TLS)*) to narrow it, or leave *any protocol*.
+
+This needs the mirror port to carry the traffic between the devices (the same requirement as everything in OT mode).
+
+## Trying it without a plant
+
+* **`denis replay capture.pcap`** runs any Ethernet packet capture through the same decoders, inventory and rules the live
+  collector uses and prints the devices, the conversations (with the functions used) and the alerts. Nothing is stored. `--subnet`
+  narrows what counts as local; `--learning-secs` sets how long new paths are accepted silently (default 0, so every new path alerts).
+* **`tools/ot-samples.sh`** downloads real captures from the public [ICS-pcap](https://github.com/automayt/ICS-pcap) collection
+  (Modbus, Siemens S7, IEC 104, BACnet, EtherNet/IP firmware change…) and checks that DENIS finds what each is known to contain, and
+  makes a capture of encrypted traffic from real OpenSSL handshakes (`tools/make-encrypted-sample.py`). It runs before every release.
+* For a *live* test bench there are open-source simulators (for example Conpot, an ICS honeypot that speaks Modbus, S7 and BACnet,
+  and OpenPLC, a soft PLC with Modbus, DNP3 and EtherNet/IP servers); run one in a VM, put DENIS on its virtual switch's mirror and
+  point a client at it. DENIS has not been run against them here; the captures above are what it has been checked with.
 
 ## Limits to know about
 
 * Decoding is **shallow by design**: enough to say *which protocol, who is the server, is it a read, a write, or
   a state change*. It does not decode individual tags/registers, so it cannot tell *which* value was written.
 * OPC UA services are not decoded (the protocol is identified, but read vs write is not).
-* Encrypted industrial protocols (e.g. OPC UA with security, S7comm-plus) show as sessions only.
+* Encrypted industrial protocols (OPC UA with security, S7comm-plus, anything in TLS) show as **paths** (who talks to whom, how much,
+  the TLS version and server name), never as commands: see *Encrypted traffic*. Cipher suites, certificates and traffic timing patterns
+  are not analysed.
 * IPv4 only; non-IP real-time protocols (PROFINET RT, EtherCAT) are not analysed, only PROFINET DCP identity.
 * Anything not visible on the mirror port is not seen. Verify that the port really carries the traffic you care
   about (the **OT** tab should show the expected controllers within minutes).

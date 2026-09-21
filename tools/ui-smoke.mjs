@@ -764,7 +764,7 @@ await check('an OT command watch can be added from the Rules page and removed ag
   await sleep(1000);
   await evaluate("document.querySelector('#watches .row button.primary').click(); 0");
   await sleep(500);
-  await evaluate("(() => { const d = document.getElementById('dialog-form'); d.querySelector('input[required]').value = 'Smoke test watch'; const p = d.querySelectorAll('select')[0]; p.value = '2'; p.dispatchEvent(new Event('change')); d.querySelector('button[type=submit]').click(); })()");
+  await evaluate("(() => { const d = document.getElementById('dialog-form'); d.querySelector('input[required]').value = 'Smoke test watch'; const p = d.querySelectorAll('select')[0]; p.value = '3'; p.dispatchEvent(new Event('change')); d.querySelector('button[type=submit]').click(); })()");
   await sleep(1500);
   const r = await (await fetch(base + '/api/rules')).json();
   if (!(r.ot_watches || []).some((w) => w.name === 'Smoke test watch' && w.proto === 's7')) return 'the watch was not saved: ' + JSON.stringify(r.ot_watches);
@@ -773,6 +773,28 @@ await check('an OT command watch can be added from the Rules page and removed ag
   const r2 = await (await fetch(base + '/api/rules')).json();
   const p = takeProblems();
   if ((r2.ot_watches || []).length) return 'the watch was not deleted';
+  return p.length ? p.join('; ') : null;
+});
+await check('an allow-list watch ("any communication", also encrypted) can be added from the OT watches and is described in words', async () => {
+  takeProblems();
+  await evaluate("location.hash = '#rules'; setTab('rules'); 0");
+  await sleep(1000);
+  await evaluate("document.querySelector('#watches .row button.primary').click(); 0");
+  await sleep(500);
+  const plc = await evaluate("state.assets.find((a) => a.device_type === 'plc').id");
+  await evaluate(`(() => { const d = document.getElementById('dialog-form'); const p = d.querySelector('select'); p.value = '0'; p.dispatchEvent(new Event('change')); if (!d.querySelector('input[type=checkbox]').checked) throw new Error('the preset did not tick "any communication"'); d.querySelector('input[required]').value = 'Smoke allow-list'; d.querySelector('button[type=submit]').click(); })()`);
+  await sleep(1500);
+  const r = await (await fetch(base + '/api/rules')).json();
+  const w = (r.ot_watches || []).find((x) => x.name === 'Smoke allow-list');
+  if (!w || !w.any_traffic || w.proto !== 'any') return 'the watch was not saved: ' + JSON.stringify(r.ot_watches);
+  const text = await evaluate("[...document.querySelectorAll('#watches .watch')].map((x) => x.innerText).find((x) => x.includes('Smoke allow-list')) || ''");
+  if (!/any communication/.test(text)) return 'the list does not describe it: ' + text;
+  await evaluate("window.confirm = () => true; [...document.querySelectorAll('#watches .watch')].find((x) => x.innerText.includes('Smoke allow-list')).querySelector('.watch-actions button:last-child').click(); 0");
+  await sleep(1200);
+  const r2 = await (await fetch(base + '/api/rules')).json();
+  const p = takeProblems();
+  if ((r2.ot_watches || []).some((x) => x.name === 'Smoke allow-list')) return 'the watch was not deleted';
+  void plc;
   return p.length ? p.join('; ') : null;
 });
 await check('a network watch can be added from the Rules page, is listed in words, and removed again', async () => {

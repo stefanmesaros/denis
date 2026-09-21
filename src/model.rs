@@ -300,6 +300,9 @@ pub enum OtClass {
     Identify,
     /// Session set-up, acknowledgements, responses, anything else.
     Other,
+    /// Traffic whose content is not read: encrypted (TLS, secured industrial protocols) or a protocol DENIS does not
+    /// decode. Only who talks to whom, over what, and how much is known.
+    Opaque,
 }
 
 /// A decoded industrial protocol data unit.

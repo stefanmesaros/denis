@@ -193,7 +193,7 @@ pub const MAX_WATCHES: usize = 30;
 pub const MAX_IT_WATCHES: usize = 30;
 /// How many ports or addresses one IT watch may list.
 pub const MAX_LIST: usize = 30;
-pub const WATCH_PROTOS: &[&str] = &["any", "modbus", "s7", "enip", "dnp3", "bacnet", "opcua", "iec104"];
+pub const WATCH_PROTOS: &[&str] = &["any", "modbus", "s7", "enip", "dnp3", "bacnet", "opcua", "iec104", "tls", "modbus-tls", "opcua-tls", "iec104-tls", "dnp3-tls", "mqtt-tls"];
 
 impl Scope {
     /// Validate and normalise what came in.
@@ -260,6 +260,10 @@ pub struct OtWatch {
     /// Match functions whose name contains one of these words (`write single register`, `0x29`, `restart`).
     #[serde(default)]
     pub commands: Vec<String>,
+    /// Match **any communication at all** between the sender and the target: encrypted or not, whatever the content. With
+    /// `targets` and `allowed_senders` this is an allow-list of who may talk to a device.
+    #[serde(default)]
+    pub any_traffic: bool,
     /// Only when the target is one of these (empty: any device).
     #[serde(default)]
     pub targets: Vec<Scope>,
@@ -289,8 +293,8 @@ impl OtWatch {
         if commands.len() > 10 || commands.iter().any(|c| c.chars().count() > 40 || c.chars().any(char::is_control)) {
             return Err("at most 10 command words of up to 40 characters".into());
         }
-        if !self.writes && !self.controls && commands.is_empty() {
-            return Err("a watch must match something: any write, any control command, or a command word".into());
+        if !self.writes && !self.controls && !self.any_traffic && commands.is_empty() {
+            return Err("a watch must match something: any communication, any write, any control command, or a command word".into());
         }
         if !(1..=100).contains(&self.score) {
             return Err("the score of a watch must be between 1 and 100".into());
@@ -305,7 +309,7 @@ impl OtWatch {
             v.iter().map(Scope::check).collect()
         };
         Ok(OtWatch {
-            id, name, enabled: self.enabled, proto: self.proto.clone(), writes: self.writes, controls: self.controls, commands,
+            id, name, enabled: self.enabled, proto: self.proto.clone(), writes: self.writes, controls: self.controls, any_traffic: self.any_traffic, commands,
             targets: scopes(&self.targets)?, allowed_senders: scopes(&self.allowed_senders)?, score: self.score, cooldown_minutes: self.cooldown_minutes,
         })
     }
@@ -906,5 +910,21 @@ mod tests {
         assert!(o.patch(&json!({"it_watches": "all"})).is_err());
         assert_eq!(o, before, "a refused change leaves everything as it was");
         assert!(describe(&DetectConfig::default(), &o)["it_watches"].is_array());
+    }
+
+    #[test]
+    fn a_watch_on_any_communication_needs_no_command_and_may_name_an_encrypted_protocol() {
+        let mut o = Overrides::default();
+        let allow = json!({"id": "a1", "name": "Only the HMI", "enabled": true, "proto": "opcua-tls", "any_traffic": true, "targets": [{"kind": "device", "value": "7"}],
+            "allowed_senders": [{"kind": "device", "value": "3"}], "score": 85, "cooldown_minutes": 30});
+        o.patch(&json!({"ot_watches": [allow]})).unwrap();
+        assert!(o.ot_watches[0].any_traffic && o.ot_watches[0].proto == "opcua-tls");
+        assert_eq!(o.apply(&DetectConfig::default()).ot_watches.len(), 1);
+        // nothing to match at all is still refused, and an unknown protocol too
+        let none = json!({"id": "a2", "name": "n", "enabled": true, "proto": "any", "score": 50, "cooldown_minutes": 5});
+        assert!(o.patch(&json!({"ot_watches": [none]})).is_err());
+        let bad = json!({"id": "a3", "name": "n", "enabled": true, "proto": "ssl", "any_traffic": true, "score": 50, "cooldown_minutes": 5});
+        assert!(o.patch(&json!({"ot_watches": [bad]})).is_err());
+        assert!(describe(&DetectConfig::default(), &o)["watch_protocols"].as_array().unwrap().iter().any(|p| p == "modbus-tls"));
     }
 }

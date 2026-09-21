@@ -35,6 +35,7 @@ pub mod notify;
 pub mod ot;
 pub mod parse;
 pub mod passkey;
+pub mod replay;
 pub mod report;
 pub mod reverify;
 pub mod reports;

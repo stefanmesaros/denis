@@ -323,6 +323,17 @@ enum Cmd {
         #[arg(long)]
         db: Option<PathBuf>,
     },
+    /// Run a packet capture (Ethernet pcap) through the decoders, inventory and detection and print what was found:
+    /// devices, industrial conversations and alerts. Nothing is stored. For trying DENIS on a sample without a network.
+    Replay {
+        file: PathBuf,
+        /// Only addresses inside this network count as local devices (default: every address).
+        #[arg(long)]
+        subnet: Option<ipnet::Ipv4Net>,
+        /// Seconds of learning before new paths alert (0: alert on the first sight of every path).
+        #[arg(long, default_value_t = 0)]
+        learning_secs: i64,
+    },
     /// Issue, list or revoke the per-agent tokens remote agents authenticate with.
     AgentToken {
         #[command(subcommand)]
@@ -602,6 +613,10 @@ async fn main() -> Result<()> {
             }
             SqliteStore::open(&path)?.backup_to(&out)?;
             println!("backup written to {} (verified)", out.display());
+            Ok(())
+        }
+        Cmd::Replay { file, subnet, learning_secs } => {
+            print!("{}", denis::replay::run(&file, subnet, learning_secs)?.render());
             Ok(())
         }
         Cmd::List { db } => list(&resolve_db(db, "denis.db", "netscope.db")),

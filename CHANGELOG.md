@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0-rc.1: encrypted OT traffic, allow-list watches, and a way to test without a plant
+
+*A release candidate.*
+
+* **Encrypted industrial traffic is no longer invisible.** Between two local devices DENIS now records the *path* of traffic it
+  cannot read: TLS on any port, secured industrial protocols by their port (OPC UA over TLS 4843, Modbus/TCP Security 802, IEC 104
+  and DNP3 over TLS, MQTT over TLS), and industrial protocols it does not decode (Omron FINS, GE SRTP, MELSEC, PCWorx, CODESYS,
+  Niagara Fox). Who talks to whom, in which direction, how much, and from the TLS handshake the **protocol version** and the **server
+  name**. New paths raise `ot_new_conversation` ("the content is encrypted: DENIS sees who talks to whom, not what is said"). TLS
+  between two ordinary machines is ignored, and a path never marks a device as industrial by itself.
+* **Allow-list watches**: an OT command watch can now match **any communication at all** ("Only these devices may talk to it"): give
+  the controller as target and the devices that may talk to it as allowed senders; any other device that talks to it, over any
+  protocol, encrypted or not, raises an alert from the first minute.
+* **`denis replay FILE.pcap`** runs any Ethernet capture through the decoders, inventory and rules and prints devices, conversations
+  and alerts (nothing is stored). **`tools/ot-samples.sh`** uses it on real public captures (Modbus, Siemens S7 including a program
+  download, IEC 104, BACnet, an EtherNet/IP firmware change) and on an encrypted capture made from real OpenSSL handshakes, and runs
+  in `tools/pre-release.sh`. On those captures the decoders found what each is known to contain.
+
 ## 0.4.0: reports, health, two-step sign-in, real topology, software versions
 
 *Built from 0.4.0-rc.1 and 0.4.0-rc.2.*

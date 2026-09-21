@@ -265,6 +265,18 @@ impl Inventory {
     /// in that protocol, and any identity the message announced.
     fn apply_ot(&mut self, s: &OtSample, now: i64) {
         let proto = s.pdu.proto.to_string();
+        // a path whose content is not read says nothing about what either device is
+        if s.pdu.class == crate::model::OtClass::Opaque {
+            // Unread content is a path, not evidence about what either device is: both are devices that exist and have
+            // an address, and that is all.
+            for (mac, ip) in [(s.src_mac, s.src_ip), (s.dst_mac, s.dst_ip)] {
+                if mac.is_valid() {
+                    self.entry(mac, now);
+                    self.finish(mac, Some(ip), false, now);
+                }
+            }
+            return;
+        }
         // (mac, ip, is this side the server?)
         let sides = [(s.src_mac, s.src_ip, s.pdu.server_is_src), (s.dst_mac, s.dst_ip, !s.pdu.server_is_src)];
         for (mac, ip, is_server) in sides {

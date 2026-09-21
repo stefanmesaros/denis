@@ -256,6 +256,7 @@ on a busy gigabit link use a fast machine or a dedicated capture interface.
 | `denis report --days 7 -o report.html` | printable report (`--format assets-csv|alerts-csv`) |
 | `denis user …`, `denis agent-token …` | access management (see above) |
 | `denis backup FILE` | verified copy of the database, while running |
+| `denis replay FILE.pcap` | run a packet capture through the decoders and rules and print what was found (nothing is stored) |
 | `denis serve` | console over a database, no capture (backups, demos) |
 | `denis demo load\|remove` | built-in demo data (a fictional company) |
 | `denis erase --yes` | empty the database of devices and history (DENIS stopped; take a backup first) |

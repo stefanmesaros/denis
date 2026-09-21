@@ -129,7 +129,7 @@ Details and examples are in the [OT guide](ot-guide.md). In short:
 * `ot_write_escalation`: a path that **only ever read** from an industrial device starts **writing** to it: how a
   monitoring connection turns into a controlling one. Score 60, +10 for an industrial target, +15 with control
   commands. Never during the learning period; once per pair per six hours (adjustable).
-* `ot_command_watch`: **your own watches** for specific commands: see below and the [OT guide](ot-guide.md#command-watches).
+* `ot_command_watch`: **your own watches** for specific commands, or for **any communication** from a device that is not allowed to talk to a controller (also when it is encrypted): see the [OT guide](ot-guide.md#command-watches) and [Encrypted traffic](ot-guide.md#encrypted-traffic-who-talks-to-whom-is-still-visible).
 
 ## Findings: standing problems, with a fix
 
