@@ -146,6 +146,11 @@
         <p class="muted">Standing weaknesses and housekeeping problems in your inventory: unlike alerts, these stay until you fix the cause, and disappear by themselves once you have.</p>
         <div id="findings-list"></div>
         <p id="no-findings" class="muted" hidden>Nothing to fix right now.</p>
+        <div id="accepted-box" hidden>
+          <h3 class="section">Accepted risks</h3>
+          <p class="muted">Findings someone decided to live with, and why. They count again when the time is up or when an administrator withdraws the decision.</p>
+          <div class="table-wrap"><table id="accepted-table"><thead><tr><th>Finding</th><th>Device</th><th>Reason</th><th>Accepted by</th><th>Until</th><th></th></tr></thead><tbody></tbody></table></div>
+        </div>
       </section>
 
       <section id="view-alerting" hidden>
@@ -337,6 +342,7 @@
   <script src="app.js"></script>
   <script src="admin.js"></script>
   <script src="rules.js"></script>
+  <script src="findings.js"></script>
   <script src="main.js"></script>
 </body>
 </html>

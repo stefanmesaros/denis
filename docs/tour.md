@@ -65,6 +65,13 @@ marked *lost* still on the network, critical devices with no owner, devices nobo
 warranties. Devices with the same problem are grouped, each with why it matters and what to do
 ([list](detection-rules.md#findings-standing-problems-with-a-fix)).
 
+Each finding has two buttons. **Verify fix** looks again: DENIS scans the devices right now and tells you, device by
+device, whether the problem is gone. **Accept risk…** (administrators) records a decision to live with it, with a
+reason and, usually, an end date; the device leaves the finding and appears under **Accepted risks** below, with who
+accepted it and why ([details](detection-rules.md#verifying-a-fix-and-accepting-a-risk)).
+
+![Accepted risks](img/accepted-risks.png)
+
 ## Rules
 
 ![Rules](img/rules.png)

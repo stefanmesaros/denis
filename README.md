@@ -47,7 +47,7 @@ page, or `cargo build --release`):
 6. **Alerts reach you.** Slack, Microsoft Teams, Discord, PagerDuty, e-mail and a signed webhook, each with its own
    threshold, a Test button, digests during storms, maintenance mode and per-device silencing.
 7. **Tells you what to fix.** *Findings* (Telnet/RDP exposed, lost devices still online, no owner, expiring
-   warranty…) and a *Compliance* view mapping your coverage to CIS Controls v8, NIST CSF 2.0 and IEC 62443-3-3.
+   warranty…), each with **Verify fix** (a fresh scan) and **Accept risk** (a reason, an end date, an audit trail) and a *Compliance* view mapping your coverage to CIS Controls v8, NIST CSF 2.0 and IEC 62443-3-3.
 8. **A console you can trust, in your language.** English, German, French, Spanish and Slovak. Roles, passkey sign-in (WebAuthn), Argon2id, lock-outs, API tokens, an audit log,
    optional built-in HTTPS, strict headers. Every detection is visible and tunable (*Rules* tab).
 9. **Plays well with the rest of your stack.** Syslog/CEF for SIEMs, OpenObserve export, Prometheus `/metrics`,

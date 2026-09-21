@@ -7,9 +7,9 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::collections::HashMap;
 
 use super::{AgentToken, ApiToken, EventQuery, Passkey, SessionRecord, Store, UserRecord};
-use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, User};
+use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, RiskAcceptance, User};
 
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 /// Phase 1 schema.
 const V1: &str = "CREATE TABLE assets (
@@ -154,6 +154,20 @@ const V6: &str = "CREATE TABLE settings (
 /// Which industrial functions each path uses (lets people watch for specific commands).
 const V9: &str = "ALTER TABLE conversations ADD COLUMN commands TEXT NOT NULL DEFAULT '{}';";
 
+/// Accepted risks: a person decided to live with a finding on a device (with the reason and an optional end date).
+const V10: &str = "CREATE TABLE risk_acceptances (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        finding_id  TEXT NOT NULL,
+        asset_id    INTEGER NOT NULL,
+        reason      TEXT NOT NULL,
+        accepted_by TEXT NOT NULL,
+        accepted_at INTEGER NOT NULL,
+        expires_at  INTEGER,
+        revoked_at  INTEGER,
+        revoked_by  TEXT
+     );
+     CREATE INDEX risk_acceptances_asset ON risk_acceptances (asset_id);";
+
 /// Phase 3.8: API tokens for scripts and integrations.
 const V7: &str = "CREATE TABLE api_tokens (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -205,7 +219,7 @@ impl SqliteStore {
         }
         // Each step runs in its own transaction and bumps user_version, so a
         // crash mid-migration leaves the database at a consistent older version.
-        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9)] {
+        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10)] {
             if version < target {
                 let tx = conn.unchecked_transaction()?;
                 tx.execute_batch(sql)?;
@@ -658,7 +672,7 @@ impl Store for SqliteStore {
         // children first
         for sql in [
             "DELETE FROM events", "DELETE FROM baselines", "DELETE FROM conversations", "DELETE FROM presence", "DELETE FROM metrics",
-            "DELETE FROM asset_meta", "DELETE FROM assets", "DELETE FROM agents",
+            "DELETE FROM asset_meta", "DELETE FROM risk_acceptances", "DELETE FROM assets", "DELETE FROM agents",
             // learned state that belongs to the old network
             "DELETE FROM settings WHERE key = 'dhcp_servers'",
         ] {
@@ -673,6 +687,7 @@ impl Store for SqliteStore {
         let tx = conn.transaction()?;
         for sql in [
             "DELETE FROM asset_meta WHERE asset_id = ?1",
+            "DELETE FROM risk_acceptances WHERE asset_id = ?1",
             "DELETE FROM baselines WHERE asset_id = ?1",
             "DELETE FROM presence WHERE asset_id = ?1",
             "DELETE FROM conversations WHERE client_id = ?1 OR server_id = ?1",
@@ -683,6 +698,44 @@ impl Store for SqliteStore {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    // ------------------------------------------------ accepted risks
+    fn add_risk_acceptance(&self, a: &RiskAcceptance) -> Result<i64> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        // a new decision replaces the one still in force for the same finding and device
+        tx.execute(
+            "UPDATE risk_acceptances SET revoked_at = ?3, revoked_by = 'replaced' WHERE finding_id = ?1 AND asset_id = ?2 AND revoked_at IS NULL",
+            params![a.finding_id, a.asset_id, a.accepted_at],
+        )?;
+        tx.execute(
+            "INSERT INTO risk_acceptances (finding_id, asset_id, reason, accepted_by, accepted_at, expires_at) VALUES (?1,?2,?3,?4,?5,?6)",
+            params![a.finding_id, a.asset_id, a.reason, a.accepted_by, a.accepted_at, a.expires_at],
+        )?;
+        let id = tx.last_insert_rowid();
+        tx.commit()?;
+        Ok(id)
+    }
+
+    fn list_risk_acceptances(&self) -> Result<Vec<RiskAcceptance>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, finding_id, asset_id, reason, accepted_by, accepted_at, expires_at, revoked_at, revoked_by
+             FROM risk_acceptances WHERE revoked_at IS NULL ORDER BY accepted_at DESC, id DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(RiskAcceptance {
+                id: r.get(0)?, finding_id: r.get(1)?, asset_id: r.get(2)?, reason: r.get(3)?, accepted_by: r.get(4)?,
+                accepted_at: r.get(5)?, expires_at: r.get(6)?, revoked_at: r.get(7)?, revoked_by: r.get(8)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn revoke_risk_acceptance(&self, id: i64, by: &str, ts: i64) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.execute("UPDATE risk_acceptances SET revoked_at = ?2, revoked_by = ?3 WHERE id = ?1 AND revoked_at IS NULL", params![id, ts, by])? > 0)
     }
 
     // ------------------------------------------------ users and sessions
@@ -1215,5 +1268,34 @@ mod tests {
         // reopening at v2 is a no-op
         drop(s);
         SqliteStore::open(&path).unwrap();
+    }
+
+    #[test]
+    fn accepted_risks_replace_each_other_can_be_withdrawn_and_go_with_their_device() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let mut a = Asset::new(Mac([2, 0, 0, 0, 0, 1]), 1);
+        let mut b = Asset::new(Mac([2, 0, 0, 0, 0, 2]), 1);
+        s.save_asset(&mut a).unwrap();
+        s.save_asset(&mut b).unwrap();
+        let acc = |asset: i64, why: &str, expires: Option<i64>| RiskAcceptance { id: 0, finding_id: "telnet_open".into(), asset_id: asset, reason: why.into(), accepted_by: "admin".into(), accepted_at: 100, expires_at: expires, revoked_at: None, revoked_by: None };
+        let first = s.add_risk_acceptance(&acc(a.id, "first", None)).unwrap();
+        // deciding again for the same finding and device replaces the earlier decision (only one is in force)
+        let second = s.add_risk_acceptance(&acc(a.id, "second", Some(500))).unwrap();
+        s.add_risk_acceptance(&acc(b.id, "other device", None)).unwrap();
+        let list = s.list_risk_acceptances().unwrap();
+        assert_eq!(list.len(), 2, "the replaced one is not listed");
+        let mine = list.iter().find(|r| r.asset_id == a.id).unwrap();
+        assert_eq!((mine.id, mine.reason.as_str(), mine.expires_at), (second, "second", Some(500)));
+        assert!(mine.is_active(499) && !mine.is_active(500), "it ends at its date");
+        assert!(!s.revoke_risk_acceptance(first, "x", 200).unwrap(), "the replaced decision cannot be withdrawn again");
+        assert!(s.revoke_risk_acceptance(second, "someone", 200).unwrap());
+        assert!(!s.revoke_risk_acceptance(second, "someone", 201).unwrap());
+        assert_eq!(s.list_risk_acceptances().unwrap().len(), 1);
+        // a deleted device takes its decisions with it, and erasing everything removes them too
+        s.delete_asset(b.id).unwrap();
+        assert!(s.list_risk_acceptances().unwrap().is_empty());
+        s.add_risk_acceptance(&acc(a.id, "again", None)).unwrap();
+        s.erase_inventory().unwrap();
+        assert!(s.list_risk_acceptances().unwrap().is_empty());
     }
 }

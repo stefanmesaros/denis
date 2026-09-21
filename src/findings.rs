@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use crate::fingerprint::is_ot_device;
-use crate::model::{Asset, AssetMeta};
+use crate::model::{Asset, AssetMeta, RiskAcceptance};
 use crate::tracking::warranty_state;
 
 /// A device not seen for this long is considered gone, so its problems are not listed.
@@ -114,10 +114,70 @@ const PORT_FINDINGS: &[(u16, &Kind, bool)] = &[
 /// Every sentence a finding can show (title, why, fix), so the translation catalogs can be checked
 /// against them.
 pub fn texts() -> Vec<&'static str> {
-    [&TELNET, &FTP, &RDP, &VNC, &SMB, &MYSQL, &MQTT, &WINBOX, &LOST, &RETIRED, &CRIT_NO_OWNER, &OT_NO_LEVEL, &UNIDENTIFIED, &UNREVIEWED, &WARRANTY_EXPIRED, &WARRANTY_EXPIRING]
-        .into_iter()
+    ALL_KINDS
+        .iter()
+        .copied()
         .flat_map(|k| [k.title, k.why, k.fix])
         .collect()
+}
+
+const ALL_KINDS: [&Kind; 16] = [&TELNET, &FTP, &RDP, &VNC, &SMB, &MYSQL, &MQTT, &WINBOX, &LOST, &RETIRED, &CRIT_NO_OWNER, &OT_NO_LEVEL, &UNIDENTIFIED, &UNREVIEWED, &WARRANTY_EXPIRED, &WARRANTY_EXPIRING];
+
+/// Is `id` a kind of finding this program knows?
+pub fn is_known(id: &str) -> bool {
+    ALL_KINDS.iter().any(|k| k.id == id)
+}
+
+/// Findings that are about what a scan of the device shows (an open port), so a rescan can confirm a fix.
+pub fn is_port_finding(id: &str) -> bool {
+    PORT_FINDINGS.iter().any(|(_, k, _)| k.id == id)
+}
+
+/// An accepted risk as the console shows it: the decision plus the words of the finding it is about.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct AcceptedRisk {
+    pub id: i64,
+    pub finding_id: &'static str,
+    pub title: &'static str,
+    pub severity: &'static str,
+    pub asset_id: i64,
+    pub reason: String,
+    pub accepted_by: String,
+    pub accepted_at: i64,
+    pub expires_at: Option<i64>,
+    /// `false` when the problem has gone away since (fixed, or the device left): the decision can be withdrawn.
+    pub still_applies: bool,
+}
+
+/// Split the current findings by the decisions in force: what is still open, and what people accepted. A device
+/// with an accepted risk drops out of its finding (the finding disappears when nothing else is left); an
+/// expired or withdrawn decision no longer counts.
+pub fn apply_acceptances(all: Vec<Finding>, acceptances: &[RiskAcceptance], now: i64) -> (Vec<Finding>, Vec<AcceptedRisk>) {
+    let active: Vec<&RiskAcceptance> = acceptances.iter().filter(|a| a.is_active(now)).collect();
+    let accepted_now = |finding: &str, asset: i64| active.iter().any(|a| a.finding_id == finding && a.asset_id == asset);
+    let mut listed: Vec<AcceptedRisk> = Vec::new();
+    for a in &active {
+        let Some(k) = ALL_KINDS.iter().find(|k| k.id == a.finding_id) else { continue };
+        let still = all.iter().any(|f| f.id == k.id && f.assets.contains(&a.asset_id));
+        listed.push(AcceptedRisk {
+            id: a.id, finding_id: k.id, title: k.title, severity: k.severity, asset_id: a.asset_id, reason: a.reason.clone(),
+            accepted_by: a.accepted_by.clone(), accepted_at: a.accepted_at, expires_at: a.expires_at, still_applies: still,
+        });
+    }
+    let open = all
+        .into_iter()
+        .filter_map(|mut f| {
+            f.assets.retain(|id| !accepted_now(f.id, *id));
+            (!f.assets.is_empty()).then_some(f)
+        })
+        .collect();
+    (open, listed)
+}
+
+/// Does `finding_id` apply to this device right now? (Used to confirm a fix after a rescan.)
+pub fn applies(a: &Asset, meta: Option<&AssetMeta>, now: i64, finding_id: &str) -> bool {
+    let metas: HashMap<i64, AssetMeta> = meta.map(|m| (a.id, m.clone())).into_iter().collect();
+    compute(std::slice::from_ref(a), &metas, now).iter().any(|f| f.id == finding_id)
 }
 
 fn rank(sev: &str) -> u8 {
@@ -309,5 +369,47 @@ mod tests {
         metas.insert(1, AssetMeta { status: Some("spare".into()), ..Default::default() });
         assert!(compute(&[dev(1, "camera", &[23])], &metas, NOW).is_empty());
         assert!(compute(&[], &HashMap::new(), NOW).is_empty());
+    }
+
+    fn accept(id: i64, finding: &str, asset: i64, expires: Option<i64>) -> RiskAcceptance {
+        RiskAcceptance { id, finding_id: finding.into(), asset_id: asset, reason: "behind the firewall".into(), accepted_by: "admin".into(), accepted_at: NOW - 10, expires_at: expires, revoked_at: None, revoked_by: None }
+    }
+
+    #[test]
+    fn an_accepted_risk_leaves_the_open_list_and_appears_in_the_accepted_one_until_it_expires_or_is_withdrawn() {
+        let assets = vec![dev(1, "camera", &[23]), dev(2, "iot", &[23]), dev(3, "printer", &[21])];
+        let all = compute(&assets, &HashMap::new(), NOW);
+        // device 1's telnet is accepted: the finding stays for device 2, and lists the decision
+        let (open, accepted) = apply_acceptances(all.clone(), &[accept(1, "telnet_open", 1, None)], NOW);
+        assert_eq!(ids(&open, "telnet_open"), vec![2]);
+        assert_eq!(ids(&open, "ftp_open"), vec![3], "other findings are untouched");
+        assert_eq!((accepted.len(), accepted[0].asset_id, accepted[0].still_applies, accepted[0].title), (1, 1, true, "Telnet is open"));
+        // when every device with the finding is accepted the finding is gone
+        let (open, _) = apply_acceptances(all.clone(), &[accept(1, "telnet_open", 1, None), accept(2, "telnet_open", 2, None)], NOW);
+        assert!(ids(&open, "telnet_open").is_empty() && open.iter().all(|f| f.id != "telnet_open"));
+        // an expired decision no longer counts, and a withdrawn one neither
+        let (open, accepted) = apply_acceptances(all.clone(), &[accept(1, "telnet_open", 1, Some(NOW - 1))], NOW);
+        assert_eq!((ids(&open, "telnet_open"), accepted.len()), (vec![1, 2], 0));
+        let mut withdrawn = accept(1, "telnet_open", 1, None);
+        withdrawn.revoked_at = Some(NOW - 5);
+        assert_eq!(ids(&apply_acceptances(all.clone(), &[withdrawn], NOW).0, "telnet_open"), vec![1, 2]);
+        // a decision for the wrong finding does not hide another one on the same device
+        let (open, _) = apply_acceptances(all, &[accept(1, "ftp_open", 1, None)], NOW);
+        assert_eq!(ids(&open, "telnet_open"), vec![1, 2]);
+        // the problem went away: the decision stays visible, marked as no longer applying
+        let fixed = compute(&[dev(1, "camera", &[])], &HashMap::new(), NOW);
+        let (_, accepted) = apply_acceptances(fixed, &[accept(1, "telnet_open", 1, None)], NOW);
+        assert!(!accepted[0].still_applies);
+        // unknown kinds are ignored, known ones are recognised
+        assert!(is_known("telnet_open") && !is_known("nope") && is_port_finding("rdp_open") && !is_port_finding("unreviewed"));
+    }
+
+    #[test]
+    fn whether_a_finding_applies_follows_the_device_as_it_is_now() {
+        let mut a = dev(1, "camera", &[23]);
+        assert!(applies(&a, None, NOW, "telnet_open"));
+        a.open_ports.clear();
+        assert!(!applies(&a, None, NOW, "telnet_open"), "the port is closed: fixed");
+        assert!(applies(&dev(2, "computer", &[]), None, NOW, "unreviewed"));
     }
 }

@@ -217,6 +217,13 @@ input[type=color] { padding: 0; width: 44px; height: 30px; }
 .subnav { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 8px 0 4px; font-size: 13px; }
 .subnav a { color: var(--accent); text-decoration: none; }
 .subnav a:hover { text-decoration: underline; }
+#accepted-table td { white-space: normal; vertical-align: top; }
+#accepted-table td:last-child { white-space: nowrap; }
+#accepted-table td:last-child button + button { margin-left: 6px; }
+#accepted-table td:nth-child(3) { min-width: 200px; }
+.finding-actions { display: flex; gap: 8px; margin-top: 10px; }
+.verify-row { padding: 6px 0; border-top: 1px solid var(--line); }
+.warn-text { color: var(--warn, #b45309); font-weight: 600; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
 .chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border: 1px solid var(--line); border-radius: 12px; font-size: 12px; background: var(--panel, transparent); color: inherit; }
 button.chip, .chip.clickable { cursor: pointer; }

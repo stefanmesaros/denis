@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.0-rc.1: verify a fix, accept a risk
+
+*Release candidate: used for a while before it becomes 0.3.0.*
+
+Findings
+* **Verify fix** on every finding: DENIS scans the devices again right now and says, per device, **fixed**, **still
+  present**, **did not answer** (a silent device is never counted as fixed), **excluded** or **not scanned** (industrial
+  devices are never probed; nor can a viewer-mode or passive-only console). Register findings (no owner, not reviewed,
+  warranty…) are re-read from the register. The fresh port list is written to the register too.
+* **Accept risk** (administrators): decide to live with a finding on chosen devices, with a required **reason** and
+  an end date (30, 90, 180 days, a year, or until withdrawn). The device leaves the finding and appears under **Accepted
+  risks** with who, when, why and how long is left; it comes back by itself when the time is up, and can be withdrawn
+  at any time. Written to the audit log, listed in the printable report, counted in `/metrics`
+  (`denis_accepted_risks`). API: `/api/risk-acceptances`, `/api/findings/{id}/verify`.
+* Database schema v10 (accepted risks). Updating from 0.2.0 migrates it; the automatic backup taken before the update
+  is the way back.
+
+Releases
+* The browser test of the console now also covers the Findings page (accepting needs a reason, withdrawing brings a
+  finding back, Verify answers plainly).
+
+
 ## 0.2.0: everyday devices, a better asset editor, and release checks
 
 Asset editor

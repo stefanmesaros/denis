@@ -96,6 +96,13 @@ pub async fn icmp_sweep(hosts: &[Ipv4Addr], timeout: Duration) -> Result<usize> 
 /// TCP connect scan of the curated common-port list. Bounded by `sem` so a
 /// whole-network scan stays well under the process fd limit (256 on macOS).
 pub async fn scan_host(ip: Ipv4Addr, sem: Arc<Semaphore>, timeout: Duration) -> Vec<OpenPort> {
+    scan_host_probe(ip, sem, timeout).await.0
+}
+
+/// Like [`scan_host`], and also says whether *anything* answered: an open port, or a refusal (a closed port that
+/// answers with a reset proves the machine is there). A host that answers nothing at all might be off, and an empty
+/// port list from it is not evidence that a service was closed.
+pub async fn scan_host_probe(ip: Ipv4Addr, sem: Arc<Semaphore>, timeout: Duration) -> (Vec<OpenPort>, bool) {
     let mut set = JoinSet::new();
     for (port, _) in SCAN_PORTS {
         let (sem, port) = (sem.clone(), *port);
@@ -103,14 +110,20 @@ pub async fn scan_host(ip: Ipv4Addr, sem: Arc<Semaphore>, timeout: Duration) -> 
             let _permit = sem.acquire().await.ok()?;
             let addr = SocketAddr::new(IpAddr::V4(ip), port);
             match tokio::time::timeout(timeout, TcpStream::connect(addr)).await {
-                Ok(Ok(_stream)) => Some(port),
+                Ok(Ok(_stream)) => Some((port, true)),
+                Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => Some((port, false)),
                 _ => None,
             }
         });
     }
     let mut open = Vec::new();
+    let mut answered = false;
     while let Some(r) = set.join_next().await {
-        if let Ok(Some(port)) = r {
+        if let Ok(Some((port, is_open))) = r {
+            answered = true;
+            if !is_open {
+                continue;
+            }
             open.push(OpenPort {
                 port,
                 proto: "tcp".into(),
@@ -119,7 +132,7 @@ pub async fn scan_host(ip: Ipv4Addr, sem: Arc<Semaphore>, timeout: Duration) -> 
         }
     }
     open.sort_by_key(|p| p.port);
-    open
+    (open, answered)
 }
 
 #[cfg(test)]

@@ -141,7 +141,7 @@ fn the_json_catalogs_are_the_ones_generated_from_the_sources() {
 #[test]
 fn every_string_the_scripts_and_pages_show_is_translated() {
     let cat = catalog("de");
-    for script in ["app.js", "admin.js", "rules.js", "main.js", "icons.js"] {
+    for script in ["app.js", "admin.js", "rules.js", "findings.js", "main.js", "icons.js"] {
         assert_translated(&cat, script, tr_literals(&read(&format!("ui/{script}"))));
     }
     assert_translated(&cat, "index.html", html_strings(&read("ui/index.html")));
@@ -171,6 +171,7 @@ fn everything_the_server_sends_for_display_is_translated() {
     }
     keys.extend(crate::detect::ADVICE.iter().map(|(_, a)| a.to_string()));
     keys.extend(crate::findings::texts().into_iter().map(String::from));
+    keys.extend(crate::web_admin::risk_texts().map(String::from));
     for list in [crate::fingerprint::DEVICE_TYPES, crate::tracking::STATUSES, crate::tracking::CRITICALITIES] {
         keys.extend(list.iter().map(|s| s.to_string()));
     }

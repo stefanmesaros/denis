@@ -114,6 +114,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/demo", get(admin::demo_get).post(admin::demo_load).delete(admin::demo_remove))
         .route("/api/data/erase", post(admin::data_erase))
         .route("/api/findings", get(findings))
+        .route("/api/findings/{id}/verify", post(admin::finding_verify))
+        .route("/api/risk-acceptances", get(admin::risk_list).post(admin::risk_accept))
+        .route("/api/risk-acceptances/{id}", delete(admin::risk_revoke))
         .route("/api/rules", get(admin::rules_get).put(admin::rules_put).delete(admin::rules_reset))
         .route("/api/assets", get(assets).post(admin::create_asset))
         .route("/api/assets/import", post(admin::import_assets))
@@ -170,7 +173,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update")) && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances")) && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -407,7 +410,9 @@ async fn metrics(State(st): State<AppState>) -> Result<Response, ApiError> {
     for sev in ["high", "medium", "low"] {
         e.sample("denis_alerts_unacknowledged", &[("severity", sev)], alerts.iter().filter(|a| a.severity == sev).count() as f64);
     }
-    let findings = crate::findings::compute(&assets, &metas, now);
+    let accepted_all = blocking(&st.store, |s| s.list_risk_acceptances()).await?;
+    let (findings, accepted) = crate::findings::apply_acceptances(crate::findings::compute(&assets, &metas, now), &accepted_all, now);
+    e.gauge("denis_accepted_risks", "Risks people decided to accept (in force now).", accepted.len() as f64);
     e.family("denis_findings", "gauge", "Standing problems to fix, by severity.");
     for sev in ["high", "medium", "low", "info"] {
         e.sample("denis_findings", &[("severity", sev)], findings.iter().filter(|f| f.severity == sev).count() as f64);
@@ -493,7 +498,9 @@ async fn findings(State(st): State<AppState>) -> Result<Json<Vec<crate::findings
             crate::tracking::apply_overrides(a, m);
         }
     }
-    Ok(Json(crate::findings::compute(&list, &metas, now)))
+    let acceptances = blocking(&st.store, |s| s.list_risk_acceptances()).await?;
+    // what is still open: a decision to live with a risk takes that device out of the finding
+    Ok(Json(crate::findings::apply_acceptances(crate::findings::compute(&list, &metas, now), &acceptances, now).0))
 }
 
 async fn asset(State(st): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
@@ -1855,6 +1862,141 @@ mod tests {
         // marking the device as spare takes it out of the list
         store.save_meta(cam.id, &crate::model::AssetMeta { status: Some("spare".into()), ..Default::default() }, "t", 1).unwrap();
         assert!(get_json(&app, "/api/findings", "localhost").await.1.as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_risk_can_be_accepted_by_admins_only_with_a_reason_leaves_the_open_list_and_can_be_withdrawn() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let mut cam = Asset::new(Mac([2, 0, 0, 0, 0, 1]), 10);
+        cam.device_type = "camera".into();
+        cam.vendor = Some("Acme".into());
+        cam.last_seen = now_ts();
+        cam.open_ports = vec![crate::model::OpenPort { port: 23, proto: "tcp".into(), service: None }];
+        store.save_asset(&mut cam).unwrap();
+        let mut cam2 = Asset::new(Mac([2, 0, 0, 0, 0, 2]), 10);
+        cam2.device_type = "camera".into();
+        cam2.vendor = Some("Acme".into());
+        cam2.last_seen = now_ts();
+        cam2.open_ports = cam.open_ports.clone();
+        store.save_asset(&mut cam2).unwrap();
+        let body = serde_json::json!({"finding_id": "telnet_open", "asset_ids": [cam.id], "reason": "isolated VLAN, replaced in Q4", "days": 90});
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("POST", "/api/risk-acceptances", Some(c), Some(body.clone()))).await.0, StatusCode::FORBIDDEN, "only an administrator decides what risk to live with");
+        }
+        // refused: no reason, an unknown finding, a finding the device does not have, too long a time
+        for bad in [
+            serde_json::json!({"finding_id": "telnet_open", "asset_ids": [cam.id], "reason": " "}),
+            serde_json::json!({"finding_id": "nope", "asset_ids": [cam.id], "reason": "because"}),
+            serde_json::json!({"finding_id": "telnet_open", "asset_ids": [], "reason": "because"}),
+            serde_json::json!({"finding_id": "telnet_open", "asset_ids": [cam.id], "reason": "because", "days": 100000}),
+        ] {
+            assert_eq!(send(&app, req("POST", "/api/risk-acceptances", Some(&admin), Some(bad.clone()))).await.0, StatusCode::BAD_REQUEST, "{bad}");
+        }
+        for bad in [serde_json::json!({"finding_id": "ftp_open", "asset_ids": [cam.id], "reason": "because"}), serde_json::json!({"finding_id": "telnet_open", "asset_ids": [9999], "reason": "because"})] {
+            assert_eq!(send(&app, req("POST", "/api/risk-acceptances", Some(&admin), Some(bad.clone()))).await.0, StatusCode::CONFLICT, "only a risk that exists can be accepted: {bad}");
+        }
+        assert_eq!(send(&app, req("GET", "/api/findings", Some(&viewer), None)).await.2[0]["assets"], serde_json::json!([cam.id, cam2.id]));
+        let (st, _, v) = send(&app, req("POST", "/api/risk-acceptances", Some(&admin), Some(body))).await;
+        assert_eq!(st, StatusCode::CREATED, "{v}");
+        let id = v["ids"][0].as_i64().unwrap();
+        // one device drops out of the finding, the other stays; the decision is listed with who and why
+        assert_eq!(send(&app, req("GET", "/api/findings", Some(&viewer), None)).await.2[0]["assets"], serde_json::json!([cam2.id]));
+        let (_, _, list) = send(&app, req("GET", "/api/risk-acceptances", Some(&viewer), None)).await;
+        assert_eq!((list[0]["asset_id"].as_i64(), list[0]["reason"].as_str(), list[0]["accepted_by"].as_str(), list[0]["still_applies"].as_bool()), (Some(cam.id), Some("isolated VLAN, replaced in Q4"), Some("adam"), Some(true)), "{list}");
+        assert!(list[0]["expires_at"].as_i64().unwrap() > now_ts() + 89 * 86_400);
+        // the report an auditor reads carries it, and the metrics count it
+        let text = |resp: Response| async move { String::from_utf8_lossy(&axum::body::to_bytes(resp.into_body(), 10_000_000).await.unwrap()).to_string() };
+        let report = text(app.clone().oneshot(req("GET", "/report", Some(&viewer), None)).await.unwrap()).await;
+        assert!(report.contains("Accepted risks") && report.contains("isolated VLAN"), "the printable report lists accepted risks");
+        let metrics = text(app.clone().oneshot(req("GET", "/metrics", Some(&viewer), None)).await.unwrap()).await;
+        assert!(metrics.contains("denis_accepted_risks 1"), "{metrics}");
+        // withdraw it: the device is back in the finding; a second withdrawal finds nothing
+        assert_eq!(send(&app, req("DELETE", &format!("/api/risk-acceptances/{id}"), Some(&editor), None)).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("DELETE", &format!("/api/risk-acceptances/{id}"), Some(&admin), None)).await.0, StatusCode::OK);
+        assert_eq!(send(&app, req("DELETE", &format!("/api/risk-acceptances/{id}"), Some(&admin), None)).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(send(&app, req("GET", "/api/findings", Some(&viewer), None)).await.2[0]["assets"], serde_json::json!([cam.id, cam2.id]));
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("risk.accept") && audit.contains("risk.revoke") && audit.contains("isolated VLAN"), "who decided what, and why, is in the audit log");
+    }
+
+    #[tokio::test]
+    async fn verify_fix_rereads_the_register_and_says_plainly_when_it_cannot_scan() {
+        let (app, store, [viewer, editor, _admin]) = secured().await;
+        let mut cam = Asset::new(Mac([2, 0, 0, 0, 0, 1]), 10);
+        cam.device_type = "camera".into();
+        cam.vendor = Some("Acme".into());
+        cam.last_seen = now_ts();
+        cam.open_ports = vec![crate::model::OpenPort { port: 23, proto: "tcp".into(), service: None }];
+        cam.ip_history.push(crate::model::IpRecord { ip: std::net::Ipv4Addr::new(10, 0, 0, 7), first_seen: 1, last_seen: 1 });
+        store.save_asset(&mut cam).unwrap();
+        // a finding about the register (no owner on a critical device) is confirmed by reading the register again
+        store.save_meta(cam.id, &crate::model::AssetMeta { criticality: Some("critical".into()), reviewed: true, ..Default::default() }, "t", 1).unwrap();
+        let path = "/api/findings/critical_no_owner/verify";
+        assert_eq!(send(&app, req("POST", path, Some(&viewer), None)).await.0, StatusCode::FORBIDDEN, "viewers do not start checks");
+        let (st, _, v) = send(&app, req("POST", path, Some(&editor), None)).await;
+        assert_eq!((st, v["results"][0]["status"].as_str(), v["still_present"].as_i64(), v["rescanned"].as_bool()), (StatusCode::OK, Some("still_present"), Some(1), Some(false)), "{v}");
+        store.save_meta(cam.id, &crate::model::AssetMeta { criticality: Some("critical".into()), owner: Some("Ops".into()), reviewed: true, ..Default::default() }, "t", 2).unwrap();
+        let (_, _, v) = send(&app, req("POST", path, Some(&editor), None)).await;
+        assert_eq!((v["results"].as_array().map(Vec::len), v["fixed"].as_i64()), (Some(0), Some(0)), "nothing is left to check once the finding is gone: {v}");
+        let (_, _, v) = send(&app, req("POST", path, Some(&editor), Some(serde_json::json!({"asset_ids": [cam.id]})))).await;
+        assert_eq!((v["results"][0]["status"].as_str(), v["fixed"].as_i64()), (Some("fixed"), Some(1)), "{v}");
+        // an open port needs a scan; this console cannot scan (no collector), and says so instead of guessing
+        let (st, _, v) = send(&app, req("POST", "/api/findings/telnet_open/verify", Some(&editor), None)).await;
+        assert_eq!((st, v["results"][0]["status"].as_str(), v["rescanned"].as_bool()), (StatusCode::OK, Some("not_probed"), Some(false)), "{v}");
+        assert!(v["results"][0]["detail"].as_str().unwrap().contains("cannot scan"));
+        assert_eq!(send(&app, req("POST", "/api/findings/nope/verify", Some(&editor), None)).await.0, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn verify_fix_scans_the_devices_again_and_reports_fixed_still_open_silent_and_never_touches_industrial_ones() {
+        use crate::engine::{RescanOutcome, RescanRequest};
+        let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
+        let shared = crate::engine::test_shared();
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<RescanRequest>(4);
+        shared.set_rescanner_for_test(tx);
+        // the "collector": .7 still has Telnet open, .8 closed it, .9 does not answer, .10 is excluded
+        let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let asked2 = asked.clone();
+        tokio::spawn(async move {
+            while let Some(req) = rx.recv().await {
+                asked2.lock().unwrap().extend(req.ips.iter().copied());
+                let out = req.ips.iter().map(|ip| (*ip, match ip.octets()[3] {
+                    7 => RescanOutcome::Scanned(vec![crate::model::OpenPort { port: 23, proto: "tcp".into(), service: None }]),
+                    8 => RescanOutcome::Scanned(vec![]),
+                    10 => RescanOutcome::Excluded,
+                    _ => RescanOutcome::Unreachable,
+                })).collect();
+                let _ = req.reply.send(out);
+            }
+        });
+        let auth = Arc::new(crate::auth::Auth::new(store.clone()));
+        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: true, secure_cookie: false });
+        let mk = |n: u8, ty: &str, vendor: &str| {
+            let mut a = Asset::new(Mac([2, 0, 0, 0, 0, n]), 10);
+            a.device_type = ty.into();
+            a.vendor = Some(vendor.into());
+            a.last_seen = now_ts();
+            a.open_ports = vec![crate::model::OpenPort { port: 23, proto: "tcp".into(), service: None }];
+            a.ip_history.push(crate::model::IpRecord { ip: std::net::Ipv4Addr::new(10, 0, 0, n), first_seen: 1, last_seen: 1 });
+            store.save_asset(&mut a).unwrap();
+            a
+        };
+        let (still, gone, silent, excluded) = (mk(7, "camera", "Acme"), mk(8, "camera", "Acme"), mk(9, "camera", "Acme"), mk(10, "camera", "Acme"));
+        let plc = mk(11, "plc", "Siemens AG");
+        let (st, v) = {
+            let (st, _, v) = send(&app, req("POST", "/api/findings/telnet_open/verify", None, None)).await;
+            (st, v)
+        };
+        assert_eq!(st, StatusCode::OK, "{v}");
+        let status = |a: &Asset| v["results"].as_array().unwrap().iter().find(|r| r["asset_id"] == a.id).unwrap()["status"].as_str().unwrap().to_string();
+        assert_eq!((status(&still), status(&gone), status(&silent), status(&excluded), status(&plc)), ("still_present".into(), "fixed".into(), "unreachable".into(), "excluded".into(), "not_probed".into()), "{v}");
+        assert_eq!((v["rescanned"].as_bool(), v["fixed"].as_i64(), v["still_present"].as_i64()), (Some(true), Some(1), Some(1)));
+        assert!(!asked.lock().unwrap().contains(&std::net::Ipv4Addr::new(10, 0, 0, 11)), "an industrial device is never sent to the scanner");
+        // asking about one device only scans that one
+        asked.lock().unwrap().clear();
+        let (_, _, v) = send(&app, req("POST", "/api/findings/telnet_open/verify", None, Some(serde_json::json!({"asset_ids": [gone.id]})))).await;
+        assert_eq!((v["results"].as_array().unwrap().len(), v["results"][0]["status"].as_str()), (1, Some("fixed")));
+        assert_eq!(*asked.lock().unwrap(), vec![std::net::Ipv4Addr::new(10, 0, 0, 8)]);
     }
 
     // -------------------------------------------------------------- branding

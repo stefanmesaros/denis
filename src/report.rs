@@ -36,6 +36,8 @@ pub struct ReportData {
     pub agents: Vec<AgentInfo>,
     /// Standing problems and what to do about them.
     pub findings: Vec<crate::findings::Finding>,
+    /// Risks people decided to accept, with who and why (an auditor asks for exactly this).
+    pub accepted: Vec<crate::findings::AcceptedRisk>,
     pub points: Vec<Point>,
     pub step_secs: i64,
 }
@@ -64,10 +66,10 @@ pub fn gather(store: &dyn Store, days: i64, now: i64) -> Result<ReportData> {
         y.risk.score.cmp(&x.risk.score).then(y.asset.last_seen.cmp(&x.asset.last_seen))
     });
 
-    let findings = {
+    let (findings, accepted) = {
         let assets: Vec<Asset> = devices.iter().map(|d| d.asset.clone()).collect();
         let metas = devices.iter().map(|d| (d.asset.id, d.meta.clone())).collect();
-        crate::findings::compute(&assets, &metas, now)
+        crate::findings::apply_acceptances(crate::findings::compute(&assets, &metas, now), &store.list_risk_acceptances()?, now)
     };
     let alerts: Vec<Event> = all_alerts.into_iter().filter(|e| e.timestamp >= since).collect();
     let (points, step_secs) = trends::downsample(&store.list_metrics(since, now + 1, None)?, 168);
@@ -82,6 +84,7 @@ pub fn gather(store: &dyn Store, days: i64, now: i64) -> Result<ReportData> {
         alerts,
         agents: store.list_agents()?,
         findings,
+        accepted,
         points,
         step_secs,
     })
@@ -361,6 +364,20 @@ pub fn html(data: &ReportData) -> String {
                 "<tr><td><span class=\"sev {}\">{}</span></td><td><b>{}</b><div class=\"muted\">{}</div></td><td>{}</td><td>{}{}</td></tr>",
                 if f.severity == "info" { "low" } else { f.severity }, f.severity, esc(f.title), esc(f.why), esc(f.fix),
                 esc(&names.join(", ")), if more > 0 { format!(" and {more} more") } else { String::new() }
+            ));
+        }
+        h.push_str("</table>");
+    }
+
+    if !data.accepted.is_empty() {
+        h.push_str("<h2>Accepted risks</h2><table><tr><th>Finding</th><th>Device</th><th>Reason</th><th>Accepted by</th><th>Until</th></tr>");
+        for r in &data.accepted {
+            let device = data.devices.iter().find(|d| d.asset.id == r.asset_id).map_or(format!("#{}", r.asset_id), |d| d.name());
+            let until = r.expires_at.map_or("withdrawn by hand only".to_string(), |t| iso(t)[..10].to_string());
+            h.push_str(&format!(
+                "<tr><td><b>{}</b>{}</td><td>{}</td><td>{}</td><td>{} on {}</td><td>{}</td></tr>",
+                esc(r.title), if r.still_applies { "" } else { "<div class=\"muted\">no longer applies</div>" }, esc(&device), esc(&r.reason),
+                esc(&r.accepted_by), &iso(r.accepted_at)[..10], until
             ));
         }
         h.push_str("</table>");

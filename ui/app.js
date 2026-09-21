@@ -609,27 +609,6 @@ async function loadTrends() {
 
 // --------------------------------------------------------------- findings
 
-async function loadFindings() {
-  const r = await fetch('/api/findings');
-  if (!r.ok) return;
-  const list = await r.json();
-  const n = list.filter((f) => f.severity !== 'info').length;
-  $('count-findings').hidden = !n;
-  $('count-findings').textContent = n;
-  if (state.tab !== 'findings') return; // the badge is kept fresh; the list is drawn only when shown
-  const box = $('findings-list');
-  $('no-findings').hidden = list.length > 0;
-  box.replaceChildren(...list.map((f) => el('div', { class: 'finding' },
-    el('div', { class: 'finding-head' }, el('span', { class: 'sev ' + (f.severity === 'info' ? 'info' : f.severity), text: tr(f.severity) }),
-      el('b', { text: ' ' + tr(f.title) }), el('span', { class: 'muted', text: ' · ' + (f.assets.length === 1 ? tr('1 device') : tr('{n} devices', { n: f.assets.length })) })),
-    el('p', { class: 'muted', text: tr(f.why) }),
-    el('p', {}, el('b', { text: tr('What to do:') + ' ' }), tr(f.fix)),
-    el('div', { class: 'finding-devices' }, ...f.assets.map((id) => {
-      const a = assetById(id);
-      return el('button', { type: 'button', class: 'chip', text: a ? deviceLabel(a, '#' + id) : '#' + id, onclick: () => a && showDetail(a.id) });
-    })))));
-}
-
 async function loadCompliance() {
   const r = await fetch('/api/compliance');
   if (!r.ok) return;

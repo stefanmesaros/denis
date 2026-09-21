@@ -166,6 +166,23 @@ pub struct StatusInfo {
     pub exports: Vec<crate::sink::ExportStatus>,
 }
 
+/// A request to scan these devices again right now (to confirm that a finding was fixed).
+pub struct RescanRequest {
+    pub ips: Vec<Ipv4Addr>,
+    pub reply: tokio::sync::oneshot::Sender<Vec<(Ipv4Addr, RescanOutcome)>>,
+}
+
+/// What a rescan of one address found.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RescanOutcome {
+    /// It answered: these TCP ports are open now.
+    Scanned(Vec<crate::model::OpenPort>),
+    /// Nothing answered (off, asleep, blocking everything): a scan proves nothing.
+    Unreachable,
+    /// The operator excluded this address from probing (`--exclude`).
+    Excluded,
+}
+
 /// Where an erase request's outcome is sent back.
 type EraseReply = tokio::sync::oneshot::Sender<Result<(), String>>;
 
@@ -178,6 +195,8 @@ pub struct Shared {
     detect_base: Mutex<Option<DetectConfig>>,
     /// Set by `run`: asks the engine to erase the data *and* its own in-memory state together.
     erase_tx: Mutex<Option<mpsc::Sender<EraseReply>>>,
+    /// Asks the collector to scan devices again (`None` when it cannot: viewer mode, passive-only).
+    rescan_tx: Mutex<Option<mpsc::Sender<RescanRequest>>>,
     /// The console's certificate, when it is served over TLS.
     tls: Mutex<Option<Arc<crate::tls::TlsHandle>>>,
     /// The self-updater (`None` in viewer mode).
@@ -224,6 +243,21 @@ impl Shared {
         let (reply, answer) = tokio::sync::oneshot::channel();
         tx.send(reply).await.ok()?;
         Some(answer.await.unwrap_or_else(|_| Err("the engine did not answer".into())))
+    }
+
+    /// Tests: stand in for the collector's rescanner.
+    #[cfg(test)]
+    pub fn set_rescanner_for_test(&self, tx: mpsc::Sender<RescanRequest>) {
+        *self.rescan_tx.lock().unwrap() = Some(tx);
+    }
+
+    /// Scan these addresses again now and report what each one shows. `None` when this program cannot probe
+    /// (viewer mode, or `--passive-only`) or the collector did not answer in time.
+    pub async fn rescan(&self, ips: Vec<Ipv4Addr>) -> Option<Vec<(Ipv4Addr, RescanOutcome)>> {
+        let tx = self.rescan_tx.lock().unwrap().clone()?;
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        tx.send(RescanRequest { ips, reply }).await.ok()?;
+        tokio::time::timeout(Duration::from_secs(60), answer).await.ok()?.ok()
     }
 
     fn update(&self, f: impl FnOnce(&mut StatusInfo)) {
@@ -299,6 +333,7 @@ impl Collector {
             detect_base: Mutex::new(None),
             channel_status: Default::default(),
             erase_tx: Mutex::new(None),
+        rescan_tx: Mutex::new(None),
             updater: Mutex::new(None),
             tls: Mutex::new(None),
             scan_now: Notify::new(),
@@ -354,6 +389,14 @@ impl Collector {
                 let _ = new_tx.send(new);
             }
         });
+
+        if !cfg.passive_only {
+            // confirming a fix: scan chosen devices again on request (never industrial devices: the caller filters
+            // them, and excluded ranges are refused here)
+            let (rescan_tx, rescan_rx) = mpsc::channel::<RescanRequest>(4);
+            *shared.rescan_tx.lock().unwrap() = Some(rescan_tx);
+            tokio::spawn(rescanner(cfg.exclude.clone(), cfg.scan_timeout, cfg.scan_concurrency, rescan_rx, tx.clone()));
+        }
 
         let scheduler = tokio::spawn(schedule(
             SchedCfg {
@@ -496,6 +539,7 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
         detect_base: Mutex::new(Some(DetectConfig::default())),
         channel_status: Default::default(),
         erase_tx: Mutex::new(None),
+        rescan_tx: Mutex::new(None),
         updater: Mutex::new(None),
         tls: Mutex::new(None),
         scan_now: Notify::new(),
@@ -954,6 +998,33 @@ async fn schedule(
     }
 }
 
+/// Answers "scan these devices again": each address is probed like a normal port scan, and what it shows is both
+/// reported back and fed into the inventory (so the register shows the fresh port list too).
+async fn rescanner(exclude: Vec<Ipv4Net>, timeout: Duration, concurrency: usize, mut rx: mpsc::Receiver<RescanRequest>, tx: mpsc::Sender<Observation>) {
+    while let Some(req) = rx.recv().await {
+        let sem = Arc::new(Semaphore::new(concurrency.max(1)));
+        let mut out = Vec::new();
+        for ip in req.ips.into_iter().take(200) {
+            if exclude.iter().any(|n| n.contains(&ip)) {
+                out.push((ip, RescanOutcome::Excluded));
+                continue;
+            }
+            let (open, mut answered) = active::scan_host_probe(ip, sem.clone(), timeout).await;
+            if !answered {
+                // some hosts drop every connection but answer a ping
+                answered = active::icmp_sweep(&[ip], Duration::from_millis(800)).await.unwrap_or(0) > 0;
+            }
+            if answered {
+                let _ = tx.send(Observation::Ports { ip, open: open.clone() }).await;
+                out.push((ip, RescanOutcome::Scanned(open)));
+            } else {
+                out.push((ip, RescanOutcome::Unreachable));
+            }
+        }
+        let _ = req.reply.send(out);
+    }
+}
+
 /// Remove excluded addresses from a sweep's target list.
 fn probe_targets(targets: Vec<Ipv4Addr>, exclude: &[Ipv4Net]) -> Vec<Ipv4Addr> {
     targets.into_iter().filter(|ip| !exclude.iter().any(|n| n.contains(ip))).collect()
@@ -1056,6 +1127,7 @@ pub fn test_shared() -> Arc<Shared> {
         detect_base: Mutex::new(Some(DetectConfig::default())),
         channel_status: Default::default(),
         erase_tx: Mutex::new(None),
+        rescan_tx: Mutex::new(None),
         updater: Mutex::new(None),
         tls: Mutex::new(None),
         scan_now: Notify::new(),
@@ -1117,5 +1189,28 @@ mod tests {
         last = None;
         refresh_threat_list(&path, &mut last, &det);
         assert_eq!(det.lock().unwrap().threat_entries(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_rescan_reports_what_answers_what_is_excluded_and_what_says_nothing() {
+        let (obs_tx, mut obs_rx) = mpsc::channel(16);
+        let (tx, rx) = mpsc::channel(4);
+        let exclude: Vec<Ipv4Net> = vec!["10.99.0.0/16".parse().unwrap()];
+        tokio::spawn(rescanner(exclude, Duration::from_millis(300), 16, rx, obs_tx));
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        let local = Ipv4Addr::LOCALHOST;
+        tx.send(RescanRequest { ips: vec![local, Ipv4Addr::new(10, 99, 1, 1), Ipv4Addr::new(240, 0, 0, 1)], reply }).await.unwrap();
+        let out = answer.await.unwrap();
+        // this machine answers (a refused connection is an answer), the excluded range is never touched,
+        // and an address nobody answers for proves nothing
+        assert!(matches!(out[0], (ip, RescanOutcome::Scanned(_)) if ip == local), "{out:?}");
+        assert_eq!(out[1].1, RescanOutcome::Excluded);
+        assert_eq!(out[2].1, RescanOutcome::Unreachable);
+        // what was found also reaches the inventory, so the register shows the fresh port list; the silent host does not wipe it
+        match obs_rx.try_recv() {
+            Ok(Observation::Ports { ip, .. }) => assert_eq!(ip, local),
+            other => panic!("expected the fresh ports of the answering host, got {other:?}"),
+        }
+        assert!(obs_rx.try_recv().is_err(), "nothing was reported for the excluded or the silent address");
     }
 }

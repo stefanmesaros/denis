@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 
 use crate::auth::{self, AuthError};
 use crate::branding;
-use crate::model::{now_ts, Asset, AssetMeta, User};
+use crate::model::{now_ts, Asset, AssetMeta, RiskAcceptance, User};
 use crate::tracking;
 use crate::web::{asset_view, blocking, ApiError, AppState, AuthUser, SESSION_COOKIE};
 
@@ -1024,4 +1024,192 @@ pub(crate) async fn import_assets(State(st): State<AppState>, Extension(AuthUser
         "errors": errors.iter().map(|(l, m)| json!({ "line": l, "error": m })).collect::<Vec<_>>(),
     }))
     .into_response())
+}
+
+// -------------------------------------------------------------------- findings: accepted risks and verifying a fix
+
+// The sentences the risk and verify endpoints send back (translated by the console; `i18n.rs` checks they are).
+const D_GONE: &str = "the device is no longer in the register";
+const D_REG_STILL: &str = "the register still shows it";
+const D_REG_FIXED: &str = "the register no longer shows it";
+const D_OT: &str = "industrial devices are never scanned: check the device itself and update its ports by hand";
+const D_NO_ADDR: &str = "no address is known for this device";
+const D_CANNOT_SCAN: &str = "this DENIS cannot scan (viewer mode or passive-only): run a scan yourself, then verify again";
+const D_PORT_OPEN: &str = "scanned just now: the port is still open";
+const D_PORT_CLOSED: &str = "scanned just now: the port is closed";
+const D_EXCLUDED: &str = "this address is excluded from probing (--exclude)";
+const D_SILENT: &str = "the device did not answer: it may be off, so nothing is confirmed";
+const E_REASON: &str = "give a reason of 3 to 500 characters: it is what an auditor will read";
+const E_UNKNOWN: &str = "unknown finding";
+const E_DEVICES: &str = "choose 1 to 500 devices";
+const E_DAYS: &str = "the decision can last 1 to 3650 days (or leave it open-ended)";
+const E_NOT_APPLY: &str = "that finding does not apply to any device right now";
+const E_NO_RISK: &str = "no such accepted risk";
+
+/// Every fixed sentence of the risk and verify endpoints, so the translation test can check them.
+pub fn risk_texts() -> [&'static str; 16] {
+    [D_GONE, D_REG_STILL, D_REG_FIXED, D_OT, D_NO_ADDR, D_CANNOT_SCAN, D_PORT_OPEN, D_PORT_CLOSED, D_EXCLUDED, D_SILENT, E_REASON, E_UNKNOWN, E_DEVICES, E_DAYS, E_NOT_APPLY, E_NO_RISK]
+}
+
+/// The decisions in force with the words of the finding each is about.
+pub(crate) async fn risk_list(State(st): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let now = now_ts();
+    let (mut assets, metas, acceptances) = blocking(&st.store, |s| Ok((s.load_assets()?, s.load_all_meta()?, s.list_risk_acceptances()?))).await?;
+    for a in &mut assets {
+        if let Some(m) = metas.get(&a.id) {
+            tracking::apply_overrides(a, m);
+        }
+    }
+    let (_, accepted) = crate::findings::apply_acceptances(crate::findings::compute(&assets, &metas, now), &acceptances, now);
+    Ok(Json(json!(accepted)))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct AcceptReq {
+    finding_id: String,
+    asset_ids: Vec<i64>,
+    reason: String,
+    /// How many days the decision lasts; absent = until someone withdraws it.
+    days: Option<u32>,
+}
+
+/// "Accept the risk": a person decides to live with a finding on some devices, with the reason and (usually) an end date.
+pub(crate) async fn risk_accept(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<AcceptReq>) -> Result<Response, ApiError> {
+    let reason = b.reason.trim().to_string();
+    if reason.chars().count() < 3 || reason.chars().count() > 500 || reason.chars().any(|c| c.is_control() && c != '\n') {
+        return Ok(err(StatusCode::BAD_REQUEST, E_REASON));
+    }
+    if !crate::findings::is_known(&b.finding_id) {
+        return Ok(err(StatusCode::BAD_REQUEST, E_UNKNOWN));
+    }
+    if b.asset_ids.is_empty() || b.asset_ids.len() > 500 {
+        return Ok(err(StatusCode::BAD_REQUEST, E_DEVICES));
+    }
+    if b.days.is_some_and(|d| !(1..=3650).contains(&d)) {
+        return Ok(err(StatusCode::BAD_REQUEST, E_DAYS));
+    }
+    let now = now_ts();
+    let (mut assets, metas) = blocking(&st.store, |s| Ok((s.load_assets()?, s.load_all_meta()?))).await?;
+    for a in &mut assets {
+        if let Some(m) = metas.get(&a.id) {
+            tracking::apply_overrides(a, m);
+        }
+    }
+    // only a risk that exists can be accepted
+    let current = crate::findings::compute(&assets, &metas, now);
+    let Some(finding) = current.iter().find(|f| f.id == b.finding_id) else {
+        return Ok(err(StatusCode::CONFLICT, E_NOT_APPLY));
+    };
+    if let Some(bad) = b.asset_ids.iter().find(|id| !finding.assets.contains(id)) {
+        return Ok(err(StatusCode::CONFLICT, format!("that finding does not apply to device #{bad}")));
+    }
+    let expires_at = b.days.map(|d| now + d as i64 * 86_400);
+    let (finding_id, ids, by, why) = (b.finding_id.clone(), b.asset_ids.clone(), me.username.clone(), reason.clone());
+    let created = blocking(&st.store, move |s| {
+        let mut made = Vec::new();
+        for asset_id in ids {
+            made.push(s.add_risk_acceptance(&RiskAcceptance { id: 0, finding_id: finding_id.clone(), asset_id, reason: why.clone(), accepted_by: by.clone(), accepted_at: now, expires_at, revoked_at: None, revoked_by: None })?);
+        }
+        Ok(made)
+    })
+    .await?;
+    audit(&st, &me.username, "risk.accept", None, json!({ "finding": b.finding_id, "assets": b.asset_ids, "reason": reason, "expires_at": expires_at }));
+    Ok((StatusCode::CREATED, Json(json!({ "ids": created, "expires_at": expires_at }))).into_response())
+}
+
+/// Withdraw a decision: the finding counts again.
+pub(crate) async fn risk_revoke(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    let (by, now) = (me.username.clone(), now_ts());
+    let done = blocking(&st.store, move |s| s.revoke_risk_acceptance(id, &by, now)).await?;
+    if !done {
+        return Ok(err(StatusCode::NOT_FOUND, E_NO_RISK));
+    }
+    audit(&st, &me.username, "risk.revoke", None, json!({ "id": id }));
+    Ok(Json(json!({ "ok": true })).into_response())
+}
+
+#[derive(Deserialize, Default)]
+pub(crate) struct VerifyReq {
+    #[serde(default)]
+    asset_ids: Vec<i64>,
+}
+
+/// "Verify fix": look again. A finding about an open port makes DENIS scan the devices again right now; the others
+/// are re-read from the register. Each device is reported as `fixed`, `still_present`, `unreachable` (a scan proves
+/// nothing about a device that does not answer), `excluded` (the operator keeps probes away from it) or `not_probed`
+/// (industrial devices are never scanned; or this program cannot probe).
+pub(crate) async fn finding_verify(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(finding_id): Path<String>, body: Option<Json<VerifyReq>>) -> Result<Response, ApiError> {
+    if !crate::findings::is_known(&finding_id) {
+        return Ok(err(StatusCode::NOT_FOUND, E_UNKNOWN));
+    }
+    let wanted = body.map(|Json(b)| b.asset_ids).unwrap_or_default();
+    let now = now_ts();
+    let (mut assets, metas) = blocking(&st.store, |s| Ok((s.load_assets()?, s.load_all_meta()?))).await?;
+    for a in &mut assets {
+        if let Some(m) = metas.get(&a.id) {
+            tracking::apply_overrides(a, m);
+        }
+    }
+    let before = crate::findings::compute(&assets, &metas, now);
+    // the devices to look at: the ones asked for, else every device that has the finding (accepted ones too: a fix is a fix)
+    let mut ids: Vec<i64> = before.iter().find(|f| f.id == finding_id).map(|f| f.assets.clone()).unwrap_or_default();
+    if !wanted.is_empty() {
+        ids = wanted.into_iter().collect();
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    ids.truncate(200);
+
+    let port_finding = crate::findings::is_port_finding(&finding_id);
+    let mut results: Vec<Value> = Vec::new();
+    let mut rescanned = false;
+    let mut to_scan: Vec<(i64, std::net::Ipv4Addr)> = Vec::new();
+    for id in &ids {
+        let Some(a) = assets.iter().find(|a| a.id == *id) else {
+            results.push(json!({ "asset_id": id, "status": "fixed", "detail": D_GONE }));
+            continue;
+        };
+        let meta = metas.get(id);
+        if !port_finding {
+            let still = crate::findings::applies(a, meta, now, &finding_id);
+            results.push(json!({ "asset_id": id, "status": if still { "still_present" } else { "fixed" }, "detail": if still { D_REG_STILL } else { D_REG_FIXED } }));
+        } else if crate::fingerprint::is_ot_device(a) {
+            results.push(json!({ "asset_id": id, "status": "not_probed", "detail": D_OT }));
+        } else if let Some(ip) = a.current_ip() {
+            to_scan.push((*id, ip));
+        } else {
+            results.push(json!({ "asset_id": id, "status": "unreachable", "detail": D_NO_ADDR }));
+        }
+    }
+    if !to_scan.is_empty() {
+        match st.shared.rescan(to_scan.iter().map(|(_, ip)| *ip).collect()).await {
+            None => {
+                for (id, _) in &to_scan {
+                    results.push(json!({ "asset_id": id, "status": "not_probed", "detail": D_CANNOT_SCAN }));
+                }
+            }
+            Some(outcomes) => {
+                rescanned = true;
+                for (id, ip) in &to_scan {
+                    let outcome = outcomes.iter().find(|(o, _)| o == ip).map(|(_, o)| o.clone());
+                    let a = assets.iter().find(|a| a.id == *id).expect("asset").clone();
+                    results.push(match outcome {
+                        Some(crate::engine::RescanOutcome::Scanned(open)) => {
+                            let mut fresh = a.clone();
+                            fresh.open_ports = open;
+                            let still = crate::findings::applies(&fresh, metas.get(id), now, &finding_id);
+                            json!({ "asset_id": id, "status": if still { "still_present" } else { "fixed" }, "detail": if still { D_PORT_OPEN } else { D_PORT_CLOSED } })
+                        }
+                        Some(crate::engine::RescanOutcome::Excluded) => json!({ "asset_id": id, "status": "excluded", "detail": D_EXCLUDED }),
+                        _ => json!({ "asset_id": id, "status": "unreachable", "detail": D_SILENT }),
+                    });
+                }
+            }
+        }
+    }
+    let fixed = results.iter().filter(|r| r["status"] == "fixed").count();
+    let still = results.iter().filter(|r| r["status"] == "still_present").count();
+    audit(&st, &me.username, "finding.verify", None, json!({ "finding": finding_id, "devices": ids.len(), "fixed": fixed, "still_present": still, "rescanned": rescanned }));
+    results.sort_by_key(|r| r["asset_id"].as_i64());
+    Ok(Json(json!({ "finding_id": finding_id, "rescanned": rescanned, "fixed": fixed, "still_present": still, "results": results })).into_response())
 }

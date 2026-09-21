@@ -659,6 +659,29 @@ pub struct AuditEntry {
 }
 
 
+/// A person's decision to live with a finding on one device ("accept the risk"), with the reason and, usually, an end date.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RiskAcceptance {
+    pub id: i64,
+    /// The kind of finding (`telnet_open`, `ftp_open`…).
+    pub finding_id: String,
+    pub asset_id: i64,
+    pub reason: String,
+    pub accepted_by: String,
+    pub accepted_at: i64,
+    /// After this the finding counts again; `None` = until someone withdraws the decision.
+    pub expires_at: Option<i64>,
+    pub revoked_at: Option<i64>,
+    pub revoked_by: Option<String>,
+}
+
+impl RiskAcceptance {
+    /// In force at `now`: not withdrawn and not expired.
+    pub fn is_active(&self, now: i64) -> bool {
+        self.revoked_at.is_none() && self.expires_at.is_none_or(|e| e > now)
+    }
+}
+
 /// A persistent row of the communications matrix: which asset talks to which
 /// over which industrial protocol, and what kind of messages it sends.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

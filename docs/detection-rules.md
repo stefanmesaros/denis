@@ -148,6 +148,33 @@ On the **Rules** page (administrators):
 *Reset everything to defaults* returns weights, thresholds and minimum scores to their defaults and **keeps** your
 exceptions and watches (they are your content, not tuning).
 
+## Verifying a fix and accepting a risk
+
+Each finding on the **Findings** page has two buttons.
+
+**Verify fix** (editors and administrators) looks again and answers per device:
+
+| Answer | Meaning |
+|---|---|
+| **Fixed** | for an open port: DENIS just scanned the device and the port is closed. For a register finding (no owner, not reviewed, warranty…): the register no longer shows it. |
+| **Still present** | scanned just now and the port is still open, or the register still shows it |
+| **Did not answer** | the device did not respond to the scan (it may be off), so *nothing is confirmed*: a silent device is not treated as "fixed" |
+| **Excluded from scans** | the address is inside an `--exclude` range: DENIS never probes it |
+| **Not scanned** | industrial devices are **never** scanned (check the device and update its ports by hand); or this DENIS cannot probe (`denis serve` viewer mode, or `--passive-only`), in which case it says so |
+
+The fresh port list is also written to the register. You can verify one device (the *Verify* button in the accepted
+list) or every device of a finding.
+
+**Accept risk…** (administrators only, because it is a decision about risk) removes chosen devices from a finding and
+records who accepted it, when, **why** (required: it is what an auditor reads) and for how long (30, 90, 180 days, a
+year, or until withdrawn). Accepted risks are listed under the findings with their end date (highlighted when it is
+within two weeks) and can be **withdrawn** at any time. When the time is up the finding counts again by itself. A
+decision only exists while the problem exists: if the device is fixed the entry says *the problem is gone*.
+Accepting is written to the [audit log](tour.md#audit-log-administrators) (`risk.accept` / `risk.revoke`, with the
+reason) and accepted risks appear in the **printable report** and as `denis_accepted_risks` in `/metrics`. API:
+`GET/POST /api/risk-acceptances`, `DELETE /api/risk-acceptances/{id}`, `POST /api/findings/{id}/verify` (see the
+[API reference](api.md)). Deleting a device, or *erase all data*, removes its accepted risks.
+
 ## Acknowledging and false positives
 
 **Acknowledge** an alert once handled. It stops counting toward the device's risk (and you can *Undo*).

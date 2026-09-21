@@ -325,6 +325,13 @@ pub fn load(store: &dyn Store, now: i64) -> Result<Loaded> {
     }
     store.insert_metrics(&metrics)?;
 
+    // ------------------------------------------------------------ one accepted risk, so the Findings page shows how they look
+    store.add_risk_acceptance(&crate::model::RiskAcceptance {
+        id: 0, finding_id: "rdp_open".into(), asset_id: b.id("dc"),
+        reason: "Remote Desktop is only reachable from the management VLAN through the jump host; the vendor needs it for maintenance. Reviewed with IT security.".into(),
+        accepted_by: "admin".into(), accepted_at: now - 12 * DAY, expires_at: Some(now + 78 * DAY), revoked_at: None, revoked_by: None,
+    })?;
+
     Ok(Loaded { assets: b.ids.len() + 1, events })
 }
 

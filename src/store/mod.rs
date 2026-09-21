@@ -8,7 +8,7 @@ use anyhow::Result;
 
 use std::collections::HashMap;
 
-use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Mac, Metric, Presence, User};
+use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Mac, Metric, Presence, RiskAcceptance, User};
 
 #[derive(Clone, Debug)]
 pub struct EventQuery {
@@ -171,6 +171,14 @@ pub trait Store: Send + Sync {
     /// Audit entries with `id > after`, oldest first (export cursor).
     fn audit_after(&self, after: i64, limit: usize) -> Result<Vec<AuditEntry>>;
     fn list_audit(&self, asset_id: Option<i64>, limit: usize) -> Result<Vec<AuditEntry>>;
+
+    // ------------------------------------------------ accepted risks
+    /// Record a decision. An earlier one for the same finding and device is withdrawn (replaced by this one).
+    fn add_risk_acceptance(&self, a: &RiskAcceptance) -> Result<i64>;
+    /// Every decision that has not been withdrawn (expired ones included: the caller checks `is_active`), newest first.
+    fn list_risk_acceptances(&self) -> Result<Vec<RiskAcceptance>>;
+    /// Withdraw a decision. `false` if there was none (or it was already withdrawn).
+    fn revoke_risk_acceptance(&self, id: i64, by: &str, ts: i64) -> Result<bool>;
 
     // ------------------------------------------------ per-agent tokens
     /// Replaces (revokes) any earlier token for the same agent.

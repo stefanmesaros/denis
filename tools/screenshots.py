@@ -38,7 +38,7 @@ put("/api/rules", {"ot_watches": [
 shots = [
     ("devices", "#assets", 1280, 860), ("review-queue", "#review", 1280, 620), ("device-detail", f"#device/{by['Finance file server']}", 1280, 1100),
     ("edit-asset", f"#edit/{by['Reception printer']}", 1280, 1000), ("alerts", "#alerts", 1280, 760), ("alert-dialog", f"#alert/{alert['id']}", 1280, 760),
-    ("findings", "#findings", 1280, 900), ("rules", "#rules", 1280, 1150), ("ot-watches", "#rules", 1280, 4200), ("compliance", "#compliance", 1280, 1150),
+    ("findings", "#findings", 1280, 900), ("accepted-risks", "#findings", 1280, 2300), ("rules", "#rules", 1280, 1150), ("ot-watches", "#rules", 1280, 4200), ("compliance", "#compliance", 1280, 1150),
     ("topology", "#topology", 1280, 820), ("ot", "#ot", 1280, 1250), ("trends", "#trends", 1280, 520), ("sites", "#agents", 1280, 460), ("icon-picker", f"#icons/{by['Reception printer']}", 1280, 1000), ("account", "#account", 1280, 640),
     ("alerting", "#alerting", 1280, 1000), ("users", "#users", 1280, 620), ("settings", "#settings", 1280, 1120), ("audit", "#audit", 1280, 760),
 ]
@@ -46,7 +46,8 @@ for name, frag, w, h in shots:
     path = os.path.join(out, name + ".png")
     subprocess.run([chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars", f"--window-size={w},{h}", "--virtual-time-budget=7000",
                     "--force-device-scale-factor=1", f"--screenshot={path}", base + "/" + frag], check=True, capture_output=True)
-    if name == "ot-watches":
-        # the watches sit far down the Rules page: take the whole page, keep that part (macOS `sips`)
-        subprocess.run(["sips", "-c", "600", "1280", "--cropOffset", "2360", "0", path], check=True, capture_output=True)
+    # some parts sit far down a page: take the whole page and keep that part (macOS `sips`: height, width, offset from the top)
+    crop = {"ot-watches": (600, 2360), "accepted-risks": (420, 1610)}.get(name)
+    if crop:
+        subprocess.run(["sips", "-c", str(crop[0]), "1280", "--cropOffset", str(crop[1]), "0", path], check=True, capture_output=True)
     print(name, os.path.getsize(path) // 1024, "KB")

@@ -251,6 +251,54 @@ await check('a type chosen by hand is remembered and the icon follows it', async
   return (a.device_type === 'washing machine') ? null : `saved type "${a.device_type}"`;
 });
 
+// ------------------------------------------------------------------ findings: accept a risk, verify a fix
+await check('the Findings page offers "Verify fix" and "Accept risk…" on every finding and lists the accepted risks', async () => {
+  takeProblems();
+  await evaluate("location.hash = '#findings'; setTab('findings'); 0");
+  await sleep(1200);
+  const r = await evaluate(`(() => { const cards = [...document.querySelectorAll('#findings-list .finding')]; return { cards: cards.length, verify: cards.filter((c) => c.querySelector('.verify-fix')).length, accept: cards.filter((c) => c.querySelector('.accept-risk')).length, accepted: document.querySelectorAll('#accepted-table tbody tr').length, boxHidden: document.getElementById('accepted-box').hidden, until: document.querySelector('#accepted-table tbody tr td:nth-child(5)')?.textContent }; })()`);
+  if (r.cards < 3 || r.verify !== r.cards || r.accept !== r.cards) return `findings ${r.cards}, with Verify ${r.verify} and Accept ${r.accept}`;
+  if (r.boxHidden || r.accepted < 1) return 'the demo has an accepted risk but the list does not show it';
+  if (!/in \d+ days/.test(r.until || '')) return `the accepted risk's end reads "${r.until}"`;
+  const p = takeProblems();
+  return p.length ? p.join('; ') : null;
+});
+await check('accepting a risk needs a reason, removes the device from the finding and lists it; withdrawing brings it back', async () => {
+  const before = await (await fetch(base + '/api/findings')).json();
+  const tel = before.find((f) => f.id === 'telnet_open');
+  if (!tel) return 'the demo has no Telnet finding to work with';
+  await evaluate("document.querySelector('#finding-telnet_open .accept-risk').click(); 0");
+  await sleep(500);
+  // no reason: refused, dialog stays
+  await evaluate("document.querySelector('#dialog-form button[type=submit]').click(); 0");
+  await sleep(400);
+  const stillOpen = await evaluate("!!document.querySelector('#form-dialog[open]')");
+  const unchanged = await (await fetch(base + '/api/findings')).json();
+  if (!stillOpen || !unchanged.some((f) => f.id === 'telnet_open' && f.assets.length === tel.assets.length)) return 'a decision without a reason was not refused';
+  await evaluate("document.querySelector('#dialog-form textarea').value = 'Smoke test: isolated VLAN'; document.querySelector('#dialog-form button[type=submit]').click(); 0");
+  await sleep(1500);
+  const after = await (await fetch(base + '/api/findings')).json();
+  if (after.some((f) => f.id === 'telnet_open')) return 'the accepted device is still listed under the finding';
+  const rows = await evaluate("[...document.querySelectorAll('#accepted-table tbody tr')].map((r) => r.innerText)");
+  if (!rows.some((t) => t.includes('Smoke test: isolated VLAN') && /Telnet/.test(t))) return 'the accepted risk is not listed: ' + JSON.stringify(rows);
+  // withdraw it again from the list
+  await evaluate("window.confirm = () => true; [...document.querySelectorAll('#accepted-table tbody tr')].find((r) => r.innerText.includes('Smoke test')).querySelector('button[title^=Stop]').click(); 0");
+  await sleep(1500);
+  const back = await (await fetch(base + '/api/findings')).json();
+  return back.some((f) => f.id === 'telnet_open') ? null : 'the finding did not come back after the decision was withdrawn';
+});
+await check('"Verify fix" answers plainly, also when this console cannot scan', async () => {
+  takeProblems();
+  await evaluate("document.querySelector('#finding-telnet_open .verify-fix').click(); 0");
+  await sleep(1500);
+  const text = await evaluate("document.getElementById('msg-dialog').open ? document.getElementById('msg-body').innerText : ''");
+  await evaluate("document.getElementById('msg-dialog').close(); 0");
+  if (!/Verify fix/.test(text) || !/Not scanned/.test(text) || !/cannot scan/.test(text)) return 'the answer said: ' + text.slice(0, 300);
+  const bad = await evaluate(BAD_TEXT);
+  const p = takeProblems();
+  return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
+});
+
 // ------------------------------------------------------------------ rules: an OT watch
 await check('an OT command watch can be added from the Rules page and removed again', async () => {
   takeProblems();

@@ -70,6 +70,9 @@ Role = the lowest role allowed.
 | `GET/POST /api/channels` · `PUT/DELETE /api/channels/{id}` · `POST /api/channels/{id}/test` | admin | notification channels (secrets are write-only) |
 | `GET /api/maintenance` · `PUT /api/maintenance` | viewer · admin | maintenance mode `{"minutes": 60, "note": "…"}` (`null` ends it) |
 | `GET/POST /api/api-tokens` · `DELETE /api/api-tokens/{id}` | admin | API tokens for scripts (`token` returned once) |
+| `GET /api/findings` · `GET /api/risk-acceptances` | viewer | open findings (accepted risks already taken out) · the accepted risks in force, with reason, who, when and end date |
+| `POST /api/risk-acceptances` · `DELETE /api/risk-acceptances/{id}` | admin | accept a risk `{"finding_id":"telnet_open","asset_ids":[12],"reason":"…","days":90}` (`days` omitted = until withdrawn; only a risk that exists can be accepted) · withdraw it |
+| `POST /api/findings/{id}/verify` | editor | look again, optionally `{"asset_ids":[…]}`; returns `{rescanned, fixed, still_present, results:[{asset_id, status, detail}]}` with `status` one of `fixed`, `still_present`, `unreachable`, `excluded`, `not_probed` |
 | `PUT /api/rules` · `DELETE /api/rules` | admin | change rule settings (`{"min_score":40,"weights":{"new_device":0},"params":{"silent_minutes":240},"min_scores":{"new_port":45},"exceptions":{"new_device":[{"kind":"type","value":"printer"}]},"ot_watches":[…]}`, `null` = back to default; `ot_watches` is the whole list) · reset all |
 | `PUT /api/branding` · `PUT/DELETE /api/branding/logo` | admin | change branding (JSON) · upload/remove logo (raw PNG/JPEG/GIF/WebP, ≤256 KB) |
 

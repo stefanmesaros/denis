@@ -25,6 +25,8 @@ async function api(method, url, body) {
 function translateError(msg) {
   let m = /^too many attempts; try again in (\d+) seconds$/.exec(msg);
   if (m) return tr('too many attempts; try again in {n} seconds', { n: m[1] });
+  m = /^that finding does not apply to device #(\d+)$/.exec(msg);
+  if (m) return tr('that finding does not apply to device #{n}', { n: m[1] });
   m = /^password must be at least (\d+) characters$/.exec(msg);
   if (m) return tr('password must be at least {n} characters', { n: m[1] });
   return tr(msg);
