@@ -469,9 +469,12 @@ pub(crate) mod agent {
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
+    /// What the agent was asked, in order: the kind of request and the variables.
+    pub type Requests = Arc<std::sync::Mutex<Vec<(u8, Vec<Oid>)>>>;
+
     pub struct Agent {
         pub addr: SocketAddr,
-        pub requests: Arc<std::sync::Mutex<Vec<(u8, Vec<Oid>)>>>,
+        pub requests: Requests,
         stop: Arc<std::sync::atomic::AtomicBool>,
     }
 

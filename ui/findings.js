@@ -31,6 +31,7 @@ async function loadFindings() {
       el('b', { text: ' ' + tr(f.title) }), el('span', { class: 'muted', text: ' · ' + (f.assets.length === 1 ? tr('1 device') : tr('{n} devices', { n: f.assets.length })) })),
     el('p', { class: 'muted', text: tr(f.why) }),
     el('p', {}, el('b', { text: tr('What to do:') + ' ' }), tr(f.fix)),
+    (f.evidence || []).length ? el('ul', { class: 'evidence' }, ...f.evidence.map((e) => el('li', {}, el('b', { text: deviceLabel(assetById(e.asset_id) || {}, '#' + e.asset_id) + ': ' }), evidenceText(e)))) : null,
     el('div', { class: 'finding-devices' }, ...f.assets.map((id) => {
       const a = assetById(id);
       return el('button', { type: 'button', class: 'chip', text: a ? deviceLabel(a, '#' + id) : '#' + id, onclick: () => a && showDetail(a.id) });
@@ -39,6 +40,18 @@ async function loadFindings() {
       editor ? el('button', { type: 'button', class: 'verify-fix', text: tr('Verify fix'), title: tr('Look again: scan these devices now and see whether the problem is gone'), onclick: (ev) => verifyFinding(f, f.assets, ev.target) }) : null,
       admin ? el('button', { type: 'button', class: 'accept-risk', text: tr('Accept risk…'), title: tr('Decide to live with this, with a reason and an end date'), onclick: () => openAcceptForm(f) }) : null) : null)));
   drawAcceptedRisks();
+}
+
+/** One sentence about software a device announced: what was read, and what that means. */
+function evidenceText(e) {
+  const v = { product: e.product, version: e.version, cycle: e.cycle, date: e.date, n: e.days_left, cve: e.cve, name: e.name };
+  const parts = [];
+  if (e.kind === 'eol') parts.push(e.date ? tr('{product} {version}: support for the {cycle} series ended on {date}.', v) : tr('{product} {version}: support for the {cycle} series has ended.', v));
+  else if (e.kind === 'eol_soon') parts.push(tr('{product} {version}: support for the {cycle} series ends on {date} (in {n} days).', v));
+  else parts.push(tr('{product} {version} is in the range affected by {cve} ({name}), which attackers are exploiting.', v));
+  if (e.backport) parts.push(e.kind === 'kev' ? tr('The banner names a distribution, which may have fixed this without changing the version number: check.') : tr('A distribution may still patch it: check with yours.'));
+  if (e.ransomware) parts.push(tr('Used in ransomware campaigns.'));
+  return parts.join(' ');
 }
 
 const STATUS_TEXT = () => ({

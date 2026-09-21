@@ -326,3 +326,6 @@ table.sized td, table.sized th { overflow: hidden; text-overflow: ellipsis; }
 .topo .switch-node.down { stroke: #dc2626; stroke-dasharray: 4 3; }
 .topo text.switch-label { fill: var(--text); font-size: 10px; font-weight: 600; }
 #topo-physical-body { flex-direction: column; }
+
+ul.evidence { margin: 4px 0 8px; padding-left: 18px; font-size: 13px; }
+ul.evidence li { margin: 2px 0; }

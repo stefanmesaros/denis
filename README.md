@@ -98,6 +98,8 @@ src/compliance.rs   coverage and standards mapping (CIS / NIST CSF / IEC 62443 /
 src/reports.rs      saved reports and their schedule
 src/snmp.rs         SNMP v2c client (BER, GET/GETBULK walks)
 src/topology.rs     switches over SNMP: ports, LLDP neighbours, MAC-to-port; the physical map
+src/banners.rs      service banners (SSH/FTP/SMTP/HTTP) and the product and version in them
+src/vulndata.rs     end-of-support dates and known-exploited ranges (data/vulndata.json)
 src/docs.rs         the documentation served inside the console
 ui/i18n.js          language handling; texts in tools/i18n/*.tsv -> ui/i18n/*.json (python3 tools/i18n/build.py)
 src/metrics.rs      Prometheus exposition

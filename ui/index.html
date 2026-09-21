@@ -315,8 +315,12 @@
       <section id="view-settings" hidden>
         <p class="muted">Settings for the whole installation. Only administrators see this page; every change is written to the <a href="#audit">audit log</a>.</p>
         <nav class="subnav" aria-label="Settings sections">
-          <a href="#settings/branding">Branding (white label)</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/switches">Switches (SNMP)</a><a href="#settings/security">Sign-in security</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
+          <a href="#settings/branding">Branding (white label)</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/vulndata">Software data</a><a href="#settings/switches">Switches (SNMP)</a><a href="#settings/security">Sign-in security</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
         </nav>
+        <div id="vuln-box" hidden>
+          <h3 class="section">Software versions: end of support and known exploits</h3>
+          <div id="vuln-body"></div>
+        </div>
         <div id="switches-box" hidden>
           <h3 class="section">Switches (SNMP)</h3>
           <div id="switches-body"></div>
@@ -419,6 +423,7 @@
   <script src="setup.js"></script>
   <script src="totp.js"></script>
   <script src="switches.js"></script>
+  <script src="vuln.js"></script>
   <script src="main.js"></script>
 </body>
 </html>

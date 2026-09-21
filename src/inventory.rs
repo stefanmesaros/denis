@@ -237,6 +237,17 @@ impl Inventory {
                 a.ports_scanned_at = Some(now);
                 self.finish(mac, None, true, now);
             }
+            Observation::Banners { ip, fields } => {
+                let Some(mac) = self.by_ip.get(&ip).copied() else { return };
+                let a = self.assets.get_mut(&mac).expect("indexed");
+                let before = a.fingerprint.identity.clone();
+                a.fingerprint.identity.retain(|k, _| !k.starts_with("banner."));
+                for (k, v) in fields.into_iter().filter(|(k, _)| k.starts_with("banner.")) {
+                    a.fingerprint.identity.insert(k, v);
+                }
+                let changed = a.fingerprint.identity != before;
+                self.finish(mac, None, changed, now);
+            }
             Observation::Ot(s) => self.apply_ot(&s, now),
             Observation::Link(l) => self.apply_link(l, now),
             Observation::Signal(mut sig) => {
@@ -690,5 +701,26 @@ mod tests {
         inv.apply(Observation::Arp { mac: B, ip: ip(6) }, 400);
         let live = inv.live_hosts(300);
         assert_eq!(live, vec![LiveHost { ip: ip(6), ports_scanned_at: None, ot: false }]);
+    }
+
+    #[test]
+    fn banners_replace_the_earlier_ones_and_a_silent_service_loses_its_banner() {
+        let mut inv = Inventory::new(vec![], None, None);
+        let mac = Mac([2, 0, 0, 0, 0, 7]);
+        inv.apply(Observation::Arp { mac, ip: ip(7) }, 100);
+        let banners = |pairs: &[(&str, &str)]| Observation::Banners { ip: ip(7), fields: pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect() };
+        inv.apply(banners(&[("banner.ssh", "SSH-2.0-OpenSSH_7.4"), ("banner.http", "Server: nginx/1.10.3")]), 110);
+        let id = |inv: &Inventory| inv.assets[&mac].fingerprint.identity.clone();
+        assert_eq!(id(&inv).len(), 2);
+        // the web server went away: only what is announced now is kept; other identity (LLDP...) is left alone
+        inv.apply(Observation::Link(LinkInfo { mac, source: "lldp", ip: Some(ip(7)), fields: [("system_name".to_string(), "sw".to_string())].into_iter().collect() }), 115);
+        inv.apply(banners(&[("banner.ssh", "SSH-2.0-OpenSSH_8.9p1")]), 120);
+        let now = id(&inv);
+        assert_eq!(now.get("banner.ssh").map(String::as_str), Some("SSH-2.0-OpenSSH_8.9p1"));
+        assert!(!now.contains_key("banner.http") && now.contains_key("lldp.system_name"), "{now:?}");
+        // something that is not a banner cannot be smuggled in, and an unknown address is ignored
+        inv.apply(banners(&[("lldp.system_name", "spoof")]), 130);
+        assert_eq!(id(&inv).get("lldp.system_name").map(String::as_str), Some("sw"));
+        inv.apply(Observation::Banners { ip: ip(99), fields: Default::default() }, 140);
     }
 }

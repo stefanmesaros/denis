@@ -140,11 +140,14 @@ finding, each with why it matters and what to do.
 | Finding | Severity | Meaning |
 |---|---|---|
 | `lost_device_online` | high | a device you marked *lost* or *stolen* was seen in the last 7 days |
+| `kev_software` | high | a service announces a software version that is in the range of a vulnerability on CISA's known-exploited list ([below](#software-versions-end-of-support-and-known-exploits)) |
 | `telnet_open` | high | Telnet open |
 | `rdp_open`, `vnc_open`, `ftp_open`, `mysql_open`, `winbox_open` | medium | risky remote-access / data services reachable |
+| `eol_software` | medium | a service announces a version whose support has ended |
 | `retired_device_online` | medium | a *retired* device is still on the network |
 | `critical_no_owner` | medium | criticality high/critical but no owner entered |
 | `smb_open`, `mqtt_open` | low | file sharing on a non-computer; open MQTT broker |
+| `eol_soon` | low | a service announces a version whose support ends within 90 days |
 | `ot_no_purdue_level` | low | industrial device without a Purdue level |
 | `unidentified` | low | type unknown and no name entered |
 | `warranty_expired` / `warranty_expiring` | low / info | from the warranty date you entered |
@@ -152,6 +155,40 @@ finding, each with why it matters and what to do.
 Only devices seen in the last 7 days are considered, and devices whose status is *spare*, *retired*, *lost*
 or *stolen* are not nagged about exposed services. Exposure findings come from the port scan, so they appear
 only for devices that have been scanned (never industrial devices).
+
+## Software versions: end of support and known exploits
+
+When DENIS port-scans a device it also reads what the services say about themselves: the **banner** an SSH (22), FTP (21)
+or SMTP (25) server sends when you connect, and the **`Server` / `X-Powered-By` headers** of a web server on 80, 8000,
+8080 or 8888. That is one extra, ordinary connection per open port of those kinds (a `HEAD /` request for web servers); it
+never happens for industrial devices or excluded ranges, which are not scanned at all. The banners are kept as plain text
+(control characters removed, 200 characters at most) and shown in the device's panel.
+
+From a banner DENIS takes a **product and a version** (OpenSSH, Dropbear, nginx, Apache HTTP Server, PHP, OpenSSL, lighttpd,
+IIS, Exim, ProFTPD, vsftpd) and asks two questions of it. **No version in the banner means no claim at all.**
+
+* **Is this version still supported?** (`eol_software`, `eol_soon`.) From [endoflife.date](https://endoflife.date): support
+  dates for nginx, Apache HTTP Server, PHP, OpenSSL, Exim and ProFTPD. A release whose date has passed is a finding; one that
+  ends within 90 days is a low one. OpenSSH, lighttpd, vsftpd and Dropbear have no published support dates, so they are never judged this way.
+* **Is it in the range of a vulnerability that is being exploited?** (`kev_software`.) From the CISA *Known Exploited
+  Vulnerabilities* catalog, with the affected version ranges from NVD; only CVEs whose NVD ranges are clean and single-product
+  are included (nine today, for Apache HTTP Server, PHP and Exim). This is a deliberately **short, high-confidence** list, not a
+  scanner's thousand CVEs.
+
+Each finding lists, per device, what was read and what it means (product, version, the release series and its end date, or the
+CVE and its name; "used in ransomware campaigns" where CISA says so).
+
+**Read a match as "check this", not as a verdict.** A distribution (Ubuntu, Debian, Red Hat…) often fixes a flaw without changing
+the upstream version number, so a banner that names a distribution is worded accordingly ("may have been fixed"). A service can
+also announce a version that is not what is really installed. *Verify fix* scans the device again, reads the banner again and
+says whether it still announces that version; *Accept risk* works as for any finding.
+
+**Where the data comes from and how it is kept.** `data/vulndata.json` ships inside DENIS (its date is shown under *Settings* →
+**Software data**). It is built by `tools/build-vulndata.py` (needs `curl`), which you can run yourself: it fetches the three
+sources, keeps a CVE only when its version ranges are unambiguous, and writes the file for you to read and commit. The support
+dates can also be **refreshed by the console** from endoflife.date, weekly (an option, off by default) or on demand: that
+contacts one public site and sends nothing about your network. The known-exploited list arrives with new DENIS releases.
+DENIS never sends a version or a device name anywhere to look it up.
 
 ## Making the rules fit your network
 

@@ -141,7 +141,7 @@ fn the_json_catalogs_are_the_ones_generated_from_the_sources() {
 #[test]
 fn every_string_the_scripts_and_pages_show_is_translated() {
     let cat = catalog("de");
-    for script in ["app.js", "admin.js", "rules.js", "findings.js", "reports.js", "health.js", "tables.js", "setup.js", "totp.js", "switches.js", "main.js", "icons.js"] {
+    for script in ["app.js", "admin.js", "rules.js", "findings.js", "reports.js", "health.js", "tables.js", "setup.js", "totp.js", "switches.js", "vuln.js", "main.js", "icons.js"] {
         assert_translated(&cat, script, tr_literals(&read(&format!("ui/{script}"))));
     }
     assert_translated(&cat, "index.html", html_strings(&read("ui/index.html")));

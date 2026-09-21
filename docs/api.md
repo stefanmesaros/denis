@@ -64,6 +64,7 @@ Role = the lowest role allowed.
 | `GET /api/auth/totp` · `POST /api/auth/totp/begin` `/confirm` `/disable` `/recovery` · `GET /api/auth/totp/qr.svg` | any signed-in user | your authenticator app: status · set up (password, then the first code) · turn off · new recovery codes · the QR code of the pending secret |
 | `DELETE /api/users/{id}/totp` | admin | remove somebody's authenticator app |
 | `GET/PUT /api/security` | admin | who must use a second step: `{"mfa_required": "off\|admins\|all"}` (plus how many people that would catch) |
+| `GET /api/vulndata` · `PUT /api/vulndata` · `POST /api/vulndata/refresh` | viewer / admin / admin | the software data (date, counts, whether refreshed) · `{"refresh_eol": true}` weekly refresh of support dates · refresh them now |
 | `GET /api/topology` | viewer | the physical map: switches, links between them, where each known device is plugged in (`attachments[]`) |
 | `GET/PUT /api/switches` · `POST /api/switches/{id}/poll` | viewer / admin | the switches read over SNMP (never the community): list · replace the list `{interval_secs, targets:[{id, name, address, community?, enabled}]}` (a blank community keeps the stored one) · read one now |
 | `GET/PUT /api/setup` | admin | the setup guide: `{completed, steps[]}` judged from what is configured · `{"completed": true\|false}` |

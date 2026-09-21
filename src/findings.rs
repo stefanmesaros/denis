@@ -35,6 +35,9 @@ pub struct Finding {
     pub fix: &'static str,
     /// The devices affected (asset ids), in a stable order.
     pub assets: Vec<i64>,
+    /// For findings about software versions: what was read from where, per device.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<crate::vulndata::Evidence>,
 }
 
 struct Kind {
@@ -98,6 +101,16 @@ const WARRANTY_EXPIRING: Kind = kind("warranty_expiring", "info", "Warranty expi
     "Renewal is cheaper before it lapses.",
     "Renew the warranty or support contract, or plan the replacement.");
 
+const EOL_SOFTWARE: Kind = kind("eol_software", "medium", "Software that its vendor no longer supports",
+    "The version a device announces has reached the end of its support: no more security fixes are published for it, so every new weakness stays open.",
+    "Update to a supported version, or replace the device. Where that is not possible, restrict who can reach the service and watch the device closely.");
+const EOL_SOON: Kind = kind("eol_soon", "low", "Software whose support ends within 90 days",
+    "The version a device announces stops receiving security fixes soon.",
+    "Plan the update now, while it is still supported.");
+const KEV_SOFTWARE: Kind = kind("kev_software", "high", "Software with a vulnerability that attackers are exploiting",
+    "The version a device announces is in the range affected by a vulnerability on CISA's list of known exploited vulnerabilities. Distributions sometimes fix a flaw without changing the version number, so check before assuming the device is open to it.",
+    "Update to a fixed version, or ask your distribution or vendor whether the fix is already included in this one. Until then restrict who can reach the service.");
+
 /// Exposed-service findings: (port, kind, applies to computers/NAS/servers too?)
 const PORT_FINDINGS: &[(u16, &Kind, bool)] = &[
     (23, &TELNET, true),
@@ -121,7 +134,7 @@ pub fn texts() -> Vec<&'static str> {
         .collect()
 }
 
-const ALL_KINDS: [&Kind; 16] = [&TELNET, &FTP, &RDP, &VNC, &SMB, &MYSQL, &MQTT, &WINBOX, &LOST, &RETIRED, &CRIT_NO_OWNER, &OT_NO_LEVEL, &UNIDENTIFIED, &UNREVIEWED, &WARRANTY_EXPIRED, &WARRANTY_EXPIRING];
+const ALL_KINDS: [&Kind; 19] = [&EOL_SOFTWARE, &EOL_SOON, &KEV_SOFTWARE, &TELNET, &FTP, &RDP, &VNC, &SMB, &MYSQL, &MQTT, &WINBOX, &LOST, &RETIRED, &CRIT_NO_OWNER, &OT_NO_LEVEL, &UNIDENTIFIED, &UNREVIEWED, &WARRANTY_EXPIRED, &WARRANTY_EXPIRING];
 
 /// Is `id` a kind of finding this program knows?
 pub fn is_known(id: &str) -> bool {
@@ -131,6 +144,16 @@ pub fn is_known(id: &str) -> bool {
 /// The title of a kind of finding.
 pub fn title_of(id: &str) -> Option<&'static str> {
     ALL_KINDS.iter().find(|k| k.id == id).map(|k| k.title)
+}
+
+/// Findings that read software versions from banners (a fresh scan reads the banners again).
+pub fn is_banner_finding(id: &str) -> bool {
+    matches!(id, "eol_software" | "eol_soon" | "kev_software")
+}
+
+/// Findings that a fresh scan of the device can confirm or clear: an open port, or a version banner.
+pub fn is_scan_finding(id: &str) -> bool {
+    is_port_finding(id) || is_banner_finding(id)
 }
 
 /// Findings that are about what a scan of the device shows (an open port), so a rescan can confirm a fix.
@@ -173,6 +196,8 @@ pub fn apply_acceptances(all: Vec<Finding>, acceptances: &[RiskAcceptance], now:
         .into_iter()
         .filter_map(|mut f| {
             f.assets.retain(|id| !accepted_now(f.id, *id));
+            let keep = f.assets.clone();
+            f.evidence.retain(|e| keep.contains(&e.asset_id));
             (!f.assets.is_empty()).then_some(f)
         })
         .collect();
@@ -196,6 +221,9 @@ fn rank(sev: &str) -> u8 {
 
 /// All current findings, most severe first.
 pub fn compute(assets: &[Asset], metas: &HashMap<i64, AssetMeta>, now: i64) -> Vec<Finding> {
+    let intel = crate::vulndata::current();
+    let today = now.div_euclid(86_400);
+    let mut evidence: Vec<crate::vulndata::Evidence> = Vec::new();
     let mut by_kind: Vec<(&Kind, Vec<i64>)> = Vec::new();
     let mut add = |k: &'static Kind, id: i64| match by_kind.iter_mut().find(|(x, _)| x.id == k.id) {
         Some((_, v)) => {
@@ -233,6 +261,14 @@ pub fn compute(assets: &[Asset], metas: &HashMap<i64, AssetMeta>, now: i64) -> V
                 add(k, a.id);
             }
         }
+        // software versions the services announced: support ended, or a known-exploited vulnerability
+        if !ot {
+            let found = crate::vulndata::evidence_for(a.id, &crate::banners::software_of(&a.fingerprint.identity), &intel, today);
+            for e in &found {
+                add(match e.kind { "eol" => &EOL_SOFTWARE, "eol_soon" => &EOL_SOON, _ => &KEV_SOFTWARE }, a.id);
+            }
+            evidence.extend(found);
+        }
         if matches!(m.criticality.as_deref(), Some("high" | "critical")) && m.owner.is_none() {
             add(&CRIT_NO_OWNER, a.id);
         }
@@ -256,7 +292,8 @@ pub fn compute(assets: &[Asset], metas: &HashMap<i64, AssetMeta>, now: i64) -> V
         .into_iter()
         .map(|(k, mut ids)| {
             ids.sort_unstable();
-            Finding { id: k.id, severity: k.severity, title: k.title, why: k.why, fix: k.fix, assets: ids }
+            let ev: Vec<crate::vulndata::Evidence> = evidence.iter().filter(|e| match e.kind { "eol" => k.id == "eol_software", "eol_soon" => k.id == "eol_soon", _ => k.id == "kev_software" }).cloned().collect();
+            Finding { id: k.id, severity: k.severity, title: k.title, why: k.why, fix: k.fix, assets: ids, evidence: ev }
         })
         .collect();
     out.sort_by(|a, b| rank(a.severity).cmp(&rank(b.severity)).then(b.assets.len().cmp(&a.assets.len())).then(a.id.cmp(b.id)));
@@ -416,5 +453,45 @@ mod tests {
         a.open_ports.clear();
         assert!(!applies(&a, None, NOW, "telnet_open"), "the port is closed: fixed");
         assert!(applies(&dev(2, "computer", &[]), None, NOW, "unreviewed"));
+    }
+
+    fn with_banners(id: i64, ty: &str, banners: &[(&str, &str)]) -> Asset {
+        let mut a = dev(id, ty, &[]);
+        for (k, v) in banners {
+            a.fingerprint.identity.insert(k.to_string(), v.to_string());
+        }
+        a
+    }
+
+    #[test]
+    fn software_versions_read_from_banners_give_findings_with_the_evidence_and_only_with_a_version() {
+        let assets = vec![
+            with_banners(1, "server", &[("banner.http", "Server: Apache/2.4.49 (Unix)")]),                    // a known-exploited range, no distribution
+            with_banners(2, "server", &[("banner.http", "Server: nginx/1.10.3 (Ubuntu)")]),                  // support ended long ago, a distribution built it
+            with_banners(3, "server", &[("banner.http", "Server: nginx")]),                                    // no version: no claim
+            with_banners(4, "server", &[("banner.ssh", "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5")]),          // OpenSSH has no support dates and nothing known-exploited in range
+            with_banners(5, "server", &[("banner.ftp", "220 ProFTPD 1.3.5e Server (Debian)")]),                // ProFTPD 1.3.5 support ended
+        ];
+        let f = compute(&assets, &HashMap::new(), NOW);
+        let ev = |id: &str| f.iter().find(|x| x.id == id).map(|x| x.evidence.clone()).unwrap_or_default();
+        assert_eq!(ids(&f, "kev_software"), vec![1], "{f:?}");
+        let k = &ev("kev_software")[0];
+        assert_eq!((k.product, k.version.as_str(), k.cve.as_deref().map(|c| c.starts_with("CVE-")), k.backport), ("Apache HTTP Server", "2.4.49", Some(true), false));
+        assert_eq!(f.iter().find(|x| x.id == "kev_software").unwrap().severity, "high");
+        assert_eq!(ids(&f, "eol_software"), vec![2, 5]);
+        let e2 = ev("eol_software").into_iter().find(|e| e.asset_id == 2).unwrap();
+        assert_eq!((e2.product, e2.cycle.as_deref(), e2.date.as_deref(), e2.backport), ("nginx", Some("1.10"), Some("2017-04-12"), true), "the distribution flag rides along");
+        assert!(f.iter().all(|x| !x.assets.contains(&3) && !x.assets.contains(&4) || x.id == "unreviewed" || x.id == "unidentified"), "a banner without a version, or a product with nothing to say, makes no software claim");
+        // an accepted risk takes the device (and its evidence) out
+        let acc = vec![RiskAcceptance { id: 1, finding_id: "eol_software".into(), asset_id: 2, reason: "isolated".into(), accepted_by: "a".into(), accepted_at: NOW - 10, expires_at: None, revoked_at: None, revoked_by: None }];
+        let (open, accepted) = apply_acceptances(f, &acc, NOW);
+        let eol = open.iter().find(|x| x.id == "eol_software").unwrap();
+        assert_eq!((eol.assets.clone(), eol.evidence.iter().map(|e| e.asset_id).collect::<Vec<_>>()), (vec![5], vec![5]));
+        assert!(accepted.iter().any(|a| a.finding_id == "eol_software" && a.asset_id == 2));
+        assert!(is_banner_finding("kev_software") && is_scan_finding("kev_software") && is_scan_finding("telnet_open") && !is_scan_finding("unreviewed"));
+        // an industrial device is never judged by banners (it is never probed for them)
+        let mut plc = with_banners(9, "plc", &[("banner.http", "Server: Apache/2.4.49")]);
+        plc.fingerprint.identity.insert("enip.product_name".into(), "PLC".into());
+        assert!(compute(&[plc], &HashMap::new(), NOW).iter().all(|x| x.id != "kev_software"));
     }
 }

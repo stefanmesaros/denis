@@ -266,6 +266,12 @@ pub enum Observation {
         ip: Ipv4Addr,
         open: Vec<OpenPort>,
     },
+    /// What the services found open said about themselves (`banner.ssh`, `banner.http` …), read right after the
+    /// port scan. Replaces the device's earlier banners: a service that no longer answers no longer has one.
+    Banners {
+        ip: Ipv4Addr,
+        fields: std::collections::BTreeMap<String, String>,
+    },
     /// One packet's worth of traffic. Folded into `Flows` by the capture thread
     /// and never reaches the inventory.
     FlowSample(FlowSample),

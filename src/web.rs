@@ -35,6 +35,7 @@ use crate::web_reports as reports_page;
 use crate::web_setup as setup_page;
 use crate::web_topology as topology_page;
 use crate::web_totp as totp_page;
+use crate::web_vuln as vuln_page;
 use crate::web_passkey as passkey;
 use crate::risk::{self, Risk};
 use crate::{report, trends};
@@ -129,6 +130,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/data/erase", post(admin::data_erase))
         .route("/api/findings", get(findings))
         .route("/api/findings/{id}/verify", post(admin::finding_verify))
+        .route("/api/vulndata", get(vuln_page::status).put(vuln_page::put))
+        .route("/api/vulndata/refresh", post(vuln_page::refresh))
         .route("/api/topology", get(topology_page::topology))
         .route("/api/switches", get(topology_page::list).put(topology_page::put))
         .route("/api/switches/{id}/poll", post(topology_page::poll_now))
@@ -198,7 +201,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path == "/api/reports/settings") && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path == "/api/reports/settings") && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -1481,7 +1484,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_authenticator_app_is_a_second_step_with_one_use_codes_recovery_codes_lockout_and_an_admin_reset() {
-        let (app, store, [viewer, _editor, admin]) = secured().await;
+        let (app, store, [viewer, _editor, _admin]) = secured().await;
         let uid = store.find_user("vera").unwrap().unwrap().user.id;
         let pw = "a-long-passphrase-1";
         let login = || async { send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "vera", "password": pw})))).await };
@@ -1660,6 +1663,32 @@ mod tests {
         // removing the switch from the list removes it from the topology
         assert_eq!(send(&app, req("PUT", "/api/switches", Some(&admin), Some(put(serde_json::json!([]))))).await.0, StatusCode::NO_CONTENT);
         assert_eq!(send(&app, req("GET", "/api/topology", Some(&viewer), None)).await.2["configured"], false);
+    }
+
+    #[tokio::test]
+    async fn software_data_is_readable_by_everyone_switched_and_refreshed_by_admins_and_findings_carry_their_evidence() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let (st, _, v) = send(&app, req("GET", "/api/vulndata", Some(&viewer), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(v["kev_entries"].as_u64().unwrap() >= 5 && v["products"].as_array().unwrap().iter().any(|p| p == "nginx") && v["refresh_eol"] == false && v["refreshed_at"].is_null(), "{v}");
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("PUT", "/api/vulndata", Some(c), Some(serde_json::json!({"refresh_eol": true})))).await.0, StatusCode::FORBIDDEN);
+            assert_eq!(send(&app, req("POST", "/api/vulndata/refresh", Some(c), None)).await.0, StatusCode::FORBIDDEN);
+        }
+        assert_eq!(send(&app, req("PUT", "/api/vulndata", Some(&admin), Some(serde_json::json!({"refresh_eol": true})))).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, req("GET", "/api/vulndata", Some(&viewer), None)).await.2["refresh_eol"], true);
+        // a web server announcing a version in a known-exploited range shows up in the findings, with what was read
+        let mut web = Asset::new(Mac([2, 0, 0, 0, 0, 5]), 10);
+        web.device_type = "server".into();
+        web.last_seen = now_ts();
+        web.fingerprint.identity.insert("banner.http".into(), "Server: Apache/2.4.49 (Unix)".into());
+        store.save_asset(&mut web).unwrap();
+        let (_, _, f) = send(&app, req("GET", "/api/findings", Some(&viewer), None)).await;
+        let kev = f.as_array().unwrap().iter().find(|x| x["id"] == "kev_software").unwrap_or_else(|| panic!("{f}"));
+        assert_eq!((kev["severity"].as_str(), kev["assets"][0].as_i64(), kev["evidence"][0]["product"].as_str(), kev["evidence"][0]["version"].as_str()), (Some("high"), Some(web.id), Some("Apache HTTP Server"), Some("2.4.49")));
+        assert!(kev["evidence"][0]["cve"].as_str().unwrap().starts_with("CVE-2021-"), "{kev}");
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("vulndata.settings"));
     }
 
     #[tokio::test]
@@ -2302,8 +2331,8 @@ mod tests {
             while let Some(req) = rx.recv().await {
                 asked2.lock().unwrap().extend(req.ips.iter().copied());
                 let out = req.ips.iter().map(|ip| (*ip, match ip.octets()[3] {
-                    7 => RescanOutcome::Scanned(vec![crate::model::OpenPort { port: 23, proto: "tcp".into(), service: None }]),
-                    8 => RescanOutcome::Scanned(vec![]),
+                    7 => RescanOutcome::Scanned(vec![crate::model::OpenPort { port: 23, proto: "tcp".into(), service: None }], Default::default()),
+                    8 => RescanOutcome::Scanned(vec![], Default::default()),
                     10 => RescanOutcome::Excluded,
                     _ => RescanOutcome::Unreachable,
                 })).collect();

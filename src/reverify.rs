@@ -58,6 +58,7 @@ pub struct Outcome {
     pub rescan: Vec<(i64, Ipv4Addr)>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn event(a: &Asset, kind: &str, severity: &str, score: i32, summary: String, acc: &RiskAcceptance, title: &str, now: i64) -> Event {
     Event {
         id: 0,
@@ -135,7 +136,7 @@ pub fn evaluate(assets: &[Asset], metas: &HashMap<i64, AssetMeta>, acceptances: 
                 }
             }
         }
-        if recheck_due && crate::findings::is_port_finding(&acc.finding_id) && !crate::fingerprint::is_ot_device(asset) {
+        if recheck_due && crate::findings::is_scan_finding(&acc.finding_id) && !crate::fingerprint::is_ot_device(asset) {
             if let Some(ip) = asset.current_ip() {
                 rescan.push((asset.id, ip));
             }
@@ -152,7 +153,10 @@ fn load_state(store: &dyn Store) -> State {
     store.get_setting(STATE_KEY).ok().flatten().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
-fn snapshot(store: &dyn Store) -> Result<(Vec<Asset>, HashMap<i64, AssetMeta>, Vec<RiskAcceptance>)> {
+/// The register (with manual corrections applied), and the decisions about its findings.
+type Register = (Vec<Asset>, HashMap<i64, AssetMeta>, Vec<RiskAcceptance>);
+
+fn snapshot(store: &dyn Store) -> Result<Register> {
     let mut assets = store.load_assets()?;
     let metas = store.load_all_meta()?;
     for a in &mut assets {

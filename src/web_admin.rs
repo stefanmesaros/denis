@@ -1058,6 +1058,8 @@ const D_NO_ADDR: &str = "no address is known for this device";
 const D_CANNOT_SCAN: &str = "this DENIS cannot scan (viewer mode or passive-only): run a scan yourself, then verify again";
 const D_PORT_OPEN: &str = "scanned just now: the port is still open";
 const D_PORT_CLOSED: &str = "scanned just now: the port is closed";
+const D_BANNER_STILL: &str = "scanned just now: the service still announces this version";
+const D_BANNER_GONE: &str = "scanned just now: the service no longer announces this version";
 const D_EXCLUDED: &str = "this address is excluded from probing (--exclude)";
 const D_SILENT: &str = "the device did not answer: it may be off, so nothing is confirmed";
 const E_REASON: &str = "give a reason of 3 to 500 characters: it is what an auditor will read";
@@ -1068,8 +1070,8 @@ const E_NOT_APPLY: &str = "that finding does not apply to any device right now";
 const E_NO_RISK: &str = "no such accepted risk";
 
 /// Every fixed sentence of the risk and verify endpoints, so the translation test can check them.
-pub fn risk_texts() -> [&'static str; 16] {
-    [D_GONE, D_REG_STILL, D_REG_FIXED, D_OT, D_NO_ADDR, D_CANNOT_SCAN, D_PORT_OPEN, D_PORT_CLOSED, D_EXCLUDED, D_SILENT, E_REASON, E_UNKNOWN, E_DEVICES, E_DAYS, E_NOT_APPLY, E_NO_RISK]
+pub fn risk_texts() -> [&'static str; 18] {
+    [D_BANNER_STILL, D_BANNER_GONE, D_GONE, D_REG_STILL, D_REG_FIXED, D_OT, D_NO_ADDR, D_CANNOT_SCAN, D_PORT_OPEN, D_PORT_CLOSED, D_EXCLUDED, D_SILENT, E_REASON, E_UNKNOWN, E_DEVICES, E_DAYS, E_NOT_APPLY, E_NO_RISK]
 }
 
 /// The decisions in force with the words of the finding each is about.
@@ -1181,7 +1183,8 @@ pub(crate) async fn finding_verify(State(st): State<AppState>, Extension(AuthUse
     ids.dedup();
     ids.truncate(200);
 
-    let port_finding = crate::findings::is_port_finding(&finding_id);
+    let port_finding = crate::findings::is_scan_finding(&finding_id);
+    let banner_finding = crate::findings::is_banner_finding(&finding_id);
     let mut results: Vec<Value> = Vec::new();
     let mut rescanned = false;
     let mut to_scan: Vec<(i64, std::net::Ipv4Addr)> = Vec::new();
@@ -1215,11 +1218,20 @@ pub(crate) async fn finding_verify(State(st): State<AppState>, Extension(AuthUse
                     let outcome = outcomes.iter().find(|(o, _)| o == ip).map(|(_, o)| o.clone());
                     let a = assets.iter().find(|a| a.id == *id).expect("asset").clone();
                     results.push(match outcome {
-                        Some(crate::engine::RescanOutcome::Scanned(open)) => {
+                        Some(crate::engine::RescanOutcome::Scanned(open, banners)) => {
                             let mut fresh = a.clone();
                             fresh.open_ports = open;
+                            // what the services say now replaces what was read before
+                            fresh.fingerprint.identity.retain(|k, _| !k.starts_with("banner."));
+                            fresh.fingerprint.identity.extend(banners);
                             let still = crate::findings::applies(&fresh, metas.get(id), now, &finding_id);
-                            json!({ "asset_id": id, "status": if still { "still_present" } else { "fixed" }, "detail": if still { D_PORT_OPEN } else { D_PORT_CLOSED } })
+                            let detail = match (banner_finding, still) {
+                                (true, true) => D_BANNER_STILL,
+                                (true, false) => D_BANNER_GONE,
+                                (false, true) => D_PORT_OPEN,
+                                (false, false) => D_PORT_CLOSED,
+                            };
+                            json!({ "asset_id": id, "status": if still { "still_present" } else { "fixed" }, "detail": detail })
                         }
                         Some(crate::engine::RescanOutcome::Excluded) => json!({ "asset_id": id, "status": "excluded", "detail": D_EXCLUDED }),
                         _ => json!({ "asset_id": id, "status": "unreachable", "detail": D_SILENT }),

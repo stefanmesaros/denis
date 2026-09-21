@@ -685,6 +685,33 @@ await check('the Health page shows the database and the backups; a backup can be
   return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
 });
 
+// ------------------------------------------------------------------ software versions from banners
+await check('findings about software versions list what was read per device, and the device panel shows its banners', async () => {
+  takeProblems();
+  await evaluate("location.hash = '#findings'; setTab('findings'); 0");
+  await sleep(1200);
+  const cards = await evaluate("[...document.querySelectorAll('#findings-list .finding')].map((c) => ({ id: c.id, text: c.innerText }))");
+  const kev = cards.find((c) => c.id === 'finding-kev_software');
+  const eol = cards.find((c) => c.id === 'finding-eol_software');
+  if (!kev || !/Apache HTTP Server 2\.4\.49 is in the range affected by CVE-2021-4/.test(kev.text)) return 'the known-exploited finding is missing or lacks its evidence: ' + (kev ? kev.text.slice(0, 300) : 'no card');
+  if (!eol || !/nginx 1\.10\.3: support for the 1\.10 series ended on 2017-04-12/.test(eol.text) || !/distribution may still patch it/.test(eol.text)) return 'the end-of-support finding is missing or lacks its evidence: ' + (eol ? eol.text.slice(0, 300) : 'no card');
+  // the device that announces it
+  const id = await evaluate("state.assets.find((a) => (a.fingerprint.identity || {})['banner.http'] === 'Server: Apache/2.4.49 (Unix)').id");
+  await evaluate(`showDetail(${id}); 0`);
+  await sleep(1000);
+  const detail = await evaluate("document.getElementById('detail-body').innerText");
+  await evaluate("document.getElementById('close').click(); 0");
+  if (!/Web server banner\s*\n?\s*Server: Apache\/2\.4\.49 \(Unix\)/.test(detail)) return 'the banner is not in the device panel: ' + detail.slice(0, 300);
+  // the settings box
+  await evaluate("location.hash = '#settings/vulndata'; setTab('settings'); 0");
+  await sleep(1000);
+  const box = await evaluate("document.getElementById('vuln-body').innerText");
+  if (!/Support dates for \d+ products and \d+ known-exploited vulnerabilities, as of 20\d\d-\d\d-\d\d/.test(box)) return 'the software data box says: ' + box.slice(0, 300);
+  const bad = await evaluate(BAD_TEXT);
+  const p = takeProblems();
+  return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
+});
+
 // ------------------------------------------------------------------ rules: an OT watch
 await check('an OT command watch can be added from the Rules page and removed again', async () => {
   takeProblems();

@@ -377,6 +377,10 @@ async function showDetail(id) {
       row('MAC', a.mac + (a.randomized_mac ? ' ' + tr('(private/randomised)') : '')),
       row(tr('Vendor'), a.vendor),
       row(tr('Connected to'), plugged),
+      row(tr('SSH banner'), fp.identity && fp.identity['banner.ssh']),
+      row(tr('Web server banner'), fp.identity && fp.identity['banner.http']),
+      row(tr('FTP banner'), fp.identity && fp.identity['banner.ftp']),
+      row(tr('Mail server banner'), fp.identity && fp.identity['banner.smtp']),
       row(tr('Hostnames'), a.hostnames),
       row(tr('First seen'), fmtTime(a.first_seen)),
       row(tr('Last seen'), a.last_seen ? fmtTime(a.last_seen) : tr('never (entered by hand)')),
@@ -649,7 +653,7 @@ function setTab(t) {
   if (t === 'health') loadHealth();
   if (t === 'alerting') loadAlerting();
   if (t === 'users') { renderUsers(); renderApiTokens(); }
-  if (t === 'settings') { initBrandingForm(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); }
+  if (t === 'settings') { initBrandingForm(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); }
   if (t === 'audit') renderAudit();
   if (t === 'account') renderAccount();
   if (t === 'agents') renderTokens();

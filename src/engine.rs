@@ -175,8 +175,8 @@ pub struct RescanRequest {
 /// What a rescan of one address found.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RescanOutcome {
-    /// It answered: these TCP ports are open now.
-    Scanned(Vec<crate::model::OpenPort>),
+    /// It answered: these TCP ports are open now, and these are the banners the services gave.
+    Scanned(Vec<crate::model::OpenPort>, std::collections::BTreeMap<String, String>),
     /// Nothing answered (off, asleep, blocking everything): a scan proves nothing.
     Unreachable,
     /// The operator excluded this address from probing (`--exclude`).
@@ -513,6 +513,7 @@ pub struct ServeConfig {
 /// works; live discovery does not.
 pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
     let store: Arc<dyn Store> = Arc::new(SqliteStore::open(&cfg.db)?);
+    crate::vulndata::reload(&*store);
     if cfg.no_auth && !cfg.listen.ip().is_loopback() {
         anyhow::bail!("--insecure-no-auth is only allowed when the UI listens on a loopback address");
     }
@@ -720,6 +721,8 @@ pub async fn run(cfg: Config) -> Result<()> {
     tasks.push(tokio::spawn(crate::reports::run(store.clone(), coll.shared.clone())));
     // accepted risks: announce their end, scan them again, notice when the problem is gone
     tasks.push(tokio::spawn(crate::reverify::run(store.clone(), coll.shared.clone(), alerts.clone())));
+    // support dates and known-exploited vulnerabilities (bundled data, optionally refreshed)
+    tasks.push(tokio::spawn(crate::vulndata::run(store.clone())));
     // switches read over SNMP (ports, neighbours, what is plugged in where)
     tasks.push(tokio::spawn(crate::switches::run(store.clone(), coll.shared.clone())));
     // scheduled backups of the database
@@ -1032,8 +1035,10 @@ async fn rescanner(exclude: Vec<Ipv4Net>, timeout: Duration, concurrency: usize,
                 answered = active::icmp_sweep(&[ip], Duration::from_millis(800)).await.unwrap_or(0) > 0;
             }
             if answered {
+                let banners = crate::banners::grab(ip, &open, timeout.max(Duration::from_millis(800))).await;
                 let _ = tx.send(Observation::Ports { ip, open: open.clone() }).await;
-                out.push((ip, RescanOutcome::Scanned(open)));
+                let _ = tx.send(Observation::Banners { ip, fields: banners.clone() }).await;
+                out.push((ip, RescanOutcome::Scanned(open, banners)));
             } else {
                 out.push((ip, RescanOutcome::Unreachable));
             }
@@ -1099,13 +1104,17 @@ async fn sweep_cycle(
     let mut set = JoinSet::new();
     for ip in to_scan {
         let (sem, timeout) = (sem.clone(), cfg.scan_timeout);
-        set.spawn(async move { (ip, active::scan_host(ip, sem, timeout).await) });
+        set.spawn(async move {
+            let open = active::scan_host(ip, sem, timeout).await;
+            let banners = crate::banners::grab(ip, &open, timeout.max(Duration::from_millis(800))).await;
+            (ip, open, banners)
+        });
     }
     let mut done = 0;
     while let Some(r) = set.join_next().await {
-        if let Ok((ip, open)) = r {
+        if let Ok((ip, open, banners)) = r {
             done += 1;
-            if tx.send(Observation::Ports { ip, open }).await.is_err() {
+            if tx.send(Observation::Ports { ip, open }).await.is_err() || tx.send(Observation::Banners { ip, fields: banners }).await.is_err() {
                 break;
             }
         }
@@ -1227,13 +1236,18 @@ mod tests {
         let out = answer.await.unwrap();
         // this machine answers (a refused connection is an answer), the excluded range is never touched,
         // and an address nobody answers for proves nothing
-        assert!(matches!(out[0], (ip, RescanOutcome::Scanned(_)) if ip == local), "{out:?}");
+        assert!(matches!(out[0], (ip, RescanOutcome::Scanned(..)) if ip == local), "{out:?}");
         assert_eq!(out[1].1, RescanOutcome::Excluded);
         assert_eq!(out[2].1, RescanOutcome::Unreachable);
         // what was found also reaches the inventory, so the register shows the fresh port list; the silent host does not wipe it
         match obs_rx.try_recv() {
             Ok(Observation::Ports { ip, .. }) => assert_eq!(ip, local),
             other => panic!("expected the fresh ports of the answering host, got {other:?}"),
+        }
+        // and what its services said about themselves (nothing here, which also clears any old banners)
+        match obs_rx.try_recv() {
+            Ok(Observation::Banners { ip, fields }) => assert!(ip == local && fields.is_empty()),
+            other => panic!("expected the banners of the answering host, got {other:?}"),
         }
         assert!(obs_rx.try_recv().is_err(), "nothing was reported for the excluded or the silent address");
     }

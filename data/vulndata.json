@@ -1,0 +1,686 @@
+{
+ "eol": {
+  "apache-http-server": [
+   {
+    "cycle": "2.4",
+    "eol": false,
+    "latest": "2.4.68"
+   },
+   {
+    "cycle": "2.2",
+    "eol": "2017-07-11",
+    "latest": "2.2.34"
+   },
+   {
+    "cycle": "2.0",
+    "eol": "2013-07-10",
+    "latest": "2.0.65"
+   },
+   {
+    "cycle": "1.3",
+    "eol": "2010-02-03",
+    "latest": "1.3.42"
+   }
+  ],
+  "exim": [
+   {
+    "cycle": "4.99",
+    "eol": false,
+    "latest": "4.99.1"
+   },
+   {
+    "cycle": "4.98",
+    "eol": "2025-10-28",
+    "latest": "4.98.2"
+   },
+   {
+    "cycle": "4.97",
+    "eol": "2024-07-10",
+    "latest": "4.97.1"
+   },
+   {
+    "cycle": "4.96",
+    "eol": "2023-11-04",
+    "latest": "4.96.2"
+   },
+   {
+    "cycle": "4.95",
+    "eol": "2022-06-25",
+    "latest": "4.95"
+   },
+   {
+    "cycle": "4.94",
+    "eol": "2021-09-28",
+    "latest": "4.94.2"
+   },
+   {
+    "cycle": "4.93",
+    "eol": "2020-06-01",
+    "latest": "4.93.0.4"
+   },
+   {
+    "cycle": "4.92",
+    "eol": "2019-12-08",
+    "latest": "4.92.3"
+   },
+   {
+    "cycle": "4.91",
+    "eol": "2019-02-10",
+    "latest": "4.91"
+   },
+   {
+    "cycle": "4.90",
+    "eol": "2018-04-15",
+    "latest": "4.90.1"
+   },
+   {
+    "cycle": "4.89",
+    "eol": "2017-12-19",
+    "latest": "4.89.1"
+   },
+   {
+    "cycle": "4.88",
+    "eol": "2017-03-07",
+    "latest": "4.88"
+   },
+   {
+    "cycle": "4.87",
+    "eol": "2016-12-18",
+    "latest": "4.87.1"
+   },
+   {
+    "cycle": "4.86",
+    "eol": "2016-04-06",
+    "latest": "4.86.2"
+   },
+   {
+    "cycle": "4.85",
+    "eol": "2015-07-26",
+    "latest": "4.85.2"
+   },
+   {
+    "cycle": "4.84",
+    "eol": "2015-01-12",
+    "latest": "4.84.2"
+   },
+   {
+    "cycle": "4.83",
+    "eol": "2014-08-11",
+    "latest": "4.83"
+   },
+   {
+    "cycle": "4.82",
+    "eol": "2014-07-21",
+    "latest": "4.82.1"
+   },
+   {
+    "cycle": "4.80",
+    "eol": "2013-10-28",
+    "latest": "4.80.1"
+   },
+   {
+    "cycle": "4.77",
+    "eol": "2012-05-31",
+    "latest": "4.77"
+   },
+   {
+    "cycle": "4.76",
+    "eol": "2011-10-10",
+    "latest": "4.76"
+   },
+   {
+    "cycle": "4.75",
+    "eol": "2011-05-09",
+    "latest": "4.75"
+   },
+   {
+    "cycle": "4.74",
+    "eol": "2011-03-22",
+    "latest": "4.74"
+   },
+   {
+    "cycle": "4.73",
+    "eol": "2011-01-25",
+    "latest": "4.73"
+   },
+   {
+    "cycle": "4.72",
+    "eol": "2010-12-27",
+    "latest": "4.72"
+   },
+   {
+    "cycle": "4.71",
+    "eol": "2010-06-03",
+    "latest": "4.71"
+   },
+   {
+    "cycle": "4.70",
+    "eol": "2009-11-24",
+    "latest": "4.70"
+   },
+   {
+    "cycle": "4.69",
+    "eol": "2009-11-14",
+    "latest": "4.69"
+   },
+   {
+    "cycle": "4.68",
+    "eol": "2007-12-02",
+    "latest": "4.68"
+   },
+   {
+    "cycle": "4.67",
+    "eol": "2007-08-31",
+    "latest": "4.67"
+   },
+   {
+    "cycle": "4.66",
+    "eol": "2007-04-18",
+    "latest": "4.66"
+   },
+   {
+    "cycle": "4.65",
+    "eol": "2007-01-08",
+    "latest": "4.65"
+   },
+   {
+    "cycle": "4.64",
+    "eol": "2007-01-02",
+    "latest": "4.64"
+   },
+   {
+    "cycle": "4.63",
+    "eol": "2006-12-20",
+    "latest": "4.63"
+   },
+   {
+    "cycle": "4.62",
+    "eol": "2006-08-01",
+    "latest": "4.62"
+   },
+   {
+    "cycle": "4.61",
+    "eol": "2006-04-29",
+    "latest": "4.61"
+   },
+   {
+    "cycle": "4.54",
+    "eol": "2006-04-05",
+    "latest": "4.54"
+   },
+   {
+    "cycle": "4.53",
+    "eol": "2005-10-04",
+    "latest": "4.53"
+   },
+   {
+    "cycle": "4.52",
+    "eol": "2005-09-26",
+    "latest": "4.52"
+   },
+   {
+    "cycle": "4.51",
+    "eol": "2005-07-01",
+    "latest": "4.51"
+   },
+   {
+    "cycle": "4.50",
+    "eol": "2005-05-04",
+    "latest": "4.50"
+   }
+  ],
+  "nginx": [
+   {
+    "cycle": "1.31",
+    "eol": false,
+    "latest": "1.31.6"
+   },
+   {
+    "cycle": "1.30",
+    "eol": false,
+    "latest": "1.30.5"
+   },
+   {
+    "cycle": "1.29",
+    "eol": "2026-05-13",
+    "latest": "1.29.8"
+   },
+   {
+    "cycle": "1.28",
+    "eol": "2026-04-14",
+    "latest": "1.28.3"
+   },
+   {
+    "cycle": "1.27",
+    "eol": "2025-06-24",
+    "latest": "1.27.5"
+   },
+   {
+    "cycle": "1.26",
+    "eol": "2025-04-23",
+    "latest": "1.26.3"
+   },
+   {
+    "cycle": "1.25",
+    "eol": "2024-05-29",
+    "latest": "1.25.5"
+   },
+   {
+    "cycle": "1.24",
+    "eol": "2024-04-23",
+    "latest": "1.24.0"
+   },
+   {
+    "cycle": "1.23",
+    "eol": "2023-05-23",
+    "latest": "1.23.4"
+   },
+   {
+    "cycle": "1.22",
+    "eol": "2023-04-11",
+    "latest": "1.22.1"
+   },
+   {
+    "cycle": "1.21",
+    "eol": "2022-06-21",
+    "latest": "1.21.6"
+   },
+   {
+    "cycle": "1.20",
+    "eol": "2022-05-24",
+    "latest": "1.20.2"
+   },
+   {
+    "cycle": "1.19",
+    "eol": "2021-05-25",
+    "latest": "1.19.10"
+   },
+   {
+    "cycle": "1.18",
+    "eol": "2021-04-20",
+    "latest": "1.18.0"
+   },
+   {
+    "cycle": "1.16",
+    "eol": "2020-04-20",
+    "latest": "1.16.1"
+   },
+   {
+    "cycle": "1.14",
+    "eol": "2019-04-23",
+    "latest": "1.14.2"
+   },
+   {
+    "cycle": "1.12",
+    "eol": "2018-04-17",
+    "latest": "1.12.2"
+   },
+   {
+    "cycle": "1.10",
+    "eol": "2017-04-12",
+    "latest": "1.10.3"
+   },
+   {
+    "cycle": "1.8",
+    "eol": "2016-04-26",
+    "latest": "1.8.1"
+   },
+   {
+    "cycle": "1.6",
+    "eol": "2015-04-21",
+    "latest": "1.6.3"
+   },
+   {
+    "cycle": "1.4",
+    "eol": "2014-04-24",
+    "latest": "1.4.7"
+   },
+   {
+    "cycle": "1.2",
+    "eol": "2013-04-24",
+    "latest": "1.2.9"
+   },
+   {
+    "cycle": "1.0",
+    "eol": "2012-04-23",
+    "latest": "1.0.15"
+   }
+  ],
+  "openssl": [
+   {
+    "cycle": "4.0",
+    "eol": "2027-05-14",
+    "latest": "4.0.2"
+   },
+   {
+    "cycle": "3.6",
+    "eol": "2026-11-01",
+    "latest": "3.6.4"
+   },
+   {
+    "cycle": "3.5",
+    "eol": "2030-04-08",
+    "latest": "3.5.8"
+   },
+   {
+    "cycle": "3.4",
+    "eol": "2026-10-22",
+    "latest": "3.4.7"
+   },
+   {
+    "cycle": "3.3",
+    "eol": "2026-04-09",
+    "latest": "3.3.7"
+   },
+   {
+    "cycle": "3.2",
+    "eol": "2025-11-23",
+    "latest": "3.2.6"
+   },
+   {
+    "cycle": "3.1",
+    "eol": "2025-03-14",
+    "latest": "3.1.8"
+   },
+   {
+    "cycle": "3.0",
+    "eol": "2026-09-07",
+    "latest": "3.0.22"
+   },
+   {
+    "cycle": "1.1.1",
+    "eol": "2023-09-11",
+    "latest": "1.1.1w"
+   },
+   {
+    "cycle": "1.1.0",
+    "eol": "2019-09-11",
+    "latest": "1.1.0l"
+   },
+   {
+    "cycle": "1.0.2",
+    "eol": "2019-12-31",
+    "latest": "1.0.2u"
+   },
+   {
+    "cycle": "1.0.1",
+    "eol": "2016-12-31",
+    "latest": "1.0.1u"
+   },
+   {
+    "cycle": "1.0.0",
+    "eol": "2015-12-31",
+    "latest": "1.0.0t"
+   },
+   {
+    "cycle": "0.9.8",
+    "eol": "2015-12-31",
+    "latest": "0.9.8zh"
+   }
+  ],
+  "php": [
+   {
+    "cycle": "8.5",
+    "eol": "2029-12-31",
+    "latest": "8.5.10"
+   },
+   {
+    "cycle": "8.4",
+    "eol": "2028-12-31",
+    "latest": "8.4.25"
+   },
+   {
+    "cycle": "8.3",
+    "eol": "2027-12-31",
+    "latest": "8.3.33"
+   },
+   {
+    "cycle": "8.2",
+    "eol": "2026-12-31",
+    "latest": "8.2.33"
+   },
+   {
+    "cycle": "8.1",
+    "eol": "2025-12-31",
+    "latest": "8.1.34"
+   },
+   {
+    "cycle": "8.0",
+    "eol": "2023-11-26",
+    "latest": "8.0.30"
+   },
+   {
+    "cycle": "7.4",
+    "eol": "2022-11-28",
+    "latest": "7.4.33"
+   },
+   {
+    "cycle": "7.3",
+    "eol": "2021-12-06",
+    "latest": "7.3.33"
+   },
+   {
+    "cycle": "7.2",
+    "eol": "2020-11-30",
+    "latest": "7.2.34"
+   },
+   {
+    "cycle": "7.1",
+    "eol": "2019-12-01",
+    "latest": "7.1.33"
+   },
+   {
+    "cycle": "7.0",
+    "eol": "2019-01-10",
+    "latest": "7.0.33"
+   },
+   {
+    "cycle": "5.6",
+    "eol": "2018-12-31",
+    "latest": "5.6.40"
+   },
+   {
+    "cycle": "5.5",
+    "eol": "2016-07-21",
+    "latest": "5.5.38"
+   },
+   {
+    "cycle": "5.4",
+    "eol": "2015-09-14",
+    "latest": "5.4.45"
+   },
+   {
+    "cycle": "5.3",
+    "eol": "2014-08-14",
+    "latest": "5.3.29"
+   },
+   {
+    "cycle": "5.2",
+    "eol": "2011-01-06",
+    "latest": "5.2.17"
+   },
+   {
+    "cycle": "5.1",
+    "eol": "2006-08-24",
+    "latest": "5.1.6"
+   },
+   {
+    "cycle": "5.0",
+    "eol": "2005-09-05",
+    "latest": "5.0.5"
+   }
+  ],
+  "proftpd": [
+   {
+    "cycle": "1.3.9",
+    "eol": false,
+    "latest": "1.3.9d"
+   },
+   {
+    "cycle": "1.3.8",
+    "eol": false,
+    "latest": "1.3.8d"
+   },
+   {
+    "cycle": "1.3.7",
+    "eol": "2025-03-14",
+    "latest": "1.3.7f"
+   },
+   {
+    "cycle": "1.3.6",
+    "eol": "2022-12-04",
+    "latest": "1.3.6e"
+   },
+   {
+    "cycle": "1.3.5",
+    "eol": "2020-07-20",
+    "latest": "1.3.5e"
+   }
+  ]
+ },
+ "generated": "2026-09-21",
+ "kev": [
+  {
+   "added": "2022-03-25",
+   "cve": "CVE-2010-4344",
+   "name": "Exim Heap-Based Buffer Overflow Vulnerability",
+   "product": "exim",
+   "ranges": [
+    {
+     "to": "4.70",
+     "to_incl": false
+    }
+   ],
+   "ransomware": false
+  },
+  {
+   "added": "2022-03-25",
+   "cve": "CVE-2010-4345",
+   "name": "Exim Privilege Escalation Vulnerability",
+   "product": "exim",
+   "ranges": [
+    {
+     "to": "4.72",
+     "to_incl": true
+    }
+   ],
+   "ransomware": false
+  },
+  {
+   "added": "2022-03-25",
+   "cve": "CVE-2012-1823",
+   "name": "PHP-CGI Query String Parameter Vulnerability",
+   "product": "php",
+   "ranges": [
+    {
+     "to": "5.3.12",
+     "to_incl": false
+    },
+    {
+     "from": "5.4.0",
+     "from_incl": true,
+     "to": "5.4.2",
+     "to_incl": false
+    }
+   ],
+   "ransomware": false
+  },
+  {
+   "added": "2021-11-03",
+   "cve": "CVE-2018-6789",
+   "name": "Exim Buffer Overflow Vulnerability",
+   "product": "exim",
+   "ranges": [
+    {
+     "to": "4.90.1",
+     "to_incl": false
+    }
+   ],
+   "ransomware": true
+  },
+  {
+   "added": "2021-11-03",
+   "cve": "CVE-2019-0211",
+   "name": "Apache HTTP Server Privilege Escalation Vulnerability",
+   "product": "apache-http-server",
+   "ranges": [
+    {
+     "from": "2.4.17",
+     "from_incl": true,
+     "to": "2.4.38",
+     "to_incl": true
+    }
+   ],
+   "ransomware": false
+  },
+  {
+   "added": "2022-01-10",
+   "cve": "CVE-2019-10149",
+   "name": "Exim Mail Transfer Agent (MTA) Improper Input Validation",
+   "product": "exim",
+   "ranges": [
+    {
+     "from": "4.87",
+     "from_incl": true,
+     "to": "4.91",
+     "to_incl": true
+    }
+   ],
+   "ransomware": false
+  },
+  {
+   "added": "2022-03-03",
+   "cve": "CVE-2019-16928",
+   "name": "Exim Out-of-bounds Write Vulnerability",
+   "product": "exim",
+   "ranges": [
+    {
+     "from": "4.92",
+     "from_incl": true,
+     "to": "4.92.2",
+     "to_incl": true
+    }
+   ],
+   "ransomware": false
+  },
+  {
+   "added": "2021-11-03",
+   "cve": "CVE-2021-41773",
+   "name": "Apache HTTP Server Path Traversal Vulnerability",
+   "product": "apache-http-server",
+   "ranges": [
+    {
+     "exact": "2.4.49"
+    }
+   ],
+   "ransomware": true
+  },
+  {
+   "added": "2021-11-03",
+   "cve": "CVE-2021-42013",
+   "name": "Apache HTTP Server Path Traversal Vulnerability",
+   "product": "apache-http-server",
+   "ranges": [
+    {
+     "exact": "2.4.49"
+    },
+    {
+     "exact": "2.4.50"
+    }
+   ],
+   "ransomware": true
+  }
+ ],
+ "kev_catalog_version": "2026.09.18",
+ "skipped": [
+  "CVE-2024-38475",
+  "CVE-2024-4577",
+  "CVE-2014-0160",
+  "CVE-2017-7269"
+ ],
+ "sources": {
+  "eol": "https://endoflife.date",
+  "kev": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+  "ranges": "https://nvd.nist.gov"
+ }
+}

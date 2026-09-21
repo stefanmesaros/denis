@@ -103,6 +103,16 @@ impl Builder<'_> {
     fn id(&self, key: &str) -> i64 {
         self.ids[key]
     }
+
+    /// What a device's services said about themselves when they were scanned (a version banner).
+    fn banners(&self, key: &str, pairs: &[(&str, &str)]) -> Result<()> {
+        let mut a = self.store.get_asset(self.ids[key])?.ok_or_else(|| anyhow::anyhow!("demo data: no device {key}"))?;
+        for (k, v) in pairs {
+            a.fingerprint.identity.insert(k.to_string(), v.to_string());
+        }
+        self.store.save_asset(&mut a)?;
+        Ok(())
+    }
 }
 
 #[derive(Default)]
@@ -141,12 +151,16 @@ pub fn load(store: &dyn Store, now: i64) -> Result<Loaded> {
         Some(json!({"display_name": "Lobby access point", "owner": "IT", "location": "Lobby", "asset_tag": "IT-0004"})))?;
     b.asset("nas", HQ, Some("nas-finance"), "nas", Some("Synology Incorporated"), [10, 20, 10, 20], [0x00, 0x11, 0x32], &[445, 5000, 22], Some("Linux"), Opts { reasons: &["nas +5: vendor Synology", "nas +5: SSDP server 'Synology'"], ..o() },
         Some(json!({"display_name": "Finance file server", "owner": "Finance", "department": "Finance", "location": "Server room", "criticality": "high", "serial_number": "2170Q0N7F3", "asset_tag": "IT-0020", "tags": ["backup", "finance"], "warranty_expires": d(-30)})))?;
+    b.banners("nas", &[("banner.ssh", "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6"), ("banner.http", "Server: nginx/1.10.3 (Ubuntu)")])?;
     b.asset("dc", HQ, Some("srv-dc01"), "server", Some("Dell Inc."), [10, 20, 10, 10], [0xd4, 0xae, 0x52], &[53, 88, 135, 445, 3389], Some("Windows"), o(),
         Some(json!({"display_name": "Domain controller", "owner": "IT", "location": "Server room", "criticality": "critical", "serial_number": "7XK2Y13", "asset_tag": "IT-0010", "warranty_expires": d(200)})))?;
     b.asset("erp", HQ, Some("srv-erp"), "server", Some("Dell Inc."), [10, 20, 10, 11], [0xd4, 0xae, 0x53], &[22, 443, 1433], Some("Linux"), o(),
         Some(json!({"display_name": "ERP server", "owner": "Operations", "location": "Server room", "criticality": "critical", "serial_number": "8QN4T93", "asset_tag": "IT-0011"})))?;
     b.asset("p1", HQ, Some("printer-reception"), "printer", Some("HP Inc."), [10, 20, 10, 31], [0x3c, 0xd9, 0x2b], &[9100, 631, 80], None, o(),
         Some(json!({"display_name": "Reception printer", "owner": "Jana Nováková", "location": "Reception", "serial_number": "CNBK7H2201", "asset_tag": "OF-0031", "warranty_expires": d(20)})))?;
+    b.banners("p1", &[("banner.http", "Server: Apache/2.4.49 (Unix)")])?;
+    b.banners("erp", &[("banner.ssh", "SSH-2.0-OpenSSH_8.4p1 Debian-5+deb11u3")])?;
+    b.banners("router", &[("banner.http", "Server: lighttpd/1.4.55")])?;
     b.asset("p2", HQ, Some("printer-hr"), "printer", Some("Brother Industries, Ltd."), [10, 20, 10, 32], [0x00, 0x80, 0x77], &[9100, 515], None, o(),
         Some(json!({"display_name": "HR printer", "owner": "HR", "location": "Office 2.14", "asset_tag": "OF-0032"})))?;
     b.asset("cam1", HQ, Some("cam-entrance"), "camera", Some("Hangzhou Hikvision Digital Technology"), [10, 20, 10, 41], [0xc0, 0x56, 0xe3], &[554, 80, 23], None, o(),
@@ -367,7 +381,10 @@ mod tests {
         assert_eq!(seen, vec![real.id]);
         // findings and compliance can be computed from it
         let assets = s.load_assets().unwrap();
-        assert!(!crate::findings::compute(&assets, &metas, now).is_empty());
+        let f = crate::findings::compute(&assets, &metas, now);
+        assert!(!f.is_empty());
+        // the demo shows what software versions can reveal: a known-exploited range and a version past its support
+        assert!(f.iter().any(|x| x.id == "kev_software" && !x.evidence.is_empty()) && f.iter().any(|x| x.id == "eol_software" && !x.evidence.is_empty()), "{f:?}");
 
         assert_eq!(remove(&s).unwrap(), 42);
         assert!(!is_loaded(&s).unwrap());
