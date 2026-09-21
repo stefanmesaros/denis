@@ -1,8 +1,6 @@
 # Changelog
 
-## 0.5.0-rc.1: encrypted OT traffic, allow-list watches, and a way to test without a plant
-
-*A release candidate.*
+## 0.5.0: encrypted OT traffic, allow-list watches, and a way to test without a plant
 
 * **Encrypted industrial traffic is no longer invisible.** Between two local devices DENIS now records the *path* of traffic it
   cannot read: TLS on any port, secured industrial protocols by their port (OPC UA over TLS 4843, Modbus/TCP Security 802, IEC 104
