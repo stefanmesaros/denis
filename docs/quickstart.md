@@ -11,6 +11,9 @@ From nothing to a working, useful DENIS in about an hour. Every step says *why*,
 * **Where to put it.** On a normal switched network a machine sees broadcast traffic and its own. That is enough
   to discover devices. To also see who talks to whom, run DENIS on the router/firewall or on a **mirror (SPAN)
   port** ([Concepts › Visibility](concepts.md#visibility-what-can-be-seen-from-where)).
+* The pre-built program on Linux needs only the libpcap runtime library (`libpcap0.8`; `libpcap0.8t64` on Ubuntu 24.04),
+  which most systems have. Note that a program updated from the console keeps its capture permission only if the
+  updater can replace the file in place; run `setcap` again after a manual replacement.
 * To build from source: Rust (stable) and libpcap headers (`sudo apt install build-essential libpcap-dev`).
 
 ## 2. Build and start

@@ -353,6 +353,9 @@ pub struct InstallReq {
 pub(crate) async fn update_install(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<InstallReq>) -> Result<Response, ApiError> {
     let u = match updater(&st) { Ok(u) => u, Err(r) => return Ok(*r) };
     let snap = u.snapshot(now_ts());
+    if snap["file_capabilities"] == true {
+        return Ok(err(StatusCode::CONFLICT, "this program gets its packet-capture permission from setcap, which an updated file would lose: run it under systemd with AmbientCapabilities, or update by hand and run setcap again"));
+    }
     if snap["can_install"] != true {
         return Ok(err(StatusCode::CONFLICT, "this installation cannot update itself (no release key in this build, or the program folder is not writable): update by hand"));
     }

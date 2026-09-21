@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1: update test release
+
+Nothing new in the program itself. This release exists to prove the self-update path end to end on a real
+installation of 0.1.0: the update notice with these notes, the signature and checksum checks, the backup taken
+before installing, the switch to the new program and the restart, with the data untouched.
+
+Fixed
+* The Linux build instructions now say that `libpcap-dev` is needed to build and that the pre-built program only needs
+  the `libpcap0.8` runtime library; capturing needs `sudo setcap cap_net_raw,cap_net_admin=eip` on the program once.
+
 ## 0.1.0: first public release
 
 Discovery and detection

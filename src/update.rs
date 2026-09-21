@@ -348,11 +348,14 @@ impl Updater {
         let latest = st.latest.as_ref();
         let newest = latest.map(|r| r.version.clone());
         let hidden = newest.as_deref().is_some_and(|v| c.skipped.as_deref() == Some(v)) || c.snoozed_until > now;
-        let exe_dir = self.exe().ok().and_then(|p| p.parent().map(Path::to_path_buf));
+        let exe = self.exe().ok();
+        let exe_dir = exe.as_deref().and_then(|p| p.parent().map(Path::to_path_buf));
+        let file_caps = exe.as_deref().is_some_and(has_file_capabilities);
         json!({
             "configured": self.cfg.configured(),
             "checking_enabled": self.cfg.check,
-            "can_install": self.cfg.public_key.is_some() && exe_dir.as_deref().is_some_and(writable) && target().is_some(),
+            "can_install": self.cfg.public_key.is_some() && exe_dir.as_deref().is_some_and(writable) && target().is_some() && !file_caps,
+            "file_capabilities": file_caps,
             "installing": st.stage.is_some(),
             "stage": st.stage,
             "result": st.result,
@@ -558,6 +561,23 @@ impl Updater {
 }
 
 // ------------------------------------------------------------------ file helpers
+
+/// Does the program file carry Linux file capabilities (`setcap cap_net_raw,cap_net_admin=eip`)?
+/// They belong to the file, not the program: an updated file would not have them, would fail to open the
+/// network interface at start-up and be rolled back. (Capabilities granted by systemd's
+/// `AmbientCapabilities` belong to the service and survive an update.)
+#[cfg(target_os = "linux")]
+fn has_file_capabilities(p: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(path) = std::ffi::CString::new(p.as_os_str().as_bytes()) else { return false };
+    // SAFETY: both strings are NUL-terminated and outlive the call; a null buffer with size 0 only asks for the length.
+    unsafe { libc::getxattr(path.as_ptr(), c"security.capability".as_ptr(), std::ptr::null_mut(), 0) > 0 }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn has_file_capabilities(_: &Path) -> bool {
+    false
+}
 
 /// Can this process create files in `dir`? (An update must be able to write beside the program.)
 fn writable(dir: &Path) -> bool {
@@ -1012,6 +1032,8 @@ mod tests {
         let nokey = Updater::new(cfg, w.updater.store.clone());
         assert!(nokey.install(&rel).unwrap_err().to_string().contains("release key"));
         assert_eq!(nokey.snapshot(1)["can_install"], false);
+        // an ordinary file has no capabilities, so this alone never blocks an install
+        assert!(!has_file_capabilities(&std::env::current_exe().unwrap()));
     }
 
     #[test]
