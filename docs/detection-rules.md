@@ -6,8 +6,8 @@ it is on, its weight and its thresholds. Administrators can switch a rule off, t
 thresholds (for example how many standard deviations count as an unusual transfer, or how long a device must be
 silent). Changes apply within seconds, survive restarts, are limited to sane ranges on the server and are written to
 the audit log; *Reset everything* returns to the defaults. Command-line options (`--min-score`, `--rule-weight`,
-`--silent-minutes`, …) set the starting values; a value saved in the console wins over them. Rules cannot be
-created or scripted from the console: it tunes the reviewed rules below. API: `GET/PUT/DELETE /api/rules`.
+`--silent-minutes`, …) set the starting values; a value saved in the console wins over them. The console tunes the reviewed rules below and adds three things of your own, described in
+[Making the rules fit your network](#making-the-rules-fit-your-network). API: `GET/PUT/DELETE /api/rules`.
 
 All rules are **rule-based and explainable**: each alert shows the factors that produced its score. Scores are
 0–100; below `--min-score` (default 30) an event is only logged. Each rule can be scaled or disabled:
@@ -15,7 +15,8 @@ All rules are **rule-based and explainable**: each alert shows the factors that 
 
 Rule names for `--rule-weight`: `new_device`, `new_destination`, `volume_anomaly`, `new_port`,
 `unusual_hours`, `arp_conflict`, `device_silent`, `rogue_dhcp`, `new_device_burst`, `threat_list_match`,
-`ot_new_conversation`, `ot_control_command`, `ot_internet_exposure`, `ot_purdue_skip`, `ot_unexpected_writer`.
+`ot_new_conversation`, `ot_control_command`, `ot_internet_exposure`, `ot_purdue_skip`, `ot_unexpected_writer`,
+`ot_command_watch`, `ot_write_escalation`.
 
 Every alert carries **advice**: click an alert (Alerts or Events tab) to see its summary, *why* it scored what
 it did, and *what to do next*. The same advice is in `GET /api/meta/options` (`advice`).
@@ -102,6 +103,10 @@ Details and examples are in the [OT guide](ot-guide.md). In short:
 * `ot_unexpected_writer`: a **phone, printer, camera, IoT gadget or similar** (by device type, including your
   correction) sends write or control commands to an industrial device. Score 65, +15 for control commands.
   Engineering laptops typed as *computer* are deliberately not judged by this rule.
+* `ot_write_escalation`: a path that **only ever read** from an industrial device starts **writing** to it: how a
+  monitoring connection turns into a controlling one. Score 60, +10 for an industrial target, +15 with control
+  commands. Never during the learning period; once per pair per six hours (adjustable).
+* `ot_command_watch`: **your own watches** for specific commands: see below and the [OT guide](ot-guide.md#command-watches).
 
 ## Findings: standing problems, with a fix
 
@@ -124,6 +129,24 @@ finding, each with why it matters and what to do.
 Only devices seen in the last 7 days are considered, and devices whose status is *spare*, *retired*, *lost*
 or *stolen* are not nagged about exposed services. Exposure findings come from the port scan, so they appear
 only for devices that have been scanned (never industrial devices).
+
+## Making the rules fit your network
+
+On the **Rules** page (administrators):
+
+* **Weight, minimum score and thresholds**, as before. Every rule also has **Alert only from score**: below it that
+  rule is only logged, whatever the global minimum is. New settings include the burst size and window of
+  `new_device_burst`, the repeat gaps of the OT rules and how many Purdue levels apart count as skipping.
+* **Exceptions**, per rule: devices (by name), **device types**, **tags** and **networks** (`10.0.5.0/24`) that
+  the rule stays quiet about. Typical uses: "never tell me about new destinations for the printers", "the lab VLAN
+  may do anything", "this HMI is allowed to write". For industrial alerts the **sending** device counts too, so
+  excepting the engineering station silences its control commands. An excepted alert is not stored at all; the
+  audit log records who set the exception.
+* **OT command watches** ([OT guide](ot-guide.md#command-watches)): tell DENIS which commands to alert on, for
+  which targets, and from which senders never.
+
+*Reset everything to defaults* returns weights, thresholds and minimum scores to their defaults and **keeps** your
+exceptions and watches (they are your content, not tuning).
 
 ## Acknowledging and false positives
 

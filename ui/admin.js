@@ -205,8 +205,9 @@ async function start() {
   $('login').hidden = true;
   $('app').hidden = false;
   $('whoami').textContent = state.me.username + ' (' + tr(state.me.role) + ')';
-  $('passkeys').hidden = !passkeysSupported();
   $('tab-users').hidden = !can('admin');
+  $('tab-settings').hidden = !can('admin');
+  $('tab-audit').hidden = !can('admin');
   $('tab-alerting').hidden = !can('admin');
   $('data-box').hidden = !can('admin');
   $('update-box').hidden = !can('admin');
@@ -482,13 +483,29 @@ async function renderUsers() {
           else showMessage(tr('Could not reset'), el('p', { text: apiError(rr) }));
         } })))));
   }
-  const a = await api('GET', '/api/audit?limit=100');
-  if (a.ok) {
-    $('audit-table').tBodies[0].replaceChildren(...a.json.map((e) => el('tr', {},
-      el('td', { text: fmtTime(e.ts) }), el('td', { text: e.user }), el('td', {}, el('span', { class: 'tag', text: e.action })),
-      el('td', { class: 'muted', text: summarizeAudit(e) }))));
-  }
 }
+
+let auditRows = [];
+
+/** The audit log page: the latest entries, filterable in the browser. */
+async function renderAudit() {
+  if (!can('admin')) return;
+  const a = await api('GET', '/api/audit?limit=' + encodeURIComponent($('audit-limit').value));
+  if (!a.ok) return;
+  auditRows = a.json.map((e) => ({ e, text: [e.user, e.action, summarizeAudit(e)].join(' ').toLowerCase() }));
+  drawAudit();
+}
+
+function drawAudit() {
+  const q = $('audit-filter').value.trim().toLowerCase();
+  const rows = auditRows.filter((r) => !q || r.text.includes(q));
+  $('audit-table').tBodies[0].replaceChildren(...rows.map(({ e }) => el('tr', {},
+    el('td', { text: fmtTime(e.ts) }), el('td', { text: e.user }), el('td', {}, el('span', { class: 'tag', text: e.action })),
+    el('td', { class: 'muted', text: summarizeAudit(e) }))));
+  $('audit-count').textContent = q ? tr('{n} of {total} entries', { n: rows.length, total: auditRows.length }) : tr('{n} entries', { n: rows.length });
+}
+$('audit-filter').oninput = drawAudit;
+$('audit-limit').onchange = renderAudit;
 
 function summarizeAudit(e) {
   const d = e.detail || {};
@@ -558,83 +575,6 @@ $('apitoken-form').onsubmit = async (ev) => {
   showSecret(tr('API token created'), tr('Shown only once; store it in your secret manager.'), r.json.token,
     tr('Example:') + '  curl -H "Authorization: Bearer <token>" https://THIS-SERVER/api/assets');
   renderApiTokens();
-};
-
-// --------------------------------------------------------------------- rules
-
-let rulesData = null;
-
-/** Draw the rules. Everyone can read them; only administrators get editable fields. */
-async function loadRules() {
-  const r = await api('GET', '/api/rules');
-  if (!r.ok) return;
-  rulesData = r.json;
-  const edit = can('admin');
-  $('rules-actions').hidden = !edit;
-  const numInput = (value, min, max, step, disabled, attrs = {}) =>
-    el('input', { type: 'number', value: String(value), min: String(min), max: String(max), step: String(step), disabled, ...attrs });
-
-  const g = rulesData.min_score;
-  const minIn = numInput(g.value, 0, 100, 1, !edit, { id: 'rule-min-score' });
-  $('rules-global').replaceChildren(
-    el('div', { class: 'rule-head' }, el('b', { text: tr('Minimum score to raise an alert') }),
-      g.overridden ? el('span', { class: 'changed', text: tr('changed (default {value})', { value: g.default }) }) : null),
-    el('p', { class: 'muted', text: tr('Events scoring below this are recorded but not shown as alerts, and never sent out. Raise it to hear less, lower it to hear more.') }),
-    el('div', { class: 'rule-controls' }, el('label', {}, tr('Score'), minIn)));
-
-  const cards = [];
-  for (const [group, title] of [['network', tr('Network rules')], ['ot', tr('Industrial (OT) rules')]]) {
-    cards.push(el('div', { class: 'group-title', text: title }));
-    for (const rule of rulesData.rules.filter((x) => x.group === group)) {
-      const on = el('input', { type: 'checkbox', checked: rule.enabled, disabled: !edit, id: 'rule-on-' + rule.id });
-      const w = numInput(rule.weight, 0, 5, 0.05, !edit, { id: 'rule-w-' + rule.id });
-      const params = rule.params.map((p) => el('label', { title: tr(p.help) },
-        tr(p.label) + ' (' + tr(p.unit) + ')' + (p.overridden ? ' • ' + tr('changed') : ''),
-        numInput(p.value, p.min, p.max, p.step, !edit, { id: 'rule-p-' + p.key, 'data-key': p.key })));
-      const card = el('div', { class: 'rule-card' + (rule.enabled ? '' : ' off') },
-        el('div', { class: 'rule-head' }, on, el('b', { text: tr(rule.title) }), el('code', { text: rule.id }),
-          rule.overridden ? el('span', { class: 'changed', text: tr('changed') }) : null),
-        el('p', { text: tr(rule.summary) }),
-        el('p', { class: 'muted', text: tr('Needs: {needs}', { needs: tr(rule.needs) }) }),
-        el('div', { class: 'rule-controls' },
-          el('label', { title: tr('1 = as designed, 0.5 = half as loud, 2 = twice as loud (scores are capped at 100)') }, tr('Weight (default {value})', { value: rule.default_weight }), w), ...params));
-      on.onchange = () => { card.classList.toggle('off', !on.checked); if (on.checked && Number(w.value) === 0) w.value = String(rule.default_weight || 1); };
-      cards.push(card);
-    }
-  }
-  $('rules-list').replaceChildren(...cards);
-}
-
-$('rules-save').onclick = async () => {
-  if (!rulesData) return;
-  // send only what the person actually changed, so untouched settings keep following the
-  // command-line defaults instead of being frozen as overrides
-  const patch = { weights: {}, params: {} };
-  const min = Number($('rule-min-score').value);
-  if (min !== rulesData.min_score.value) patch.min_score = min;
-  for (const rule of rulesData.rules) {
-    // an unticked rule is a weight of 0; a ticked one keeps the weight typed
-    const w = $('rule-on-' + rule.id).checked ? Number($('rule-w-' + rule.id).value) : 0;
-    if (w !== rule.weight) patch.weights[rule.id] = w;
-    for (const p of rule.params) {
-      const v = Number($('rule-p-' + p.key).value);
-      if (v !== p.value) patch.params[p.key] = v;
-    }
-  }
-  if (patch.min_score === undefined && !Object.keys(patch.weights).length && !Object.keys(patch.params).length) {
-    $('rules-status').textContent = tr('Nothing changed.');
-    return;
-  }
-  const r = await api('PUT', '/api/rules', patch);
-  $('rules-status').textContent = r.ok ? tr('Saved. Applies within a few seconds.') : apiError(r);
-  if (r.ok) loadRules();
-};
-
-$('rules-reset').onclick = async () => {
-  if (!confirm(tr('Reset every rule setting to its default?'))) return;
-  const r = await api('DELETE', '/api/rules');
-  $('rules-status').textContent = r.ok ? tr('Back to defaults.') : apiError(r);
-  if (r.ok) loadRules();
 };
 
 // ------------------------------------------------------------------ alerting
@@ -820,18 +760,19 @@ async function addPasskey(name) {
   return f.ok ? null : apiError(f);
 }
 
-/** The "Passkeys" dialog: your passkeys, add one, remove one. */
-async function openPasskeys(message) {
+/** The passkeys of the signed-in user, inside the account page: list, add one, remove one. */
+async function renderPasskeys(message) {
   const r = await api('GET', '/api/auth/passkeys');
   const list = r.ok ? r.json : [];
   const name = el('input', { placeholder: tr('name, e.g. "Work laptop" or "YubiKey"'), maxLength: 40 });
-  const status = el('div', { class: message ? 'muted' : 'form-error', text: message || '' });
+  const status = el('div', { class: message && message.ok ? 'muted' : 'form-error', text: message ? message.text : '' });
   const add = el('button', { type: 'button', class: 'primary', text: tr('Add a passkey'), onclick: async () => {
     add.disabled = true;
     const e = await addPasskey(name.value.trim());
-    openPasskeys(e ? e : tr('Passkey added. You can now sign in with it.'));
+    renderPasskeys(e ? { ok: false, text: e } : { ok: true, text: tr('Passkey added. You can now sign in with it.') });
   } });
-  showMessage(tr('Passkeys'),
+  // absent parts are null: replaceChildren(null) would print the word "null"
+  $('passkeys-body').replaceChildren(...[
     el('p', { class: 'muted', text: tr('A passkey lets you sign in with your fingerprint, face, device PIN or a security key instead of a password: nothing to type, and nothing an attacker can phish. Add one for each device you use.') }),
     !(state.methods && state.methods.passkey) ? el('p', { class: 'form-error', text: tr('Passkeys are not available on this setup: the administrator must start DENIS with --public-url https://your-address (or you can open the console as http://localhost).') }) : null,
     el('div', { class: 'passkey-list' }, ...list.map((p) => el('div', { class: 'passkey-row' },
@@ -839,13 +780,25 @@ async function openPasskeys(message) {
       el('button', { type: 'button', text: tr('Remove'), onclick: async () => {
         if (!confirm(tr('Remove the passkey "{name}"? You will not be able to sign in with it any more.', { name: p.name }))) return;
         await api('DELETE', '/api/auth/passkeys/' + p.id);
-        openPasskeys(tr('Removed.'));
+        renderPasskeys({ ok: true, text: tr('Removed.') });
       } }))),
       list.length ? null : el('div', { class: 'muted', text: tr('You have no passkeys yet.') })),
     passkeysSupported() ? el('div', { class: 'row' }, name, add) : el('p', { class: 'form-error', text: tr('This browser does not support passkeys.') }),
-    status);
+    status].filter(Boolean));
 }
-$('passkeys').onclick = () => openPasskeys();
+
+// ------------------------------------------------------------------- account
+
+/** "My account": who you are, your password and passkeys, sign out. */
+function renderAccount() {
+  const me = state.me;
+  if (!me) return;
+  const roles = { viewer: tr('can read everything'), editor: tr('can also edit devices, acknowledge alerts and start scans'), admin: tr('can also manage users, settings and rules') };
+  $('account-info').replaceChildren(el('div', {}, el('b', { text: me.username }), ' · ' + tr(me.role)), el('div', { text: roles[me.role] || '' }));
+  renderPasskeys();
+}
+$('account').onclick = () => { location.hash = '#account'; setTab('account'); };
+$('account-logout').onclick = () => $('logout').click();
 
 // -------------------------------------------------------------- deep links
 
@@ -855,9 +808,17 @@ $('passkeys').onclick = () => openPasskeys();
  */
 function applyHash() {
   const [what, arg] = location.hash.replace(/^#/, '').split('/');
-  const tabs = ['assets', 'alerts', 'findings', 'rules', 'compliance', 'topology', 'ot', 'trends', 'events', 'agents', 'alerting', 'users'];
+  const tabs = ['assets', 'alerts', 'findings', 'rules', 'compliance', 'topology', 'ot', 'trends', 'events', 'agents', 'alerting', 'users', 'settings', 'audit'];
   if (tabs.includes(what) && !$('tab-' + what)?.hidden) setTab(what);
-  if (what === 'passkeys') openPasskeys();
+  if (what === 'account' && state.me) setTab('account');
+  // #rules/watches: scroll to the OT command watches
+  if (what === 'rules' && arg === 'watches') setTimeout(() => $('watches')?.scrollIntoView({ block: 'start' }), 700);
+  // #settings/tls, #settings/updates ...: scroll to that section
+  if (what === 'settings' && arg && !$('tab-settings').hidden) {
+    const box = { branding: 'branding-box', tls: 'tls-box', updates: 'update-box', data: 'data-box' }[arg];
+    if (box) setTimeout(() => $(box).scrollIntoView({ block: 'start' }), 50);
+  }
+  if (what === 'passkeys') { location.hash = '#account'; return; }
   if (what === 'review') { setTab('assets'); $('only-review').checked = true; renderAssets(); }
   const id = Number(arg);
   if (!Number.isInteger(id) || !state.me) return;
@@ -878,7 +839,7 @@ async function loadDemoBanner() {
   const r = await api('GET', '/api/demo');
   const b = $('demo-banner');
   b.hidden = !(r.ok && r.json.loaded);
-  if (!b.hidden) b.textContent = tr('Demo data is loaded: the devices and alerts you see are fictional (a made-up company).') + ' ' + (can('admin') ? tr('Remove it under Users → Demo data when you are ready for your own network.') : tr('An administrator can remove it when the real deployment starts.'));
+  if (!b.hidden) b.textContent = tr('Demo data is loaded: the devices and alerts you see are fictional (a made-up company).') + ' ' + (can('admin') ? tr('Remove it under Settings → Demo data and reset when you are ready for your own network.') : tr('An administrator can remove it when the real deployment starts.'));
 }
 
 async function demoAction(method, url, doneText) {

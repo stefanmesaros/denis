@@ -29,10 +29,8 @@
       <select id="lang" class="lang-select" aria-label="Language"></select>
       <button id="theme" type="button" title="Colour theme: auto / light / dark">◐</button>
       <span class="userbox">
-        <span id="whoami" class="muted"></span>
+        <button id="account" type="button" class="account-btn" title="My account"><span id="whoami"></span></button>
         <a class="help-link" href="/docs/" target="_blank" rel="noopener">Help</a>
-        <button id="change-pw" type="button">Password</button>
-        <button id="passkeys" type="button" hidden>Passkeys</button>
         <button id="logout" type="button">Sign out</button>
       </span>
       <button id="scan" type="button">Scan now</button>
@@ -59,6 +57,8 @@
           <button class="tab" data-tab="alerting" type="button" id="tab-alerting" hidden><span class="label">Alerting</span></button>
           <button class="tab" data-tab="agents" type="button"><span class="label">Sites</span> <span id="count-agents" class="count"></span></button>
           <button class="tab" data-tab="users" type="button" id="tab-users" hidden><span class="label">Users</span></button>
+          <button class="tab" data-tab="settings" type="button" id="tab-settings" hidden><span class="label">Settings</span></button>
+          <button class="tab" data-tab="audit" type="button" id="tab-audit" hidden><span class="label">Audit log</span></button>
         </nav>
       </aside>
       <div class="content">
@@ -106,7 +106,7 @@
             <tbody></tbody>
           </table>
         </div>
-        <p id="empty" class="muted" hidden>No devices yet. The first sweep runs at startup; passive discovery fills in as devices announce themselves. Just looking around? An administrator can load demo data under Users.</p>
+        <p id="empty" class="muted" hidden>No devices yet. The first sweep runs at startup; passive discovery fills in as devices announce themselves. Just looking around? An administrator can load demo data under Settings.</p>
       </section>
 
       <section id="view-alerts" hidden>
@@ -133,8 +133,8 @@
         <p id="ot-empty" class="muted" hidden>No industrial devices identified yet. Industrial protocols are decoded passively from traffic that reaches this collector: run with <code>--profile ot</code> on a mirror/SPAN port or tap. Purdue level and zone can be set per device.</p>
         <h3 class="section">Communications matrix</h3>
         <div class="inline-form"><select id="ot-proto" aria-label="Protocol"></select><label class="check"><input id="ot-risky" type="checkbox"> only writes / control commands</label></div>
-        <div class="table-wrap"><table id="ot-matrix"><thead><tr><th>Client</th><th></th><th>Server</th><th>Protocol</th><th>Reads</th><th>Writes</th><th>Control</th><th>Last seen</th></tr></thead><tbody></tbody></table></div>
-        <p class="muted">Who talks to whom, over which industrial protocol, and what kind of messages (read / write / control such as STOP or program download). A path that appears after the learning period raises an alert; so does any control command.</p>
+        <div class="table-wrap"><table id="ot-matrix"><thead><tr><th>Client</th><th></th><th>Server</th><th>Protocol</th><th>Reads</th><th>Writes</th><th>Control</th><th>Commands seen</th><th>Last seen</th></tr></thead><tbody></tbody></table></div>
+        <p class="muted">Who talks to whom, over which industrial protocol, and what kind of messages (read / write / control such as STOP or program download). A path that appears after the learning period raises an alert; so does any control command. Click a command to be told whenever it is sent (an OT command watch, see Rules).</p>
       </section>
 
       <section id="view-trends" hidden>
@@ -252,21 +252,13 @@
           <button type="submit" class="primary">Create token</button>
         </form>
         <div class="table-wrap"><table id="apitokens-table"><thead><tr><th>Label</th><th>Role</th><th>State</th><th>Created by</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody></tbody></table></div>
-        <div id="tls-box" hidden>
-          <h3 class="section">HTTPS certificate</h3>
-          <div id="tls-status" class="muted"></div>
-          <div class="row"><a id="tls-ca" href="/tls/ca.pem" download="denis-local-ca.pem" hidden>Download the CA certificate</a><button id="tls-replace" type="button">Use my own certificate…</button><button id="tls-reset" type="button" hidden>Go back to the generated certificate</button><span id="tls-msg" class="muted"></span></div>
-        </div>
-        <div id="update-box" hidden>
-          <h3 class="section">Updates</h3>
-          <div id="update-status" class="muted"></div>
-          <div class="row"><button id="update-check" type="button">Check for updates now</button><button id="update-open" type="button" hidden>Update available…</button><span id="update-msg" class="muted"></span></div>
-        </div>
-        <div id="data-box" hidden>
-          <h3 class="section">Demo data and reset</h3>
-          <p class="muted">New here? <b>Load demo data</b> fills the console with a fictional company so you can explore every screen; it never mixes with your real devices, and <b>Remove demo data</b> deletes exactly that. When you are ready for your own network, <b>Erase all data</b> starts from a clean slate (accounts, settings and the audit log are kept).</p>
-          <div class="row"><button id="demo-load" type="button">Load demo data</button><button id="demo-remove" type="button">Remove demo data</button><button id="erase-all" type="button" class="danger">Erase all data…</button><span id="demo-status" class="muted"></span></div>
-        </div>
+      </section>
+
+      <section id="view-settings" hidden>
+        <p class="muted">Settings for the whole installation. Only administrators see this page; every change is written to the <a href="#audit">audit log</a>.</p>
+        <nav class="subnav" aria-label="Settings sections">
+          <a href="#settings/branding">Branding (white label)</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/data">Demo data and reset</a>
+        </nav>
         <div id="branding-box" hidden>
           <h3 class="section">Branding (white label)</h3>
           <form id="branding-form" class="brand-form">
@@ -290,8 +282,41 @@
               <button id="br-remove" type="button">Remove logo</button></div>
           </div>
         </div>
-        <h3 class="section">Audit log</h3>
+        <div id="tls-box" hidden>
+          <h3 class="section">HTTPS certificate</h3>
+          <div id="tls-status" class="muted"></div>
+          <div class="row"><a id="tls-ca" href="/tls/ca.pem" download="denis-local-ca.pem" hidden>Download the CA certificate</a><button id="tls-replace" type="button">Use my own certificate…</button><button id="tls-reset" type="button" hidden>Go back to the generated certificate</button><span id="tls-msg" class="muted"></span></div>
+        </div>
+        <div id="update-box" hidden>
+          <h3 class="section">Updates</h3>
+          <div id="update-status" class="muted"></div>
+          <div class="row"><button id="update-check" type="button">Check for updates now</button><button id="update-open" type="button" hidden>Update available…</button><span id="update-msg" class="muted"></span></div>
+        </div>
+        <div id="data-box" hidden>
+          <h3 class="section">Demo data and reset</h3>
+          <p class="muted">New here? <b>Load demo data</b> fills the console with a fictional company so you can explore every screen; it never mixes with your real devices, and <b>Remove demo data</b> deletes exactly that. When you are ready for your own network, <b>Erase all data</b> starts from a clean slate (accounts, settings and the audit log are kept).</p>
+          <div class="row"><button id="demo-load" type="button">Load demo data</button><button id="demo-remove" type="button">Remove demo data</button><button id="erase-all" type="button" class="danger">Erase all data…</button><span id="demo-status" class="muted"></span></div>
+        </div>
+      </section>
+
+      <section id="view-audit" hidden>
+        <p class="muted">Every sign-in, change, user, token, channel and rule edit, with who did it. Kept until you erase all data (the audit log itself is never erased by that).</p>
+        <div class="inline-form"><input id="audit-filter" type="search" placeholder="Filter by user, action or detail…" aria-label="Filter the audit log"><select id="audit-limit" aria-label="How many entries"><option value="100">Last 100</option><option value="500">Last 500</option><option value="1000">Last 1000</option></select><span id="audit-count" class="muted"></span></div>
         <div class="table-wrap"><table id="audit-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th></tr></thead><tbody></tbody></table></div>
+      </section>
+
+      <section id="view-account" hidden>
+        <h3 class="section">My account</h3>
+        <div id="account-info" class="muted"></div>
+        <h3 class="section">Password</h3>
+        <p class="muted">Changing it signs you out everywhere else.</p>
+        <div class="row"><button id="change-pw" type="button">Change password</button></div>
+        <div id="passkeys-box">
+          <h3 class="section">Passkeys</h3>
+          <div id="passkeys-body"></div>
+        </div>
+        <h3 class="section">Sign-in</h3>
+        <div class="row"><button id="account-logout" type="button">Sign out</button></div>
       </section>
     </main>
       </div>
@@ -311,6 +336,7 @@
   <script src="i18n.js"></script>
   <script src="app.js"></script>
   <script src="admin.js"></script>
+  <script src="rules.js"></script>
   <script src="main.js"></script>
 </body>
 </html>

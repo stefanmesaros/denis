@@ -29,6 +29,7 @@ struct ConvAcc {
     writes: u64,
     controls: u64,
     note: Option<String>,
+    commands: std::collections::BTreeMap<String, u32>,
 }
 
 pub struct FlowAgg {
@@ -84,6 +85,10 @@ impl FlowAgg {
         a.server_ip = Some(si);
         a.packets += 1;
         a.bytes += s.bytes as u64;
+        // remember which functions were used (bounded): the detector can watch for specific ones
+        if s.pdu.class != OtClass::Other && (a.commands.contains_key(&s.pdu.detail) || a.commands.len() < crate::model::MAX_COMMANDS) {
+            *a.commands.entry(s.pdu.detail.clone()).or_insert(0) += 1;
+        }
         match s.pdu.class {
             OtClass::Read | OtClass::Identify => a.reads += 1,
             OtClass::Write => a.writes += 1,
@@ -135,6 +140,7 @@ impl FlowAgg {
                 writes: a.writes,
                 controls: a.controls,
                 note: a.note,
+                commands: a.commands,
                 window_start: start,
                 window_secs: secs,
             })

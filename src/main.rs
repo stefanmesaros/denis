@@ -282,7 +282,7 @@ enum Cmd {
         public_url: Option<String>,
     },
     /// Load or remove the built-in demo data (a fictional company) in a database. Works while
-    /// DENIS is stopped; while it runs, use the console (Users → Demo data).
+    /// DENIS is stopped; while it runs, use the console (Settings → Demo data and reset).
     Demo {
         #[command(subcommand)]
         action: DemoCmd,

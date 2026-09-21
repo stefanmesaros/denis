@@ -1,11 +1,27 @@
 # Changelog
 
-## Unreleased
+## 0.1.2: OT command watches, rule exceptions, a tidier console
 
-Fixed
-* After **Install now** the console kept showing the last step ("Testing the new program") forever when the restart was
-  quicker than a second: the update had finished, but the page did not notice. It now reloads as soon as the new
-  version answers.
+OT
+* **OT command watches** (Rules page): alert when a specific command (an S7 CPU stop, a program download, any
+  Modbus write, a DNP3 restart, a BACnet re-initialisation…) reaches specific devices, never from senders you allow
+  (your engineering station). Ready-made watches for the common ones; works during the learning period.
+* The communications matrix shows the **functions each path uses** ("Commands seen"); click one to watch for it.
+* New rule `ot_write_escalation`: a path that only ever read starts writing.
+
+Rules
+* **Exceptions per rule**: devices, device types, tags or networks a rule stays quiet about (for industrial alerts the
+  sender counts too).
+* A **minimum score per rule**, and new settings: burst size and window, repeat gaps of the OT rules, how many Purdue
+  levels apart count as skipping. *Reset* keeps your exceptions and watches.
+
+Console
+* New **Settings** page (branding, HTTPS certificate, updates, demo data and reset) and a separate **Audit log** page
+  (filterable); **Users** now only holds users and API tokens.
+* **My account** (click your name): password and passkeys moved out of the header.
+* The console reloads as soon as an update has restarted it (it used to keep showing "Testing the new program").
+* Database schema v9 (functions per path). Updating from 0.1.1 migrates it; the automatic backup taken before the
+  update is the way back.
 
 ## 0.1.1: update test release
 

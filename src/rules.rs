@@ -71,6 +71,18 @@ pub static PARAMS: &[Param] = &[
         |c| c.silent_secs as f64 / 60.0, |c, v| c.silent_secs = (v * 60.0) as i64),
     param("presence_coverage_pct", "Counts as reliable if online", "% of hours", "Share of hours in the last week a device must have been present.", 50.0, 100.0, 1.0,
         |c| c.presence_coverage * 100.0, |c, v| c.presence_coverage = v / 100.0),
+    param("burst_min_devices", "New devices that count as a burst", "devices", "How many new devices must appear within the window below.", 2.0, 100.0, 1.0,
+        |c| c.burst_min as f64, |c, v| c.burst_min = v as usize),
+    param("burst_window_min", "Burst window", "min", "The time within which they must appear.", 1.0, 120.0, 1.0,
+        |c| c.burst_window_secs as f64 / 60.0, |c, v| c.burst_window_secs = (v * 60.0) as i64),
+    param("ot_control_cooldown_min", "Minimum gap between alerts", "min", "Per sender, target and protocol: a repeated stop or download is reported once per this time.", 1.0, 1440.0, 1.0,
+        |c| c.ot_control_cooldown_secs as f64 / 60.0, |c, v| c.ot_control_cooldown_secs = (v * 60.0) as i64),
+    param("ot_purdue_gap", "Levels apart that count as skipping", "levels", "Two industrial devices talking across at least this many Purdue levels are reported (2 = one level in between is skipped).", 1.0, 5.0, 0.5,
+        |c| c.ot_purdue_gap, |c, v| c.ot_purdue_gap = v),
+    param("ot_writer_cooldown_min", "Minimum gap between alerts", "min", "Per sender, target and protocol.", 1.0, 1440.0, 1.0,
+        |c| c.ot_writer_cooldown_secs as f64 / 60.0, |c, v| c.ot_writer_cooldown_secs = (v * 60.0) as i64),
+    param("ot_escalation_cooldown_h", "Minimum gap between alerts", "hours", "Per sender, target and protocol.", 1.0, 168.0, 1.0,
+        |c| c.ot_escalation_cooldown_secs as f64 / 3600.0, |c, v| c.ot_escalation_cooldown_secs = (v * 3600.0) as i64),
     param("agent_offline_minutes", "Site silent for", "min", "How long a remote site may stop reporting before one alert is raised.", 1.0, 120.0, 1.0,
         |c| c.agent_offline_secs as f64 / 60.0, |c, v| c.agent_offline_secs = (v * 60.0) as i64),
 ];
@@ -113,8 +125,8 @@ pub static RULE_INFO: &[RuleInfo] = &[
         summary: "A device you have not seen before starts handing out network addresses: a rogue DHCP server can redirect every client's traffic. Servers seen during the learning period are the normal ones.",
         needs: "nothing extra", params: &[] },
     RuleInfo { id: "new_device_burst", title: "Burst of new devices", group: "network",
-        summary: "Five or more new devices join within ten minutes: a scan, an ARP flood, a bridged network, or simply an event. Reported once per half hour.",
-        needs: "nothing extra", params: &[] },
+        summary: "Several new devices join within a few minutes (five in ten by default): a scan, an ARP flood, a bridged network, or simply an event. Reported once per half hour.",
+        needs: "nothing extra", params: &["burst_min_devices", "burst_window_min"] },
     RuleInfo { id: "threat_list_match", title: "Contact with a known-bad address", group: "network",
         summary: "A device contacts an address on your threat list (a blocklist file you supply, for example from abuse.ch or Spamhaus). Not subject to learning.",
         needs: "traffic analysis (--flows) and --threat-list <file>", params: &[] },
@@ -123,13 +135,19 @@ pub static RULE_INFO: &[RuleInfo] = &[
         needs: "traffic analysis on a mirror port", params: &[] },
     RuleInfo { id: "ot_control_command", title: "OT: control command", group: "ot",
         summary: "A stop, program-download or restart command is sent to a controller. The first one is alarming, repeats are routine.",
-        needs: "traffic analysis on a mirror port", params: &[] },
+        needs: "traffic analysis on a mirror port", params: &["ot_control_cooldown_min"] },
     RuleInfo { id: "ot_purdue_skip", title: "OT: skipping a Purdue level", group: "ot",
         summary: "Two industrial devices talk across more than one Purdue level (for example a controller straight to an office PC), against the usual segmentation model. Needs the Purdue level on both devices in the register.",
-        needs: "traffic analysis on a mirror port; Purdue levels entered", params: &[] },
+        needs: "traffic analysis on a mirror port; Purdue levels entered", params: &["ot_purdue_gap"] },
     RuleInfo { id: "ot_unexpected_writer", title: "OT: write from an unexpected device", group: "ot",
         summary: "A phone, printer, camera, IoT gadget or similar sends write or control commands to an industrial device. Engineering laptops typed as computers are not flagged.",
+        needs: "traffic analysis on a mirror port", params: &["ot_writer_cooldown_min"] },
+    RuleInfo { id: "ot_command_watch", title: "OT: your command watches", group: "ot",
+        summary: "Your own watches: be told when specific industrial commands (a Modbus write, an S7 CPU stop, a DNP3 restart…) are sent to specific devices, optionally except from senders you allow. Add them below.",
         needs: "traffic analysis on a mirror port", params: &[] },
+    RuleInfo { id: "ot_write_escalation", title: "OT: read-only path starts writing", group: "ot",
+        summary: "A path that only ever read from an industrial device starts sending write commands: how a monitoring connection turns into a controlling one.",
+        needs: "traffic analysis on a mirror port", params: &["ot_escalation_cooldown_h"] },
     RuleInfo { id: "ot_internet_exposure", title: "OT: industrial protocol crossing the boundary", group: "ot",
         summary: "An industrial protocol is seen between a local device and an address outside the network.",
         needs: "traffic analysis on a mirror port", params: &[] },
@@ -144,6 +162,144 @@ pub struct Overrides {
     pub weights: BTreeMap<String, f64>,
     #[serde(default)]
     pub params: BTreeMap<String, f64>,
+    /// Per-rule minimum score: below it that rule's events are only logged.
+    #[serde(default)]
+    pub min_scores: BTreeMap<String, i32>,
+    /// Devices a rule should never alert about (per rule id).
+    #[serde(default)]
+    pub exceptions: BTreeMap<String, Vec<Scope>>,
+    /// The administrator's own industrial-command watches.
+    #[serde(default)]
+    pub ot_watches: Vec<OtWatch>,
+}
+
+/// Who or what a rule setting applies to.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Scope {
+    /// `device` (an asset id), `type` (a device type), `tag` or `cidr` (an IPv4 range like `10.0.5.0/24`).
+    pub kind: String,
+    pub value: String,
+}
+
+/// Limits: a rule setting is small, and a request must not be able to make it big.
+pub const MAX_SCOPES: usize = 50;
+pub const MAX_WATCHES: usize = 30;
+pub const WATCH_PROTOS: &[&str] = &["any", "modbus", "s7", "enip", "dnp3", "bacnet", "opcua", "iec104"];
+
+impl Scope {
+    /// Validate and normalise what came in.
+    pub fn check(&self) -> Result<Scope, String> {
+        let value = self.value.trim().to_string();
+        if value.is_empty() || value.chars().count() > 60 || value.chars().any(char::is_control) {
+            return Err("an exception needs a value of at most 60 characters".into());
+        }
+        match self.kind.as_str() {
+            "device" => {
+                value.parse::<i64>().map_err(|_| "a device exception refers to a device by its id")?;
+            }
+            "type" | "tag" => {}
+            "cidr" => {
+                parse_cidr(&value).ok_or("a network must look like 10.0.5.0/24")?;
+            }
+            other => return Err(format!("unknown exception kind {other:?} (device, type, tag or cidr)")),
+        }
+        Ok(Scope { kind: self.kind.clone(), value })
+    }
+
+    /// Does this device fall under the scope?
+    pub fn matches(&self, a: &crate::model::Asset, meta: Option<&crate::model::AssetMeta>) -> bool {
+        match self.kind.as_str() {
+            "device" => self.value.parse::<i64>().is_ok_and(|id| id == a.id),
+            "type" => {
+                let t = meta.and_then(|m| m.type_override.as_deref()).unwrap_or(&a.device_type);
+                t.eq_ignore_ascii_case(&self.value)
+            }
+            "tag" => meta.is_some_and(|m| m.tags.iter().any(|t| t.eq_ignore_ascii_case(&self.value))),
+            "cidr" => match (parse_cidr(&self.value), a.current_ip()) {
+                (Some((net, bits)), Some(ip)) => {
+                    let mask = if bits == 0 { 0 } else { u32::MAX << (32 - bits) };
+                    u32::from(ip) & mask == u32::from(net) & mask
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+}
+
+fn parse_cidr(s: &str) -> Option<(std::net::Ipv4Addr, u32)> {
+    let (ip, bits) = s.split_once('/')?;
+    let bits: u32 = bits.parse().ok().filter(|b| *b <= 32)?;
+    Some((ip.parse().ok()?, bits))
+}
+
+/// "Tell me when this command goes to that device": one watch on industrial traffic.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct OtWatch {
+    /// Chosen by the console; lower-case letters and digits.
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    /// One of [`WATCH_PROTOS`]; `any` covers every industrial protocol.
+    pub proto: String,
+    /// Match any write command (registers, coils, tags, setpoints).
+    #[serde(default)]
+    pub writes: bool,
+    /// Match any control command (stop/start, program download, restart, operate).
+    #[serde(default)]
+    pub controls: bool,
+    /// Match functions whose name contains one of these words (`write single register`, `0x29`, `restart`).
+    #[serde(default)]
+    pub commands: Vec<String>,
+    /// Only when the target is one of these (empty: any device).
+    #[serde(default)]
+    pub targets: Vec<Scope>,
+    /// Never for these senders (your engineering workstation, for instance).
+    #[serde(default)]
+    pub allowed_senders: Vec<Scope>,
+    /// The score the alert gets (1-100).
+    pub score: i32,
+    /// At most one alert per sender/target/protocol in this many minutes.
+    pub cooldown_minutes: u32,
+}
+
+impl OtWatch {
+    pub fn check(&self) -> Result<OtWatch, String> {
+        let id = self.id.trim().to_string();
+        if id.is_empty() || id.len() > 16 || !id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()) {
+            return Err("a watch needs an id of up to 16 lower-case letters and digits".into());
+        }
+        let name = self.name.trim().to_string();
+        if name.is_empty() || name.chars().count() > 60 || name.chars().any(char::is_control) {
+            return Err("a watch needs a name of at most 60 characters".into());
+        }
+        if !WATCH_PROTOS.contains(&self.proto.as_str()) {
+            return Err(format!("protocol must be one of {}", WATCH_PROTOS.join(", ")));
+        }
+        let commands: Vec<String> = self.commands.iter().map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect();
+        if commands.len() > 10 || commands.iter().any(|c| c.chars().count() > 40 || c.chars().any(char::is_control)) {
+            return Err("at most 10 command words of up to 40 characters".into());
+        }
+        if !self.writes && !self.controls && commands.is_empty() {
+            return Err("a watch must match something: any write, any control command, or a command word".into());
+        }
+        if !(1..=100).contains(&self.score) {
+            return Err("the score of a watch must be between 1 and 100".into());
+        }
+        if !(1..=1440).contains(&self.cooldown_minutes) {
+            return Err("the gap between alerts must be between 1 and 1440 minutes".into());
+        }
+        let scopes = |v: &[Scope]| -> Result<Vec<Scope>, String> {
+            if v.len() > MAX_SCOPES {
+                return Err(format!("at most {MAX_SCOPES} targets or senders per watch"));
+            }
+            v.iter().map(Scope::check).collect()
+        };
+        Ok(OtWatch {
+            id, name, enabled: self.enabled, proto: self.proto.clone(), writes: self.writes, controls: self.controls, commands,
+            targets: scopes(&self.targets)?, allowed_senders: scopes(&self.allowed_senders)?, score: self.score, cooldown_minutes: self.cooldown_minutes,
+        })
+    }
 }
 
 impl Overrides {
@@ -161,7 +317,14 @@ impl Overrides {
                 (p.set)(&mut c, *v);
             }
         }
+        c.ot_watches = self.ot_watches.clone();
+        c.rule_min_scores = self.min_scores.iter().map(|(k, v)| (k.clone(), *v)).collect();
         c
+    }
+
+    /// Should an alert of `rule` about (or sent by) one of these devices be dropped?
+    pub fn excepted(&self, rule: &str, devices: &[(&crate::model::Asset, Option<&crate::model::AssetMeta>)]) -> bool {
+        self.exceptions.get(rule).is_some_and(|list| list.iter().any(|s| devices.iter().any(|(a, m)| s.matches(a, *m))))
     }
 
     /// Apply a partial update. Atomic: on error `self` is unchanged. A value of
@@ -221,6 +384,60 @@ impl Overrides {
                         }
                     }
                 }
+                "min_scores" => {
+                    for (rule, val) in v.as_object().ok_or("min_scores must be an object")? {
+                        if !RULES.contains(&rule.as_str()) {
+                            return Err(format!("unknown rule {rule:?}"));
+                        }
+                        match val {
+                            Value::Null => {
+                                next.min_scores.remove(rule);
+                            }
+                            _ => {
+                                let n = val.as_i64().filter(|n| (0..=100).contains(n)).ok_or(format!("the minimum score of {rule} must be a whole number from 0 to 100"))?;
+                                next.min_scores.insert(rule.clone(), n as i32);
+                            }
+                        }
+                    }
+                }
+                "exceptions" => {
+                    for (rule, list) in v.as_object().ok_or("exceptions must be an object")? {
+                        if !RULES.contains(&rule.as_str()) {
+                            return Err(format!("unknown rule {rule:?}"));
+                        }
+                        match list {
+                            Value::Null => {
+                                next.exceptions.remove(rule);
+                            }
+                            _ => {
+                                let scopes: Vec<Scope> = serde_json::from_value(list.clone()).map_err(|_| format!("the exceptions of {rule} must be a list of {{kind, value}}"))?;
+                                if scopes.len() > MAX_SCOPES {
+                                    return Err(format!("at most {MAX_SCOPES} exceptions per rule"));
+                                }
+                                let checked: Vec<Scope> = scopes.iter().map(Scope::check).collect::<Result<_, _>>()?;
+                                if checked.is_empty() {
+                                    next.exceptions.remove(rule);
+                                } else {
+                                    next.exceptions.insert(rule.clone(), checked);
+                                }
+                            }
+                        }
+                    }
+                }
+                "ot_watches" => {
+                    let watches: Vec<OtWatch> = serde_json::from_value(v.clone()).map_err(|e| format!("ot_watches must be a list of watches ({e})"))?;
+                    if watches.len() > MAX_WATCHES {
+                        return Err(format!("at most {MAX_WATCHES} watches"));
+                    }
+                    let checked: Vec<OtWatch> = watches.iter().map(OtWatch::check).collect::<Result<_, _>>()?;
+                    let mut ids: Vec<&str> = checked.iter().map(|w| w.id.as_str()).collect();
+                    ids.sort_unstable();
+                    ids.dedup();
+                    if ids.len() != checked.len() {
+                        return Err("watch ids must be unique".into());
+                    }
+                    next.ot_watches = checked;
+                }
                 other => return Err(format!("unknown field {other:?}")),
             }
         }
@@ -264,6 +481,7 @@ pub fn describe(base: &DetectConfig, o: &Overrides) -> Value {
                 "id": r.id, "title": r.title, "group": r.group, "summary": r.summary, "needs": r.needs,
                 "weight": w, "default_weight": dw, "enabled": w > 0.0,
                 "overridden": o.weights.contains_key(r.id), "params": params,
+                "min_score": o.min_scores.get(r.id).copied(),
             })
         })
         .collect();
@@ -271,6 +489,9 @@ pub fn describe(base: &DetectConfig, o: &Overrides) -> Value {
         "min_score": { "value": eff.min_score, "default": base.min_score, "overridden": o.min_score.is_some() },
         "rules": rules,
         "any_override": *o != Overrides::default(),
+        "exceptions": o.exceptions,
+        "ot_watches": o.ot_watches,
+        "watch_protocols": WATCH_PROTOS,
     })
 }
 
@@ -353,5 +574,72 @@ mod tests {
         assert_eq!(load(&s).unwrap(), o);
         s.set_setting(KEY, b"{not json", 2).unwrap();
         assert_eq!(load(&s).unwrap(), Overrides::default(), "a damaged value means defaults, never a crash");
+    }
+
+    fn asset_at(id: i64, ty: &str, ip: [u8; 4]) -> crate::model::Asset {
+        let mut a = crate::model::Asset::new(crate::model::Mac([2, 0, 0, 0, 0, id as u8]), 1);
+        a.id = id;
+        a.device_type = ty.into();
+        a.ip_history.push(crate::model::IpRecord { ip: std::net::Ipv4Addr::from(ip), first_seen: 1, last_seen: 1 });
+        a
+    }
+
+    #[test]
+    fn scopes_match_by_device_type_tag_and_network_and_are_validated() {
+        let a = asset_at(7, "plc", [10, 1, 2, 3]);
+        let meta = crate::model::AssetMeta { tags: vec!["Line1".into()], type_override: Some("hmi".into()), ..Default::default() };
+        let s = |k: &str, v: &str| Scope { kind: k.into(), value: v.into() };
+        assert!(s("device", "7").matches(&a, None) && !s("device", "8").matches(&a, None));
+        assert!(s("type", "PLC").matches(&a, None), "case-insensitive");
+        assert!(!s("type", "plc").matches(&a, Some(&meta)) && s("type", "hmi").matches(&a, Some(&meta)), "a type set by hand wins");
+        assert!(s("tag", "line1").matches(&a, Some(&meta)) && !s("tag", "line1").matches(&a, None));
+        assert!(s("cidr", "10.1.0.0/16").matches(&a, None) && !s("cidr", "10.2.0.0/16").matches(&a, None) && s("cidr", "0.0.0.0/0").matches(&a, None));
+        for bad in [s("device", "abc"), s("cidr", "10.1.2.3"), s("cidr", "10.1.2.3/33"), s("cidr", "x/8"), s("colour", "red"), s("tag", ""), s("tag", &"x".repeat(61)), s("tag", "a\nb")] {
+            assert!(bad.check().is_err(), "{bad:?}");
+        }
+        assert_eq!(s("tag", "  Lab ").check().unwrap().value, "Lab");
+    }
+
+    #[test]
+    fn exceptions_and_watches_are_saved_validated_and_refused_atomically() {
+        let mut o = Overrides::default();
+        o.patch(&json!({"exceptions": {"new_device": [{"kind": "type", "value": "printer"}]},
+            "ot_watches": [{"id": "w1", "name": " S7 stop ", "enabled": true, "proto": "s7", "controls": true, "commands": [" 0x29 ", ""],
+                            "targets": [{"kind": "tag", "value": "line1"}], "allowed_senders": [], "score": 90, "cooldown_minutes": 5}]})).unwrap();
+        assert_eq!(o.ot_watches[0].name, "S7 stop");
+        assert_eq!(o.ot_watches[0].commands, vec!["0x29".to_string()]);
+        let c = o.apply(&DetectConfig::default());
+        assert_eq!(c.ot_watches.len(), 1, "the watches reach the detector");
+        // an emptied list removes the exception; null too
+        o.patch(&json!({"exceptions": {"new_device": []}})).unwrap();
+        assert!(o.exceptions.is_empty());
+        let before = o.clone();
+        let w = |extra: Value| {
+            let mut base = json!({"id": "w2", "name": "n", "enabled": true, "proto": "any", "writes": true, "score": 50, "cooldown_minutes": 10});
+            for (k, v) in extra.as_object().unwrap() {
+                base[k] = v.clone();
+            }
+            json!({"ot_watches": [base]})
+        };
+        for bad in [
+            json!({"exceptions": {"no_such_rule": []}}), json!({"exceptions": {"new_device": [{"kind": "cidr", "value": "nope"}]}}),
+            json!({"exceptions": {"new_device": "all"}}), json!({"exceptions": []}),
+            w(json!({"id": "Has Space"})), w(json!({"name": ""})), w(json!({"proto": "telnet"})), w(json!({"score": 0})), w(json!({"score": 101})),
+            w(json!({"cooldown_minutes": 0})), w(json!({"writes": false})), // matches nothing
+            w(json!({"commands": vec!["x"; 11], "writes": false})),
+            w(json!({"targets": [{"kind": "device", "value": "x"}]})),
+            json!({"ot_watches": [{"id": "a", "name": "n", "enabled": true, "proto": "any", "writes": true, "score": 5, "cooldown_minutes": 1},
+                                  {"id": "a", "name": "m", "enabled": true, "proto": "any", "writes": true, "score": 5, "cooldown_minutes": 1}]}),
+            json!({"ot_watches": "all"}),
+        ] {
+            assert!(o.patch(&bad).is_err(), "{bad}");
+            assert_eq!(o, before, "a refused change changes nothing: {bad}");
+        }
+        // too many
+        let many: Vec<Value> = (0..=MAX_WATCHES).map(|i| json!({"id": format!("w{i}"), "name": "n", "enabled": true, "proto": "any", "writes": true, "score": 5, "cooldown_minutes": 1})).collect();
+        assert!(o.patch(&json!({"ot_watches": many})).is_err());
+        // it all shows up in the description the console reads
+        let d = describe(&DetectConfig::default(), &o);
+        assert!(d["ot_watches"].is_array() && d["exceptions"].is_object() && d["watch_protocols"].as_array().unwrap().len() > 5);
     }
 }

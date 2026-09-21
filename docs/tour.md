@@ -6,8 +6,8 @@ Addresses like `#rules` or `#device/12` can be bookmarked or pasted into a messa
 ## Header
 
 Product name and logo (yours, see [Branding](branding.md)), a status line (mode, network, devices, last sweep,
-health of exports), the **language** picker, the **colour theme** button (auto / day / night), your name, **Help** (this documentation),
-**Password**, **Passkeys**, **Sign out** and **Scan now** (an immediate sweep and port scan; disabled in passive-only mode).
+health of exports), the **language** picker, the **colour theme** button (auto / day / night), your name (click it for [My account](#my-account)),
+**Help** (this documentation), **Sign out** and **Scan now** (an immediate sweep and port scan; disabled in passive-only mode).
 A yellow banner appears while **maintenance mode** silences notifications.
 
 ## Devices
@@ -70,8 +70,9 @@ warranties. Devices with the same problem are grouped, each with why it matters 
 ![Rules](img/rules.png)
 
 Every detection with what it does, what it needs, whether it is on, its weight (`0` = off, `2` = twice as loud)
-and its thresholds. Everyone can read it; administrators change it. Changes apply within seconds, survive
-restarts and are written to the audit log ([details](detection-rules.md)).
+its thresholds and a minimum score of its own, plus **exceptions** (devices, device types, tags or networks a rule
+stays quiet about) and your own **OT command watches**. Everyone can read it; administrators change it. Changes apply
+within seconds, survive restarts and are written to the audit log ([details](detection-rules.md)).
 
 ## Compliance
 
@@ -94,7 +95,8 @@ Devices grouped by type around the gateway; colour shows risk. Hover a device fo
 For industrial networks ([OT guide](ot-guide.md)): industrial devices with their Purdue level, zone and the
 protocols they speak (S = answers requests, C = sends them), the **communications matrix** (who talks to whom over
 Modbus, S7, EtherNet/IP, DNP3, BACnet, OPC UA, IEC 104, with counts of reads, writes and control commands), and
-the open OT alerts. Filter to *writes / control commands only* to see who can change a process.
+the functions each path uses (**Commands seen**: click one to be told whenever it is sent) and the open OT alerts.
+Filter to *writes / control commands only* to see who can change a process.
 
 ## Trends
 
@@ -128,15 +130,29 @@ with its own minimum score, a **Test** button and live delivery status. **Mainte
 ![Users](img/users.png)
 
 Accounts and roles (*viewer* reads, *editor* also edits devices and acknowledges alerts, *admin* also manages
-users and settings), **API tokens** for scripts and Grafana, **branding** (name, logo, colour, default theme) and
-the **audit log** of every sign-in and change, and **Demo data**: load a fictional company to explore, remove it, or **erase all data** when you are ready for the real network ([details](operations.md#demo-data-and-starting-clean-erase-all-data)).
+users, settings and rules) and **API tokens** for scripts and Grafana.
 
-## Passkeys
+## Settings (administrators)
 
-![Passkeys](img/passkeys.png)
+![Settings](img/settings.png)
 
-Sign in with a fingerprint, face, device PIN or security key instead of a password. Add one per device under
-*Passkeys* in the header ([details](security.md#passkeys)).
+Everything about the installation that is not about people: **branding** (name, logo, colour, default theme and
+language), the **HTTPS certificate** (download the local CA, or use your own), **updates** (check, install now or
+later) and **demo data**: load a fictional company to explore, remove it, or **erase all data** when you are ready for
+the real network ([details](operations.md#demo-data-and-starting-clean-erase-all-data)).
+
+## Audit log (administrators)
+
+![Audit log](img/audit.png)
+
+Every sign-in, change, user, token, channel and rule edit with who did it, filterable, the last 100 to 1000 entries.
+
+## My account
+
+![My account](img/account.png)
+
+Click your name in the header. Here you change your **password** and manage your **passkeys**: sign in with a
+fingerprint, face, device PIN or security key instead of a password, one per device ([details](security.md#passkeys)).
 
 ## Printable report
 

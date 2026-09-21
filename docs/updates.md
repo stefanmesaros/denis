@@ -11,7 +11,7 @@ choose**, with a backup first and without touching your data.
    * **Install now**: a progress list shows each step; the page reloads on the new version.
    * **Schedule**: pick a time (for example tonight at 03:00); DENIS installs then.
    * **Remind me in 3 days**, or **Skip this version**.
-3. **Users → Updates** shows the current version, when DENIS last checked, and **Check for updates now**.
+3. **Settings → Updates** shows the current version, when DENIS last checked, and **Check for updates now**.
 
 ## What happens during an install, and why it is safe
 

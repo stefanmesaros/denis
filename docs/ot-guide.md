@@ -60,6 +60,8 @@ From this DENIS derives **roles** (server/PLC vs client/HMI), types (`plc`, `rtu
   the identity the device announced (product, vendor, serial).
 * **Communications matrix**: `client → server`, protocol, counts of **reads, writes, control commands**, last seen.
   Rows with control commands are red, with writes amber. Filter by protocol or show only writes/control.
+  **Commands seen** lists the functions the path used and how often (`write single register (6)` ×1200, `PLC stop
+  (0x29)` ×1). Click one to create a [watch](#command-watches) for it, prefilled with that protocol and target.
 
 Set **Purdue level** (0–5, 3.5 for the DMZ) and **Zone / cell** per device (Edit asset). They appear in the OT
 tab, the matrix and reports, so you can spot, for example, an office-level (L4) device talking to a controller
@@ -80,6 +82,25 @@ relying on `ot_new_conversation`.
 *Engineering workstations* legitimately download programs. After the first alert, an alert for the same source
 and target scores 45 instead of 85 and is held for 10 minutes; if it is routine for you, lower
 `--rule-weight ot_control_command=…`, or acknowledge it.
+
+## Command watches
+
+*Rules → OT: your command watches.* A watch says: **when this command reaches that device, tell me**.
+
+| Field | Meaning |
+|---|---|
+| Name | Shown in the alert: `Stop commands to line 1: HMI sent PLC stop (0x29) to PLC Line 1 (s7)`. |
+| Protocol | one protocol (Modbus, Siemens S7, EtherNet/IP, DNP3, BACnet, OPC UA, IEC 104) or any. |
+| What | **any control command** (stop, start, download, restart, operate), **any write** (registers, coils, tags, setpoints), and/or **functions whose name contains** words you type (`PLC stop`, `write single register`, `0x29`, `restart`). Any of them matching is enough. The form offers the functions actually seen on your network. |
+| Targets | only when the receiving device is one of these: devices, device types, tags or networks. Empty = any device. |
+| Allowed senders | never for these senders: your **engineering workstation**, for example. |
+| Score / gap | the score the alert gets (1-100; it is raised even if it is under the global minimum, because you asked for it) and at most one alert per sender, target and protocol in this many minutes. |
+
+Start from a ready-made one ("Siemens S7: CPU stop", "Modbus: any write", "DNP3: restart", "BACnet: reinitialize
+device"…) and adjust it. Watches also work during the learning period. They are on the same footing as the built-in
+rules: the *weight* of `ot_command_watch` scales or switches off all of them, and its alerts carry the same advice
+and go to the same channels. A watch matches what DENIS decodes from the wire (see *What it recognises*); it cannot
+see encrypted or unrecognised traffic.
 
 ## Limits to know about
 

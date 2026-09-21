@@ -31,7 +31,7 @@ live discovery does not.
 
 ## Demo data, and starting clean (erase all data)
 
-**Users → Demo data** (administrators) has three buttons:
+**Settings → Demo data and reset** (administrators) has three buttons:
 
 * **Load demo data**: a fictional company so you can explore every screen. Marked as demo; ignored by the
   collector and the detectors; a banner says it is loaded. (API: `POST /api/demo`; command line: `denis demo load`.)

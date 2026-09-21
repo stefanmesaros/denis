@@ -49,7 +49,7 @@ random and shown once.
 
 ## Passkeys
 
-Anyone can add passkeys to their own account (**Passkeys** button in the header) and then sign in with a fingerprint,
+Anyone can add passkeys to their own account (click your name in the header → **My account**) and then sign in with a fingerprint,
 face, device PIN or security key, with no password to type or phish.
 
 * **Verified, not just present.** A passkey is only accepted if the authenticator verified the person (biometric or

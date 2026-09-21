@@ -30,7 +30,7 @@ Open a device (click its row) → **Edit asset** (needs the *editor* role).
 | Custom fields | any name/value pairs you need ("Cost centre", "VLAN"…) |
 
 Clear a field by emptying it. Every change is recorded with **who, when, old value → new value** and shown under
-**Change history** on the device page (admins also see the global **Audit log** on the Users tab).
+**Change history** on the device page (admins also see the global **Audit log** page).
 
 ## The review queue
 

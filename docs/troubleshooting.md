@@ -49,4 +49,4 @@ Stop DENIS, restore the latest backup (`.backup` file) over the database file. N
 
 ## The browser says the connection is not private / certificate warning
 
-DENIS uses HTTPS with a certificate it created itself, which browsers do not know. Either trust the DENIS CA once (*Users → HTTPS certificate → Download the CA certificate*, or `tls/ca.pem` beside the database) or install your own certificate there. Open the console by a name or address the certificate covers (`localhost`, this machine's name, its IP addresses, or a `--tls-name`); otherwise the browser reports a name mismatch. A `curl` needs `--cacert tls/ca.pem`.
+DENIS uses HTTPS with a certificate it created itself, which browsers do not know. Either trust the DENIS CA once (*Settings → HTTPS certificate → Download the CA certificate*, or `tls/ca.pem` beside the database) or install your own certificate there. Open the console by a name or address the certificate covers (`localhost`, this machine's name, its IP addresses, or a `--tls-name`); otherwise the browser reports a name mismatch. A `curl` needs `--cacert tls/ca.pem`.

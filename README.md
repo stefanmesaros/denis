@@ -9,7 +9,7 @@ e-mail, PagerDuty…) when something is not. One Rust binary, no external servic
 ```bash
 cargo build --release
 ./target/release/denis run          # prints a one-time admin password; open https://localhost:8080 (self-signed by default, replaceable)
-denis serve --db demo.db            # or just look around: Users → Load demo data (a fictional company)
+denis serve --db demo.db            # or just look around: Settings → Load demo data (a fictional company)
 ```
 
 **Documentation** (also inside the console, with screenshots): [Quick start](docs/quickstart.md) ·

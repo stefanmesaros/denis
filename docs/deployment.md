@@ -40,10 +40,10 @@ when the machine gets a new address. TLS 1.2/1.3 only, HTTP/2 offered, session c
 Browse to **https://localhost:8080**. Browsers do not know the DENIS authority, so they warn once. Two ways to make the
 warning go away:
 
-* **Trust the DENIS CA once**: *Users → HTTPS certificate → Download the CA certificate* (or copy
+* **Trust the DENIS CA once**: *Settings → HTTPS certificate → Download the CA certificate* (or copy
   `tls/ca.pem` from beside the database) and add it to your browser or operating system's trust store. From then on
   the generated certificate is trusted, including after every automatic renewal.
-* **Use your own certificate** (Let's Encrypt, your company CA, a purchased one): *Users → HTTPS certificate → Use my
+* **Use your own certificate** (Let's Encrypt, your company CA, a purchased one): *Settings → HTTPS certificate → Use my
   own certificate…*, paste the chain and the private key. DENIS checks that they belong together and are valid, and starts
   using them **immediately, without a restart**. *Go back to the generated certificate* undoes it.
 

@@ -545,6 +545,10 @@ function renderOt() {
     el('td', {}, el('span', { class: 'tag', text: c.protocol })),
     el('td', { text: c.reads }), el('td', { text: c.writes }),
     el('td', { text: c.controls ? c.controls + (c.note ? ' · ' + c.note : '') : '0' }),
+    el('td', { class: 'wrap' }, ...Object.entries(c.commands || {}).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([cmd, n]) => el('span', {
+      class: 'chip' + (can('admin') ? ' clickable' : ''), title: can('admin') ? tr('Be told when this is sent: create a watch') : String(n), text: cmd + ' ×' + n,
+      onclick: can('admin') ? (ev) => { ev.stopPropagation(); watchFor(c, cmd); } : null,
+    }))),
     el('td', { text: ago(c.last_seen), title: fmtTime(c.last_seen) }))));
 }
 $('ot-proto').onchange = renderOt;
@@ -645,7 +649,7 @@ async function loadCompliance() {
 function setTab(t) {
   state.tab = t;
   for (const b of document.querySelectorAll('.tab')) b.classList.toggle('active', b.dataset.tab === t);
-  for (const v of ['assets', 'alerts', 'findings', 'rules', 'compliance', 'alerting', 'topology', 'ot', 'trends', 'events', 'agents', 'users']) $('view-' + v).hidden = t !== v;
+  for (const v of ['assets', 'alerts', 'findings', 'rules', 'compliance', 'alerting', 'topology', 'ot', 'trends', 'events', 'agents', 'users', 'settings', 'audit', 'account']) $('view-' + v).hidden = t !== v;
   $('search').hidden = $('online-label').hidden = $('review-label').hidden = t !== 'assets';
   if (t !== 'assets') $('review-all').hidden = true;
   // export and import links belong to the lists they export
@@ -660,7 +664,10 @@ function setTab(t) {
   if (t === 'rules') loadRules();
   if (t === 'compliance') loadCompliance();
   if (t === 'alerting') loadAlerting();
-  if (t === 'users') { renderUsers(); renderApiTokens(); loadUpdateBox(); loadTlsBox(); }
+  if (t === 'users') { renderUsers(); renderApiTokens(); }
+  if (t === 'settings') { initBrandingForm(); loadUpdateBox(); loadTlsBox(); }
+  if (t === 'audit') renderAudit();
+  if (t === 'account') renderAccount();
   if (t === 'agents') renderTokens();
 }
 

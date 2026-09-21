@@ -251,7 +251,7 @@ pub fn load(store: &dyn Store, now: i64) -> Result<Loaded> {
         events += 1;
         Ok(())
     };
-    ev("ot_control_command", "plc2", 95, 25, "Engineering workstation sent PLC stop (0x29) to PLC Line 2 (cip)", &["+85 PLC stop: first time this device has done so to this target", "+10 the target is an industrial controller/device"], false, json!({"command": "PLC stop"}))?;
+    ev("ot_control_command", "plc2", 95, 25, "Engineering workstation sent PLC stop (0x29) to PLC Line 2 (enip)", &["+85 PLC stop: first time this device has done so to this target", "+10 the target is an industrial controller/device"], false, json!({"command": "PLC stop"}))?;
     ev("arp_conflict", "l2", 70, 55, "02:00:5e:10:00:77 claimed 10.20.10.1 while Core router was still using it", &["+70 02:00:5e:10:00:77 claimed 10.20.10.1 while Core router was still using it", "+25 the contested address is the default gateway (classic man-in-the-middle position)"], false, json!({}))?;
     ev("rogue_dhcp", "new2", 70, 90, "New DHCP server: ESP-4F8A21 (10.20.10.198) is handing out addresses", &["+70 ESP-4F8A21 started answering DHCP requests, and was not doing so during the learning period"], false, json!({}))?;
     ev("threat_list_match", "cam1", 95, 140, "Entrance camera contacted known-bad address 185.220.101.7 (tcp port 4444)", &["+85 Entrance camera contacted 185.220.101.7, which is on your threat list", "+10 it sent 240 kB to it in one window"], false, json!({"remote": "185.220.101.7"}))?;
@@ -271,17 +271,38 @@ pub fn load(store: &dyn Store, now: i64) -> Result<Loaded> {
         convs.push(Conversation {
             client_id: b.id(c), server_id: b.id(s), proto: proto.into(), port, first_seen: now - first_days * DAY, last_seen: now - 40, packets: (reads + writes + controls) * 40,
             bytes: (reads + writes + controls) * 900, reads, writes, controls, note: note.map(String::from),
+            commands: {
+                // the functions a path of this protocol typically uses, so the Commands column and the watches have something to show
+                let (read, write) = match proto {
+                    "s7" => ("read variable (0x04)", "write variable (0x05)"),
+                    "cip" | "enip" => ("CIP read (service 0x4c)", "CIP write (service 0x4d)"),
+                    "modbus" => ("read holding registers (3)", "write multiple registers (16)"),
+                    "dnp3" => ("read (1)", "write (2)"),
+                    _ => ("read", "write"),
+                };
+                let mut m = std::collections::BTreeMap::new();
+                if reads > 0 && proto != "opcua" {
+                    m.insert(read.to_string(), reads);
+                }
+                if writes > 0 {
+                    m.insert(write.to_string(), writes);
+                }
+                if let (Some(n), true) = (note, controls > 0) {
+                    m.insert(n.to_string(), controls);
+                }
+                m
+            },
         });
     };
     conv("hmi1", "plc1", "s7", 102, 850_000, 1_200, 0, None, 25);
-    conv("hmi2", "plc2", "cip", 44818, 620_000, 800, 0, None, 25);
+    conv("hmi2", "plc2", "enip", 44818, 620_000, 800, 0, None, 25);
     conv("scada", "plc3", "modbus", 502, 1_400_000, 3_100, 0, None, 25);
     conv("scada", "rio", "modbus", 502, 900_000, 2_000, 0, None, 25);
     conv("scada", "rtu", "dnp3", 20000, 300_000, 450, 0, None, 25);
     conv("hist", "scada", "opcua", 4840, 2_300_000, 0, 0, None, 25);
     conv("hmi1", "drive", "enip", 44818, 120_000, 40, 0, None, 25);
     conv("ews", "plc1", "s7", 102, 4_000, 60, 3, Some("program download (0x1A)"), 25);
-    conv("ews", "plc2", "cip", 44818, 300, 20, 1, Some("PLC stop (0x29)"), 1);
+    conv("ews", "plc2", "enip", 44818, 300, 20, 1, Some("PLC stop (0x29)"), 1);
     conv("d1", "plc1", "s7", 102, 40, 18, 0, None, 1);
     conv("pcam", "plc3", "modbus", 502, 0, 12, 4, Some("write single coil"), 1);
     store.save_conversations(&convs)?;

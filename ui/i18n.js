@@ -7,7 +7,7 @@
 // The catalog for a language is ui/i18n/<lang>.json, generated from tools/i18n/strings.tsv.
 // It is loaded *synchronously* before the other scripts run, so text built at start-up is
 // translated too. The language is: the person's own choice (remembered in this browser), else the
-// administrator's default (Users → Branding), else English.
+// administrator's default (Settings → Branding), else English.
 
 const LANGS = { en: 'English', de: 'Deutsch', fr: 'Français', es: 'Español', sk: 'Slovenčina' };
 const LOCALES = { en: 'en-GB', de: 'de-DE', fr: 'fr-FR', es: 'es-ES', sk: 'sk-SK' };

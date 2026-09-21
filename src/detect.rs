@@ -35,11 +35,14 @@ pub const RULE_BURST: &str = "new_device_burst";
 pub const RULE_OT_PURDUE: &str = "ot_purdue_skip";
 pub const RULE_OT_WRITER: &str = "ot_unexpected_writer";
 pub const RULE_THREAT: &str = "threat_list_match";
+pub const RULE_OT_WATCH: &str = "ot_command_watch";
+pub const RULE_OT_ESCALATION: &str = "ot_write_escalation";
 
 /// Every rule name accepted by `--rule-weight`.
 pub const RULES: &[&str] = &[
     RULE_NEW_DEVICE, RULE_NEW_DESTINATION, RULE_VOLUME, RULE_NEW_PORT, RULE_HOURS, RULE_ARP, RULE_SILENT,
     RULE_OT_NEW_CONV, RULE_OT_CONTROL, RULE_OT_EXPOSURE, RULE_DHCP, RULE_BURST, RULE_OT_PURDUE, RULE_OT_WRITER, RULE_THREAT,
+    RULE_OT_WATCH, RULE_OT_ESCALATION,
 ];
 
 /// Every event kind that can be raised as an alert, with what the person who
@@ -63,6 +66,8 @@ pub const ADVICE: &[(&str, &str)] = &[
     (RULE_OT_PURDUE, "Two industrial devices talk across more than one Purdue level (for example a controller straight to an office PC). Segmentation models such as IEC 62443 expect traffic to pass through the level in between. Confirm the path is intended; if it is not, block it at the firewall between the zones or fix the wrong Purdue level in the register."),
     (RULE_OT_WRITER, "A device that is not an engineering or operator station (a phone, printer, camera, IoT gadget…) sent write or control commands to an industrial device. Treat as suspicious: identify the sender, and check whether its device type is simply wrong in the register."),
     (RULE_THREAT, "A device contacted an address on your threat list (known botnet, malware or scanner infrastructure). Isolate the device, check what is running on it and what it sent, and change any credentials it holds. If the entry is a false positive for your environment, remove it from the list file."),
+    (RULE_OT_WATCH, "One of your own OT command watches matched: a command you asked to be told about was sent to an industrial device. Check who sent it and why (the alert names the watch, the sender and the target). If it was planned, no action is needed; if not, contact the plant's operations and security leads, and consider adding the sender to the watch's allowed senders once you know it is legitimate."),
+    (RULE_OT_ESCALATION, "A path that only ever read from an industrial device has started writing to it. That is how a monitoring or reporting connection turns into a controlling one. Confirm with operations that the change was intended (a new function, a commissioning, a maintenance task); if not, treat the sender as compromised or misconfigured and block the path at the firewall between the zones."),
     (RULE_OT_EXPOSURE, "An industrial protocol crossed the network boundary. These protocols have no authentication of their own, so nothing outside should reach them. Find the firewall or NAT rule, or the bridging device, that allows it and close it."),
 ];
 
@@ -88,9 +93,6 @@ const MAX_ARP_ALERTS_PER_WINDOW: usize = 5;
 /// Ports that carry so much ordinary traffic that "first time on 443" says nothing.
 const COMMON_PORTS: &[u16] = &[53, 80, 123, 443, 465, 587, 853, 993, 5228];
 
-/// `new_device_burst`: this many new devices within this many seconds.
-const BURST_MIN: usize = 5;
-const BURST_WINDOW_SECS: i64 = 600;
 
 /// Volume statistics forget after roughly this many buckets (~1 day at 5 min).
 const VOLUME_WINDOW: u32 = 288;
@@ -141,6 +143,20 @@ pub struct DetectConfig {
     /// A remote agent that stops reporting for this long is reported once,
     /// instead of every device behind it going "silent".
     pub agent_offline_secs: i64,
+    /// `ot_command_watch`: the administrator's own watches for specific industrial commands.
+    pub ot_watches: Vec<crate::rules::OtWatch>,
+    /// `new_device_burst`: this many new devices within this many seconds.
+    pub burst_min: usize,
+    pub burst_window_secs: i64,
+    /// `ot_control_command`: at most one alert per sender/target/protocol in this time.
+    pub ot_control_cooldown_secs: i64,
+    /// `ot_purdue_skip`: talking across at least this many Purdue levels.
+    pub ot_purdue_gap: f64,
+    /// `ot_unexpected_writer` and `ot_write_escalation`: minimum gap between repeats.
+    pub ot_writer_cooldown_secs: i64,
+    pub ot_escalation_cooldown_secs: i64,
+    /// Per-rule minimum score: below it the rule's events are logged as `info` only.
+    pub rule_min_scores: HashMap<String, i32>,
 }
 
 impl Default for DetectConfig {
@@ -171,6 +187,14 @@ impl Default for DetectConfig {
             presence_coverage: 0.9,
             silent_secs: 2 * 3600,
             agent_offline_secs: 600,
+            ot_watches: Vec::new(),
+            burst_min: 5,
+            burst_window_secs: 600,
+            ot_control_cooldown_secs: 600,
+            ot_purdue_gap: 2.0,
+            ot_writer_cooldown_secs: 3600,
+            ot_escalation_cooldown_secs: 6 * 3600,
+            rule_min_scores: HashMap::new(),
         }
     }
 }
@@ -343,18 +367,18 @@ impl Detector {
         // Several arrivals in a few minutes are a story of their own (a scan, a flood, a
         // bridged network), told once per half hour instead of once per device.
         self.new_times.push_back(now);
-        while self.new_times.front().is_some_and(|t| now - *t > BURST_WINDOW_SECS) {
+        while self.new_times.front().is_some_and(|t| now - *t > self.cfg.burst_window_secs) {
             self.new_times.pop_front();
         }
         let n = self.new_times.len();
-        if n >= BURST_MIN && now >= self.burst_until {
+        if n >= self.cfg.burst_min && now >= self.burst_until {
             self.burst_until = now + 1800;
-            let raw = (50 + 4 * (n - BURST_MIN) as i32).min(80);
+            let raw = (50 + 4 * (n - self.cfg.burst_min) as i32).min(80);
             let score = self.cfg.weighted(RULE_BURST, raw);
             let details = json!({
-                "summary": format!("{n} new devices joined within {} minutes", BURST_WINDOW_SECS / 60),
+                "summary": format!("{n} new devices joined within {} minutes", self.cfg.burst_window_secs / 60),
                 "count": n, "latest_mac": a.mac,
-                "reasons": [format!("+{raw} {n} devices appeared within {} minutes (at least {BURST_MIN} is unusual)", BURST_WINDOW_SECS / 60)],
+                "reasons": [format!("+{raw} {n} devices appeared within {} minutes (at least {} is unusual)", self.cfg.burst_window_secs / 60, self.cfg.burst_min)],
             });
             return vec![make_event(a, RULE_BURST, score, severity_for(score, self.cfg.min_score), details, now)];
         }
@@ -672,7 +696,7 @@ impl Detector {
             let e = self.convs.entry(key.clone()).or_insert_with(|| Conversation {
                 client_id: cid, server_id: sid, proto: c.proto.clone(), port: c.port,
                 first_seen: c.window_start, last_seen: c.window_start,
-                packets: 0, bytes: 0, reads: 0, writes: 0, controls: 0, note: None,
+                packets: 0, bytes: 0, reads: 0, writes: 0, controls: 0, note: None, commands: Default::default(),
             });
             e.last_seen = e.last_seen.max(c.window_start);
             e.packets += c.packets as i64;
@@ -682,6 +706,11 @@ impl Detector {
             e.controls += c.controls as i64;
             if e.note.is_none() {
                 e.note = c.note.clone();
+            }
+            for (cmd, n) in &c.commands {
+                if e.commands.contains_key(cmd) || e.commands.len() < crate::model::MAX_COMMANDS {
+                    *e.commands.entry(cmd.clone()).or_insert(0) += *n as i64;
+                }
             }
             self.convs_dirty.insert(key);
 
@@ -696,6 +725,7 @@ impl Detector {
                 "server": {"mac": server.mac, "ip": server.current_ip(), "name": sname},
                 "protocol": c.proto, "port": c.port,
                 "reads": c.reads, "writes": c.writes, "controls": c.controls,
+                "client_id": cid, "server_id": sid,
             });
 
             if prior.is_none() && mature {
@@ -748,7 +778,7 @@ impl Detector {
                         why.push("+10 the target is an industrial controller/device".into());
                     }
                     let score = self.cfg.weighted(RULE_OT_CONTROL, raw.clamp(0, 100));
-                    self.conv_cooldown.insert(cd_key, now + 600);
+                    self.conv_cooldown.insert(cd_key, now + self.cfg.ot_control_cooldown_secs);
                     if score >= self.cfg.min_score {
                         let mut d = parties.clone();
                         d["summary"] = json!(format!("{cname} sent {what} to {sname} ({})", c.proto));
@@ -759,6 +789,76 @@ impl Detector {
                 }
             }
 
+            // A path that only read starts writing (never during learning: the baseline is what it read).
+            if let Some(p) = prior.as_ref().filter(|p| p.writes == 0 && c.writes > 0 && mature) {
+                let key = (cid, sid, format!("escalate:{}", c.proto));
+                if !self.conv_cooldown.get(&key).is_some_and(|u| now < *u) {
+                    self.conv_cooldown.insert(key, now + self.cfg.ot_escalation_cooldown_secs);
+                    let mut raw = 60;
+                    let mut why = vec![format!("+60 {cname} only read from {sname} over {} until now ({} reads, no writes), and has now written", c.proto, p.reads)];
+                    if server_is_ot {
+                        raw += 10;
+                        why.push("+10 the target is an industrial controller/device".into());
+                    }
+                    if c.controls > 0 {
+                        raw += 15;
+                        why.push("+15 the same window includes control commands (stop/start/download)".into());
+                    }
+                    let score = self.cfg.weighted(RULE_OT_ESCALATION, raw.clamp(0, 100));
+                    if score >= self.cfg.min_score {
+                        let mut d = parties.clone();
+                        d["summary"] = json!(format!("{cname} started writing to {sname} over {} (it only read before)", c.proto));
+                        d["reasons"] = json!(why);
+                        events.push(make_event(&server, RULE_OT_ESCALATION, score, severity_for(score, self.cfg.min_score), d, now));
+                    }
+                }
+            }
+
+            // The administrator's own watches: specific commands to specific devices.
+            if !self.cfg.ot_watches.is_empty() {
+                let cmeta = store.get_meta(cid).ok().flatten();
+                let smeta = store.get_meta(sid).ok().flatten();
+                let watches = self.cfg.ot_watches.clone();
+                for w in watches.iter().filter(|w| w.enabled && (w.proto == "any" || w.proto == c.proto)) {
+                    if !w.targets.is_empty() && !w.targets.iter().any(|t| t.matches(&server, smeta.as_ref())) {
+                        continue;
+                    }
+                    if w.allowed_senders.iter().any(|t| t.matches(&client, cmeta.as_ref())) {
+                        continue;
+                    }
+                    // what matched: named functions first, then the coarse classes
+                    let mut hits: Vec<String> = c.commands.keys()
+                        .filter(|k| { let k = k.to_lowercase(); w.commands.iter().any(|word| k.contains(&word.to_lowercase())) })
+                        .cloned().collect();
+                    if w.controls && c.controls > 0 && !hits.iter().any(|h| Some(h) == c.note.as_ref()) {
+                        hits.push(c.note.clone().unwrap_or_else(|| "control command".into()));
+                    }
+                    if w.writes && c.writes > 0 && hits.is_empty() {
+                        hits.push("write command".into());
+                    }
+                    if hits.is_empty() {
+                        continue;
+                    }
+                    let score = self.cfg.weighted(RULE_OT_WATCH, w.score);
+                    if score == 0 {
+                        continue; // the rule as a whole is switched off (weight 0)
+                    }
+                    let cd_key = (cid, sid, format!("watch:{}:{}", w.id, c.proto));
+                    if self.conv_cooldown.get(&cd_key).is_some_and(|until| now < *until) {
+                        continue;
+                    }
+                    self.conv_cooldown.insert(cd_key, now + w.cooldown_minutes as i64 * 60);
+                    let what = hits.iter().take(3).cloned().collect::<Vec<_>>().join(", ");
+                    let mut d = parties.clone();
+                    d["summary"] = json!(format!("{}: {cname} sent {what} to {sname} ({})", w.name, c.proto));
+                    d["reasons"] = json!([format!("+{} matches your watch \"{}\": {what}", w.score, w.name)]);
+                    d["watch"] = json!({"id": w.id, "name": w.name});
+                    d["command"] = json!(what);
+                    // a watch is an explicit request: it is raised even if its score is under the general minimum
+                    events.push(make_event(&server, RULE_OT_WATCH, score, severity_for(score.max(self.cfg.min_score), self.cfg.min_score), d, now));
+                }
+            }
+
             // Segmentation: talking across more than one Purdue level, or writing from a
             // device that has no business writing. Both are about the *pair*, not history,
             // so learning does not apply.
@@ -766,7 +866,7 @@ impl Detector {
             if active {
                 if let (Some(cl), Some(sl)) = (purdue_level(store, cid), purdue_level(store, sid)) {
                     let key = (cid, sid, format!("purdue:{}", c.proto));
-                    if (cl - sl).abs() >= 2.0 && !self.conv_cooldown.get(&key).is_some_and(|u| now < *u) {
+                    if (cl - sl).abs() >= self.cfg.ot_purdue_gap && !self.conv_cooldown.get(&key).is_some_and(|u| now < *u) {
                         self.conv_cooldown.insert(key, now + 6 * 3600);
                         let mut raw = 50;
                         let mut why = vec![format!("+50 {cname} (Purdue level {cl}) talks directly to {sname} (level {sl}): {} levels apart", (cl - sl).abs())];
@@ -785,7 +885,7 @@ impl Detector {
             if c.writes + c.controls > 0 && NOT_AN_OPERATOR.contains(&effective_type(store, &client).as_str()) {
                 let key = (cid, sid, format!("writer:{}", c.proto));
                 if !self.conv_cooldown.get(&key).is_some_and(|u| now < *u) {
-                    self.conv_cooldown.insert(key, now + 3600);
+                    self.conv_cooldown.insert(key, now + self.cfg.ot_writer_cooldown_secs);
                     let ty = effective_type(store, &client);
                     let mut raw = 65;
                     let mut why = vec![format!("+65 {cname} is a {ty}, not an engineering or operator station, yet it sent write/control commands")];
@@ -2088,7 +2188,7 @@ mod tests {
         ConvRecord {
             client_mac: client, server_mac: server, client_ip: Ipv4Addr::new(10, 0, 0, 1), server_ip: Ipv4Addr::new(10, 0, 0, 2),
             proto: "s7".into(), port: 102, packets: reads + writes + controls, bytes: 100, reads, writes, controls,
-            note: (controls > 0).then(|| "PLC stop (0x29)".to_string()), window_start: ts, window_secs: 10,
+            note: (controls > 0).then(|| "PLC stop (0x29)".to_string()), commands: Default::default(), window_start: ts, window_secs: 10,
         }
     }
 
@@ -2110,6 +2210,109 @@ mod tests {
         // ...and it is now part of the matrix
         assert!(d.ingest_conversations(None, &[conv(HMI, PLC2, 3, 0, 0, 2100)], &s, 2110).is_empty());
         assert_eq!(d.conversations().len(), 2);
+    }
+
+    /// A conversation window that also says which functions were used.
+    fn conv_with(client: Mac, server: Mac, reads: u64, writes: u64, controls: u64, ts: i64, commands: &[(&str, u32)]) -> ConvRecord {
+        let mut c = conv(client, server, reads, writes, controls, ts);
+        c.commands = commands.iter().map(|(k, n)| (k.to_string(), *n)).collect();
+        c
+    }
+
+    fn watch(id: &str, name: &str) -> crate::rules::OtWatch {
+        crate::rules::OtWatch {
+            id: id.into(), name: name.into(), enabled: true, proto: "s7".into(), writes: false, controls: false, commands: vec![],
+            targets: vec![], allowed_senders: vec![], score: 80, cooldown_minutes: 10,
+        }
+    }
+
+    #[test]
+    fn a_watch_names_the_command_the_sender_and_the_target_and_respects_its_limits() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        ot_world(&s);
+        let ews = Mac([0x3c, 0x22, 0xfb, 9, 9, 9]);
+        let ews_asset = asset(&s, ews, -1_000_000);
+        let plc = s.find_asset(None, &PLC).unwrap().unwrap();
+        let plc2 = s.find_asset(None, &PLC2).unwrap().unwrap();
+        let mut c = cfg();
+        let mut w = watch("w1", "Setpoint changes");
+        w.commands = vec!["write variable".into()];
+        w.targets = vec![crate::rules::Scope { kind: "device".into(), value: plc.id.to_string() }];
+        w.allowed_senders = vec![crate::rules::Scope { kind: "device".into(), value: ews_asset.id.to_string() }];
+        c.ot_watches = vec![w];
+        let mut d = Detector::new(c, vec![], 0);
+        // learn the paths first, so only the watch can speak
+        for (cl, sv) in [(HMI, PLC), (HMI, PLC2), (ews, PLC)] {
+            d.ingest_conversations(None, &[conv(cl, sv, 5, 0, 0, 10)], &s, 20);
+        }
+        let cmd = [("write variable (0x05)", 3)];
+        // the HMI wrote a variable to the watched PLC: the alert names the watch, the command, the sender and the target
+        let ev = d.ingest_conversations(None, &[conv_with(HMI, PLC, 0, 3, 0, 2000, &cmd)], &s, 2010);
+        let w: Vec<_> = ev.iter().filter(|e| e.kind == RULE_OT_WATCH).collect();
+        assert_eq!(w.len(), 1, "{ev:?}");
+        assert_eq!(w[0].score, 80);
+        assert_eq!(w[0].asset_id, plc.id);
+        let sum = w[0].raw_details["summary"].as_str().unwrap();
+        assert!(sum.contains("Setpoint changes") && sum.contains("write variable (0x05)") && sum.contains("s7"), "{sum}");
+        assert_eq!(w[0].raw_details["watch"]["id"], "w1");
+        // the cooldown holds repeats back...
+        assert!(d.ingest_conversations(None, &[conv_with(HMI, PLC, 0, 3, 0, 2100, &cmd)], &s, 2110).iter().all(|e| e.kind != RULE_OT_WATCH));
+        // ...an allowed sender never triggers it, another target is not watched, another command does not match
+        assert!(d.ingest_conversations(None, &[conv_with(ews, PLC, 0, 3, 0, 2200, &cmd)], &s, 2210).iter().all(|e| e.kind != RULE_OT_WATCH));
+        assert!(d.ingest_conversations(None, &[conv_with(HMI, PLC2, 0, 3, 0, 2300, &cmd)], &s, 2310).iter().all(|e| e.kind != RULE_OT_WATCH));
+        let mut d2 = Detector::new(d.config().clone(), vec![], 0);
+        assert!(d2.ingest_conversations(None, &[conv_with(HMI, PLC, 3, 0, 0, 2400, &[("read variable (0x04)", 3)])], &s, 2410).iter().all(|e| e.kind != RULE_OT_WATCH));
+        let _ = plc2;
+    }
+
+    #[test]
+    fn a_watch_can_match_any_write_or_any_control_command_even_while_learning_and_can_be_switched_off() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        ot_world(&s);
+        let mut c = cfg();
+        let mut w = watch("w2", "Any stop or download");
+        w.controls = true;
+        w.score = 20; // below the general minimum: still raised, because it is an explicit request
+        c.ot_watches = vec![w];
+        let mut d = Detector::new(c.clone(), vec![], 0);
+        // during the learning period (window at t=10)
+        let ev = d.ingest_conversations(None, &[conv(HMI, PLC, 1, 0, 1, 10)], &s, 20);
+        let hit = ev.iter().find(|e| e.kind == RULE_OT_WATCH).expect("watch fires while learning");
+        assert!(hit.raw_details["summary"].as_str().unwrap().contains("PLC stop (0x29)"));
+        assert_ne!(hit.severity, "info", "a watch is shown even below the minimum score");
+        // a different protocol is not covered by an s7 watch
+        let mut other = conv(HMI, PLC2, 1, 0, 1, 10);
+        other.proto = "modbus".into();
+        assert!(d.ingest_conversations(None, &[other], &s, 30).iter().all(|e| e.kind != RULE_OT_WATCH));
+        // the whole rule off (weight 0) or the watch disabled: silence
+        for tweak in [0, 1] {
+            let mut c2 = c.clone();
+            if tweak == 0 {
+                c2.weights.insert(RULE_OT_WATCH.into(), 0.0);
+            } else {
+                c2.ot_watches[0].enabled = false;
+            }
+            let mut d = Detector::new(c2, vec![], 0);
+            assert!(d.ingest_conversations(None, &[conv(HMI, PLC, 1, 0, 1, 10)], &s, 20).iter().all(|e| e.kind != RULE_OT_WATCH), "{tweak}");
+        }
+    }
+
+    #[test]
+    fn a_path_that_only_read_and_starts_writing_is_flagged_once_but_not_while_learning() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        ot_world(&s);
+        let mut d = Detector::new(cfg(), vec![], 0);
+        assert!(d.ingest_conversations(None, &[conv(HMI, PLC, 5, 0, 0, 10)], &s, 20).is_empty());
+        // writes while still learning are learned
+        assert!(d.ingest_conversations(None, &[conv(HMI, PLC, 5, 2, 0, 500)], &s, 510).iter().all(|e| e.kind != RULE_OT_ESCALATION));
+        // a path that read for a long time, then writes
+        assert!(d.ingest_conversations(None, &[conv(HMI, PLC2, 5, 0, 0, 900)], &s, 910).is_empty());
+        let ev = d.ingest_conversations(None, &[conv(HMI, PLC2, 5, 1, 0, 2000)], &s, 2010);
+        let e = ev.iter().find(|e| e.kind == RULE_OT_ESCALATION).expect("escalation");
+        assert_eq!(e.score, 70, "60 + 10 for an industrial target");
+        assert!(e.raw_details["summary"].as_str().unwrap().contains("it only read before"));
+        // once per six hours
+        assert!(d.ingest_conversations(None, &[conv(HMI, PLC2, 5, 1, 0, 2100)], &s, 2110).iter().all(|e| e.kind != RULE_OT_ESCALATION));
     }
 
     #[test]

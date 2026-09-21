@@ -1,6 +1,6 @@
 # White-label branding
 
-An administrator can make the portal look like the customer's own product: **Users tab → Branding**.
+An administrator can make the portal look like the customer's own product: **Settings → Branding**.
 
 | Setting | Effect |
 |---|---|
@@ -15,7 +15,7 @@ An administrator can make the portal look like the customer's own product: **Use
 
 The console speaks **English, German (Deutsch), French (Français), Spanish (Español) and Slovak (Slovenčina)**.
 English is the default. Everyone can change the language with the picker in the header (or on the sign-in page);
-the choice is remembered in that browser. An administrator sets the **default language** under *Users → Branding*:
+the choice is remembered in that browser. An administrator sets the **default language** under *Settings → Branding*:
 it applies to people who have not picked one. The built-in documentation follows the console's language for its
 menu and header; the pages themselves are English.
 

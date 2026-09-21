@@ -351,6 +351,9 @@ pub struct ConvRecord {
     pub controls: u64,
     /// Example of the most severe function seen (`PLC stop (0x29)`).
     pub note: Option<String>,
+    /// Which functions were used and how often in this window (`write single register (6)`: 12). Bounded.
+    #[serde(default)]
+    pub commands: std::collections::BTreeMap<String, u32>,
     pub window_start: i64,
     pub window_secs: u32,
 }
@@ -673,4 +676,10 @@ pub struct Conversation {
     pub controls: i64,
     /// Example of the most severe function ever seen on this path.
     pub note: Option<String>,
+    /// Every function seen on this path and how often (bounded to [`MAX_COMMANDS`]).
+    #[serde(default)]
+    pub commands: std::collections::BTreeMap<String, i64>,
 }
+
+/// The most distinct functions remembered per path (a hostile sender must not grow it without limit).
+pub const MAX_COMMANDS: usize = 32;

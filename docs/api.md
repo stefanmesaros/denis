@@ -54,7 +54,7 @@ Role = the lowest role allowed.
 | `GET /api/assets/{id}/baseline` | viewer | learned baseline (`null` if none) |
 | `GET /api/assets/{id}/history` | viewer | change history of the entered data |
 | `GET /api/alerts` · `GET /api/events` | viewer | `?limit=&asset_id=&unacked=1` (`alerts` = real alerts only) |
-| `GET /api/agents` · `GET /api/conversations` | viewer | remote sites · industrial communications matrix |
+| `GET /api/agents` · `GET /api/conversations` | viewer | remote sites · industrial communications matrix (with the `commands` each path used) |
 | `GET /api/trends` | viewer | `?hours=24&agent=<id\|local>` samples for charts |
 | `GET /api/export/assets.csv` · `/alerts.csv` · `GET /report` | viewer | CSV exports · printable report (`?days=7`) |
 | `POST /api/alerts/{id}/ack` · `/unack` | editor | acknowledge / undo |
@@ -70,7 +70,7 @@ Role = the lowest role allowed.
 | `GET/POST /api/channels` · `PUT/DELETE /api/channels/{id}` · `POST /api/channels/{id}/test` | admin | notification channels (secrets are write-only) |
 | `GET /api/maintenance` · `PUT /api/maintenance` | viewer · admin | maintenance mode `{"minutes": 60, "note": "…"}` (`null` ends it) |
 | `GET/POST /api/api-tokens` · `DELETE /api/api-tokens/{id}` | admin | API tokens for scripts (`token` returned once) |
-| `PUT /api/rules` · `DELETE /api/rules` | admin | change rule settings (`{"min_score":40,"weights":{"new_device":0},"params":{"silent_minutes":240}}`, `null` = back to default) · reset all |
+| `PUT /api/rules` · `DELETE /api/rules` | admin | change rule settings (`{"min_score":40,"weights":{"new_device":0},"params":{"silent_minutes":240},"min_scores":{"new_port":45},"exceptions":{"new_device":[{"kind":"type","value":"printer"}]},"ot_watches":[…]}`, `null` = back to default; `ot_watches` is the whole list) · reset all |
 | `PUT /api/branding` · `PUT/DELETE /api/branding/logo` | admin | change branding (JSON) · upload/remove logo (raw PNG/JPEG/GIF/WebP, ≤256 KB) |
 
 ### Editing an asset

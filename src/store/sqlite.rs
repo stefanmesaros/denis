@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use super::{AgentToken, ApiToken, EventQuery, Passkey, SessionRecord, Store, UserRecord};
 use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, User};
 
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 /// Phase 1 schema.
 const V1: &str = "CREATE TABLE assets (
@@ -151,6 +151,9 @@ const V6: &str = "CREATE TABLE settings (
         updated_at INTEGER NOT NULL
      );";
 
+/// Which industrial functions each path uses (lets people watch for specific commands).
+const V9: &str = "ALTER TABLE conversations ADD COLUMN commands TEXT NOT NULL DEFAULT '{}';";
+
 /// Phase 3.8: API tokens for scripts and integrations.
 const V7: &str = "CREATE TABLE api_tokens (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -202,7 +205,7 @@ impl SqliteStore {
         }
         // Each step runs in its own transaction and bumps user_version, so a
         // crash mid-migration leaves the database at a consistent older version.
-        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8)] {
+        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9)] {
             if version < target {
                 let tx = conn.unchecked_transaction()?;
                 tx.execute_batch(sql)?;
@@ -585,9 +588,9 @@ impl Store for SqliteStore {
         for x in c {
             tx.execute(
                 "INSERT OR REPLACE INTO conversations
-                    (client_id, server_id, proto, port, first_seen, last_seen, packets, bytes, reads, writes, controls, note)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
-                params![x.client_id, x.server_id, x.proto, x.port, x.first_seen, x.last_seen, x.packets, x.bytes, x.reads, x.writes, x.controls, x.note],
+                    (client_id, server_id, proto, port, first_seen, last_seen, packets, bytes, reads, writes, controls, note, commands)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+                params![x.client_id, x.server_id, x.proto, x.port, x.first_seen, x.last_seen, x.packets, x.bytes, x.reads, x.writes, x.controls, x.note, serde_json::to_string(&x.commands)?],
             )?;
         }
         tx.commit()?;
@@ -597,7 +600,7 @@ impl Store for SqliteStore {
     fn list_conversations(&self) -> Result<Vec<Conversation>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT client_id, server_id, proto, port, first_seen, last_seen, packets, bytes, reads, writes, controls, note
+            "SELECT client_id, server_id, proto, port, first_seen, last_seen, packets, bytes, reads, writes, controls, note, commands
              FROM conversations ORDER BY last_seen DESC",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -605,6 +608,7 @@ impl Store for SqliteStore {
                 client_id: r.get(0)?, server_id: r.get(1)?, proto: r.get(2)?, port: r.get(3)?, first_seen: r.get(4)?,
                 last_seen: r.get(5)?, packets: r.get(6)?, bytes: r.get(7)?, reads: r.get(8)?, writes: r.get(9)?,
                 controls: r.get(10)?, note: r.get(11)?,
+                commands: serde_json::from_str(&r.get::<_, String>(12)?).unwrap_or_default(),
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -1148,7 +1152,7 @@ mod tests {
         b.mac = Mac([0x3c, 0x22, 0xfb, 9, 9, 9]);
         s.save_asset(&mut a).unwrap();
         s.save_asset(&mut b).unwrap();
-        let mut c = Conversation { client_id: a.id, server_id: b.id, proto: "modbus".into(), port: 502, first_seen: 1, last_seen: 2, packets: 3, bytes: 4, reads: 5, writes: 6, controls: 7, note: Some("PLC stop".into()) };
+        let mut c = Conversation { client_id: a.id, server_id: b.id, proto: "modbus".into(), port: 502, first_seen: 1, last_seen: 2, packets: 3, bytes: 4, reads: 5, writes: 6, controls: 7, note: Some("PLC stop".into()), commands: [("write single register (6)".to_string(), 4)].into() };
         s.save_conversations(std::slice::from_ref(&c)).unwrap();
         c.packets = 99;
         s.save_conversations(std::slice::from_ref(&c)).unwrap(); // same key replaces

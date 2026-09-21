@@ -582,7 +582,7 @@ async fn conversations(State(st): State<AppState>) -> Result<Json<serde_json::Va
             Some(serde_json::json!({
                 "client": cl, "server": sv, "protocol": c.proto, "port": c.port,
                 "first_seen": c.first_seen, "last_seen": c.last_seen, "packets": c.packets, "bytes": c.bytes,
-                "reads": c.reads, "writes": c.writes, "controls": c.controls, "note": c.note,
+                "reads": c.reads, "writes": c.writes, "controls": c.controls, "note": c.note, "commands": c.commands,
             }))
         })
         .collect();
@@ -1260,14 +1260,15 @@ mod tests {
         store.save_asset(&mut hmi).unwrap();
         store.save_asset(&mut plc).unwrap();
         store.save_meta(plc.id, &AssetMeta { display_name: Some("PLC line 2".into()), purdue_level: Some("1".into()), type_override: Some("plc".into()), ..Default::default() }, "eda", 1).unwrap();
-        store.save_conversations(&[Conversation { client_id: hmi.id, server_id: plc.id, proto: "s7".into(), port: 102, first_seen: 1, last_seen: 9, packets: 50, bytes: 4000, reads: 40, writes: 5, controls: 1, note: Some("PLC stop (0x29)".into()) },
-            Conversation { client_id: hmi.id, server_id: 9999, proto: "modbus".into(), port: 502, first_seen: 1, last_seen: 9, packets: 1, bytes: 1, reads: 1, writes: 0, controls: 0, note: None }]).unwrap();
+        store.save_conversations(&[Conversation { client_id: hmi.id, server_id: plc.id, proto: "s7".into(), port: 102, first_seen: 1, last_seen: 9, packets: 50, bytes: 4000, reads: 40, writes: 5, controls: 1, note: Some("PLC stop (0x29)".into()), commands: [("write variable (0x05)".to_string(), 5)].into() },
+            Conversation { client_id: hmi.id, server_id: 9999, proto: "modbus".into(), port: 502, first_seen: 1, last_seen: 9, packets: 1, bytes: 1, reads: 1, writes: 0, controls: 0, note: None, commands: Default::default() }]).unwrap();
         let (st, _, v) = send(&app, req("GET", "/api/conversations", Some(&viewer), None)).await;
         assert_eq!(st, StatusCode::OK);
         assert_eq!(v.as_array().unwrap().len(), 1, "a row whose asset no longer exists is not shown");
         assert_eq!((v[0]["client"]["name"].as_str(), v[0]["server"]["name"].as_str()), (Some("hmi-line2"), Some("PLC line 2")));
         assert_eq!((v[0]["server"]["purdue_level"].as_str(), v[0]["server"]["device_type"].as_str()), (Some("1"), Some("plc")));
         assert_eq!((v[0]["protocol"].as_str(), v[0]["writes"].as_i64(), v[0]["controls"].as_i64(), v[0]["note"].as_str()), (Some("s7"), Some(5), Some(1), Some("PLC stop (0x29)")));
+        assert_eq!(v[0]["commands"]["write variable (0x05)"], 5, "the functions seen on a path are part of the matrix");
         // needs a session like everything else
         assert_eq!(send(&app, req("GET", "/api/conversations", None, None)).await.0, StatusCode::UNAUTHORIZED);
     }
@@ -1423,6 +1424,36 @@ mod tests {
         let (st, _, v) = send(&app, req("DELETE", "/api/rules", Some(&admin), None)).await;
         assert_eq!((st, v["any_override"].as_bool()), (StatusCode::OK, Some(false)));
         assert_eq!(v["min_score"]["value"], 30);
+    }
+
+    #[tokio::test]
+    async fn watches_exceptions_and_per_rule_minimums_round_trip_and_reach_the_detector_settings() {
+        let (app, store, [viewer, _editor, admin]) = secured().await;
+        let watch = serde_json::json!({"id": "w1", "name": "S7 stop", "enabled": true, "proto": "s7", "controls": true, "commands": ["PLC stop"],
+            "targets": [{"kind": "type", "value": "plc"}], "allowed_senders": [{"kind": "cidr", "value": "10.0.9.0/24"}], "score": 90, "cooldown_minutes": 5});
+        let patch = serde_json::json!({"ot_watches": [watch], "exceptions": {"new_device": [{"kind": "tag", "value": "lab"}]}, "min_scores": {"new_port": 45}});
+        assert_eq!(send(&app, req("PUT", "/api/rules", Some(&viewer), Some(patch.clone()))).await.0, StatusCode::FORBIDDEN);
+        let (st, _, v) = send(&app, req("PUT", "/api/rules", Some(&admin), Some(patch))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        // everyone can read what is watched (so nobody assumes silence means nothing is being watched)
+        let (_, _, v) = send(&app, req("GET", "/api/rules", Some(&viewer), None)).await;
+        assert_eq!(v["ot_watches"][0]["name"], "S7 stop");
+        assert_eq!(v["exceptions"]["new_device"][0]["value"], "lab");
+        let np = v["rules"].as_array().unwrap().iter().find(|r| r["id"] == "new_port").unwrap().clone();
+        assert_eq!(np["min_score"], 45);
+        // the detector's settings carry the watch and the per-rule minimum
+        let cfg = crate::rules::load(&*store).unwrap().apply(&crate::detect::DetectConfig::default());
+        assert_eq!((cfg.ot_watches.len(), cfg.rule_min_scores["new_port"]), (1, 45));
+        // a bad watch is refused and nothing changes
+        let bad = serde_json::json!({"ot_watches": [{"id": "x", "name": "n", "enabled": true, "proto": "s7", "score": 50, "cooldown_minutes": 5}]});
+        assert_eq!(send(&app, req("PUT", "/api/rules", Some(&admin), Some(bad))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(crate::rules::load(&*store).unwrap().ot_watches.len(), 1);
+        // editing the weights keeps the watches and exceptions (they are content, not settings)
+        let (st, _, v) = send(&app, req("PUT", "/api/rules", Some(&admin), Some(serde_json::json!({"weights": {"new_device": null}, "min_scores": {"new_port": null}})))).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!((v["ot_watches"].as_array().unwrap().len(), v["exceptions"]["new_device"].as_array().unwrap().len()), (1, 1));
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("rules.update"), "changes to watches are audited");
     }
 
     #[tokio::test]
