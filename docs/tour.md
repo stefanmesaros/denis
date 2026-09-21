@@ -136,6 +136,8 @@ that?"*. Click a row for the full story.
 
 ## Health
 
+![Health](img/health.png)
+
 The **Health** page (Manage) answers "is DENIS itself in good shape?". Problems come first, in plain words: the
 capture is not running, packets are being dropped (DENIS too slow for the traffic, or a mirror port carrying more than
 one machine can process), a network sweep is late, the disk holding the database is nearly full, or there is no
@@ -199,6 +201,8 @@ fingerprint, face, device PIN or security key instead of a password, one per dev
 and an **authenticator app** as a second step after the password, with recovery codes ([details](security.md#authenticator-app-totp)).
 
 ## Reports
+
+![Reports](img/reports.png)
 
 The **Reports** page (Analyze) keeps snapshots of your network on the DENIS server. A report is a self-contained
 page: summary, compliance overview, findings, accepted risks, trends, devices by risk, alerts and lifecycle. It

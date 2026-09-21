@@ -130,7 +130,7 @@ pub static RULE_INFO: &[RuleInfo] = &[
     RuleInfo { id: "threat_list_match", title: "Contact with a known-bad address", group: "network",
         summary: "A device contacts an address on your threat list (a blocklist file you supply, for example from abuse.ch or Spamhaus). Not subject to learning.",
         needs: "traffic analysis (--flows) and --threat-list <file>", params: &[] },
-    RuleInfo { id: "it_watch", title: "Your network watches", group: "network",
+    RuleInfo { id: "it_watch", title: "Network: your watches", group: "network",
         summary: "Your own watches on ordinary traffic: be told when devices you choose talk to networks, addresses or ports you did not allow (cameras talking to the internet, servers using unusual ports, the guest network reaching the office). Add them below.",
         needs: "traffic analysis (--flows)", params: &[] },
     RuleInfo { id: "ot_new_conversation", title: "OT: new communication path", group: "ot",

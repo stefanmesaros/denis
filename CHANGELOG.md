@@ -1,5 +1,70 @@
 # Changelog
 
+## 0.4.0-rc.1: reports, health, two-step sign-in, real topology, software versions
+
+*A release candidate: use it for a while on a real network before it becomes 0.4.0.*
+
+Reports
+* **Reports** is its own page. A report (devices, findings, accepted risks, alerts, trends and the compliance overview)
+  is **kept on the server** and can be opened, downloaded as one HTML file, printed or deleted at any time. Make one by hand
+  (7 days to a year) or on a **schedule** (weekly or monthly, keeping the newest N; hand-made ones are never removed). The old
+  "Printable report" link is gone (`/report` still gives a live one).
+* **Compliance** now maps to **NIS2 Article 21**, **ISO/IEC 27001:2022 Annex A** and **NIST SP 800-82 Rev. 3** (through its
+  SP 800-53 controls), next to CIS v8, NIST CSF 2.0 and IEC 62443-3-3.
+
+Health and backups
+* **Health** page: is DENIS itself in good shape? Packets dropped, database size (and free space in it), free disk, how late the
+  sweeps are, rows per table, with a plain sentence for each problem and a count in the menu. New `/metrics`: `denis_database_bytes`,
+  `denis_disk_free_bytes`, `denis_capture_dropped_packets`, `denis_backup_age_seconds`, `denis_health_warnings`.
+* **Scheduled backups** of the database: **on by default, every day, keeping 7** (change or switch off under Health). List,
+  download (administrators only: a backup holds password hashes and authenticator secrets), delete, *Back up now*. Refused when the
+  disk could not hold a copy; a warning appears when the newest backup is too old.
+
+Findings
+* **Accepted risks are watched**: an event 14 and 3 days before a decision ends, one when it has ended, a daily rescan of the
+  open-port ones, and a note (event and audit entry) when the problem has gone away. Nothing is withdrawn automatically.
+* **Software versions from banners**: DENIS reads the SSH, FTP and SMTP banner and the web server headers of the ports its scan found
+  open and takes a product and version from them. **End of support** (nginx, Apache HTTP Server, PHP, OpenSSL, Exim, ProFTPD, from
+  endoflife.date) and **known exploited vulnerabilities** (CISA KEV, with NVD version ranges: nine today, for Apache HTTP Server, PHP
+  and Exim) become findings that list, per device, what was read and what it means. No version, no claim. A banner that names a
+  distribution is worded "may have been fixed", because distributions backport fixes. The data ships in the program
+  (`data/vulndata.json`, built by `tools/build-vulndata.py`); the support dates can be refreshed from endoflife.date (off by default).
+  *Verify fix* rescans and reads the banner again.
+
+Detection
+* **Network watches** (Rules → *Your network watches*): like the OT command watches, for ordinary traffic. Devices you choose
+  (a device, type, tag or network) talking to addresses or ports you did not allow: *only these* / *except these* lists of ports and
+  of addresses (`public`, `private`, networks), a protocol, a minimum amount of data, a score and a cooldown. Presets included. New
+  rule `it_watch`; it also fires during the learning period.
+
+Sign-in
+* **Authenticator app (TOTP)** for everybody: *My account* → set up with a QR code, ten one-time recovery codes, a code after the
+  password at sign-in. Each code works once, a wrong code never resets by re-entering the password, five wrong codes void the ticket
+  and lock the account like wrong passwords. **Passkeys already count as two factors.** Administrators can **require** a second step for
+  administrators or everybody (*Settings* → *Sign-in security*) and **reset** somebody's after a lost phone. The secret is stored in the
+  database (a code cannot be checked against a hash): guard backups like the database. See [Security](docs/security.md).
+* Fixed: typing a wrong current password when changing your password signed you out ("Your session has ended").
+
+Topology
+* **Switches and cables**: add switches (*Settings* → *Switches (SNMP)*, SNMP **v2c**, read only) and the Topology tab shows which port
+  each device is plugged into (MAC learned on an access port, never an uplink) and how the switches are cabled (LLDP), and a device's
+  panel says **Connected to**. Reads IF-MIB, LLDP-MIB and Q-BRIDGE/BRIDGE-MIB; never sets anything; the community is write-only in the API.
+  **Not verified against real switches** (tested with two independent stand-in agents and byte-level checks); **SNMPv3 is not supported yet**.
+  See [Switches (SNMP)](docs/switches.md).
+
+Console
+* **Table columns**: every table can hide and show columns, reorder them (arrows or drag a heading) and resize them (drag the edge),
+  remembered per table in the browser.
+* **Setup guide** for a new installation: a checklist (network, sign-in security, notifications, colleagues, backups, branding) whose
+  items turn green only when they are really done. It opens once for an administrator, and again from *Settings*.
+
+Under the hood
+* Database schema v13 (reports, authenticator secrets and recovery codes, switch snapshots). Updating from 0.3.0 migrates it; the
+  automatic backup taken before the update is the way back.
+* The browser test now also covers reports, health and backups, table columns, the setup guide, network watches, a real sign-in with
+  the authenticator app (set-up, code step, recovery code, required set-up), a switch read over SNMP by an independent agent, and the
+  software findings.
+
 ## 0.3.0: verify a fix, accept a risk
 
 *Used for a while as 0.3.0-rc.1 on a real network before this release.*

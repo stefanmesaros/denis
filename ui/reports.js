@@ -12,7 +12,7 @@ async function loadReports() {
   const rows = data.reports;
   $('no-reports').hidden = rows.length > 0;
   $('reports-table').hidden = rows.length === 0;
-  $('reports-total').textContent = rows.length ? tr('{n} reports, {size} in total.', { n: rows.length, size: fmtBytes(data.total_bytes) }) : '';
+  $('reports-total').textContent = rows.length === 1 ? tr('1 report, {size}.', { size: fmtBytes(data.total_bytes) }) : rows.length ? tr('{n} reports, {size} in total.', { n: rows.length, size: fmtBytes(data.total_bytes) }) : '';
   const admin = can('admin');
   $('reports-table').tBodies[0].replaceChildren(...rows.map((x) => el('tr', {},
     el('td', { text: fmtTime(x.created_at) }),
