@@ -40,7 +40,7 @@ number, model, supplier, purchase and warranty dates, tags and your own custom f
 until** stops chat/e-mail alerts about this one device until a date (for a test bench or planned work); alerts still
 show in the console. Saving marks the device as reviewed. Discovery never overwrites what you typed.
 
-The icon picker shows only the current icon; press **Change…** to search 80+ icons, or **auto** to let DENIS choose.
+The icon row shows the current icon with **Change…** right beside it; that opens a window with all 120+ icons grouped by kind and a search box, and **Automatic** lets DENIS choose from the device type. Picking an icon sets the matching device type; the device type is a list (first entry: *Automatic (detected: …)*).
 
 ![Choosing an icon](img/icon-picker.png)
 

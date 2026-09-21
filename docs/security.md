@@ -27,6 +27,13 @@ random and shown once.
   `--no-tls` (plain HTTP) exists for a reverse proxy or SSH tunnel and should never face a network. The generated CA
   key and the server key are stored beside the database, readable by the DENIS user only: protect the folder and its
   backups. Agents pin the master's CA with `--master-ca`; there is no option to skip certificate checks.
+* **The agent-to-master channel is encrypted** (TLS 1.2/1.3) and authenticated in both directions by default: the agent
+  checks the master's certificate against the CA you give it (`--master-ca`; there is no way to skip the check), and the
+  master accepts only the agent's own bearer token. An agent **refuses a plain `http://` master address** unless it is
+  this machine, or you pass `--allow-plain-http` for a VPN or tunnel you trust: otherwise the token and everything the
+  agent saw would cross the network readable. If the master runs with `--no-tls` (behind a TLS proxy) point the agent at
+  the proxy's `https://` address. What is not protected: the agent's token is a shared secret rather than a client
+  certificate, so keep it as safe as a password (revocable per agent under *Sites*).
 * **Passkeys** (WebAuthn) are supported for sign-in (below). There is no separate TOTP code and no single sign-on (SAML/OIDC) yet.
 * Login lock-out is **per account name**: an attacker can lock a known account for short periods (denial of
   service), but cannot guess passwords faster. On top of that each **source address** may make 20 failed

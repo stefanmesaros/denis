@@ -145,6 +145,15 @@ fn every_string_the_scripts_and_pages_show_is_translated() {
         assert_translated(&cat, script, tr_literals(&read(&format!("ui/{script}"))));
     }
     assert_translated(&cat, "index.html", html_strings(&read("ui/index.html")));
+    // the icon chooser's group titles and every icon name are passed to tr() as variables
+    let icons = read("ui/icons.js");
+    let cats = &icons[icons.find("const ICON_CATEGORIES = [").expect("categories")..];
+    let mut shown: Vec<String> = cats.lines().filter_map(|l| l.strip_prefix("  ['")).filter_map(|l| l.split("', [").next().map(String::from)).collect();
+    shown.push("Other".into());
+    let shapes = &icons[..icons.find("const NAV_SHAPES").expect("shapes")];
+    shown.extend(shapes.lines().filter_map(|l| l.strip_prefix("  ")).filter(|l| l.contains(": [[")).filter_map(|l| l.split(':').next()).filter(|n| n.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')).map(|n| n.replace('_', " ")));
+    assert!(shown.len() > 100, "the icon scanner found only {} names", shown.len());
+    assert_translated(&cat, "icons.js", shown);
     // the scanner itself works: it finds strings with escapes and ignores look-alikes
     assert_eq!(tr_literals("a(tr('It\\'s {n}'), str('x'), tr('b'))"), vec!["It's {n}", "b"]);
 }

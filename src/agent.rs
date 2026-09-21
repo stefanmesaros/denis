@@ -177,6 +177,22 @@ pub enum PostError {
 /// The HTTP client used to talk to the master. With `ca_cert` the connection is
 /// only trusted if the master's certificate chains to that file (pinning the
 /// deployment's own CA); without it the usual public web roots apply.
+/// The agent sends its token and everything it sees to the master: that must not cross a network in clear
+/// text. `https://` is required; plain `http://` is only accepted for this machine (a tunnel or proxy on
+/// loopback) or when the operator says so explicitly.
+pub fn check_master_url(url: &str, allow_plain_http: bool) -> Result<()> {
+    let lower = url.trim().to_ascii_lowercase();
+    if lower.starts_with("https://") {
+        return Ok(());
+    }
+    let Some(rest) = lower.strip_prefix("http://") else { bail!("the master address must start with https:// (got {url:?})") };
+    let host = if let Some(v6) = rest.strip_prefix('[') { v6.split(']').next().unwrap_or("") } else { rest.split(['/', ':']).next().unwrap_or("") };
+    if allow_plain_http || matches!(host, "localhost" | "127.0.0.1" | "::1") {
+        return Ok(());
+    }
+    bail!("the master address {url} is plain http: the agent's token and data would cross the network unencrypted. Use https:// (the master serves HTTPS by default; give the agent its CA with --master-ca), or add --allow-plain-http if a VPN or tunnel you trust carries it")
+}
+
 pub fn http_client(ca_cert: Option<&std::path::Path>) -> Result<ureq::Agent> {
     let mut cfg = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(30)));
     if let Some(path) = ca_cert {
@@ -382,5 +398,17 @@ mod tests {
         let b = r.next_batch(&inv, 1).unwrap().clone();
         assert_eq!((b.flows.len(), r.spooled()), (BATCH_FLOWS, 5));
         assert_eq!(b.flows[0].window_start, 0);
+    }
+
+    #[test]
+    fn the_master_address_must_be_https_unless_it_is_this_machine_or_plain_http_is_allowed() {
+        for ok in ["https://10.0.0.5:8081", "HTTPS://master.example.com", "http://localhost:8081", "http://127.0.0.1:8081/", "http://[::1]:8081"] {
+            assert!(check_master_url(ok, false).is_ok(), "{ok}");
+        }
+        for bad in ["http://10.0.0.5:8081", "http://master.example.com", "ftp://x", "10.0.0.5:8081", "http://localhost.evil.example"] {
+            assert!(check_master_url(bad, false).is_err(), "{bad}");
+        }
+        assert!(check_master_url("http://10.0.0.5:8081", true).is_ok(), "an explicit choice for a trusted network");
+        assert!(check_master_url("10.0.0.5:8081", true).is_err(), "still not an address");
     }
 }

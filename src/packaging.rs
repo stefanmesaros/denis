@@ -29,7 +29,8 @@ fn the_installer_verifies_with_the_key_built_into_the_program() {
 fn the_installer_supports_this_version_and_is_attached_to_releases() {
     let script = read("packaging/install.sh");
     let min = script.lines().find_map(|l| l.strip_prefix("MIN_VERSION=\"")).and_then(|l| l.split('"').next()).expect("MIN_VERSION");
-    let ver = |s: &str| s.split('.').map(|p| p.parse::<u32>().unwrap()).collect::<Vec<_>>();
+    // "0.2.0-rc.1" counts as 0.2.0 here: only the numbers matter
+    let ver = |s: &str| s.split('-').next().unwrap().split('.').map(|p| p.parse::<u32>().unwrap()).collect::<Vec<_>>();
     assert!(ver(min) <= ver(env!("CARGO_PKG_VERSION")), "MIN_VERSION {min} is newer than this version");
     assert!(read(".github/workflows/release.yml").contains("install.sh"), "the release workflow must attach the installer");
     assert!(script.starts_with("#!/usr/bin/env bash\n") && script.contains("set -euo pipefail"));

@@ -673,6 +673,7 @@ function setTab(t) {
 
 async function refresh() {
   if (!state.me) return;
+  if (!state.options) loadOptions(); // in case the first request was refused
   try {
     const j = (u) => fetch(u).then((r) => r.json());
     const [status, assets, events, alerts, agents] = await Promise.all([

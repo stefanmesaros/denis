@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.2.0-rc.1: everyday devices, a better asset editor, and release checks
+
+*Release candidate: used for a while before it becomes 0.2.0.*
+
+Asset editor
+* **Device type is a list**, sorted by name, with **Automatic (detected: …)** first; the icon follows the type, and
+  **choosing an icon fills in the matching type**.
+* **The icon chooser** opens from a **Change…** button right beside the icon: a searchable window with the icons grouped
+  by kind. "robot" finds the vacuum, the lawn mower and the industrial robot.
+* **40 new icons and device types** for what is common today: robot lawn mower, smart refrigerator, washing machine,
+  dishwasher, oven, coffee machine, air purifier, air conditioner, heat pump, water heater, smart meter, battery storage,
+  soundbar, AV receiver, smart display, VR headset, e-reader, baby monitor, pet feeder, smart scale, garage door opener,
+  smart blinds, intercom, motion/door/leak sensors, weather station, drone, irrigation controller, NVR, digital signage,
+  label printer, time clock, microcontroller, mini PC, management controller (BMC), wireless bridge, powerline adapter,
+  vending machine, single-board computer. Discovery recognises many of them by name or manufacturer.
+* **Fixed: Status, Criticality and Purdue level showed no choices** (and the device type and icon lists were empty) after
+  a first sign-in with a forced password change. The lists are now loaded again when missing.
+
+Agents
+* An agent **refuses a plain `http://` master address** (its token and data would cross the network readable) unless it
+  is this machine or `--allow-plain-http` is given; the documentation explains how the agent channel is protected.
+
+Releases
+* **Stable and pre-release channels**: a tag with a hyphen (`v0.2.0-rc.1`) is published as a GitHub pre-release that the
+  installer and the console's update check never offer. A candidate is used for a while, then re-tagged as stable.
+* `tools/pre-release.sh` runs everything that must pass before a release, including a **browser test of the console**
+  (`tools/ui-smoke.mjs`, also in CI and before every release build) and a check that a database from the newest
+  published release opens with the new program.
+
+
 ## 0.1.3: installing as a service
 
 * **`install.sh`**, attached to every release: on a Linux server it downloads the release for the machine, checks the

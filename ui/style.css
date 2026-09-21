@@ -166,13 +166,21 @@ dialog h3 { margin: 0 0 10px; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px 14px; }
 .form-grid .field-wide { grid-column: 1 / -1; display: grid; gap: 4px; }
 .form-grid .label { font-size: 13px; color: var(--muted); }
-.icon-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.icon-row { display: flex; align-items: center; justify-content: flex-start; gap: 12px; }
+.icon-dialog { max-width: min(860px, 96vw); height: min(680px, 90vh); display: flex; flex-direction: column; gap: 10px; }
+.icon-dialog[open] { display: flex; }
+.icon-head { display: flex; align-items: center; justify-content: space-between; }
+.icon-head h3 { margin: 0; }
+.icon-search { width: 100%; padding: 9px 12px; font-size: 15px; }
+.icon-cats { flex: none; }
+.chip.active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.icon-body { flex: 1; overflow: auto; padding-right: 4px; }
+.icon-group { margin-bottom: 14px; }
+.icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.icon-tile { display: grid; gap: 4px; justify-items: center; align-content: start; padding: 10px 4px 8px; font-size: 11px; line-height: 1.2; color: var(--muted); text-align: center; height: 78px; }
+.icon-tile:hover { border-color: var(--accent); color: var(--accent); }
+.icon-tile.selected { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .icon-current { display: inline-flex; align-items: center; gap: 8px; }
-.icon-panel { margin-top: 8px; display: grid; gap: 6px; }
-.icon-filter { width: 100%; }
-.icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; max-height: 220px; overflow: auto; padding: 2px; }
-.icon-choice { display: grid; gap: 2px; justify-items: center; padding: 6px 2px; font-size: 10px; color: var(--muted); }
-.icon-choice.selected { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .custom-rows { display: grid; gap: 6px; margin-bottom: 6px; }
 .custom-row { display: grid; grid-template-columns: 1fr 2fr auto; gap: 6px; }
 .secret { display: block; padding: 10px; margin: 10px 0; background: var(--bg); border: 1px dashed var(--line); border-radius: 6px; word-break: break-all; font-size: 13px; user-select: all; }

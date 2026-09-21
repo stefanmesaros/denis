@@ -30,6 +30,23 @@ jobs:
       - run: cargo test --locked
       - run: cargo clippy --locked --all-targets -- -D warnings
 
+  smoke:
+    name: the console in a real browser
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libpcap
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cargo build --locked
+      - run: node tools/ui-smoke.mjs
+        env:
+          CHROME: /usr/bin/google-chrome
+
   audit:
     name: dependency audit
     runs-on: ubuntu-latest

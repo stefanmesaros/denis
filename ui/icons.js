@@ -89,6 +89,46 @@ const ICON_SHAPES = {
   pump: [['circle', { cx: 10, cy: 14, r: 5 }], ['path', { d: 'M10 9V5h6v4M15 14h6' }]],
   valve: [['path', { d: 'M3 12h4M17 12h4' }], ['path', { d: 'M7 7l10 10V7L7 17z' }], ['path', { d: 'M12 12V5M9 5h6' }]],
   motor: [['rect', { x: 4, y: 8, width: 12, height: 8, rx: 2 }], ['path', { d: 'M16 10h3v4h-3M4 12H2M8 8V6h4v2' }]],
+  // added in 0.1.4: robots, appliances, smart home, energy, office/IT extras
+  robot_mower: [['path', { d: 'M4 16c0-3.5 3-7 8-7s8 3.5 8 7z' }], ['circle', { cx: 7.5, cy: 18, r: 2 }], ['circle', { cx: 16.5, cy: 18, r: 2 }], ['path', { d: 'M12 9V5.5M10 5.5h4' }]],
+  drone: [['rect', { x: 10, y: 10, width: 4, height: 4, rx: 1 }], ['circle', { cx: 5, cy: 6, r: 2.2 }], ['circle', { cx: 19, cy: 6, r: 2.2 }], ['circle', { cx: 5, cy: 18, r: 2.2 }], ['circle', { cx: 19, cy: 18, r: 2.2 }], ['path', { d: 'M6.6 7.6L10 11M17.4 7.6L14 11M6.6 16.4L10 13M17.4 16.4L14 13' }]],
+  irrigation: [['path', { d: 'M12 21v-7M9 14h6' }], ['path', { d: 'M7 9.5a7 7 0 0 1 10 0M9.5 12a3.6 3.6 0 0 1 5 0' }], ['path', { d: 'M5 5.5h.01M19 5.5h.01M12 4.5h.01M8 4h.01M16 4h.01' }]],
+  fridge: [['rect', { x: 6, y: 2, width: 12, height: 20, rx: 2 }], ['path', { d: 'M6 10h12M9 6v2M9 13v3' }]],
+  washing_machine: [['rect', { x: 4, y: 2, width: 16, height: 20, rx: 2 }], ['circle', { cx: 12, cy: 14, r: 5 }], ['path', { d: 'M8 6h.01M11 6h.01M15 6h2M9.5 14a2.5 2.5 0 0 1 5 0' }]],
+  dishwasher: [['rect', { x: 4, y: 3, width: 16, height: 18, rx: 2 }], ['path', { d: 'M4 8h16M9.5 5.5h5M8 12v6M12 12v6M16 12v6' }]],
+  oven: [['rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }], ['path', { d: 'M3 9h18M7 6.5h.01M11 6.5h.01M15 6.5h.01' }], ['rect', { x: 6, y: 11.5, width: 12, height: 6, rx: 1 }]],
+  coffee_machine: [['path', { d: 'M6 9h10v5a4 4 0 0 1-4 4h-2a4 4 0 0 1-4-4z' }], ['path', { d: 'M16 10h2a2 2 0 0 1 0 4h-2M5 21h12M9 3c-1 1 1 2 0 3M13 3c-1 1 1 2 0 3' }]],
+  air_purifier: [['rect', { x: 6, y: 3, width: 12, height: 18, rx: 3 }], ['path', { d: 'M9 8h6M9 11h6M9 14h6M12 18h.01' }]],
+  air_conditioner: [['rect', { x: 2, y: 5, width: 20, height: 8, rx: 2 }], ['path', { d: 'M5 11h14M6 16.5c1 1 1 2 0 3M12 16.5c1 1 1 2 0 3M18 16.5c1 1 1 2 0 3' }]],
+  heat_pump: [['rect', { x: 3, y: 5, width: 18, height: 15, rx: 2 }], ['circle', { cx: 12, cy: 12.5, r: 5 }], ['path', { d: 'M12 8v9M7.5 12.5h9' }]],
+  water_heater: [['rect', { x: 6, y: 2, width: 12, height: 20, rx: 3 }], ['path', { d: 'M9 6h6M12 19c-2 0-3-1.4-3-3 0-2 3-3 3-6 3 2 3 5 3 6 0 1.6-1 3-3 3z' }]],
+  smart_meter: [['circle', { cx: 12, cy: 12, r: 9 }], ['rect', { x: 8, y: 8, width: 8, height: 4, rx: 0.8 }], ['path', { d: 'M9 16h6' }]],
+  battery_storage: [['rect', { x: 3, y: 7, width: 16, height: 11, rx: 2 }], ['path', { d: 'M19 10h2v5h-2M11 9.5l-2 3h4l-2 3' }]],
+  soundbar: [['rect', { x: 2, y: 9, width: 20, height: 6, rx: 3 }], ['path', { d: 'M6 12h.01M10 12h.01M14 12h.01M18 12h.01M5 15v2M19 15v2' }]],
+  av_receiver: [['rect', { x: 2, y: 7, width: 20, height: 10, rx: 1.5 }], ['circle', { cx: 7, cy: 12, r: 2 }], ['path', { d: 'M12 10h7M12 14h7' }]],
+  smart_display: [['rect', { x: 3, y: 4, width: 18, height: 12, rx: 2 }], ['path', { d: 'M9 20h6M12 16v4M8 10h8' }]],
+  vr_headset: [['rect', { x: 3, y: 7, width: 18, height: 9, rx: 3 }], ['path', { d: 'M10 16c0-2 4-2 4 0M3 11H1M21 11h2' }]],
+  e_reader: [['rect', { x: 5, y: 2, width: 14, height: 20, rx: 2 }], ['path', { d: 'M8 7h8M8 10h8M8 13h5M12 19h.01' }]],
+  baby_monitor: [['rect', { x: 5, y: 7, width: 14, height: 14, rx: 2.5 }], ['path', { d: 'M12 7V3M9.5 3h5' }], ['circle', { cx: 12, cy: 14, r: 3 }]],
+  pet_feeder: [['path', { d: 'M4 12h16l-2 8H6z' }], ['path', { d: 'M9 8h.01M12 6h.01M15 8h.01M7 5h.01M17 5h.01' }]],
+  smart_scale: [['rect', { x: 4, y: 4, width: 16, height: 16, rx: 3 }], ['path', { d: 'M8 10a4.5 4.5 0 0 1 8 0M12 10l1.6 1.6' }]],
+  garage_door: [['path', { d: 'M3 21V9l9-6 9 6v12' }], ['path', { d: 'M7 21v-9h10v9M7 15h10M7 18h10' }]],
+  smart_blinds: [['rect', { x: 4, y: 3, width: 16, height: 18, rx: 1 }], ['path', { d: 'M4 8h16M4 12h16M4 16h16M20 16v4' }]],
+  intercom: [['rect', { x: 6, y: 2, width: 12, height: 20, rx: 2 }], ['path', { d: 'M9 6h6M9 8.5h6M12 18.5h.01' }], ['circle', { cx: 12, cy: 13, r: 2 }]],
+  motion_sensor: [['path', { d: 'M5 18a7 7 0 0 1 14 0z' }], ['path', { d: 'M3 9a12 12 0 0 1 3-3.5M21 9a12 12 0 0 0-3-3.5M12 14h.01' }]],
+  door_sensor: [['rect', { x: 2, y: 8, width: 9, height: 8, rx: 1 }], ['rect', { x: 14, y: 8, width: 8, height: 8, rx: 1 }], ['path', { d: 'M12.5 10.5v3' }]],
+  leak_sensor: [['path', { d: 'M12 3c4 5 6 7.5 6 10.5a6 6 0 0 1-12 0C6 10.5 8 8 12 3z' }], ['path', { d: 'M9 15a3 3 0 0 0 3 3' }]],
+  weather_station: [['circle', { cx: 8, cy: 8, r: 2.6 }], ['path', { d: 'M8 2.5v1M2.5 8h1M4 4l.7.7M12 4l-.7.7' }], ['path', { d: 'M8 20a4 4 0 0 1 0-8 5 5 0 0 1 9.5 1.5A3 3 0 0 1 17 20z' }]],
+  nvr: [['rect', { x: 2, y: 8, width: 20, height: 8, rx: 1.5 }], ['circle', { cx: 6, cy: 12, r: 1.3 }], ['path', { d: 'M10 10.5h9M10 13.5h9' }]],
+  digital_signage: [['rect', { x: 6, y: 2, width: 12, height: 17, rx: 1 }], ['path', { d: 'M8 22h8M12 19v3' }]],
+  label_printer: [['path', { d: 'M6 9V4h12v5' }], ['rect', { x: 3, y: 9, width: 18, height: 8, rx: 2 }], ['path', { d: 'M8 17v4h8v-4M6 12.5h.01' }]],
+  time_clock: [['circle', { cx: 12, cy: 11, r: 8 }], ['path', { d: 'M12 7v4.5l3 2M9 21h6' }]],
+  microcontroller: [['rect', { x: 6, y: 5, width: 12, height: 14, rx: 1 }], ['path', { d: 'M9 19v3h6v-3M3 8h3M3 11h3M3 14h3M18 8h3M18 11h3M18 14h3' }]],
+  mini_pc: [['rect', { x: 4, y: 8, width: 16, height: 9, rx: 2.5 }], ['path', { d: 'M8 12.5h8M12 17v3M8 20h8' }]],
+  bmc: [['rect', { x: 3, y: 4, width: 18, height: 16, rx: 1.5 }], ['path', { d: 'M7 9l3 2.5L7 14M12 15h5' }]],
+  wireless_bridge: [['rect', { x: 8, y: 13, width: 8, height: 8, rx: 1.5 }], ['path', { d: 'M5 9a10 10 0 0 1 14 0M8 11.5a6 6 0 0 1 8 0M12 17h.01' }]],
+  powerline: [['rect', { x: 6, y: 5, width: 12, height: 15, rx: 3 }], ['path', { d: 'M10 5V2.5M14 5V2.5M9 11h6M9 14.5h6' }]],
+  vending_machine: [['rect', { x: 4, y: 2, width: 16, height: 20, rx: 2 }], ['rect', { x: 7, y: 5, width: 7, height: 10, rx: 1 }], ['path', { d: 'M17 6h.01M17 9h.01M7 19h10' }]],
   unknown: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M9.5 9.5a2.6 2.6 0 0 1 5 1c0 1.8-2.5 2-2.5 3.7M12 17h.01' }]],
 };
 
@@ -154,7 +194,40 @@ const TYPE_ICONS = {
   vehicle: 'vehicle', 'wireless controller': 'access_point', 'safety controller': 'safety_controller',
   'protection relay': 'protection_relay', 'power meter': 'power_meter', 'remote io': 'remote_io', 'industrial pc': 'industrial_pc',
   'cnc machine': 'cnc', 'rfid reader': 'rfid', robot: 'robot', pump: 'pump', valve: 'valve', motor: 'motor',
+  // robots, appliances, smart home, energy, office/IT extras
+  'robot lawn mower': 'robot_mower', drone: 'drone', 'irrigation controller': 'irrigation', 'smart refrigerator': 'fridge',
+  'washing machine': 'washing_machine', dishwasher: 'dishwasher', oven: 'oven', 'coffee machine': 'coffee_machine',
+  'air purifier': 'air_purifier', 'air conditioner': 'air_conditioner', 'heat pump': 'heat_pump', 'water heater': 'water_heater',
+  'smart meter': 'smart_meter', 'battery storage': 'battery_storage', soundbar: 'soundbar', 'av receiver': 'av_receiver',
+  'smart display': 'smart_display', 'vr headset': 'vr_headset', 'e-reader': 'e_reader', 'baby monitor': 'baby_monitor',
+  'pet feeder': 'pet_feeder', 'smart scale': 'smart_scale', 'garage door opener': 'garage_door', 'smart blinds': 'smart_blinds',
+  intercom: 'intercom', 'motion sensor': 'motion_sensor', 'door sensor': 'door_sensor', 'leak sensor': 'leak_sensor',
+  'weather station': 'weather_station', nvr: 'nvr', 'digital signage': 'digital_signage', 'label printer': 'label_printer',
+  'time clock': 'time_clock', microcontroller: 'microcontroller', 'mini pc': 'mini_pc', 'management controller': 'bmc',
+  'wireless bridge': 'wireless_bridge', 'powerline adapter': 'powerline', 'vending machine': 'vending_machine',
+  'single-board computer': 'raspberry_pi',
 };
+
+/** The device type that goes with an icon (choosing an icon fills in the type). Operating-system icons imply none. */
+const ICON_TYPES = (() => {
+  const m = {};
+  for (const [type, ic] of Object.entries(TYPE_ICONS)) if (!(ic in m)) m[ic] = type;
+  return m;
+})();
+
+/** How the icon chooser groups its icons (an icon missing here lands in "Other"). */
+const ICON_CATEGORIES = [
+  ['Computers and phones', ['laptop', 'desktop', 'mini_pc', 'raspberry_pi', 'microcontroller', 'thin_client', 'virtual_machine', 'phone', 'tablet', 'e_reader', 'watch', 'server', 'hypervisor', 'database']],
+  ['Network', ['router', 'switch', 'access_point', 'mesh_node', 'modem', 'wireless_bridge', 'powerline', 'firewall', 'security_appliance', 'load_balancer', 'vpn', 'cloud', 'gateway', 'bmc', 'kvm']],
+  ['Storage and power', ['nas', 'storage_array', 'ups', 'pdu', 'battery_storage']],
+  ['Office and retail', ['printer', 'printer_3d', 'label_printer', 'scanner', 'barcode_scanner', 'pos', 'kiosk', 'vending_machine', 'digital_signage', 'time_clock', 'projector', 'conference', 'voip_phone', 'badge_reader', 'rfid']],
+  ['Video and audio', ['camera', 'nvr', 'tv', 'media_player', 'streaming_stick', 'game_console', 'vr_headset', 'speaker', 'soundbar', 'av_receiver', 'smart_display']],
+  ['Smart home', ['smart_hub', 'smart_plug', 'smart_light', 'smart_lock', 'doorbell', 'intercom', 'thermostat', 'smart_blinds', 'garage_door', 'baby_monitor', 'pet_feeder', 'smart_scale', 'iot', 'sensor', 'motion_sensor', 'door_sensor', 'leak_sensor', 'smoke_detector', 'alarm_panel', 'weather_station', 'irrigation']],
+  ['Appliances and robots', ['vacuum', 'robot_mower', 'drone', 'fridge', 'washing_machine', 'dishwasher', 'oven', 'coffee_machine', 'air_purifier', 'air_conditioner', 'heat_pump', 'water_heater', 'appliance']],
+  ['Energy and vehicles', ['inverter', 'smart_meter', 'ev_charger', 'vehicle', 'power_meter']],
+  ['Industrial', ['plc', 'hmi', 'rtu', 'scada', 'drive', 'robot', 'building', 'hvac', 'safety_controller', 'protection_relay', 'remote_io', 'industrial_pc', 'cnc', 'pump', 'valve', 'motor', 'medical']],
+  ['Systems and brands', ['apple', 'windows', 'linux', 'android', 'unknown']],
+];
 
 /** The icon to show for an asset: the owner's choice, else a guess from what we know. */
 function iconFor(a) {

@@ -218,8 +218,7 @@ async function start() {
   $('add-asset').hidden = !can('editor');
   $('import-assets').hidden = !can('editor');
   $('scan').hidden = !can('editor');
-  const o = await api('GET', '/api/meta/options');
-  if (o.ok) state.options = o.json;
+  await loadOptions();
   setTab('assets');
   await refresh();
   applyHash();
@@ -277,6 +276,7 @@ function openPasswordForm(forced) {
       if (!r.ok) return apiError(r);
       const me = await api('GET', '/api/auth/me');
       if (me.ok) state.me = me.json.user;
+      await loadOptions(); // the first request after a forced change of password was refused
       await refresh();
       showMessage(tr('Password changed'), el('p', { text: tr('Your other sessions have been signed out.') }));
       return null;
@@ -299,40 +299,82 @@ const FIELD_DEFS = [
   ['tags', tr('Tags (comma separated)'), 'tags'], ['notes', tr('Notes'), 'textarea'],
 ];
 
+/** Load the lists the forms offer (statuses, criticalities, device types, icons…). Safe to call again. */
+async function loadOptions() {
+  const o = await api('GET', '/api/meta/options');
+  if (o.ok) state.options = o.json;
+  return state.options;
+}
+
+/** The words shown for an icon or type name: "smart_plug" -> "smart plug", in the chosen language. */
+const nameOf = (n) => tr(String(n).replace(/_/g, ' '));
+
 /**
- * Icon picker. Collapsed it shows only the current icon and a "Change" button;
- * the full set (with a filter) opens only while choosing, and closes after a pick.
- * "Auto" clears the choice and uses the icon that fits the detected device type.
+ * The icon chooser: a searchable window with the icons grouped by kind. `onPick(name)` gets the chosen
+ * icon name, or '' for "automatic" (the icon that fits the device type).
  */
-function iconPicker(current, previewAsset) {
+function openIconModal({ value, autoName, onPick }) {
+  const dlg = el('dialog', { class: 'icon-dialog', 'aria-label': tr('Choose an icon') });
+  const search = el('input', { type: 'search', class: 'icon-search', placeholder: tr('Search icons…'), 'aria-label': tr('Search icons…') });
+  const cats = el('div', { class: 'chips icon-cats' });
+  const body = el('div', { class: 'icon-body' });
+  let cat = '';
+  const known = new Set((state.options && state.options.icons) || ICON_NAMES);
+  const groups = ICON_CATEGORIES.map(([title, names]) => [title, names.filter((n) => known.has(n))]);
+  const listed = new Set(groups.flatMap(([, names]) => names));
+  const other = [...known].filter((n) => !listed.has(n));
+  if (other.length) groups.push(['Other', other]);
+  const choose = (name) => { dlg.close(); onPick(name); };
+  const tile = (name) => el('button', { type: 'button', class: 'icon-tile' + (name === value ? ' selected' : ''), title: name ? nameOf(name) : tr('automatic'), onclick: () => choose(name) },
+    icon(name || autoName(), 30), el('span', { text: name ? nameOf(name) : tr('Automatic') }));
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    // an icon is found by its name, its translated name and the device type it stands for ("robot" finds the vacuum)
+    const match = (n) => !q || n.replace(/_/g, ' ').includes(q) || nameOf(n).toLowerCase().includes(q)
+      || (ICON_TYPES[n] || '').includes(q) || (ICON_TYPES[n] ? nameOf(ICON_TYPES[n]).toLowerCase().includes(q) : false);
+    const sections = [];
+    if (!q && !cat) sections.push(el('div', { class: 'icon-group' }, el('div', { class: 'group-title', text: tr('Automatic') }), el('div', { class: 'icon-grid' }, tile(''))));
+    for (const [title, names] of groups) {
+      if (cat && cat !== title) continue;
+      const shown = names.filter(match);
+      if (shown.length) sections.push(el('div', { class: 'icon-group' }, el('div', { class: 'group-title', text: tr(title) }), el('div', { class: 'icon-grid' }, ...shown.map(tile))));
+    }
+    body.replaceChildren(...(sections.length ? sections : [el('p', { class: 'muted', text: tr('No icon matches "{q}".', { q: search.value.trim() }) })]));
+    cats.replaceChildren(...['', ...groups.map(([t]) => t)].map((t) => el('button', { type: 'button', class: 'chip clickable' + (t === cat ? ' active' : ''), text: t ? tr(t) : tr('All'), onclick: () => { cat = t; draw(); } })));
+  };
+  search.oninput = draw;
+  dlg.append(el('div', { class: 'icon-head' }, el('h3', { text: tr('Choose an icon') }), el('button', { type: 'button', text: tr('Close'), onclick: () => dlg.close() })), search, cats, body);
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  draw();
+  dlg.showModal();
+  search.focus();
+}
+
+/**
+ * The icon row of the asset form: the current icon, its name and a "Change…" button right beside them.
+ * Choosing an icon calls `onPick(name)`; "Automatic" uses the icon that fits the device type.
+ */
+function iconPicker(current, autoIcon, onPick) {
   let value = current || '';
-  const autoName = () => iconFor({ ...previewAsset, meta: { ...(previewAsset.meta || {}), icon: null } });
   const summary = el('span', { class: 'icon-current' });
-  const toggle = el('button', { type: 'button', text: tr('Change…') });
-  const filter = el('input', { type: 'search', placeholder: tr('filter icons…'), class: 'icon-filter' });
-  const grid = el('div', { class: 'icon-grid' });
-  const panel = el('div', { class: 'icon-panel', hidden: true }, filter, grid);
-  const drawSummary = () => summary.replaceChildren(icon(value || autoName(), 24), el('span', { text: value ? tr(value.replace(/_/g, ' ')) : tr('automatic ({icon})', { icon: tr(autoName().replace(/_/g, ' ')) }) }));
-  const drawGrid = () => {
-    const q = filter.value.trim().toLowerCase();
-    const names = ['', ...((state.options && state.options.icons) || ICON_NAMES)].filter((n) => !q || (n ? n.replace(/_/g, ' ') + ' ' + tr(n.replace(/_/g, ' ')).toLowerCase() : 'auto ' + tr('auto').toLowerCase()).includes(q));
-    grid.replaceChildren(...names.map((n) => el('button', {
-      type: 'button', class: 'icon-choice' + (n === value ? ' selected' : ''), title: n ? tr(n.replace(/_/g, ' ')) : tr('automatic'),
-      onclick: () => { value = n; panel.hidden = true; toggle.textContent = tr('Change…'); drawSummary(); },
-    }, icon(n || autoName(), 22), el('span', { text: n ? tr(n.replace(/_/g, ' ')) : tr('auto') }))));
-  };
-  toggle.onclick = () => {
-    panel.hidden = !panel.hidden;
-    toggle.textContent = panel.hidden ? tr('Change…') : tr('Close');
-    if (!panel.hidden) { filter.value = ''; drawGrid(); filter.focus(); }
-  };
-  filter.oninput = drawGrid;
-  drawSummary();
-  return { node: el('div', { class: 'icon-picker' }, el('div', { class: 'icon-row' }, summary, toggle), panel), get: () => value };
+  const draw = () => summary.replaceChildren(icon(value || autoIcon(), 28), el('span', { text: value ? nameOf(value) : tr('automatic ({icon})', { icon: nameOf(autoIcon()) }) }));
+  const change = el('button', { type: 'button', text: tr('Change…'), onclick: () => openIconModal({ value, autoName: autoIcon, onPick: (n) => { value = n; draw(); onPick(n); } }) });
+  draw();
+  return { node: el('div', { class: 'icon-row' }, summary, change), get: () => value, refresh: draw, open: () => change.click() };
+}
+
+/** Device types sorted by the words the person reads, plus any custom one already stored on the device. */
+function typeOptions(current) {
+  const list = ((state.options && state.options.device_types) || []).slice();
+  if (current && !list.includes(current)) list.push(current);
+  return list.sort((x, y) => nameOf(x).localeCompare(nameOf(y), locale()));
 }
 
 /** Create/edit form. `a` is null when creating a new asset. */
-function openAssetForm(a) {
+async function openAssetForm(a) {
+  // the lists may be missing if the first request was refused (a forced password change): fetch them now
+  if (!state.options) await loadOptions();
   const meta = a ? (a.meta || {}) : {};
   const inputs = {};
   const rows = [];
@@ -342,11 +384,29 @@ function openAssetForm(a) {
     rows.push(field(tr('MAC address'), macInput));
   }
   const previewAsset = a || { device_type: 'unknown', hostnames: [], meta: {} };
+  // what discovery found; "automatic" means: keep following it
+  const detectedType = (a && ((a.detected && a.detected.device_type) || a.device_type)) || 'unknown';
+  let typeSel = null;
+  let iconPick = null;
+  const shownType = () => (typeSel ? typeSel.value : meta.type_override) || detectedType;
+  const typeNote = el('div', { class: 'muted small', hidden: true });
   for (const [key, label, kind] of FIELD_DEFS) {
     let input;
     const cur = meta[key] || '';
     if (kind === 'icon') {
-      const p = iconPicker(meta.icon, previewAsset);
+      // the icon that fits the device type as it is set right now (the type field may change below)
+      const autoIcon = () => iconFor({ ...previewAsset, device_type: shownType(), meta: { ...(previewAsset.meta || {}), icon: null } });
+      // choosing an icon also sets the device type that goes with it
+      const p = iconPicker(meta.icon, autoIcon, (name) => {
+        const ty = name && ICON_TYPES[name];
+        if (ty && typeSel && typeSel.value !== ty && [...typeSel.options].some((o) => o.value === ty)) {
+          typeSel.value = ty;
+          typeNote.textContent = tr('Device type set to "{type}" to match the icon. Change it above if that is wrong.', { type: nameOf(ty) });
+          typeNote.hidden = false;
+        }
+        p.refresh();
+      });
+      iconPick = p;
       inputs[key] = { get: p.get };
       rows.push(el('div', { class: 'field-wide' }, el('span', { class: 'label', text: label }), p.node));
       continue;
@@ -356,19 +416,20 @@ function openAssetForm(a) {
     else if (kind === 'textarea') input = el('textarea', { value: cur, maxLength: 4000, rows: 3 });
     else if (kind === 'tags') input = el('input', { value: (meta.tags || []).join(', ') });
     else if (kind === 'type') {
-      input = el('input', { value: cur, maxLength: 40 });
-      input.setAttribute('list', 'type-list');
+      // a list, filled in from discovery ("automatic"); the person can pick another, and the icon follows
+      input = el('select', { id: 'asset-type' },
+        el('option', { value: '', text: tr('Automatic (detected: {type})', { type: nameOf(detectedType) }) }),
+        ...typeOptions(cur).map((t) => el('option', { value: t, text: nameOf(t) })));
+      input.value = cur;
+      typeSel = input;
+      input.onchange = () => { typeNote.hidden = true; if (iconPick) iconPick.refresh(); };
     } else {
       const opts = (state.options && state.options[kind]) || [];
       input = el('select', {}, el('option', { value: '', text: '—' }), ...opts.map((o) => el('option', { value: o, text: tr(o) })));
       input.value = cur;
     }
     inputs[key] = { get: () => (kind === 'tags' ? input.value.split(',').map((t) => t.trim()).filter(Boolean) : input.value.trim()) };
-    rows.push(el('div', { class: kind === 'textarea' || kind === 'tags' ? 'field-wide' : '' }, field(label, input)));
-    if (kind === 'type') {
-      const dl = el('datalist', { id: 'type-list' }, ...((state.options && state.options.device_types) || []).map((t) => el('option', { value: t })));
-      rows.push(dl);
-    }
+    rows.push(el('div', { class: kind === 'textarea' || kind === 'tags' ? 'field-wide' : '' }, field(label, input), kind === 'type' ? typeNote : null));
   }
 
   // custom fields: free-form name/value pairs
@@ -546,7 +607,7 @@ $('token-form').onsubmit = async (ev) => {
   if (!r.ok) { showMessage(tr('Could not issue token'), el('p', { text: apiError(r) })); return; }
   $('token-agent').value = ''; $('token-label').value = '';
   showSecret(tr('Token for agent {agent}', { agent: id }), tr('Shown only once. Any earlier token for this agent has been revoked.'), r.json.token,
-    tr('On the agent:') + '  DENIS_AGENT_TOKEN=<token> denis agent --master http://THIS-SERVER:8081 --id ' + id);
+    tr('On the agent:') + '  DENIS_AGENT_TOKEN=<token> denis agent --master https://THIS-SERVER:8081 --master-ca ca.pem --id ' + id);
   renderTokens();
 };
 
@@ -826,7 +887,7 @@ function applyHash() {
   else if (what === 'edit' && can('editor')) { const a = assetById(id); if (a) openAssetForm(a); }
   else if (what === 'icons' && can('editor')) {
     const a = assetById(id);
-    if (a) { openAssetForm(a); setTimeout(() => document.querySelector('.icon-row button')?.click(), 50); }
+    if (a) { openAssetForm(a).then(() => setTimeout(() => document.querySelector('.icon-row button')?.click(), 50)); }
   }
   else if (what === 'alert') { const e = state.alerts.concat(state.events).find((x) => x.id === id); if (e) showAlert(e, assetById(e.asset_id)); }
 }

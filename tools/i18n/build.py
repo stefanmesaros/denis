@@ -65,6 +65,15 @@ def js_keys():
         text = open(os.path.join(ROOT, 'ui', name), encoding='utf-8').read()
         for m in re.finditer(r"\btr\(\s*'((?:[^'\\]|\\.)*)'", text):
             keys.setdefault(m.group(1).replace("\\'", "'"), name)
+    # the icon chooser's group titles are passed to tr() as variables
+    icons = open(os.path.join(ROOT, 'ui', 'icons.js'), encoding='utf-8').read()
+    block = icons[icons.index('const ICON_CATEGORIES = ['):]
+    for m in re.finditer(r"^  \['([^']+)', \[", block, flags=re.M):
+        keys.setdefault(m.group(1), 'icons.js')
+    keys.setdefault('Other', 'admin.js')
+    # icon names, as shown ("smart_plug" -> "smart plug")
+    for m in re.finditer(r"^  ([a-z0-9_]+): \[\[", icons[:icons.index('const NAV_SHAPES')], flags=re.M):
+        keys.setdefault(m.group(1).replace('_', ' '), 'icons.js')
     return keys
 
 

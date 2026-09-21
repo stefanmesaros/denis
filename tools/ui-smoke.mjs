@@ -1,0 +1,280 @@
+#!/usr/bin/env node
+// A smoke test of the real console in a real browser, run before every release (CI does it too).
+//
+//   node tools/ui-smoke.mjs                       # uses target/debug/denis (or DENIS_BIN) and Chrome
+//   CHROME=/path/to/chrome DENIS_BIN=target/release/denis node tools/ui-smoke.mjs
+//
+// It loads the built-in demo data into a scratch database, serves it, drives headless Chrome through the
+// DevTools protocol (no packages needed: Node 22+ has WebSocket and fetch) and checks what a person would
+// notice: every page opens without a script error or failed request, no page shows "null", "undefined" or
+// "[object Object]", the lists have their rows, the asset editor's dropdowns have their options (also when the
+// first request for them was refused), the icon chooser works and sets the device type, an OT watch can be
+// added and removed, every language loads, and the phone layout does not overflow.
+// Exit code 0 = all passed. Nothing outside a temporary folder is touched.
+
+import { spawn, execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import net from 'node:net';
+
+import { fileURLToPath } from 'node:url';
+const root = fileURLToPath(new URL('..', import.meta.url));
+const bin = process.env.DENIS_BIN || join(root, 'target/debug/denis');
+const chromePath = process.env.CHROME || [
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser',
+].find((p) => existsSync(p));
+if (!existsSync(bin)) { console.error(`no program at ${bin}: run  cargo build  first (or set DENIS_BIN)`); process.exit(2); }
+if (!chromePath) { console.error('Chrome not found: set CHROME=/path/to/chrome'); process.exit(2); }
+if (typeof WebSocket === 'undefined') { console.error('Node 22 or newer is needed (global WebSocket)'); process.exit(2); }
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const freePort = () => new Promise((res) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); }); });
+
+const tmp = mkdtempSync(join(tmpdir(), 'denis-ui-'));
+const procs = [];
+let failures = 0;
+const ok = (name) => console.log(`  ok    ${name}`);
+const fail = (name, why) => { failures++; console.log(`  FAIL  ${name}\n        ${why}`); };
+async function check(name, fn) { if (process.env.SMOKE_ONLY && !new RegExp(process.env.SMOKE_ONLY).test(name)) return; try { const why = await fn(); if (why) fail(name, why); else ok(name); } catch (e) { fail(name, e.stack || String(e)); } }
+
+function cleanup() {
+  for (const p of procs) { try { p.kill('SIGTERM'); } catch { /* gone */ } }
+  try { rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
+}
+process.on('exit', cleanup);
+process.on('SIGINT', () => process.exit(130));
+
+// ------------------------------------------------------------------ the server, with demo data
+const db = join(tmp, 'ui.db');
+execFileSync(bin, ['demo', '--db', db, 'load'], { stdio: 'pipe' });
+const appPort = await freePort();
+const server = spawn(bin, ['serve', '--db', db, '--insecure-no-auth', '--listen', `127.0.0.1:${appPort}`], { stdio: 'ignore' });
+procs.push(server);
+const base = `http://127.0.0.1:${appPort}`;
+for (let i = 0; i < 50; i++) { try { if ((await fetch(base + '/api/status')).ok) break; } catch { /* not yet */ } await sleep(200); }
+
+// ------------------------------------------------------------------ headless Chrome over CDP
+const dbgPort = await freePort();
+const chrome = spawn(chromePath, [
+  '--headless=new', '--disable-gpu', '--no-sandbox', `--remote-debugging-port=${dbgPort}`, `--user-data-dir=${join(tmp, 'chrome')}`,
+  '--window-size=1280,900', '--hide-scrollbars', 'about:blank',
+], { stdio: 'ignore' });
+procs.push(chrome);
+let target;
+for (let i = 0; i < 50 && !target; i++) {
+  try { target = (await (await fetch(`http://127.0.0.1:${dbgPort}/json/list`)).json()).find((t) => t.type === 'page'); } catch { /* not yet */ }
+  if (!target) await sleep(200);
+}
+if (!target) { console.error('could not start Chrome'); process.exit(2); }
+const ws = new WebSocket(target.webSocketDebuggerUrl);
+await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+let nextId = 1;
+const waiting = new Map();
+const problems = [];      // script errors and failed requests since the last reset
+let interceptOptions = 0; // refuse this many requests for the option lists (simulates a forced password change)
+ws.onmessage = async (m) => {
+  const msg = JSON.parse(m.data);
+  if (msg.id && waiting.has(msg.id)) { const { res, rej } = waiting.get(msg.id); waiting.delete(msg.id); msg.error ? rej(new Error(msg.error.message)) : res(msg.result); return; }
+  if (msg.method === 'Runtime.exceptionThrown') problems.push('script error: ' + (msg.params.exceptionDetails.exception?.description || msg.params.exceptionDetails.text));
+  else if (msg.method === 'Runtime.consoleAPICalled' && msg.params.type === 'error') problems.push('console.error: ' + msg.params.args.map((a) => a.value ?? a.description).join(' '));
+  else if (msg.method === 'Network.responseReceived' && msg.params.response.status >= 400 && !msg.params.response.url.includes('/favicon')) problems.push(`HTTP ${msg.params.response.status} ${msg.params.response.url}`);
+  else if (msg.method === 'Fetch.requestPaused') {
+    const id = msg.params.requestId;
+    if (interceptOptions > 0 && msg.params.request.url.includes('/api/meta/options')) {
+      interceptOptions--;
+      send('Fetch.fulfillRequest', { requestId: id, responseCode: 403, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: btoa('{"code":"must_change","error":"password change required"}') }).catch(() => {});
+    } else send('Fetch.continueRequest', { requestId: id }).catch(() => {});
+  }
+};
+const send = (method, params = {}) => new Promise((res, rej) => { const id = nextId++; waiting.set(id, { res, rej }); ws.send(JSON.stringify({ id, method, params })); });
+const evaluate = async (expression) => {
+  const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+  if (r.exceptionDetails) throw new Error('in page: ' + (r.exceptionDetails.exception?.description || r.exceptionDetails.text));
+  return r.result.value;
+};
+const load = async (url) => { await navigate('about:blank'); await navigate(url); };
+const navigate = async (url) => { const loaded = new Promise((res) => { const h = (m) => { if (JSON.parse(m.data).method === 'Page.loadEventFired') { ws.removeEventListener('message', h); res(); } }; ws.addEventListener('message', h); }); await send('Page.navigate', { url }); await loaded; };
+const ready = async () => { for (let i = 0; i < 60; i++) { if (await evaluate("typeof state !== 'undefined' && !!(state.me && state.assets && state.assets.length && state.options)")) return true; await sleep(250); } return false; };
+const takeProblems = () => problems.splice(0);
+
+await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
+await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/meta/options*' }] });
+
+const TABS = ['assets', 'alerts', 'findings', 'topology', 'ot', 'trends', 'events', 'compliance', 'rules', 'alerting', 'agents', 'users', 'settings', 'audit', 'account'];
+// text a person must never see on a page
+const BAD_TEXT = "(() => { const t = document.getElementById('app').innerText; return ['null', 'undefined', '[object Object]', 'NaN'].filter((w) => new RegExp('(^|[^A-Za-z0-9_])' + w.replace(/[\\[\\]]/g, '\\\\$&') + '([^A-Za-z0-9_]|$)').test(t)); })()";
+
+console.log(`console smoke test (${bin})`);
+await load(base + '/#assets');
+await check('the console starts, signed in, with the lists it needs', async () => (await ready()) ? null : 'state.me / assets / options never became available: ' + takeProblems().join('; '));
+
+await ready(); // (also when only some checks are selected with SMOKE_ONLY)
+
+// ------------------------------------------------------------------ every page
+for (const tab of TABS) {
+  await check(`page "${tab}" opens without errors, and shows no null/undefined`, async () => {
+    takeProblems();
+    await evaluate(`location.hash = '#${tab}'; setTab('${tab}'); 0`);
+    await sleep(900);
+    const visible = await evaluate(`!document.getElementById('view-${tab}').hidden`);
+    if (!visible) return 'the page is not shown';
+    const bad = await evaluate(BAD_TEXT);
+    const p = takeProblems();
+    if (bad.length) return `the page shows: ${bad.join(', ')}`;
+    if (p.length) return p.join('\n        ');
+    return null;
+  });
+}
+
+// ------------------------------------------------------------------ what each list must contain
+const counts = { assets: ['#assets-table tbody tr', 30], alerts: ['#alerts-table tbody tr', 5], ot: ['#ot-matrix tbody tr', 5], rules: ['#rules-list .rule-card', 15], compliance: ['#compliance-table tbody tr', 8], audit: ['#audit-table tbody tr', 0], users: ['#users-table tbody tr', 0] };
+for (const [tab, [sel, min]] of Object.entries(counts)) {
+  await check(`"${tab}" lists at least ${min} rows`, async () => {
+    await evaluate(`setTab('${tab}'); 0`);
+    await sleep(900);
+    const n = await evaluate(`document.querySelectorAll(${JSON.stringify(sel)}).length`);
+    return n >= min ? null : `only ${n} (${sel})`;
+  });
+}
+
+// ------------------------------------------------------------------ the asset editor
+const printerId = await evaluate("state.assets.find((a) => a.meta && a.meta.display_name === 'Reception printer').id");
+await check('the asset editor has its dropdown options, even when the first request for them was refused', async () => {
+  takeProblems();
+  await evaluate("state.options = null; setTab('assets'); openAssetForm(assetById(" + printerId + ")); 0");
+  await sleep(800);
+  const r = await evaluate(`(() => { const d = document.getElementById('dialog-form'); const sel = (label) => [...d.querySelectorAll('label')].find((l) => l.firstChild && l.firstChild.textContent.trim() === label)?.querySelector('select'); return { status: sel('Status')?.options.length, crit: sel('Criticality')?.options.length, purdue: sel('Purdue level (OT)')?.options.length, types: sel('Device type')?.options.length, first: sel('Device type')?.options[0]?.textContent }; })()`);
+  if (!(r.status >= 6 && r.crit >= 5 && r.purdue >= 8)) return `Status/Criticality/Purdue options: ${JSON.stringify(r)}`;
+  if (!(r.types > 100)) return `the device type list has ${r.types} entries`;
+  if (!/^Automatic \(detected: printer\)/.test(r.first)) return `the first device type option is "${r.first}"`;
+  return null;
+});
+await check('the asset editor fetches its options itself when they were never loaded (forced password change)', async () => {
+  // refuse the next request for the lists, reload: exactly what a forced password change does
+  interceptOptions = 1;
+  await load(base + '/#assets');
+  await sleep(2500);
+  const missing = await evaluate('!state.options');
+  await evaluate("openAssetForm(assetById(" + printerId + ")); 0");
+  await sleep(800);
+  const n = await evaluate("[...document.querySelectorAll('#dialog-form select')].map((s) => s.options.length)");
+  await evaluate("document.getElementById('form-dialog').close(); 0");
+  return (n.length >= 4 && n.every((x) => x > 1)) ? null : `dropdown sizes ${JSON.stringify(n)} (options were ${missing ? 'missing' : 'present'} on the page)`;
+});
+await ready();
+await check('the icon button sits next to the icon and opens a searchable chooser', async () => {
+  await evaluate("setTab('assets'); openAssetForm(assetById(" + printerId + ")); 0");
+  await sleep(600);
+  const geom = await evaluate("(() => { const row = document.querySelector('#dialog-form .icon-row'); const cur = row.querySelector('.icon-current').getBoundingClientRect(); const b = row.querySelector('button').getBoundingClientRect(); const r = row.getBoundingClientRect(); return { gap: b.left - cur.right, fromRight: r.right - b.right, w: r.width }; })()");
+  if (geom.gap > 40 || geom.gap < 0) return `the button is ${geom.gap}px from the icon`;
+  if (geom.fromRight < geom.w / 3) return 'the button is at the far right of the row';
+  await evaluate("document.querySelector('#dialog-form .icon-row button').click(); 0");
+  await sleep(400);
+  if (!(await evaluate("!!document.querySelector('dialog.icon-dialog[open]')"))) return 'the chooser did not open';
+  const all = await evaluate("document.querySelectorAll('dialog.icon-dialog .icon-tile').length");
+  await evaluate("(() => { const s = document.querySelector('dialog.icon-dialog .icon-search'); s.value = 'robot'; s.dispatchEvent(new Event('input')); })()");
+  await sleep(200);
+  const found = await evaluate("[...document.querySelectorAll('dialog.icon-dialog .icon-tile')].map((t) => t.textContent.trim())");
+  if (all < 100) return `only ${all} icons offered`;
+  if (found.length < 3 || !found.some((t) => /mower/i.test(t)) || !found.some((t) => /vacuum/i.test(t))) return `searching "robot" found: ${found.join(', ')}`;
+  return null;
+});
+await check('choosing an icon in the chooser sets the matching device type, and it can be saved', async () => {
+  await evaluate("[...document.querySelectorAll('dialog.icon-dialog .icon-tile')].find((t) => /mower/i.test(t.textContent)).click(); 0");
+  await sleep(300);
+  if (await evaluate("!!document.querySelector('dialog.icon-dialog[open]')")) return 'the chooser stayed open after a choice';
+  const ty = await evaluate("document.getElementById('asset-type').value");
+  if (ty !== 'robot lawn mower') return `the device type is "${ty}"`;
+  if (await evaluate("document.querySelector('#dialog-form .muted.small[hidden]') !== null && [...document.querySelectorAll('#dialog-form .muted.small')].every((n) => n.hidden)")) return 'no note says the type was set from the icon';
+  await evaluate("document.querySelector('#dialog-form button[type=submit]').click(); 0");
+  await sleep(1200);
+  const a = await (await fetch(base + '/api/assets/' + printerId)).json();
+  if (!(a.meta.icon === 'robot_mower' && a.device_type === 'robot lawn mower')) return `saved icon "${a.meta.icon}", type "${a.device_type}"`;
+  return null;
+});
+await check('choosing "automatic" and clearing the type returns the device to what discovery found', async () => {
+  await evaluate("openAssetForm(assetById(" + printerId + ")); 0");
+  await sleep(600);
+  await evaluate("(() => { const t = document.getElementById('asset-type'); t.value = ''; t.dispatchEvent(new Event('change')); })()");
+  await evaluate("document.querySelector('#dialog-form .icon-row button').click(); 0");
+  await sleep(300);
+  await evaluate("document.querySelector('dialog.icon-dialog .icon-tile').click(); 0"); // the first tile is "Automatic"
+  await sleep(200);
+  await evaluate("document.querySelector('#dialog-form button[type=submit]').click(); 0");
+  await sleep(1200);
+  const a = await (await fetch(base + '/api/assets/' + printerId)).json();
+  return (!a.meta.icon && a.device_type === 'printer') ? null : `icon "${a.meta.icon}", type "${a.device_type}"`;
+});
+await check('a type chosen by hand is remembered and the icon follows it', async () => {
+  await evaluate("openAssetForm(assetById(" + printerId + ")); 0");
+  await sleep(600);
+  await evaluate("(() => { const t = document.getElementById('asset-type'); t.value = 'washing machine'; t.dispatchEvent(new Event('change')); })()");
+  const shown = await evaluate("document.querySelector('#dialog-form .icon-current svg') && document.querySelector('#dialog-form .icon-current').textContent");
+  await evaluate("document.querySelector('#dialog-form button[type=submit]').click(); 0");
+  await sleep(1200);
+  const a = await (await fetch(base + '/api/assets/' + printerId)).json();
+  // undo
+  await evaluate("openAssetForm(assetById(" + printerId + ")); 0");
+  await sleep(600);
+  await evaluate("(() => { const t = document.getElementById('asset-type'); t.value = ''; t.dispatchEvent(new Event('change')); })()");
+  await evaluate("document.querySelector('#dialog-form button[type=submit]').click(); 0");
+  await sleep(1000);
+  if (!/washing machine/.test(shown || '')) return `the icon row said "${shown}" after choosing washing machine`;
+  return (a.device_type === 'washing machine') ? null : `saved type "${a.device_type}"`;
+});
+
+// ------------------------------------------------------------------ rules: an OT watch
+await check('an OT command watch can be added from the Rules page and removed again', async () => {
+  takeProblems();
+  await evaluate("location.hash = '#rules'; setTab('rules'); 0");
+  await sleep(1000);
+  await evaluate("[...document.querySelectorAll('button')].find((b) => b.textContent === 'Add a watch').click(); 0");
+  await sleep(500);
+  await evaluate("(() => { const d = document.getElementById('dialog-form'); d.querySelector('input[required]').value = 'Smoke test watch'; const p = d.querySelectorAll('select')[0]; p.value = '2'; p.dispatchEvent(new Event('change')); d.querySelector('button[type=submit]').click(); })()");
+  await sleep(1500);
+  const r = await (await fetch(base + '/api/rules')).json();
+  if (!(r.ot_watches || []).some((w) => w.name === 'Smoke test watch' && w.proto === 's7')) return 'the watch was not saved: ' + JSON.stringify(r.ot_watches);
+  await evaluate("window.confirm = () => true; [...document.querySelectorAll('#watches .watch-actions button')].find((b) => b.textContent === 'Delete').click(); 0");
+  await sleep(1200);
+  const r2 = await (await fetch(base + '/api/rules')).json();
+  const p = takeProblems();
+  if ((r2.ot_watches || []).length) return 'the watch was not deleted';
+  return p.length ? p.join('; ') : null;
+});
+
+// ------------------------------------------------------------------ languages and the phone layout
+for (const lang of ['de', 'fr', 'es', 'sk']) {
+  await check(`the console loads in ${lang}: pages open without errors`, async () => {
+    takeProblems();
+    await evaluate(`localStorage.setItem('denis-lang', '${lang}'); 0`);
+    await load(base + '/#assets');
+    if (!(await ready())) return 'the console did not start';
+    if ((await evaluate('document.documentElement.lang')) !== lang) return 'the language did not change';
+    for (const tab of ['assets', 'alerts', 'rules', 'ot', 'settings', 'account']) {
+      await evaluate(`setTab('${tab}'); 0`);
+      await sleep(500);
+      const bad = await evaluate(BAD_TEXT);
+      if (bad.length) return `page ${tab} shows: ${bad.join(', ')}`;
+    }
+    const p = takeProblems();
+    return p.length ? p.join('\n        ') : null;
+  });
+}
+await evaluate("localStorage.removeItem('denis-lang'); 0");
+
+await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 800, deviceScaleFactor: 2, mobile: true });
+await load(base + '/#assets');
+await ready();
+for (const tab of ['assets', 'alerts', 'ot', 'rules', 'settings', 'account']) {
+  await check(`on a phone the "${tab}" page does not overflow sideways`, async () => {
+    await evaluate(`setTab('${tab}'); 0`);
+    await sleep(600);
+    const w = await evaluate('[document.documentElement.scrollWidth, window.innerWidth]');
+    return w[0] <= w[1] + 2 ? null : `the page is ${w[0]}px wide on a ${w[1]}px screen`;
+  });
+}
+
+console.log(failures ? `\n${failures} check(s) FAILED` : '\nall checks passed');
+ws.close();
+process.exit(failures ? 1 : 0);

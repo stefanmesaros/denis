@@ -34,8 +34,8 @@ function scopeEditor(list, onChange, editable) {
       const devices = state.assets.slice().sort((x, y) => (name(x) || x.ip || x.mac).localeCompare(name(y) || y.ip || y.mac));
       input = el('select', {}, ...devices.map((a) => el('option', { value: String(a.id), text: (name(a) || a.mac) + (a.ip ? ' · ' + a.ip : '') })));
     } else if (kind.value === 'type') {
-      input = el('input', { placeholder: tr('e.g. printer'), maxLength: 60 });
-      input.setAttribute('list', 'type-list');
+      const types = ((state.options && state.options.device_types) || []).slice().sort((x, y) => nameOf(x).localeCompare(nameOf(y), locale()));
+      input = el('select', {}, ...types.map((t) => el('option', { value: t, text: nameOf(t) })));
     } else {
       input = el('input', { placeholder: kind.value === 'cidr' ? '10.0.5.0/24' : tr('tag'), maxLength: 60 });
     }

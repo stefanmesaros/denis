@@ -198,6 +198,18 @@ pub fn guess(a: &Asset) -> Guess {
             v.both("computer", "Linux", 5, format!("name {h:?}"));
         } else if l.contains("appletv") || l.contains("apple-tv") {
             v.ty("media device", 5, format!("name {h:?}"));
+        } else if ["roomba", "irobot", "roborock", "dreame", "ecovacs", "deebot", "rockrobo"].iter().any(|w| l.contains(w)) {
+            v.ty("robot vacuum", 5, format!("name {h:?}"));
+        } else if ["automower", "husqvarna", "landroid", "mammotion"].iter().any(|w| l.contains(w)) {
+            v.ty("robot lawn mower", 5, format!("name {h:?}"));
+        } else if ["fridge", "refrigerator", "kuehlschrank", "familyhub", "family-hub"].iter().any(|w| l.contains(w)) {
+            v.ty("smart refrigerator", 4, format!("name {h:?}"));
+        } else if l.contains("dishwasher") || l.contains("geschirrspueler") {
+            v.ty("dishwasher", 4, format!("name {h:?}"));
+        } else if l.contains("washing") || l.contains("waschmaschine") || l.starts_with("washer") {
+            v.ty("washing machine", 4, format!("name {h:?}"));
+        } else if l.contains("kindle") {
+            v.ty("e-reader", 5, format!("name {h:?}"));
         } else if l.starts_with("esp") && l.len() <= 12 {
             v.ty("iot", 3, format!("name {h:?}"));
         }
@@ -308,6 +320,29 @@ pub fn guess(a: &Asset) -> Guess {
         }
         if has(&["espressif", "tuya", "shelly", "sonoff", "itead", "ecobee", "signify", "philips lighting", "nest labs", "lifx", "meross", "kasa", "altobeam", "high-flying", "samjin"]) {
             v.ty("iot", 3, format!("vendor {vendor}"));
+        }
+        // robots, appliances, energy and other everyday devices (vendor evidence is weaker than a name)
+        for (words, ty, w) in [
+            (&["irobot", "roborock", "ecovacs", "dreame", "narwal"][..], "robot vacuum", 4),
+            (&["husqvarna", "positec", "gardena"][..], "robot lawn mower", 3),
+            (&["miele", "bsh hausger", "electrolux", "whirlpool", "liebherr", "smeg", "vorwerk"][..], "appliance", 3),
+            (&["nespresso", "jura elektro", "delonghi", "de'longhi"][..], "coffee machine", 3),
+            (&["sma solar", "fronius", "solaredge", "enphase", "growatt", "goodwe", "sungrow"][..], "solar inverter", 4),
+            (&["wallbox", "easee", "keba"][..], "ev charger", 4),
+            (&["denon", "marantz", "onkyo"][..], "av receiver", 3),
+            (&["dji"][..], "drone", 4),
+            (&["kobo"][..], "e-reader", 4),
+            (&["garmin", "fitbit"][..], "wearable", 3),
+            (&["rachio", "rain bird"][..], "irrigation controller", 3),
+            (&["chamberlain", "myq"][..], "garage door opener", 4),
+            (&["tado"][..], "thermostat", 3),
+            (&["ajax systems"][..], "alarm panel", 3),
+            (&["oculus", "meta platforms technologies", "facebook technologies"][..], "vr headset", 3),
+            (&["dymo"][..], "label printer", 4),
+        ] {
+            if has(words) {
+                v.ty(ty, w, format!("vendor {vendor}"));
+            }
         }
         if has(&["raspberry"]) {
             v.both("computer", "Linux", 3, format!("vendor {vendor}"));
@@ -477,6 +512,13 @@ pub const DEVICE_TYPES: &[&str] = &[
     "set-top box", "streaming stick", "game console", "wearable", "smart plug", "smart light", "smart lock", "doorbell",
     "badge reader", "alarm panel", "smoke detector", "thermostat", "hvac controller", "smart hub", "robot vacuum",
     "appliance", "medical device", "ev charger", "solar inverter", "vehicle",
+    // robots, appliances, smart home, energy, office/IT extras
+    "robot lawn mower", "drone", "irrigation controller", "smart refrigerator", "washing machine", "dishwasher", "oven",
+    "coffee machine", "air purifier", "air conditioner", "heat pump", "water heater", "smart meter", "battery storage",
+    "soundbar", "av receiver", "smart display", "vr headset", "e-reader", "baby monitor", "pet feeder", "smart scale",
+    "garage door opener", "smart blinds", "intercom", "motion sensor", "door sensor", "leak sensor", "weather station",
+    "nvr", "digital signage", "label printer", "time clock", "microcontroller", "mini pc", "management controller",
+    "wireless bridge", "powerline adapter", "vending machine", "single-board computer",
     // operational technology
     "plc", "hmi", "rtu", "scada server", "engineering workstation", "historian", "industrial switch",
     "industrial gateway", "drive", "sensor", "building controller", "industrial device",
@@ -720,5 +762,38 @@ mod tests {
         pc.vendor = Some("ASUSTek COMPUTER INC.".into());
         pc.fingerprint.ssdp_server = Some("Microsoft-Windows/10.0 UPnP/1.0 UPnP-Device-Host/1.0".into());
         assert_eq!(guess(&pc).device_type, "computer");
+    }
+
+    #[test]
+    fn robots_appliances_and_everyday_devices_are_recognised_by_name_or_vendor_and_every_type_is_a_known_one() {
+        let named = |host: &str| {
+            let mut a = asset();
+            a.hostnames.push(host.into());
+            guess(&a).device_type
+        };
+        for (host, ty) in [
+            ("Roomba-3F2A", "robot vacuum"), ("roborock-s7", "robot vacuum"), ("Automower-430X", "robot lawn mower"),
+            ("Samsung-Fridge", "smart refrigerator"), ("Miele-dishwasher-01", "dishwasher"), ("waschmaschine", "washing machine"), ("Kindle-Paperwhite", "e-reader"),
+        ] {
+            assert_eq!(named(host), ty, "{host}");
+        }
+        let vendor = |v: &str| {
+            let mut a = asset();
+            a.vendor = Some(v.into());
+            guess(&a).device_type
+        };
+        for (v, ty) in [("iRobot Corporation", "robot vacuum"), ("Husqvarna Group", "robot lawn mower"), ("Fronius International GmbH", "solar inverter"), ("SZ DJI Technology Co.,Ltd", "drone"), ("Miele & Cie. KG", "appliance"), ("Dymo", "label printer")] {
+            assert_eq!(vendor(v), ty, "{v}");
+        }
+        // every type the guesser can return is in the list the console offers
+        let src = include_str!("fingerprint.rs");
+        let body = &src[..src.find("#[cfg(test)]").unwrap()];
+        for w in body.split("v.ty(\"").skip(1).chain(body.split("v.both(\"").skip(1)) {
+            let ty = w.split('"').next().unwrap();
+            assert!(DEVICE_TYPES.contains(&ty), "the guesser can return {ty:?} but the console does not list it");
+        }
+        for w in ["robot lawn mower", "smart refrigerator", "drone", "washing machine", "e-reader"] {
+            assert!(DEVICE_TYPES.contains(&w));
+        }
     }
 }

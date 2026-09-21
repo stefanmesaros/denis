@@ -215,9 +215,13 @@ enum Cmd {
     Agent {
         #[command(flatten)]
         collect: Collect,
-        /// Master ingest URL, e.g. http://192.168.1.10:8081
+        /// Master ingest URL, e.g. https://192.168.1.10:8081 (plain http:// is refused unless it is this machine
+        /// or --allow-plain-http is given).
         #[arg(long)]
         master: String,
+        /// Accept a plain http:// master address on a network you trust (a VPN, a tunnel). Not needed for https://.
+        #[arg(long, env = "DENIS_ALLOW_PLAIN_HTTP")]
+        allow_plain_http: bool,
         #[arg(long, env = "DENIS_AGENT_TOKEN", hide_env_values = true)]
         token: String,
         /// PEM file with the CA (or self-signed certificate) that signed the
@@ -512,6 +516,7 @@ async fn main() -> Result<()> {
         Cmd::Agent {
             collect,
             master,
+            allow_plain_http,
             token,
             master_ca,
             id,
@@ -520,6 +525,7 @@ async fn main() -> Result<()> {
             db,
             report_interval,
         } => {
+            denis::agent::check_master_url(&master, allow_plain_http)?;
             let id = id.unwrap_or_else(|| slug(&net::local_hostname().unwrap_or_else(|| "agent".into())));
             engine::run_agent(engine::AgentRunConfig {
                 collector: collect.into_config(resolve_db(db, "denis-agent.db", "netscope-agent.db")),

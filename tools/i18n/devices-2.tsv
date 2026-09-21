@@ -1,0 +1,65 @@
+# Icon chooser, device type list and the device types and icons added in 0.1.4.
+Choose an icon || Symbol wählen || Choisir une icône || Elegir un icono || Vybrať ikonu
+Search icons… || Symbole suchen … || Rechercher des icônes… || Buscar iconos… || Hľadať ikony…
+Automatic || Automatisch || Automatique || Automático || Automaticky
+No icon matches "{q}". || Kein Symbol passt zu „{q}“. || Aucune icône ne correspond à « {q} ». || Ningún icono coincide con «{q}». || Žiadna ikona nezodpovedá „{q}“.
+All || Alle || Toutes || Todos || Všetky
+Device type set to "{type}" to match the icon. Change it above if that is wrong. || Gerätetyp auf „{type}“ gesetzt, passend zum Symbol. Oben ändern, falls das falsch ist. || Type d'appareil réglé sur « {type} » pour correspondre à l'icône. Modifiez-le ci-dessus si c'est incorrect. || Tipo de dispositivo establecido en «{type}» para que coincida con el icono. Cámbielo arriba si no es correcto. || Typ zariadenia nastavený na „{type}“ podľa ikony. Ak je to nesprávne, zmeňte ho vyššie.
+Automatic (detected: {type}) || Automatisch (erkannt: {type}) || Automatique (détecté : {type}) || Automático (detectado: {type}) || Automaticky (zistené: {type})
+Computers and phones || Computer und Telefone || Ordinateurs et téléphones || Ordenadores y teléfonos || Počítače a telefóny
+Storage and power || Speicher und Strom || Stockage et alimentation || Almacenamiento y energía || Úložisko a napájanie
+Office and retail || Büro und Handel || Bureau et commerce || Oficina y comercio || Kancelária a obchod
+Video and audio || Video und Audio || Vidéo et audio || Vídeo y audio || Video a zvuk
+Smart home || Smart Home || Maison connectée || Hogar inteligente || Inteligentná domácnosť
+Appliances and robots || Haushaltsgeräte und Roboter || Électroménager et robots || Electrodomésticos y robots || Spotrebiče a roboty
+Energy and vehicles || Energie und Fahrzeuge || Énergie et véhicules || Energía y vehículos || Energia a vozidlá
+Industrial || Industrie || Industriel || Industrial || Priemysel
+Systems and brands || Systeme und Marken || Systèmes et marques || Sistemas y marcas || Systémy a značky
+Other || Sonstige || Autres || Otros || Iné
+robot mower || Mähroboter || robot tondeuse || robot cortacésped || robotická kosačka
+drone || Drohne || drone || dron || dron
+irrigation || Bewässerung || irrigation || riego || zavlažovanie
+fridge || Kühlschrank || réfrigérateur || frigorífico || chladnička
+washing machine || Waschmaschine || lave-linge || lavadora || práčka
+dishwasher || Geschirrspüler || lave-vaisselle || lavavajillas || umývačka riadu
+oven || Backofen || four || horno || rúra
+coffee machine || Kaffeemaschine || machine à café || cafetera || kávovar
+air purifier || Luftreiniger || purificateur d'air || purificador de aire || čistička vzduchu
+air conditioner || Klimaanlage || climatiseur || aire acondicionado || klimatizácia
+heat pump || Wärmepumpe || pompe à chaleur || bomba de calor || tepelné čerpadlo
+water heater || Warmwasserbereiter || chauffe-eau || calentador de agua || ohrievač vody
+smart meter || Smart Meter || compteur intelligent || contador inteligente || inteligentný merač
+battery storage || Batteriespeicher || stockage sur batterie || almacenamiento en baterías || batériové úložisko
+soundbar || Soundbar || barre de son || barra de sonido || soundbar
+av receiver || AV-Receiver || récepteur AV || receptor AV || AV receiver
+smart display || Smart Display || écran connecté || pantalla inteligente || inteligentný displej
+vr headset || VR-Headset || casque VR || gafas de realidad virtual || VR headset
+e reader || E-Reader || liseuse || lector de libros electrónicos || čítačka kníh
+baby monitor || Babyphone || babyphone || vigilabebés || detská pestúnka
+pet feeder || Futterautomat || distributeur de croquettes || comedero automático || kŕmidlo pre zvieratá
+smart scale || Smarte Waage || balance connectée || báscula inteligente || inteligentná váha
+garage door || Garagentor || porte de garage || puerta de garaje || garážová brána
+smart blinds || Smarte Jalousien || stores connectés || persianas inteligentes || inteligentné žalúzie
+intercom || Sprechanlage || interphone || portero || domáci telefón
+motion sensor || Bewegungsmelder || détecteur de mouvement || sensor de movimiento || pohybový senzor
+door sensor || Türsensor || capteur d'ouverture || sensor de puerta || dverový senzor
+leak sensor || Leckagesensor || détecteur de fuite || sensor de fugas || senzor úniku vody
+weather station || Wetterstation || station météo || estación meteorológica || meteostanica
+nvr || NVR || enregistreur vidéo (NVR) || grabador de vídeo (NVR) || NVR
+digital signage || Digital Signage || affichage dynamique || cartelería digital || digitálne značenie
+label printer || Etikettendrucker || imprimante d'étiquettes || impresora de etiquetas || tlačiareň štítkov
+time clock || Zeiterfassung || pointeuse || reloj de fichar || dochádzkový terminál
+microcontroller || Mikrocontroller || microcontrôleur || microcontrolador || mikrokontrolér
+mini pc || Mini-PC || mini PC || mini PC || mini PC
+bmc || BMC || BMC || BMC || BMC
+wireless bridge || WLAN-Bridge || pont sans fil || puente inalámbrico || bezdrôtový most
+powerline || Powerline || CPL || Powerline || Powerline
+vending machine || Verkaufsautomat || distributeur automatique || máquina expendedora || predajný automat
+robot lawn mower || Mähroboter || robot tondeuse || robot cortacésped || robotická kosačka
+irrigation controller || Bewässerungssteuerung || contrôleur d'irrigation || controlador de riego || riadiaci systém zavlažovania
+smart refrigerator || Smarter Kühlschrank || réfrigérateur connecté || frigorífico inteligente || inteligentná chladnička
+e-reader || E-Reader || liseuse || lector de libros electrónicos || čítačka kníh
+garage door opener || Garagentorantrieb || motorisation de porte de garage || abrepuertas de garaje || pohon garážovej brány
+management controller || Management-Controller (BMC) || contrôleur de gestion (BMC) || controlador de gestión (BMC) || riadiaci kontrolér (BMC)
+powerline adapter || Powerline-Adapter || adaptateur CPL || adaptador Powerline || Powerline adaptér
+single-board computer || Einplatinencomputer || ordinateur monocarte || ordenador de placa única || jednodoskový počítač

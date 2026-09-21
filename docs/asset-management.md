@@ -16,8 +16,9 @@ Open a device (click its row) → **Edit asset** (needs the *editor* role).
 | Field | Purpose |
 |---|---|
 | Name | shown everywhere instead of the discovered hostname |
-| Icon | 80+ icons; the editor shows the current one and opens the full set (with a filter) only when you press *Change…*; *auto* chooses from the device type |
-| Device type, Operating system, Manufacturer | correct a wrong guess. The type box suggests 90+ types (office, network, smart-building/home and industrial: e.g. thin client, point of sale, load balancer, smart lock, EV charger, protection relay, remote I/O…); you may also type your own |
+| Icon | 120+ icons in ten groups (computers, network, office, video and audio, smart home, appliances and robots, energy, industrial…). The **Change…** button sits right beside the icon and opens a window you can search ("robot" finds the vacuum, the lawn mower and the industrial robot); *Automatic* picks the icon that fits the device type. Choosing an icon also sets the matching device type |
+| Device type | a list of 120+ types, sorted by name. The first entry, **Automatic (detected: …)**, keeps following what discovery finds; pick another to correct a wrong guess (the icon follows, unless you chose one by hand). Choosing an icon fills in the type that goes with it |
+| Operating system, Manufacturer | correct a wrong guess (free text) |
 | Status | `active`, `spare`, `retired`, `lost`, `stolen` |
 | Criticality | `low`, `normal`, `high`, `critical`: how much this device's alerts weigh in its risk |
 | Owner, Department, Location | who is responsible and where it is |

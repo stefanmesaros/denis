@@ -44,7 +44,7 @@ Two collectors on the same network segment. Keep one collector per segment.
 
 **An agent is not connecting**
 Check `denis agent-token list` (revoked?), the master's `--ingest-listen` address and firewall, that the agent
-id matches the token, and that the agent can reach `http://MASTER:8081/api/v1/ping` with the token.
+id matches the token, and that the agent can reach `https://MASTER:8081/api/v1/ping` with the token (and has the master's CA: `--master-ca`).
 
 **Database problems**
 Stop DENIS, restore the latest backup (`.backup` file) over the database file. Never edit it while running.

@@ -23,6 +23,8 @@ pub const ICONS: &[&str] = &[
     "scada", "gateway", "drive", "robot", "building", "apple", "windows", "linux", "android", "unknown",
     // added later: office/IT, network, smart building and home, industrial (keep in step with ui/icons.js)
     "thin_client", "pos", "kiosk", "hypervisor", "database", "storage_array", "kvm", "pdu", "load_balancer", "vpn", "security_appliance", "modem", "mesh_node", "cloud", "projector", "conference", "streaming_stick", "smart_light", "smart_lock", "doorbell", "badge_reader", "alarm_panel", "smoke_detector", "hvac", "smart_hub", "vacuum", "appliance", "printer_3d", "medical", "ev_charger", "inverter", "vehicle", "safety_controller", "protection_relay", "power_meter", "remote_io", "industrial_pc", "cnc", "rfid", "barcode_scanner", "pump", "valve", "motor",
+    // added in 0.1.4: robots, appliances, smart home, energy, office/IT extras
+    "robot_mower", "drone", "irrigation", "fridge", "washing_machine", "dishwasher", "oven", "coffee_machine", "air_purifier", "air_conditioner", "heat_pump", "water_heater", "smart_meter", "battery_storage", "soundbar", "av_receiver", "smart_display", "vr_headset", "e_reader", "baby_monitor", "pet_feeder", "smart_scale", "garage_door", "smart_blinds", "intercom", "motion_sensor", "door_sensor", "leak_sensor", "weather_station", "nvr", "digital_signage", "label_printer", "time_clock", "microcontroller", "mini_pc", "bmc", "wireless_bridge", "powerline", "vending_machine",
 ];
 
 /// Purdue reference-model levels (3.5 is the IT/OT demilitarised zone).
