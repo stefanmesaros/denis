@@ -42,7 +42,7 @@ jobs:
         if: matrix.target != 'x86_64-apple-darwin'   # cannot run Intel test binaries on the Apple-silicon runner
       - run: cargo build --release --locked --target ${{ matrix.target }}
       - run: cp target/${{ matrix.target }}/release/denis denis-${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: denis-${{ matrix.target }}
           path: denis-${{ matrix.target }}
