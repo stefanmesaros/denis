@@ -392,6 +392,40 @@ await check('table columns can be hidden, reordered and resized, stay so when th
   return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
 });
 
+// ------------------------------------------------------------------ the setup guide
+await check('the setup guide opens from Settings with its steps, its buttons lead to the pages, and "Mark as done" is remembered', async () => {
+  takeProblems();
+  await fetch(base + '/api/setup', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Denis': '1' }, body: '{"completed":false}' });
+  await evaluate("location.hash = '#settings'; setTab('settings'); 0");
+  await sleep(600);
+  // a console that only views a copy never opens it by itself
+  if (await evaluate("!!document.querySelector('#msg-dialog[open]')")) return 'the guide opened by itself in a viewer console';
+  await evaluate("document.getElementById('setup-open').click(); 0");
+  await sleep(700);
+  const steps = await evaluate("[...document.querySelectorAll('#msg-body .setup-step')].map((s) => s.dataset.step + (s.classList.contains('done') ? ':done' : ''))");
+  if (steps.map((s) => s.split(':')[0]).join() !== 'network,security,alerts,people,backups,branding') return 'steps: ' + JSON.stringify(steps);
+  // (demo devices are not real ones, so "network" is not done; the backup schedule is on by default)
+  if (steps.includes('network:done') || steps.includes('security:done') || !steps.includes('backups:done')) return 'the marks do not match the state of the demo: ' + JSON.stringify(steps);
+  if (!(await evaluate("!!document.getElementById('setup-done') && !!document.getElementById('setup-later')"))) return 'the buttons are missing';
+  // a step's button closes the guide and goes to that page
+  await evaluate("document.querySelector('#msg-body .setup-step[data-step=alerts] button').click(); 0");
+  await sleep(600);
+  if ((await evaluate('location.hash')) !== '#alerting' || (await evaluate("!!document.querySelector('#msg-dialog[open]')"))) return 'the button did not go to the Alerting page';
+  await evaluate("setTab('settings'); document.getElementById('setup-open').click(); 0");
+  await sleep(700);
+  await evaluate("document.getElementById('setup-done').click(); 0");
+  await sleep(700);
+  if (!(await (await fetch(base + '/api/setup')).json()).completed) return 'Mark as done was not remembered';
+  await evaluate("document.getElementById('setup-open').click(); 0");
+  await sleep(700);
+  const again = await evaluate("({ done: !!document.getElementById('setup-done'), text: document.getElementById('msg-body').innerText })");
+  await evaluate("document.getElementById('msg-dialog').close(); 0");
+  if (again.done) return 'a guide that is finished still offers Mark as done';
+  const bad = await evaluate(BAD_TEXT);
+  const p = takeProblems();
+  return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
+});
+
 // ------------------------------------------------------------------ health and backups
 await check('the Health page shows the database and the backups; a backup can be made, listed, downloaded and deleted', async () => {
   takeProblems();

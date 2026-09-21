@@ -217,6 +217,8 @@ async function start() {
   $('tls-box').hidden = !can('admin');
   $('tokens-box').hidden = !can('admin');
   $('branding-box').hidden = !can('admin');
+  $('setup-box').hidden = !can('admin');
+  $('setup-open').onclick = openSetupGuide;
   if (can('admin')) initBrandingForm();
   $('add-asset').hidden = !can('editor');
   $('import-assets').hidden = !can('editor');
@@ -228,6 +230,7 @@ async function start() {
   setTab('assets');
   await refresh();
   applyHash();
+  maybeShowSetupGuide();
   if (poller) clearInterval(poller);
   poller = setInterval(refresh, 5000);
   if (healthPoller) clearInterval(healthPoller);
@@ -884,7 +887,7 @@ function applyHash() {
   if (what === 'rules' && arg === 'watches') setTimeout(() => $('watches')?.scrollIntoView({ block: 'start' }), 700);
   // #settings/tls, #settings/updates ...: scroll to that section
   if (what === 'settings' && arg && !$('tab-settings').hidden) {
-    const box = { branding: 'branding-box', tls: 'tls-box', updates: 'update-box', data: 'data-box' }[arg];
+    const box = { branding: 'branding-box', tls: 'tls-box', updates: 'update-box', data: 'data-box', setup: 'setup-box' }[arg];
     if (box) setTimeout(() => $(box).scrollIntoView({ block: 'start' }), 50);
   }
   if (what === 'passkeys') { location.hash = '#account'; return; }

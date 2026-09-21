@@ -32,6 +32,7 @@ use crate::model::{now_ts, Asset, AssetMeta, User};
 use crate::web_admin as admin;
 use crate::web_health as health_page;
 use crate::web_reports as reports_page;
+use crate::web_setup as setup_page;
 use crate::web_passkey as passkey;
 use crate::risk::{self, Risk};
 use crate::{report, trends};
@@ -118,6 +119,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/findings", get(findings))
         .route("/api/findings/{id}/verify", post(admin::finding_verify))
         .route("/api/system", get(health_page::health))
+        .route("/api/setup", get(setup_page::get).put(setup_page::put))
         .route("/api/backups", get(health_page::list).post(health_page::make))
         .route("/api/backups/settings", put(health_page::settings_put))
         .route("/api/backups/{name}", get(health_page::download).delete(health_page::remove))
@@ -176,7 +178,7 @@ fn is_public(method: &axum::http::Method, path: &str) -> bool {
 /// anything needs `editor`; managing users, tokens and the audit log, or
 /// deleting assets, needs `admin`.
 pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static str {
-    if path.starts_with("/api/users") || path.starts_with("/api/tls") || path.starts_with("/api/data") || path.starts_with("/api/channels") || path.starts_with("/api/agent-tokens") || path.starts_with("/api/api-tokens") || path.starts_with("/api/audit") || path.starts_with("/api/backups") {
+    if path.starts_with("/api/users") || path.starts_with("/api/tls") || path.starts_with("/api/data") || path.starts_with("/api/channels") || path.starts_with("/api/agent-tokens") || path.starts_with("/api/api-tokens") || path.starts_with("/api/audit") || path.starts_with("/api/backups") || path.starts_with("/api/setup") {
         return "admin";
     }
     if path.starts_with("/api/auth/") {
@@ -1457,6 +1459,36 @@ mod tests {
         assert_eq!((v["ot_watches"].as_array().unwrap().len(), v["exceptions"]["new_device"].as_array().unwrap().len()), (1, 1));
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
         assert!(audit.contains("rules.update"), "changes to watches are audited");
+    }
+
+    #[tokio::test]
+    async fn the_setup_guide_reports_what_is_really_configured_and_is_for_administrators() {
+        let (app, _store, [viewer, editor, admin]) = secured().await;
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("GET", "/api/setup", Some(c), None)).await.0, StatusCode::FORBIDDEN);
+            assert_eq!(send(&app, req("PUT", "/api/setup", Some(c), Some(serde_json::json!({"completed": true})))).await.0, StatusCode::FORBIDDEN);
+        }
+        let (st, _, v) = send(&app, req("GET", "/api/setup", Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["completed"], false);
+        let ids: Vec<&str> = v["steps"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["network", "security", "alerts", "people", "backups", "branding"]);
+        let step = |v: &serde_json::Value, id: &str| v["steps"].as_array().unwrap().iter().find(|s| s["id"] == id).unwrap().clone();
+        assert_eq!(step(&v, "people")["done"], true, "three users can sign in");
+        assert_eq!(step(&v, "security")["done"], false, "no passkeys yet");
+        assert_eq!(step(&v, "alerts")["done"], false);
+        // changing something makes the step true by itself
+        let ch = serde_json::json!({"name": "Ops", "kind": "slack", "enabled": true, "min_score": 30, "url": "https://hooks.slack.com/services/T1/B2/x"});
+        let made = send(&app, req("POST", "/api/channels", Some(&admin), Some(ch))).await;
+        assert!(made.0.is_success(), "{:?}", made.2);
+        assert_eq!(step(&send(&app, req("GET", "/api/setup", Some(&admin), None)).await.2, "alerts")["done"], true);
+        // marking it done is remembered, with who did it, and can be undone
+        let (st, _, p) = send(&app, req("PUT", "/api/setup", Some(&admin), Some(serde_json::json!({"completed": true})))).await;
+        assert_eq!((st, p["completed_by"].as_str()), (StatusCode::OK, Some("adam")));
+        assert_eq!(send(&app, req("GET", "/api/setup", Some(&admin), None)).await.2["completed"], true);
+        send(&app, req("PUT", "/api/setup", Some(&admin), Some(serde_json::json!({"completed": false})))).await;
+        assert_eq!(send(&app, req("GET", "/api/setup", Some(&admin), None)).await.2["completed"], false);
+        assert!(send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string().contains("setup.guide"));
     }
 
     #[tokio::test]

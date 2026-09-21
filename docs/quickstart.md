@@ -65,6 +65,12 @@ a clean slate; see [Operations](operations.md#demo-data-and-starting-clean-erase
 
 ## 4. The first hour: what to set, in this order
 
+The first time an administrator signs in, the **setup guide** opens by itself: a checklist of your network, sign-in
+security, notifications, colleagues, backups and branding. Each item turns green when it is really done (DENIS checks
+what is configured, it does not take your word for it), and each has a button to the right page. **Remind me later**
+closes it until your next sign-in; **Mark as done** stops it opening (for everyone). You can open it again any time
+under *Settings* → *Setup guide*. The list below is the same job in more detail.
+
 1. **Look at what was found.** Open **Devices**. Each row has an icon, a risk score, the address, the
    manufacturer and a guessed type and operating system. Click a device to see *why* DENIS thinks so.
 2. **Work through the review queue.** Tick **needs review** (top right). Every device nobody has looked at

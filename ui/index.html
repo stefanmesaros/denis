@@ -299,8 +299,13 @@
       <section id="view-settings" hidden>
         <p class="muted">Settings for the whole installation. Only administrators see this page; every change is written to the <a href="#audit">audit log</a>.</p>
         <nav class="subnav" aria-label="Settings sections">
-          <a href="#settings/branding">Branding (white label)</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/data">Demo data and reset</a>
+          <a href="#settings/branding">Branding (white label)</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
         </nav>
+        <div id="setup-box" hidden>
+          <h3 class="section">Setup guide</h3>
+          <p class="muted">A checklist of what a new installation usually needs: your network, sign-in security, notifications, colleagues, backups and your branding. Each item turns green when it is really done.</p>
+          <div class="row"><button id="setup-open" type="button">Open the setup guide</button></div>
+        </div>
         <div id="branding-box" hidden>
           <h3 class="section">Branding (white label)</h3>
           <form id="branding-form" class="brand-form">
@@ -383,6 +388,7 @@
   <script src="reports.js"></script>
   <script src="health.js"></script>
   <script src="tables.js"></script>
+  <script src="setup.js"></script>
   <script src="main.js"></script>
 </body>
 </html>

@@ -308,3 +308,11 @@ table.sized td, table.sized th { overflow: hidden; text-overflow: ellipsis; }
 .cols-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
 .cols-row label { flex: 1; }
 .cols-row button { padding: 0 8px; font-size: 12px; }
+
+/* the setup guide */
+.setup-step { display: flex; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.setup-mark { flex: 0 0 22px; height: 22px; border: 1px solid var(--line); border-radius: 50%; text-align: center; line-height: 20px; color: var(--muted); }
+.setup-step.done .setup-mark { background: var(--ok); border-color: var(--ok); color: #fff; }
+.setup-body { flex: 1; }
+.setup-body button { margin-top: 6px; }
+.setup-actions { margin-top: 12px; }

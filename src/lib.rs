@@ -53,3 +53,4 @@ pub mod web_admin;
 pub mod web_health;
 pub mod web_passkey;
 pub mod web_reports;
+pub mod web_setup;

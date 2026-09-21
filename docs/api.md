@@ -60,6 +60,7 @@ Role = the lowest role allowed.
 | `GET /api/reports` | viewer | saved reports (without content), the schedule and the total size |
 | `GET /api/reports/{id}` | viewer | the saved report as a page; add `?download=1` to get it as a file |
 | `POST /api/reports` | editor | make and save a report now: `{"days": 7}` |
+| `GET/PUT /api/setup` | admin | the setup guide: `{completed, steps[]}` judged from what is configured · `{"completed": true\|false}` |
 | `GET/PUT /api/reports/settings` | viewer / admin | the schedule: `{"schedule": "off\|weekly\|monthly", "keep": 12, "days": 7}` |
 | `DELETE /api/reports/{id}` | admin | delete a saved report |
 | `GET /api/system` | viewer | health of DENIS itself: database size, disk, capture drops, sweep lag, backups, `warnings[]` (`?rows=0` skips the row counts) |

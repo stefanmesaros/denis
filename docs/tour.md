@@ -165,7 +165,8 @@ users, settings and rules) and **API tokens** for scripts and Grafana.
 
 ![Settings](img/settings.png)
 
-Everything about the installation that is not about people: **branding** (name, logo, colour, default theme and
+Everything about the installation that is not about people: the **setup guide** (the first-run checklist, which you can
+open again here), **branding** (name, logo, colour, default theme and
 language), the **HTTPS certificate** (download the local CA, or use your own), **updates** (check, install now or
 later) and **demo data**: load a fictional company to explore, remove it, or **erase all data** when you are ready for
 the real network ([details](operations.md#demo-data-and-starting-clean-erase-all-data)).
