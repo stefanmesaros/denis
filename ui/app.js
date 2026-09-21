@@ -628,7 +628,7 @@ async function loadCompliance() {
 function setTab(t) {
   state.tab = t;
   for (const b of document.querySelectorAll('.tab')) b.classList.toggle('active', b.dataset.tab === t);
-  for (const v of ['assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'alerting', 'topology', 'ot', 'trends', 'events', 'agents', 'users', 'settings', 'audit', 'account']) $('view-' + v).hidden = t !== v;
+  for (const v of ['assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'health', 'alerting', 'topology', 'ot', 'trends', 'events', 'agents', 'users', 'settings', 'audit', 'account']) $('view-' + v).hidden = t !== v;
   $('search').hidden = $('online-label').hidden = $('review-label').hidden = t !== 'assets';
   if (t !== 'assets') $('review-all').hidden = true;
   // export and import links belong to the lists they export
@@ -643,6 +643,7 @@ function setTab(t) {
   if (t === 'rules') loadRules();
   if (t === 'compliance') loadCompliance();
   if (t === 'reports') loadReports();
+  if (t === 'health') loadHealth();
   if (t === 'alerting') loadAlerting();
   if (t === 'users') { renderUsers(); renderApiTokens(); }
   if (t === 'settings') { initBrandingForm(); loadUpdateBox(); loadTlsBox(); }

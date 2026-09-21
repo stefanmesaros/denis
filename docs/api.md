@@ -62,6 +62,8 @@ Role = the lowest role allowed.
 | `POST /api/reports` | editor | make and save a report now: `{"days": 7}` |
 | `GET/PUT /api/reports/settings` | viewer / admin | the schedule: `{"schedule": "off\|weekly\|monthly", "keep": 12, "days": 7}` |
 | `DELETE /api/reports/{id}` | admin | delete a saved report |
+| `GET /api/system` | viewer | health of DENIS itself: database size, disk, capture drops, sweep lag, backups, `warnings[]` (`?rows=0` skips the row counts) |
+| `GET/POST /api/backups` · `GET/DELETE /api/backups/{name}` · `PUT /api/backups/settings` | admin | backups of the database: list (with the schedule) · make one now · download / delete · `{"schedule": "off\|daily\|weekly", "keep": 7}` |
 | `POST /api/alerts/{id}/ack` · `/unack` | editor | acknowledge / undo |
 | `POST /api/scan` | editor | run a sweep + port scan now |
 | `POST /api/assets` | editor | create a manual asset: `{"mac"?, "display_name", …}` |

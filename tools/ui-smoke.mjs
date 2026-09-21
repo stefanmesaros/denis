@@ -101,7 +101,7 @@ const takeProblems = () => problems.splice(0);
 await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
 await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/meta/options*' }] });
 
-const TABS = ['assets', 'alerts', 'findings', 'topology', 'ot', 'trends', 'events', 'compliance', 'reports', 'rules', 'alerting', 'agents', 'users', 'settings', 'audit', 'account'];
+const TABS = ['assets', 'alerts', 'findings', 'topology', 'ot', 'trends', 'events', 'compliance', 'reports', 'health', 'rules', 'alerting', 'agents', 'users', 'settings', 'audit', 'account'];
 // text a person must never see on a page
 const BAD_TEXT = "(() => { const t = document.getElementById('app').innerText; return ['null', 'undefined', '[object Object]', 'NaN'].filter((w) => new RegExp('(^|[^A-Za-z0-9_])' + w.replace(/[\\[\\]]/g, '\\\\$&') + '([^A-Za-z0-9_]|$)').test(t)); })()";
 
@@ -323,6 +323,31 @@ await check('the Reports page makes a report, keeps it in the list, serves it an
   await evaluate("window.confirm = () => true; document.querySelector('#reports-table tbody tr:first-child button').click(); 0");
   await sleep(1000);
   if ((await (await fetch(base + '/api/reports')).json()).reports.length !== before) return 'the report was not deleted';
+  const bad = await evaluate(BAD_TEXT);
+  const p = takeProblems();
+  return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
+});
+
+// ------------------------------------------------------------------ health and backups
+await check('the Health page shows the database and the backups; a backup can be made, listed, downloaded and deleted', async () => {
+  takeProblems();
+  await evaluate("location.hash = '#health'; setTab('health'); 0");
+  await sleep(1200);
+  const cards = await evaluate("[...document.querySelectorAll('#health-cards .measure')].map((c) => c.innerText)");
+  if (!cards.some((t) => /Database/.test(t)) || !cards.some((t) => /Free disk/.test(t))) return 'the cards are missing: ' + JSON.stringify(cards);
+  const before = (await (await fetch(base + '/api/backups')).json()).backups.length;
+  await evaluate("document.getElementById('backup-now').click(); 0");
+  await sleep(2500);
+  const list = (await (await fetch(base + '/api/backups')).json()).backups;
+  if (list.length !== before + 1) return `the backup was not made (${before} -> ${list.length})`;
+  const rows = await evaluate("[...document.querySelectorAll('#backups-table tbody tr')].map((r) => r.innerText)");
+  if (rows.length !== list.length || !/By hand/.test(rows[0])) return 'the list on the page does not show it: ' + JSON.stringify(rows);
+  const file = await fetch(base + '/api/backups/' + list[0].name);
+  const head = new TextDecoder().decode((await file.arrayBuffer()).slice(0, 15));
+  if (head !== 'SQLite format 3') return 'the download is not a database: ' + JSON.stringify(head);
+  await evaluate("window.confirm = () => true; document.querySelector('#backups-table tbody tr:first-child button').click(); 0");
+  await sleep(1000);
+  if ((await (await fetch(base + '/api/backups')).json()).backups.length !== before) return 'the backup was not deleted';
   const bad = await evaluate(BAD_TEXT);
   const p = takeProblems();
   return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;

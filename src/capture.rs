@@ -71,6 +71,17 @@ pub fn permission_hint() -> &'static str {
     }
 }
 
+/// What libpcap says about the capture, refreshed every few seconds (for the Health page).
+#[derive(Default)]
+pub struct CaptureStats {
+    /// The capture is running (`false` in viewer mode or after it stopped).
+    pub running: std::sync::atomic::AtomicBool,
+    /// Packets the kernel handed to libpcap / dropped because DENIS was too slow / dropped by the interface.
+    pub received: AtomicU64,
+    pub dropped: AtomicU64,
+    pub if_dropped: AtomicU64,
+}
+
 /// Handle to the capture thread.
 pub struct CaptureThread {
     stop: Arc<AtomicBool>,
@@ -91,6 +102,7 @@ pub fn spawn(
     ctx: Ctx,
     tx: mpsc::Sender<Observation>,
     frames: Arc<AtomicU64>,
+    stats: Arc<CaptureStats>,
 ) -> CaptureThread {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_flag = stop.clone();
@@ -99,6 +111,8 @@ pub fn spawn(
         .spawn(move || {
             let mut last_sent: HashMap<(Mac, u8), Instant> = HashMap::new();
             let mut agg = FlowAgg::new(FLOW_WINDOW_SECS, now_ts());
+            let mut last_stats = Instant::now();
+            stats.running.store(true, Ordering::Relaxed);
             while !stop_flag.load(Ordering::Relaxed) {
                 if ctx.flows {
                     if let Some(batch) = agg.take_if_due(now_ts()) {
@@ -107,11 +121,20 @@ pub fn spawn(
                         }
                     }
                 }
+                if last_stats.elapsed() >= Duration::from_secs(5) {
+                    last_stats = Instant::now();
+                    if let Ok(st) = cap.stats() {
+                        stats.received.store(u64::from(st.received), Ordering::Relaxed);
+                        stats.dropped.store(u64::from(st.dropped), Ordering::Relaxed);
+                        stats.if_dropped.store(u64::from(st.if_dropped), Ordering::Relaxed);
+                    }
+                }
                 let pkt = match cap.next_packet() {
                     Ok(p) => p,
                     Err(pcap::Error::TimeoutExpired) => continue,
                     Err(e) => {
                         tracing::error!("capture stopped: {e}");
+                        stats.running.store(false, Ordering::Relaxed);
                         return;
                     }
                 };

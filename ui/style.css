@@ -290,3 +290,6 @@ a.button { display: inline-block; font: inherit; text-decoration: none; border: 
 a.button:hover { border-color: var(--accent); }
 .row-actions { white-space: nowrap; text-align: right; }
 .row-actions > * { margin-left: 6px; }
+
+.ok-text { color: var(--ok); font-weight: 600; }
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }

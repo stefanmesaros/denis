@@ -175,6 +175,7 @@ $('br-remove').onclick = async () => {
 // --------------------------------------------------------------- session
 
 let poller = null;
+let healthPoller = null;
 
 function showLogin(message) {
   if (poller) { clearInterval(poller); poller = null; }
@@ -222,11 +223,15 @@ async function start() {
   $('scan').hidden = !can('editor');
   await loadOptions();
   initReports();
+  initHealth();
+  loadHealthBadge();
   setTab('assets');
   await refresh();
   applyHash();
   if (poller) clearInterval(poller);
   poller = setInterval(refresh, 5000);
+  if (healthPoller) clearInterval(healthPoller);
+  healthPoller = setInterval(() => { if (state.tab === 'health') loadHealth(); else loadHealthBadge(); }, 60000);
 }
 
 async function boot() {
@@ -872,7 +877,7 @@ $('account-logout').onclick = () => $('logout').click();
  */
 function applyHash() {
   const [what, arg] = location.hash.replace(/^#/, '').split('/');
-  const tabs = ['assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'topology', 'ot', 'trends', 'events', 'agents', 'alerting', 'users', 'settings', 'audit'];
+  const tabs = ['assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'health', 'topology', 'ot', 'trends', 'events', 'agents', 'alerting', 'users', 'settings', 'audit'];
   if (tabs.includes(what) && !$('tab-' + what)?.hidden) setTab(what);
   if (what === 'account' && state.me) setTab('account');
   // #rules/watches: scroll to the OT command watches

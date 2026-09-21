@@ -118,6 +118,18 @@ Devices online, traffic sent outside the network and alerts raised over the last
 Every event, including the low-scoring ones that never became alerts. Useful when you wonder *"did it notice
 that?"*. Click a row for the full story.
 
+## Health
+
+The **Health** page (Manage) answers "is DENIS itself in good shape?". Problems come first, in plain words: the
+capture is not running, packets are being dropped (DENIS too slow for the traffic, or a mirror port carrying more than
+one machine can process), a network sweep is late, the disk holding the database is nearly full, or there is no
+recent backup. The menu shows how many problems there are. Below: version and uptime, database size (and how much
+of it is free space), free disk, packets dropped, the last sweep, and how many rows each table holds (what to look at
+when the database is bigger than expected).
+
+Administrators also see **Backups**: a daily automatic backup of the database (keep the newest 7, or change or switch
+it off), *Back up now*, and a list to **download** or delete. See [Operations](operations.md#backup-and-restore).
+
 ## Sites
 
 ![Sites](img/sites.png)

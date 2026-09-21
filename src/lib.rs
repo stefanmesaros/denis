@@ -7,6 +7,7 @@
 pub mod active;
 pub mod agent;
 pub mod auth;
+pub mod backups;
 pub mod branding;
 pub mod capture;
 pub mod certs;
@@ -19,6 +20,7 @@ pub mod engine;
 pub mod findings;
 pub mod fingerprint;
 pub mod flow;
+pub mod health;
 pub mod ingest;
 #[cfg(test)]
 mod i18n;
@@ -47,5 +49,6 @@ pub mod tracking;
 pub mod trends;
 pub mod web;
 pub mod web_admin;
+pub mod web_health;
 pub mod web_passkey;
 pub mod web_reports;

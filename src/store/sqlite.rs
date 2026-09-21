@@ -6,7 +6,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use std::collections::HashMap;
 
-use super::{AgentToken, ApiToken, EventQuery, Passkey, SessionRecord, Store, UserRecord};
+use super::{AgentToken, ApiToken, EventQuery, Passkey, SessionRecord, Store, StoreStats, UserRecord};
 use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, ReportMeta, RiskAcceptance, User};
 
 const SCHEMA_VERSION: i64 = 11;
@@ -676,6 +676,18 @@ impl Store for SqliteStore {
         tx.execute("DELETE FROM agents WHERE id = ?1", [agent_id])?;
         tx.commit()?;
         Ok(())
+    }
+
+    fn stats(&self, with_rows: bool) -> Result<StoreStats> {
+        let conn = self.conn.lock().unwrap();
+        let pragma = |name: &str| -> Result<i64> { Ok(conn.query_row(&format!("PRAGMA {name}"), [], |r| r.get(0))?) };
+        let (pages, size, free) = (pragma("page_count")?, pragma("page_size")?, pragma("freelist_count")?);
+        let mut rows = Vec::new();
+        // fixed names, never user input
+        for t in ["assets", "events", "conversations", "metrics", "presence", "audit", "reports", "risk_acceptances", "sessions"].into_iter().filter(|_| with_rows) {
+            rows.push((t, conn.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))?));
+        }
+        Ok(StoreStats { schema_version: pragma("user_version")?, db_bytes: pages * size, free_bytes: free * size, rows })
     }
 
     fn erase_inventory(&self) -> Result<()> {

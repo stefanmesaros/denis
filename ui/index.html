@@ -56,6 +56,7 @@
           <div class="navgroup">Manage</div>
           <button class="tab" data-tab="rules" type="button"><span class="label">Rules</span></button>
           <button class="tab" data-tab="alerting" type="button" id="tab-alerting" hidden><span class="label">Alerting</span></button>
+          <button class="tab" data-tab="health" type="button"><span class="label">Health</span> <span id="count-health" class="badge" hidden></span></button>
           <button class="tab" data-tab="agents" type="button"><span class="label">Sites</span> <span id="count-agents" class="count"></span></button>
           <button class="tab" data-tab="users" type="button" id="tab-users" hidden><span class="label">Users</span></button>
           <button class="tab" data-tab="settings" type="button" id="tab-settings" hidden><span class="label">Settings</span></button>
@@ -220,6 +221,26 @@
         <div id="reports-schedule"></div>
       </section>
 
+      <section id="view-health" hidden>
+        <p class="muted">Is DENIS itself in good shape? Problems are listed first, in plain words; the rest is what to look at when something seems slow or the disk fills up.</p>
+        <div id="health-warnings"></div>
+        <div id="health-cards" class="measures"></div>
+        <div id="health-rows" hidden>
+          <h3 class="section">What is in the database</h3>
+          <div class="table-wrap"><table id="health-rows-table"><thead><tr><th>Table</th><th class="num">Rows</th></tr></thead><tbody></tbody></table></div>
+        </div>
+        <div id="backups-box" hidden>
+          <h3 class="section">Backups</h3>
+          <p class="muted">A backup is a complete, checked copy of the database (devices, alerts, users, settings, reports). A backup on the same disk does not survive the disk: keep some copies somewhere else too. It contains password hashes: guard it like the database itself.</p>
+          <p class="muted">To go back to a backup, stop DENIS, put the file in place of the database file and start DENIS again. <a href="/docs/operations" target="_blank" rel="noopener">How to restore a backup</a></p>
+          <div class="row"><button id="backup-now" type="button" class="primary">Back up now</button></div>
+          <p id="no-backups" class="muted" hidden>No backups yet.</p>
+          <div class="table-wrap"><table id="backups-table"><thead><tr><th>Made</th><th>How</th><th>Size</th><th></th></tr></thead><tbody></tbody></table></div>
+          <h3 class="section">Schedule</h3>
+          <div id="backup-schedule-form"></div>
+        </div>
+      </section>
+
       <section id="view-rules" hidden>
         <p class="muted">Every detection DENIS runs, and how it is set. Alerts are scored 0–100; anything below the minimum score is only logged. Turning a rule off, or its weight down, is safe: nothing is deleted. Changes apply within seconds and are written to the audit log. <a href="/docs/detection-rules" target="_blank" rel="noopener">How each rule scores</a></p>
         <div id="rules-global" class="rule-card"></div>
@@ -359,6 +380,7 @@
   <script src="rules.js"></script>
   <script src="findings.js"></script>
   <script src="reports.js"></script>
+  <script src="health.js"></script>
   <script src="main.js"></script>
 </body>
 </html>

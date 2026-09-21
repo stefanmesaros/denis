@@ -205,6 +205,10 @@ pub struct Shared {
     pub channel_status: crate::channels::StatusMap,
     /// Wakes the scheduler for an immediate sweep + full port rescan.
     pub scan_now: Notify,
+    /// What the packet capture reports (drops, mostly).
+    pub capture_stats: Arc<capture::CaptureStats>,
+    /// The database file (its folder holds the backups).
+    pub db_path: std::path::PathBuf,
 }
 
 impl Shared {
@@ -337,6 +341,8 @@ impl Collector {
             updater: Mutex::new(None),
             tls: Mutex::new(None),
             scan_now: Notify::new(),
+            capture_stats: Default::default(),
+            db_path: cfg.db.clone(),
         });
 
         let (tx, mut rx) = mpsc::channel::<Observation>(4096);
@@ -350,7 +356,7 @@ impl Collector {
             // Industrial decoding needs the same wide capture as flow accounting.
             ot: cfg.flows,
         };
-        let capture = capture::spawn(cap, ctx, tx.clone(), frames);
+        let capture = capture::spawn(cap, ctx, tx.clone(), frames, shared.capture_stats.clone());
 
         inv.lock().unwrap().apply(
             Observation::SelfHost {
@@ -543,6 +549,8 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
         updater: Mutex::new(None),
         tls: Mutex::new(None),
         scan_now: Notify::new(),
+        capture_stats: Default::default(),
+        db_path: cfg.db.clone(),
     });
     let auth = Arc::new(Auth::new(store.clone()));
     *auth.passkey_cfg.lock().unwrap() = crate::passkey::Config::from_settings(cfg.public_url.as_deref(), cfg.listen, false).map_err(|e| anyhow::anyhow!(e))?;
@@ -710,6 +718,8 @@ pub async fn run(cfg: Config) -> Result<()> {
 
     // saved reports on a schedule
     tasks.push(tokio::spawn(crate::reports::run(store.clone(), coll.shared.clone())));
+    // scheduled backups of the database
+    tasks.push(tokio::spawn(crate::backups::run(store.clone(), coll.shared.clone())));
 
     if let Some(sc) = cfg.syslog.clone() {
         let sl = Arc::new(crate::syslog::Syslog::new(sc));
@@ -1102,6 +1112,11 @@ async fn sweep_cycle(
 
 #[cfg(test)]
 pub fn test_shared() -> Arc<Shared> {
+    test_shared_at(std::path::PathBuf::new())
+}
+
+/// As `test_shared`, with a database path (its `backups` folder is where backups go).
+pub fn test_shared_at(db_path: std::path::PathBuf) -> Arc<Shared> {
     Arc::new(Shared {
         info: Mutex::new(StatusInfo {
             version: "test",
@@ -1134,6 +1149,8 @@ pub fn test_shared() -> Arc<Shared> {
         updater: Mutex::new(None),
         tls: Mutex::new(None),
         scan_now: Notify::new(),
+        capture_stats: Default::default(),
+        db_path,
     })
 }
 

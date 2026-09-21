@@ -21,7 +21,7 @@ use axum::http::{header, HeaderValue, StatusCode, Uri};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::extract::DefaultBodyLimit;
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{delete, get, patch, post, put};
 use axum::{Json, Router};
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,7 @@ use crate::engine::Shared;
 use crate::auth::{role_rank, Auth};
 use crate::model::{now_ts, Asset, AssetMeta, User};
 use crate::web_admin as admin;
+use crate::web_health as health_page;
 use crate::web_reports as reports_page;
 use crate::web_passkey as passkey;
 use crate::risk::{self, Risk};
@@ -116,6 +117,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/data/erase", post(admin::data_erase))
         .route("/api/findings", get(findings))
         .route("/api/findings/{id}/verify", post(admin::finding_verify))
+        .route("/api/system", get(health_page::health))
+        .route("/api/backups", get(health_page::list).post(health_page::make))
+        .route("/api/backups/settings", put(health_page::settings_put))
+        .route("/api/backups/{name}", get(health_page::download).delete(health_page::remove))
         .route("/api/reports", get(reports_page::list).post(reports_page::make))
         .route("/api/reports/settings", get(reports_page::settings_get).put(reports_page::settings_put))
         .route("/api/reports/{id}", get(reports_page::view).delete(reports_page::remove))
@@ -171,7 +176,7 @@ fn is_public(method: &axum::http::Method, path: &str) -> bool {
 /// anything needs `editor`; managing users, tokens and the audit log, or
 /// deleting assets, needs `admin`.
 pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static str {
-    if path.starts_with("/api/users") || path.starts_with("/api/tls") || path.starts_with("/api/data") || path.starts_with("/api/channels") || path.starts_with("/api/agent-tokens") || path.starts_with("/api/api-tokens") || path.starts_with("/api/audit") {
+    if path.starts_with("/api/users") || path.starts_with("/api/tls") || path.starts_with("/api/data") || path.starts_with("/api/channels") || path.starts_with("/api/agent-tokens") || path.starts_with("/api/api-tokens") || path.starts_with("/api/audit") || path.starts_with("/api/backups") {
         return "admin";
     }
     if path.starts_with("/api/auth/") {
@@ -438,6 +443,19 @@ async fn metrics(State(st): State<AppState>) -> Result<Response, ApiError> {
         e.sample("denis_channel_failing", &[("channel", &c.name), ("kind", &c.kind)], cstat.get(&c.id).is_some_and(|s| s.last_error.is_some()) as u8 as f64);
     }
     let maint = blocking(&st.store, |s| crate::channels::load_maintenance(s)).await?;
+    let shared = st.shared.clone();
+    let health = blocking(&st.store, move |s| crate::health::gather(s, &shared, now, false)).await?;
+    e.gauge("denis_database_bytes", "Size of the database.", health.db.db_bytes as f64);
+    e.gauge("denis_health_warnings", "Problems the Health page lists right now.", health.warnings.len() as f64);
+    if let Some((free, _)) = health.disk {
+        e.gauge("denis_disk_free_bytes", "Free space on the disk that holds the database.", free as f64);
+    }
+    if let Some(c) = &health.capture {
+        e.gauge("denis_capture_dropped_packets", "Packets the capture dropped since it started.", c.dropped as f64);
+    }
+    if let Some(t) = health.backups.latest_at {
+        e.gauge("denis_backup_age_seconds", "Age of the newest backup.", (now - t).max(0) as f64);
+    }
     e.gauge("denis_maintenance_mode", "1 while outgoing notifications are silenced.", maint.active(now) as u8 as f64);
     Ok((
         [(header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8".to_string())],
@@ -721,8 +739,11 @@ mod tests {
     }
 
     fn app_with(loopback_only: bool, no_auth: bool) -> (Router, Arc<dyn Store>) {
+        app_with_shared(loopback_only, no_auth, crate::engine::test_shared())
+    }
+
+    fn app_with_shared(loopback_only: bool, no_auth: bool, shared: Arc<Shared>) -> (Router, Arc<dyn Store>) {
         let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
-        let shared = crate::engine::test_shared();
         let auth = Arc::new(crate::auth::Auth::new(store.clone()));
         (
             router(AppState { store: store.clone(), shared, loopback_only, allowed_hosts: vec![], auth, no_auth, secure_cookie: false }),
@@ -926,7 +947,11 @@ mod tests {
 
     /// An app with real login and one user per role; returns each user's session cookie.
     async fn secured() -> (Router, Arc<dyn Store>, [String; 3]) {
-        let (app, store) = app_with(true, false);
+        secured_with(crate::engine::test_shared()).await
+    }
+
+    async fn secured_with(shared: Arc<Shared>) -> (Router, Arc<dyn Store>, [String; 3]) {
+        let (app, store) = app_with_shared(true, false, shared);
         let auth = crate::auth::Auth::new(store.clone());
         let mut cookies = Vec::new();
         for (name, role) in [("vera", "viewer"), ("eda", "editor"), ("adam", "admin")] {
@@ -949,7 +974,7 @@ mod tests {
             (M::GET, "/api/users", "admin"), (M::POST, "/api/users", "admin"), (M::GET, "/api/audit", "admin"),
             (M::GET, "/api/agent-tokens", "admin"), (M::GET, "/api/api-tokens", "admin"), (M::DELETE, "/api/api-tokens/1", "admin"), (M::DELETE, "/api/agent-tokens/x", "admin"),
             (M::PUT, "/api/branding", "admin"), (M::PUT, "/api/branding/logo", "admin"), (M::DELETE, "/api/branding/logo", "admin"),
-            (M::GET, "/api/branding", "viewer"), (M::POST, "/api/reports", "editor"), (M::GET, "/api/reports/3", "viewer"), (M::PUT, "/api/reports/settings", "admin"), (M::DELETE, "/api/reports/3", "admin"), (M::GET, "/api/rules", "viewer"), (M::PUT, "/api/rules", "admin"), (M::DELETE, "/api/rules", "admin"),
+            (M::GET, "/api/branding", "viewer"), (M::GET, "/api/backups", "admin"), (M::GET, "/api/backups/denis-auto-x.db", "admin"), (M::POST, "/api/backups", "admin"), (M::GET, "/api/system", "viewer"), (M::POST, "/api/reports", "editor"), (M::GET, "/api/reports/3", "viewer"), (M::PUT, "/api/reports/settings", "admin"), (M::DELETE, "/api/reports/3", "admin"), (M::GET, "/api/rules", "viewer"), (M::PUT, "/api/rules", "admin"), (M::DELETE, "/api/rules", "admin"),
             (M::POST, "/api/auth/password", "viewer"), (M::POST, "/api/auth/logout", "viewer"),
         ] {
             assert_eq!(required_role(&m, p), want, "{m} {p}");
@@ -1931,6 +1956,48 @@ mod tests {
         assert_eq!(send(&app, req("DELETE", &format!("/api/reports/{id}"), Some(&admin), None)).await.0, StatusCode::NOT_FOUND);
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
         assert!(audit.contains("report.create") && audit.contains("report.schedule") && audit.contains("report.delete"));
+    }
+
+    #[tokio::test]
+    async fn health_and_backups_work_for_the_right_roles_and_never_leave_the_backup_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (app, _store, [viewer, editor, admin]) = secured_with(crate::engine::test_shared_at(tmp.path().join("denis.db"))).await;
+        // anyone signed in sees the health summary; the sentences are ones the console translates
+        let (st, _, h) = send(&app, req("GET", "/api/system", Some(&viewer), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(h["db"]["db_bytes"].as_i64().unwrap() > 0 && h["db"]["schema_version"].as_i64().unwrap() >= 11, "{h}");
+        assert!(h["disk"][1].as_u64().unwrap() > 0);
+        assert_eq!(h["backups"]["schedule"], "daily");
+        assert!(h["db"]["rows"].as_array().unwrap().iter().any(|r| r[0] == "events"));
+        // backups: administrators only, for every method
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("GET", "/api/backups", Some(c), None)).await.0, StatusCode::FORBIDDEN);
+            assert_eq!(send(&app, req("POST", "/api/backups", Some(c), None)).await.0, StatusCode::FORBIDDEN);
+        }
+        let (st, _, made) = send(&app, req("POST", "/api/backups", Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::CREATED, "{made}");
+        let name = made["name"].as_str().unwrap().to_string();
+        assert!(name.starts_with("denis-manual-") && made["size"].as_u64().unwrap() > 0);
+        let (_, _, list) = send(&app, req("GET", "/api/backups", Some(&admin), None)).await;
+        assert_eq!(list["backups"][0]["name"], name.as_str());
+        // the file is a real SQLite database
+        let resp = app.clone().oneshot(req("GET", &format!("/api/backups/{name}"), Some(&admin), None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers()[header::CONTENT_DISPOSITION].to_str().unwrap().contains(&name));
+        let bytes = axum::body::to_bytes(resp.into_body(), 100_000_000).await.unwrap();
+        assert!(bytes.starts_with(b"SQLite format 3"));
+        // names that are not backups are not found, whatever they look like
+        for bad in ["denis.db", "..%2Fdenis.db", "denis-auto-nothing.db", "passwd"] {
+            assert_eq!(send(&app, req("GET", &format!("/api/backups/{bad}"), Some(&admin), None)).await.0, StatusCode::NOT_FOUND, "{bad}");
+        }
+        // the schedule is validated, saved, and shows up in the health summary
+        assert_eq!(send(&app, req("PUT", "/api/backups/settings", Some(&admin), Some(serde_json::json!({"schedule": "hourly", "keep": 3})))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, req("PUT", "/api/backups/settings", Some(&admin), Some(serde_json::json!({"schedule": "weekly", "keep": 3})))).await.0, StatusCode::OK);
+        assert_eq!(send(&app, req("GET", "/api/system", Some(&viewer), None)).await.2["backups"]["schedule"], "weekly");
+        assert_eq!(send(&app, req("DELETE", &format!("/api/backups/{name}"), Some(&admin), None)).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, req("DELETE", &format!("/api/backups/{name}"), Some(&admin), None)).await.0, StatusCode::NOT_FOUND);
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("backup.create") && audit.contains("backup.download") && audit.contains("backup.schedule") && audit.contains("backup.delete"));
     }
 
     #[tokio::test]

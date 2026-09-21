@@ -87,6 +87,18 @@ pub fn real_assets(store: &dyn Store) -> Result<Vec<Asset>> {
     Ok(store.load_assets()?.into_iter().filter(|a| !metas.get(&a.id).is_some_and(|m| m.demo)).collect())
 }
 
+/// How big the database is and what is in it.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct StoreStats {
+    pub schema_version: i64,
+    /// Bytes the database occupies (pages in use and free).
+    pub db_bytes: i64,
+    /// Bytes inside that which are free pages (returned by `VACUUM`).
+    pub free_bytes: i64,
+    /// Rows per table: what to look at when the database is bigger than expected.
+    pub rows: Vec<(&'static str, i64)>,
+}
+
 pub trait Store: Send + Sync {
     /// Every known asset (used to warm the in-memory inventory at startup).
     fn load_assets(&self) -> Result<Vec<Asset>>;
@@ -148,6 +160,9 @@ pub trait Store: Send + Sync {
     /// communications, presence, trends, remote sites). Users, sessions, the audit log,
     /// channels, branding, rule settings and tokens are kept.
     fn erase_inventory(&self) -> Result<()>;
+    /// Size and row counts, for the Health page.
+    /// `rows = false` skips counting the tables (counting a big table takes a moment).
+    fn stats(&self, rows: bool) -> Result<StoreStats>;
 
     // ------------------------------------------------ users and sessions
     /// Fails if the username (case-insensitive) exists.

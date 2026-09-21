@@ -2,6 +2,16 @@
 
 ## Backup and restore
 
+**In the console** (*Health* → Backups, administrators): DENIS backs its own database up **every day** and keeps the
+newest 7 (change or switch off the schedule there, keep up to 60). *Back up now* makes one by hand; each backup can be
+**downloaded** or deleted. They are written to the `backups` folder beside the database (`/var/lib/denis/backups/`
+for the installer's layout), named `denis-auto-…`, `denis-manual-…`; the copies made before an update
+(`denis-before-…`) are listed too, but the updater looks after those. Only scheduled backups are ever removed
+automatically. DENIS refuses to make a backup when the disk could not hold it, and the Health page warns when the
+newest backup is too old. A backup on the same disk does not survive the disk: fetch some copies elsewhere.
+
+From the command line:
+
 ```bash
 denis backup /safe/place/denis-2026-09-21.db      # a verified copy, made while DENIS keeps running
 ```
@@ -64,7 +74,9 @@ scrape_configs:
 ```
 
 Useful alerts: `denis_channel_failing == 1` (a notification channel is broken), `denis_export_failing == 1`,
-`denis_site_last_report_age_seconds > 900` (a remote site went quiet), `denis_alerts_unacknowledged{severity="high"} > 0`.
+`denis_site_last_report_age_seconds > 900` (a remote site went quiet), `denis_alerts_unacknowledged{severity="high"} > 0`,
+`denis_health_warnings > 0` (the Health page has something to say), `denis_backup_age_seconds > 172800` (no backup for two days),
+`denis_capture_dropped_packets` rising (the capture cannot keep up). Also exposed: `denis_database_bytes`, `denis_disk_free_bytes`.
 
 ## Upgrading
 
