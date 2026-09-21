@@ -61,7 +61,7 @@ def write(catalog):
 
 def js_keys():
     keys = {}
-    for name in ('app.js', 'admin.js', 'rules.js', 'findings.js', 'reports.js', 'health.js', 'main.js', 'icons.js'):
+    for name in ('app.js', 'admin.js', 'rules.js', 'findings.js', 'reports.js', 'health.js', 'tables.js', 'main.js', 'icons.js'):
         text = open(os.path.join(ROOT, 'ui', name), encoding='utf-8').read()
         for m in re.finditer(r"\btr\(\s*'((?:[^'\\]|\\.)*)'", text):
             keys.setdefault(m.group(1).replace("\\'", "'"), name)

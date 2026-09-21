@@ -328,6 +328,70 @@ await check('the Reports page makes a report, keeps it in the list, serves it an
   return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
 });
 
+// ------------------------------------------------------------------ table columns: hide, reorder, resize, remember
+await check('table columns can be hidden, reordered and resized, stay so when the rows are redrawn and after a reload, and can be reset', async () => {
+  takeProblems();
+  await evaluate("localStorage.removeItem('denis.table.assets-table'); location.hash = '#assets'; setTab('assets'); 0");
+  await load(base + '/#assets');
+  if (!(await ready())) return 'the console did not start';
+  const heads = () => evaluate("[...document.querySelectorAll('#assets-table thead th')].filter((t) => getComputedStyle(t).display !== 'none').map((t) => t.textContent.trim())");
+  const firstRow = () => evaluate("[...document.querySelector('#assets-table tbody tr').cells].filter((c) => getComputedStyle(c).display !== 'none').map((c) => c.textContent.trim())");
+  const start = await heads();
+  if (!start.includes('Vendor') || !start.includes('Name')) return 'unexpected headings: ' + JSON.stringify(start);
+  const row0 = await firstRow();
+  if (row0.length !== start.length) return `a row has ${row0.length} cells for ${start.length} headings`;
+  // hide Vendor from the Columns menu
+  await evaluate("document.querySelector('#view-assets .cols-btn').click(); 0");
+  await sleep(200);
+  await evaluate("[...document.querySelectorAll('#view-assets .cols-row')].find((r) => r.textContent.includes('Vendor')).querySelector('input').click(); 0");
+  await sleep(300);
+  let now_ = await heads();
+  if (now_.includes('Vendor') || now_.length !== start.length - 1) return 'Vendor was not hidden: ' + JSON.stringify(now_);
+  if ((await firstRow()).length !== now_.length) return 'the rows did not follow the hidden column';
+  // move Name one place to the left
+  const before = now_.indexOf('Name');
+  await evaluate("[...document.querySelectorAll('#view-assets .cols-row')].find((r) => r.textContent.includes('Name')).querySelector('.cols-up').click(); 0");
+  await sleep(300);
+  now_ = await heads();
+  if (now_.indexOf('Name') !== before - 1) return `Name did not move left: ${JSON.stringify(now_)}`;
+  const nameCell = await evaluate("(() => { const i = [...document.querySelectorAll('#assets-table thead th')].filter((t) => getComputedStyle(t).display !== 'none').findIndex((t) => t.textContent.trim() === 'Name'); return [...document.querySelector('#assets-table tbody tr').cells].filter((c) => getComputedStyle(c).display !== 'none')[i].classList.contains('namecell'); })()");
+  if (!nameCell) return 'the cells did not move with their heading';
+  // (the menu stays open while columns are moved; close it, and resize: drag the edge of the Name heading 80 px to the right)
+  if (!(await evaluate("!document.querySelector('#view-assets .cols-menu').hidden"))) return 'the Columns menu closed by itself when a column was moved';
+  await evaluate("document.querySelector('#view-assets .cols-btn').click(); 0");
+  const box = await evaluate("(() => { const th = [...document.querySelectorAll('#assets-table thead th')].find((t) => t.textContent.trim() === 'Name'); const r = th.querySelector('.col-resize').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: th.getBoundingClientRect().width }; })()");
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: box.x, y: box.y });
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: box.x, y: box.y, button: 'left', clickCount: 1 });
+  for (const dx of [20, 50, 80]) await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: box.x + dx, y: box.y, buttons: 1 });
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: box.x + 80, y: box.y, button: 'left', clickCount: 1 });
+  await sleep(400);
+  const w1 = await evaluate("[...document.querySelectorAll('#assets-table thead th')].find((t) => t.textContent.trim() === 'Name').getBoundingClientRect().width");
+  if (Math.abs(w1 - (box.w + 80)) > 6) return `the column is ${Math.round(w1)} px wide, expected about ${Math.round(box.w + 80)} (stored: ${await evaluate("localStorage.getItem('denis.table.assets-table')")})`;
+  // the pages redraw their rows every few seconds: the layout must survive that
+  await evaluate("renderAssets(); 0");
+  await sleep(300);
+  const redrawn = await heads();
+  if (JSON.stringify(redrawn) !== JSON.stringify(now_) || (await firstRow()).length !== redrawn.length) return 'the layout was lost when the rows were redrawn';
+  // and a reload
+  await load(base + '/#assets');
+  if (!(await ready())) return 'the console did not start again';
+  await sleep(500);
+  const reloaded = await heads();
+  const w2 = await evaluate("[...document.querySelectorAll('#assets-table thead th')].find((t) => t.textContent.trim() === 'Name').getBoundingClientRect().width");
+  if (JSON.stringify(reloaded) !== JSON.stringify(now_) || Math.abs(w2 - w1) > 6) return `after a reload: ${JSON.stringify(reloaded)}, width ${Math.round(w2)} instead of ${Math.round(w1)}`;
+  // reset
+  await evaluate("document.querySelector('#view-assets .cols-btn').click(); 0");
+  await sleep(200);
+  await evaluate("document.querySelector('#view-assets .cols-reset').click(); 0");
+  await sleep(300);
+  const reset = await heads();
+  const stored = await evaluate("localStorage.getItem('denis.table.assets-table')");
+  if (JSON.stringify(reset) !== JSON.stringify(start) || stored) return `reset gave ${JSON.stringify(reset)}, stored ${stored}`;
+  const bad = await evaluate(BAD_TEXT);
+  const p = takeProblems();
+  return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
+});
+
 // ------------------------------------------------------------------ health and backups
 await check('the Health page shows the database and the backups; a backup can be made, listed, downloaded and deleted', async () => {
   takeProblems();

@@ -10,6 +10,14 @@ health of exports), the **language** picker, the **colour theme** button (auto /
 **Help** (this documentation), **Sign out** and **Scan now** (an immediate sweep and port scan; disabled in passive-only mode).
 A yellow banner appears while **maintenance mode** silences notifications.
 
+## Tables: columns
+
+Every table with four or more columns has a **Columns** button above it. **Tick** the columns you want to see,
+**move** them with the arrows (or by dragging a heading onto another), and **resize** one by dragging the right edge
+of its heading (double-click the edge to give it back its natural width). **Reset columns** puts everything back.
+Your choice is kept **in this browser only**, per table: it does not change what anyone else sees, and clearing the
+browser's site data resets it. Sorting by a heading works as before, and the layout stays while the lists update.
+
 ## Devices
 
 ![Devices](img/devices.png)
