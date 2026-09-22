@@ -17,7 +17,7 @@ use crate::auth::{self, AuthError};
 use crate::branding;
 use crate::model::{now_ts, Asset, AssetMeta, RiskAcceptance};
 use crate::tracking;
-use crate::web::{asset_view, blocking, ApiError, AppState, AuthUser, SESSION_COOKIE};
+use crate::web::{asset_view, blocking, site_writable, ApiError, AppState, AuthUser, SESSION_COOKIE};
 
 pub(crate) fn err(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(json!({ "error": msg.into() }))).into_response()
@@ -267,6 +267,48 @@ pub(crate) async fn users_reset(State(st): State<AppState>, Extension(AuthUser(m
         }
         Ok(Err(e)) => map_auth_err(e),
         Err(_) => err(StatusCode::INTERNAL_SERVER_ERROR, "internal error"),
+    }
+}
+
+// -------------------------------------------------------------------- per-site access
+
+/// This user's site grants, plus every known site (local + every agent that ever reported) so
+/// the console can offer one row per site even where nothing has been set yet.
+pub(crate) async fn site_access_get(State(st): State<AppState>, Path(id): Path<i64>) -> Result<Json<Value>, ApiError> {
+    let (grants, agents) = blocking(&st.store, move |s| {
+        let all = crate::access::load_all(s);
+        Ok((all.into_iter().filter(|g| g.user_id == id).collect::<Vec<_>>(), s.list_agents()?))
+    })
+    .await?;
+    let mut sites = vec![json!({ "site": crate::access::LOCAL_SITE, "name": "local" })];
+    sites.extend(agents.iter().map(|a| json!({ "site": a.id, "name": a.name })));
+    Ok(Json(json!({ "sites": sites, "grants": grants })))
+}
+
+#[derive(Deserialize)]
+pub struct SiteAccessPut {
+    /// `(site, permission)` pairs; replaces this user's whole set. An empty list means "no
+    /// restriction on any site" (full access everywhere, the default before this is ever used).
+    grants: Vec<(String, String)>,
+}
+
+pub(crate) async fn site_access_put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>, Json(b): Json<SiteAccessPut>) -> Result<Response, ApiError> {
+    if b.grants.len() > 500 {
+        return Ok(err(StatusCode::BAD_REQUEST, "too many grants"));
+    }
+    if st.store.get_user_record(id)?.is_none() {
+        return Ok(err(StatusCode::NOT_FOUND, "no such user"));
+    }
+    let now = now_ts();
+    let store = st.store.clone();
+    let grants = b.grants.clone();
+    let res = tokio::task::spawn_blocking(move || crate::access::set_for_user(&*store, id, &grants, now)).await.map_err(|e| anyhow::anyhow!(e))?;
+    match res {
+        Ok(()) => {
+            audit(&st, &me.username, "user.site_access", None, json!({ "user_id": id, "grants": b.grants }));
+            Ok(StatusCode::NO_CONTENT.into_response())
+        }
+        Err(e) => Ok(err(StatusCode::BAD_REQUEST, e)),
     }
 }
 
@@ -840,6 +882,12 @@ pub(crate) async fn patch_meta(
     Path(id): Path<i64>,
     Json(patch): Json<Value>,
 ) -> Result<Response, ApiError> {
+    let Some(existing) = blocking(&st.store, move |s| s.get_asset(id)).await? else {
+        return Ok(err(StatusCode::NOT_FOUND, "no such asset"));
+    };
+    if !site_writable(&st, &me, &existing.agent_id) {
+        return Ok(err(StatusCode::FORBIDDEN, "read-only access to this site"));
+    }
     let by = me.username.clone();
     let outcome = blocking(&st.store, move |s| {
         if s.get_asset(id)?.is_none() {
@@ -887,13 +935,15 @@ pub(crate) async fn review_assets(State(st): State<AppState>, Extension(AuthUser
         return Ok(err(StatusCode::BAD_REQUEST, "give 1-5000 device ids, or {\"all\": true}"));
     }
     let by = me.username.clone();
+    let (user_id, role) = (me.id, me.role.clone());
     let n = blocking(&st.store, move |s| {
         let now = now_ts();
         let ids: Vec<i64> = if b.all { s.load_assets()?.into_iter().map(|a| a.id).collect() } else { b.ids };
         let mut changed = 0usize;
         for id in ids {
-            if s.get_asset(id)?.is_none() {
-                continue;
+            let Some(a) = s.get_asset(id)? else { continue };
+            if !crate::access::writable(s, user_id, &role, &a.agent_id) {
+                continue; // this user cannot change devices on this site: silently skipped, not an error
             }
             let mut meta = s.get_meta(id)?.unwrap_or_default();
             if !meta.reviewed {

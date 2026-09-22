@@ -134,9 +134,11 @@ what is bounded), and non-obvious decisions say *why*.
 
 ## License, contributing, security
 
-DENIS is free software, licensed under **MIT OR Apache-2.0** (your choice): you may use, modify, sell and
-build commercial products on it. See [LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE) and the
-list of [third-party software](THIRD-PARTY-LICENSES.md).
+DENIS is source-available under the **DENIS Community License**: free to read, build and run for personal,
+non-commercial use on up to 100 devices. Any organisational use, or more than 100 devices, needs a commercial
+license — see [LICENSE](LICENSE) and [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md). The full text is not an
+OSI-approved open source license; it is source-available so you can read and audit it. List of
+[third-party software](THIRD-PARTY-LICENSES.md) DENIS itself depends on (each under its own permissive license).
 
 * Contributions are welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 * Found a vulnerability? Please report it privately: [SECURITY.md](SECURITY.md).

@@ -1,0 +1,36 @@
+DENIS Community License
+Copyright (c) 2026 Stefan Mesaros. All rights reserved.
+
+This is not an OSI-approved open source license. The source code is public so you can read it,
+audit it and build it yourself — but using it is subject to the conditions below.
+
+1. Free use. You may use, run and modify DENIS free of charge only for:
+   a. personal, household or other non-commercial purposes; and
+   b. a single installation monitoring no more than 100 devices at a time (the "Community
+      edition"). An installation that discovers more than 100 devices must either stay within
+      this license by not exceeding the cap, or obtain a commercial license under clause 2.
+
+2. Commercial use. Any use by, for, or on behalf of a business, non-profit, government body or
+   other organisation — regardless of the number of devices — and any use above the 100-device
+   cap in clause 1(b), requires a separate commercial license from the copyright holder. See
+   LICENSE-COMMERCIAL.md for how to obtain one. Without it, such use is not authorised.
+
+3. Modification and redistribution. You may modify the source for your own permitted use under
+   clause 1. You may not distribute DENIS or a modified version of it, in source or binary form,
+   to any third party, except with the copyright holder's prior written permission.
+
+4. Trademark. "DENIS" and its logo are not licensed under this file. A permitted use under
+   clause 1 or 2 may refer to the software by name; it does not grant any other trademark right,
+   and in particular does not permit calling a modified or redistributed version "DENIS".
+
+5. No warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+   PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR
+   ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+   OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+6. Termination. This license terminates automatically if you breach any of its conditions;
+   the copyright holder may also grant it back after a breach is cured.
+
+This is a plain-language summary of the project's terms, not a substitute for legal advice; if
+your use is not clearly covered by clause 1, get a commercial license first.

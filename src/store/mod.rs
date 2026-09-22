@@ -132,6 +132,7 @@ pub trait Store: Send + Sync {
     fn insert_event(&self, event: &mut Event) -> Result<()>;
     /// Newest first.
     fn list_events(&self, q: &EventQuery) -> Result<Vec<Event>>;
+    fn get_event(&self, id: i64) -> Result<Option<Event>>;
     /// Returns false if no such event.
     /// Events with `id > after`, oldest first: the export cursor's view.
     fn events_after(&self, after: i64, limit: usize) -> Result<Vec<Event>>;

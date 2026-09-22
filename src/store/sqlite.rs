@@ -483,6 +483,29 @@ impl Store for SqliteStore {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    fn get_event(&self, id: i64) -> Result<Option<Event>> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn
+            .query_row(
+                "SELECT id, agent_id, asset_id, type, timestamp, severity, score, acked, raw_details FROM events WHERE id = ?1",
+                [id],
+                |r| {
+                    Ok(Event {
+                        id: r.get(0)?,
+                        agent_id: r.get(1)?,
+                        asset_id: r.get(2)?,
+                        kind: r.get(3)?,
+                        timestamp: r.get(4)?,
+                        severity: r.get(5)?,
+                        score: r.get(6)?,
+                        acked: r.get(7)?,
+                        raw_details: from_json(r, 8)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
     fn events_after(&self, after: i64, limit: usize) -> Result<Vec<Event>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(

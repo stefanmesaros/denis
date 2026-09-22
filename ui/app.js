@@ -474,6 +474,24 @@ function renderStatus() {
   $('scan').title = s.passive_only ? tr('Disabled in passive-only mode') : tr('Run an ARP sweep and port scan now');
 }
 
+/** Community edition limits (100 devices, non-commercial) or a problem with an installed license. */
+function renderLicenseBanner() {
+  const s = state.status;
+  const banner = $('license-banner');
+  const lic = s && s.license;
+  if (!lic) { banner.hidden = true; return; }
+  if (lic.problem && lic.tier) {
+    // a license file exists but is not in force right now (expired, tampered, wrong key…)
+    banner.hidden = false;
+    banner.textContent = tr('License problem: {reason}. Showing the Community edition ({cap} devices) until this is fixed.', { reason: lic.problem, cap: lic.device_cap });
+  } else if (lic.over_cap) {
+    banner.hidden = false;
+    banner.textContent = tr('Community edition: showing {cap} of {total} devices. See LICENSE-COMMERCIAL.md for a license covering your whole network.', { cap: lic.device_cap, total: s.asset_count });
+  } else {
+    banner.hidden = true;
+  }
+}
+
 // ----------------------------------------------------------------- detail
 
 async function showDetail(id) {
@@ -841,6 +859,7 @@ async function refresh() {
     state.status = null;
   }
   renderStatus();
+  renderLicenseBanner();
   renderSiteFilter();
   renderAssets();
   renderAlerts();

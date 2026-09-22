@@ -119,6 +119,21 @@ pub fn days_from_date(s: &str) -> Option<i64> {
     Some(era * 146_097 + doe - 719_468)
 }
 
+/// The inverse of `days_from_date`: `YYYY-MM-DD` for a day count since 1970-01-01.
+pub fn date_from_days(days: i64) -> String {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 /// `("expired" | "expiring" | "ok", days_left)`; "expiring" = within 60 days.
 pub fn warranty_state(m: &AssetMeta, now: i64) -> Option<(&'static str, i64)> {
     let left = days_from_date(m.warranty_expires.as_deref()?)? - now.div_euclid(86_400);
@@ -480,6 +495,11 @@ mod tests {
         assert!(valid_date("2024-02-29") && !valid_date("2023-02-29") && !valid_date("2026-13-01") && !valid_date("2026-9-1"));
         assert_eq!(days_from_date("1970-01-01"), Some(0));
         assert_eq!(days_from_date("2000-03-01"), Some(11_017));
+        assert_eq!(date_from_days(0), "1970-01-01");
+        assert_eq!(date_from_days(11_017), "2000-03-01");
+        for d in ["1970-01-01", "2000-02-29", "2026-09-22", "2099-12-31", "1901-01-01"] {
+            assert_eq!(date_from_days(days_from_date(d).unwrap()), d);
+        }
         let now = days_from_date("2026-09-20").unwrap() * 86_400 + 5;
         let m = |d: &str| AssetMeta { warranty_expires: Some(d.into()), ..Default::default() };
         assert_eq!(warranty_state(&m("2026-09-19"), now), Some(("expired", -1)));

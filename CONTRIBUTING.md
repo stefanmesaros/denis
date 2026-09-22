@@ -40,5 +40,8 @@ Do not file them as public issues: see [SECURITY.md](SECURITY.md).
 
 ## License
 
-By contributing you agree that your contribution is licensed under the same terms as the project:
-**MIT OR Apache-2.0**, at the user's option.
+DENIS is source-available under the DENIS Community License (see [LICENSE](LICENSE)), not a permissive open
+source license: the project is also sold under a separate commercial license. By contributing you grant
+Stefan Mesaros a perpetual, worldwide, royalty-free, irrevocable license to use, modify and relicense your
+contribution under any terms, including the commercial license — the same right you already have over your
+own contribution. You still retain copyright to what you wrote.

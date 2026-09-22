@@ -110,6 +110,8 @@ pub struct Config {
     pub openobserve: Option<crate::sink::SinkConfig>,
     /// Trend samples older than this are deleted.
     pub retention_days: i64,
+    /// A signed commercial license file (see `license`). `None` = Community edition.
+    pub license_file: Option<std::path::PathBuf>,
 }
 
 impl Default for Config {
@@ -131,6 +133,7 @@ impl Default for Config {
             allowed_hosts: vec![],
             public_url: None,
             retention_days: 90,
+            license_file: None,
         }
     }
 }
@@ -505,6 +508,7 @@ pub struct ServeConfig {
     pub listen: SocketAddr,
     pub no_auth: bool,
     pub public_url: Option<String>,
+    pub license_file: Option<std::path::PathBuf>,
 }
 
 /// Web console over an existing database, with **no capture, no probing and no detection**.
@@ -561,6 +565,7 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
         print_first_start(&pw);
     }
     tracing::info!("viewer console on http://{} (no capture)", cfg.listen);
+    let license = crate::license::load(cfg.license_file.as_deref(), &*store);
     web::serve(
         listener,
         web::AppState {
@@ -571,6 +576,7 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
             auth,
             no_auth: cfg.no_auth,
             secure_cookie: false,
+            license,
         },
     )
     .await?;
@@ -875,6 +881,7 @@ pub async fn run(cfg: Config) -> Result<()> {
         no_auth: cfg.no_auth,
         // over HTTPS the cookie must never travel in clear
         secure_cookie: cfg.secure_cookie || tls.is_some(),
+        license: crate::license::load(cfg.license_file.as_deref(), &*store),
     };
     let scheme = if tls.is_some() { "https" } else { "http" };
     tracing::info!("web UI on {scheme}://{}", cfg.listen);

@@ -4,6 +4,7 @@
 //! deployment (agent loop + web UI). A Phase 2 remote agent reuses everything
 //! except `web`.
 
+pub mod access;
 pub mod active;
 pub mod agent;
 pub mod auth;
@@ -23,6 +24,8 @@ pub mod fingerprint;
 pub mod flow;
 pub mod health;
 pub mod ingest;
+pub mod license;
+pub mod license_key;
 #[cfg(test)]
 mod i18n;
 #[cfg(test)]

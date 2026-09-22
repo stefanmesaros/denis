@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{Extension, Path, Query, Request, State};
 use axum::http::{header, HeaderValue, StatusCode, Uri};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -60,6 +60,8 @@ pub struct AppState {
     pub no_auth: bool,
     /// Mark the session cookie `Secure` (set when a TLS-terminating proxy is in front).
     pub secure_cookie: bool,
+    /// What edition/cap is in force (see `license`). Defaults to the Community edition.
+    pub license: crate::license::Effective,
 }
 
 /// Name of the session cookie.
@@ -168,6 +170,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/users", get(admin::users_list).post(admin::users_create))
         .route("/api/users/{id}", patch(admin::users_update))
         .route("/api/users/{id}/reset-password", post(admin::users_reset))
+        .route("/api/users/{id}/site-access", get(admin::site_access_get).put(admin::site_access_put))
         .route("/api/api-tokens", get(admin::api_tokens_list).post(admin::api_tokens_create))
         .route("/api/api-tokens/{id}", delete(admin::api_tokens_revoke))
         .route("/api/agent-tokens", get(admin::tokens_list).post(admin::tokens_issue))
@@ -402,6 +405,14 @@ async fn status(State(st): State<AppState>) -> Result<Json<serde_json::Value>, A
     v["alerts_unacked"] = unacked.into();
     v["auth_required"] = (!st.no_auth).into();
     v["now"] = crate::model::now_ts().into();
+    v["license"] = serde_json::json!({
+        "tier": st.license.license.as_ref().map(|l| l.tier.as_str()),
+        "customer": st.license.license.as_ref().map(|l| l.customer.as_str()),
+        "device_cap": st.license.device_cap,
+        "commercial": st.license.commercial,
+        "problem": st.license.problem,
+        "over_cap": st.license.over_cap(count as u32),
+    });
     Ok(Json(v))
 }
 
@@ -493,11 +504,29 @@ async fn compliance(State(st): State<AppState>) -> Result<Json<crate::compliance
     Ok(Json(blocking(&st.store, move |s| crate::reports::compliance_now(s, &shared, now_ts())).await?))
 }
 
-async fn assets(State(st): State<AppState>) -> Result<Json<Vec<AssetView>>, ApiError> {
+async fn assets(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Json<Vec<AssetView>>, ApiError> {
     let now = now_ts();
     let (mut list, alerts, mut metas) = blocking(&st.store, |s| Ok((s.load_assets()?, open_alerts(s)?, s.load_all_meta()?))).await?;
+    list.retain(|a| site_readable(&st, &me, &a.agent_id));
+    // Community edition (or an expired/invalid license): only the first `cap` devices are
+    // returned. Detection and alerting are unaffected — every device is still monitored, just
+    // not listed here past the cap (see license::keep_within_cap and LICENSE, clause 1).
+    if st.license.device_cap.is_some() {
+        let keep = crate::license::keep_within_cap(&list.iter().map(|a| a.id).collect::<Vec<_>>(), st.license.device_cap);
+        list.retain(|a| keep.contains(&a.id));
+    }
     list.sort_by(|a, b| b.last_seen.cmp(&a.last_seen).then(a.id.cmp(&b.id)));
     Ok(Json(list.into_iter().map(|a| { let m = metas.remove(&a.id).unwrap_or_default(); view(a, &alerts, m, now) }).collect()))
+}
+
+/// May `me` see this site's devices/alerts at all (site access, see `access.rs`)?
+pub(crate) fn site_readable(st: &AppState, me: &User, agent_id: &Option<String>) -> bool {
+    crate::access::readable(&*st.store, me.id, &me.role, agent_id)
+}
+
+/// May `me` change this site's devices/alerts (acknowledge, edit, delete)?
+pub(crate) fn site_writable(st: &AppState, me: &User, agent_id: &Option<String>) -> bool {
+    crate::access::writable(&*st.store, me.id, &me.role, agent_id)
 }
 
 /// Standing weaknesses and housekeeping problems, with what to do about each.
@@ -545,22 +574,36 @@ impl From<EventsQuery> for EventQuery {
 
 async fn events(
     State(st): State<AppState>,
+    Extension(AuthUser(me)): Extension<AuthUser>,
     Query(q): Query<EventsQuery>,
 ) -> Result<Json<Vec<crate::model::Event>>, ApiError> {
     let q: EventQuery = q.into();
-    Ok(Json(blocking(&st.store, move |s| s.list_events(&q)).await?))
+    let mut list = blocking(&st.store, move |s| s.list_events(&q)).await?;
+    list.retain(|e| site_readable(&st, &me, &e.agent_id));
+    Ok(Json(list))
 }
 
 /// Alerts only, newest first.
 async fn alerts(
     State(st): State<AppState>,
+    Extension(AuthUser(me)): Extension<AuthUser>,
     Query(q): Query<EventsQuery>,
 ) -> Result<Json<Vec<crate::model::Event>>, ApiError> {
     let q = EventQuery { alerts_only: true, ..q.into() };
-    Ok(Json(blocking(&st.store, move |s| s.list_events(&q)).await?))
+    let mut list = blocking(&st.store, move |s| s.list_events(&q)).await?;
+    list.retain(|e| site_readable(&st, &me, &e.agent_id));
+    Ok(Json(list))
 }
 
-async fn set_ack(st: AppState, id: i64, acked: bool) -> Result<Response, ApiError> {
+async fn set_ack(st: AppState, me: &User, id: i64, acked: bool) -> Result<Response, ApiError> {
+    if let Some(e) = blocking(&st.store, move |s| s.get_event(id)).await? {
+        if !site_readable(&st, me, &e.agent_id) {
+            return Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "not found"}))).into_response());
+        }
+        if !site_writable(&st, me, &e.agent_id) {
+            return Ok((StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "read-only access to this site"}))).into_response());
+        }
+    }
     let found = blocking(&st.store, move |s| s.set_event_acked(id, acked)).await?;
     Ok(if found {
         StatusCode::NO_CONTENT.into_response()
@@ -569,18 +612,20 @@ async fn set_ack(st: AppState, id: i64, acked: bool) -> Result<Response, ApiErro
     })
 }
 
-async fn ack(State(st): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    set_ack(st, id, true).await
+async fn ack(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    set_ack(st, &me, id, true).await
 }
 
-async fn unack(State(st): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    set_ack(st, id, false).await
+async fn unack(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    set_ack(st, &me, id, false).await
 }
 
 /// The industrial communications matrix, joined with device names so the UI
 /// can show "HMI-3 → PLC-line2 (s7): 1,204 reads, 3 writes, 1 control".
-async fn conversations(State(st): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
-    let (convs, assets, metas) = blocking(&st.store, |s| Ok((s.list_conversations()?, s.load_assets()?, s.load_all_meta()?))).await?;
+async fn conversations(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Json<serde_json::Value>, ApiError> {
+    let (convs, mut assets, metas) = blocking(&st.store, |s| Ok((s.list_conversations()?, s.load_assets()?, s.load_all_meta()?))).await?;
+    // a path is shown only when both ends are on a site this user can read
+    assets.retain(|a| site_readable(&st, &me, &a.agent_id));
     let by_id: std::collections::HashMap<i64, &Asset> = assets.iter().map(|a| (a.id, a)).collect();
     let party = |id: i64| {
         by_id.get(&id).map(|a| {
@@ -649,13 +694,20 @@ struct TrendQuery {
     agent: Option<String>,
 }
 
-async fn trend_points(State(st): State<AppState>, Query(q): Query<TrendQuery>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn trend_points(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Query(q): Query<TrendQuery>) -> Result<Response, ApiError> {
     let hours = q.hours.unwrap_or(24).clamp(1, 24 * 365);
     let now = crate::model::now_ts();
     let agent = q.agent.map(|a| if a == "local" { String::new() } else { a });
+    // a specific site's trend is refused outright when it is not readable; the all-sites
+    // total (no `agent`) is not filtered — a small aggregate byte/device count is low-sensitivity
+    if let Some(a) = &agent {
+        if !site_readable(&st, &me, &Some(a.clone()).filter(|s| !s.is_empty())) {
+            return Ok((StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "read-only or no access to this site"}))).into_response());
+        }
+    }
     let samples = blocking(&st.store, move |s| s.list_metrics(now - hours * 3600, now + 1, agent.as_deref())).await?;
     let (points, step) = trends::downsample(&samples, 240);
-    Ok(Json(serde_json::json!({ "hours": hours, "step_secs": step, "points": points })))
+    Ok(Json(serde_json::json!({ "hours": hours, "step_secs": step, "points": points })).into_response())
 }
 
 #[derive(Deserialize)]
@@ -665,7 +717,14 @@ struct DaysQuery {
 
 async fn gather(st: &AppState, days: Option<i64>) -> Result<report::ReportData, ApiError> {
     let (days, now) = (days.unwrap_or(7), crate::model::now_ts());
-    blocking(&st.store, move |s| report::gather(s, days, now)).await
+    let mut data = blocking(&st.store, move |s| report::gather(s, days, now)).await?;
+    // Same device cap as the Devices page and its CSV; alerts, findings and compliance are not
+    // capped (this is a browsing limit, not a monitoring one — see the `assets` handler).
+    if st.license.device_cap.is_some() {
+        let keep = crate::license::keep_within_cap(&data.devices.iter().map(|d| d.asset.id).collect::<Vec<_>>(), st.license.device_cap);
+        data.devices.retain(|d| keep.contains(&d.asset.id));
+    }
+    Ok(data)
 }
 
 fn csv_response(name: &str, body: String) -> Response {
@@ -769,7 +828,7 @@ mod tests {
         let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
         let auth = Arc::new(crate::auth::Auth::new(store.clone()));
         (
-            router(AppState { store: store.clone(), shared, loopback_only, allowed_hosts: vec![], auth, no_auth, secure_cookie: false }),
+            router(AppState { store: store.clone(), shared, loopback_only, allowed_hosts: vec![], auth, no_auth, secure_cookie: false, license: crate::license::load(None, &*store) }),
             store,
         )
     }
@@ -799,6 +858,100 @@ mod tests {
         assert_eq!(code, StatusCode::OK);
         let (code, _) = get_json(&app, "/api/assets/999", "127.0.0.1:8080").await;
         assert_eq!(code, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn per_site_access_restricts_a_viewer_but_never_an_admin_and_an_admin_can_set_it() {
+        let (app, store, [viewer, _editor, admin]) = secured().await;
+        let mut local_asset = Asset::new(Mac([0x02, 0, 0, 0, 0, 1]), 10);
+        store.save_asset(&mut local_asset).unwrap();
+        let mut site_a_asset = Asset { agent_id: Some("site-a".into()), ..Asset::new(Mac([0x02, 0, 0, 0, 0, 2]), 10) };
+        store.save_asset(&mut site_a_asset).unwrap();
+        store.upsert_agent(&crate::model::AgentInfo {
+            id: "site-a".into(), name: "Site A".into(), site: None, version: "0.7.0".into(), subnet: "10.0.0.0/24".into(),
+            first_seen: 10, last_report_at: 10, last_run_id: String::new(), last_seq: 0,
+        }).unwrap();
+        let vera_id = store.find_user("vera").unwrap().unwrap().user.id;
+
+        // before any grant: a viewer sees both sites, same as always
+        let (_, _, v) = send(&app, req("GET", "/api/assets", Some(&viewer), None)).await;
+        assert_eq!(v.as_array().unwrap().len(), 2);
+
+        // an admin restricts the viewer to no access on site-a
+        let (st, _, _) = send(&app, req("PUT", &format!("/api/users/{vera_id}/site-access"), Some(&admin), Some(serde_json::json!({"grants": [["site-a", "none"]]})))).await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+
+        // the viewer no longer sees site-a's device, but still sees the local one
+        let (_, _, v) = send(&app, req("GET", "/api/assets", Some(&viewer), None)).await;
+        let macs: Vec<_> = v.as_array().unwrap().iter().map(|a| a["mac"].as_str().unwrap().to_string()).collect();
+        assert_eq!(macs, vec![local_asset.mac.to_string()]);
+
+        // ...and an admin is never restricted, regardless of grants
+        let (_, _, v) = send(&app, req("GET", "/api/assets", Some(&admin), None)).await;
+        assert_eq!(v.as_array().unwrap().len(), 2);
+
+        // reading back the grants shows what was set, plus every known site
+        let (_, _, v) = send(&app, req("GET", &format!("/api/users/{vera_id}/site-access"), Some(&admin), None)).await;
+        assert_eq!(v["grants"][0]["site"], "site-a");
+        assert_eq!(v["grants"][0]["permission"], "none");
+        assert!(v["sites"].as_array().unwrap().iter().any(|s| s["site"] == "site-a"));
+
+        // a non-admin cannot change anyone's grants
+        let (st, _, _) = send(&app, req("PUT", &format!("/api/users/{vera_id}/site-access"), Some(&viewer), Some(serde_json::json!({"grants": []})))).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn a_read_only_site_grant_blocks_writes_but_not_reads() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let mut a = Asset { agent_id: Some("site-a".into()), ..Asset::new(Mac([0x02, 0, 0, 0, 0, 9]), 10) };
+        store.save_asset(&mut a).unwrap();
+        let mut e = crate::model::Event { agent_id: Some("site-a".into()), asset_id: a.id, kind: "new_device".into(), timestamp: now_ts(), severity: "high".into(), score: 80, acked: false, raw_details: serde_json::json!({}), id: 0 };
+        store.insert_event(&mut e).unwrap();
+        let eda_id = store.find_user("eda").unwrap().unwrap().user.id;
+
+        let (st, _, _) = send(&app, req("PUT", &format!("/api/users/{eda_id}/site-access"), Some(&admin), Some(serde_json::json!({"grants": [["site-a", "read"]]})))).await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+
+        // eda (editor) can still see the alert on site-a (read is granted)...
+        let (_, _, v) = send(&app, req("GET", "/api/alerts", Some(&editor), None)).await;
+        assert_eq!(v.as_array().unwrap().len(), 1);
+        // ...but cannot acknowledge it (read, not write)
+        let (st, _, _) = send(&app, req("POST", &format!("/api/alerts/{}/ack", e.id), Some(&editor), None)).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+        assert!(!store.get_event(e.id).unwrap().unwrap().acked);
+        let _ = viewer;
+    }
+
+    #[tokio::test]
+    async fn the_community_edition_caps_the_devices_list_and_its_csv_but_not_alerts() {
+        let (app, store) = app(true);
+        for i in 0..105u8 {
+            let mut a = Asset::new(Mac([0x02, 0, 0, 0, 0, i]), 10 + i as i64);
+            store.save_asset(&mut a).unwrap();
+        }
+        let (code, v) = get_json(&app, "/api/assets", "localhost:8080").await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(v.as_array().unwrap().len(), crate::license::COMMUNITY_DEVICE_CAP as usize);
+
+        // the real total is still reported, so the console can show "105 devices, 100 shown"
+        let (_, status) = get_json(&app, "/api/status", "localhost:8080").await;
+        assert_eq!(status["asset_count"], 105);
+        assert_eq!(status["license"]["device_cap"], crate::license::COMMUNITY_DEVICE_CAP);
+        assert_eq!(status["license"]["over_cap"], true);
+
+        // the CSV export respects the same cap (one header line + up to the cap data lines)
+        let req = axum::http::Request::get("/api/export/assets.csv").header("host", "localhost").body(Body::empty()).unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = String::from_utf8(axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap().to_vec()).unwrap();
+        assert_eq!(body.lines().count() - 1, crate::license::COMMUNITY_DEVICE_CAP as usize);
+
+        // which 100 are shown is stable across calls (the lowest ids, not whichever 100 happen to sort first)
+        let (_, v2) = get_json(&app, "/api/assets", "localhost:8080").await;
+        let ids: std::collections::HashSet<_> = v.as_array().unwrap().iter().map(|a| a["id"].clone()).collect();
+        let ids2: std::collections::HashSet<_> = v2.as_array().unwrap().iter().map(|a| a["id"].clone()).collect();
+        assert_eq!(ids, ids2);
     }
 
     #[tokio::test]
@@ -1062,7 +1215,7 @@ mod tests {
         let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
         store.create_user("vera", &crate::auth::hash_password("a-long-passphrase-1").unwrap(), "viewer", false, 0).unwrap();
         let app = router(AppState { store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: vec![],
-            auth: Arc::new(crate::auth::Auth::new(store.clone())), no_auth: false, secure_cookie: true });
+            auth: Arc::new(crate::auth::Auth::new(store.clone())), no_auth: false, secure_cookie: true, license: crate::license::load(None, &*store) });
         let (_, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "vera", "password": "a-long-passphrase-1"})))).await;
         assert!(h[header::SET_COOKIE].to_str().unwrap().contains("Secure"));
         let c = cookie_of(&h);
@@ -1304,7 +1457,7 @@ mod tests {
         let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
         let mk = |hosts: Vec<String>| router(AppState {
             store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: hosts,
-            auth: Arc::new(crate::auth::Auth::new(store.clone())), no_auth: true, secure_cookie: false,
+            auth: Arc::new(crate::auth::Auth::new(store.clone())), no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store),
         });
         let health = |host: &str| axum::http::Request::get("/api/health").header("host", host).body(Body::empty()).unwrap();
         let strict = mk(vec![]);
@@ -1885,7 +2038,7 @@ mod tests {
         let cfg = crate::passkey::Config { rp_id: "localhost".into(), origins: vec!["http://localhost:8080".into()] };
         *auth.passkey_cfg.lock().unwrap() = Some(cfg.clone());
         store.create_user("vera", &crate::auth::hash_password("a-long-passphrase-1").unwrap(), "viewer", false, 0).unwrap();
-        let app = router(AppState { store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false });
+        let app = router(AppState { store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false, license: crate::license::load(None, &*store) });
         let (st, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "vera", "password": "a-long-passphrase-1"})))).await;
         assert_eq!(st, StatusCode::OK);
         (app, store, cookie_of(&h), cfg)
@@ -2065,7 +2218,7 @@ mod tests {
         let shared = crate::engine::test_shared();
         // without TLS the API says so
         let auth = Arc::new(crate::auth::Auth::new(store.clone()));
-        let app_off = router(AppState { store: store.clone(), shared: shared.clone(), loopback_only: true, allowed_hosts: vec![], auth: auth.clone(), no_auth: true, secure_cookie: false });
+        let app_off = router(AppState { store: store.clone(), shared: shared.clone(), loopback_only: true, allowed_hosts: vec![], auth: auth.clone(), no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store) });
         assert_eq!(send(&app_off, req("GET", "/api/tls", None, None)).await.2["enabled"], false);
         assert_eq!(send(&app_off, req("POST", "/api/tls/certificate", None, Some(serde_json::json!({"certificate": "x", "key": "y"})))).await.0, StatusCode::BAD_REQUEST);
         assert_eq!(app_off.clone().oneshot(req("GET", "/tls/ca.pem", None, None)).await.unwrap().status(), StatusCode::NOT_FOUND);
@@ -2078,7 +2231,7 @@ mod tests {
             let role = match u { "viewer" => "viewer", "editor" => "editor", _ => "admin" };
             store.create_user(u, &crate::auth::hash_password("a-long-passphrase-1").unwrap(), role, false, 0).unwrap();
         }
-        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false });
+        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false, license: crate::license::load(None, &*store) });
         let login = |u: &'static str| { let app = app.clone(); async move {
             let (_, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": u, "password": "a-long-passphrase-1"})))).await;
             cookie_of(&h)
@@ -2340,7 +2493,7 @@ mod tests {
             }
         });
         let auth = Arc::new(crate::auth::Auth::new(store.clone()));
-        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: true, secure_cookie: false });
+        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store) });
         let mk = |n: u8, ty: &str, vendor: &str| {
             let mut a = Asset::new(Mac([2, 0, 0, 0, 0, n]), 10);
             a.device_type = ty.into();

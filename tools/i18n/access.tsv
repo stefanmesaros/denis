@@ -1,0 +1,8 @@
+# Per-site (read/write/none) access, set by an admin per user on the Users page.
+Could not load site access || Zugriffsrechte konnten nicht geladen werden || Impossible de charger les droits d'accès || No se pudieron cargar los permisos de acceso || Prístupové práva sa nepodarilo načítať
+Which sites {user} may see or change || Welche Standorte {user} sehen oder ändern darf || Quels sites {user} peut voir ou modifier || Qué sitios puede ver o cambiar {user} || Ktoré lokality môže {user} vidieť alebo meniť
+Site access: {user} || Zugriff auf Standorte: {user} || Accès aux sites : {user} || Acceso a sitios: {user} || Prístup k lokalitám: {user}
+What {user} may see or change per site. "Full access" is the default until you change it here. || Was {user} pro Standort sehen oder ändern darf. „Voller Zugriff“ ist die Vorgabe, bis Sie es hier ändern. || Ce que {user} peut voir ou modifier par site. « Accès complet » est la valeur par défaut tant que vous ne la changez pas ici. || Qué puede ver o cambiar {user} por sitio. «Acceso completo» es el valor predeterminado hasta que lo cambie aquí. || Čo môže {user} vidieť alebo meniť na jednotlivých lokalitách. „Plný prístup“ je predvolený, kým ho tu nezmeníte.
+Full access || Voller Zugriff || Accès complet || Acceso completo || Plný prístup
+Read only || Nur lesen || Lecture seule || Solo lectura || Iba na čítanie
+No access || Kein Zugriff || Aucun accès || Sin acceso || Bez prístupu

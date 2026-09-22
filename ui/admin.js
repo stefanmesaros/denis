@@ -120,8 +120,8 @@ function applyBranding(b) {
   if (b.accent) { root.setProperty('--accent', b.accent); root.setProperty('--accent-text', b.accent_text || '#ffffff'); }
   else { root.removeProperty('--accent'); root.removeProperty('--accent-text'); }
   for (const id of ['brand-logo', 'login-logo']) {
-    // replaceChildren(null) would insert the text "null"; pass nothing instead
-    if (b.logo) $(id).replaceChildren(el('img', { src: b.logo, alt: '' })); else $(id).replaceChildren();
+    // an operator's own uploaded logo always wins; otherwise DENIS's own mark
+    $(id).replaceChildren(el('img', { src: b.logo || 'denis-logo.svg', alt: '' }));
   }
   // the sign-in subtitle: the operator's own message replaces the product's tagline
   $('login-sub').textContent = b.login_message || tr('Device Enumeration & Network Inventory Security');
@@ -578,8 +578,33 @@ async function renderUsers() {
           const rr = await api('POST', '/api/users/' + u.id + '/reset-password');
           if (rr.ok) showSecret(tr('New temporary password for {user}', { user: u.username }), tr('Give this to the user. It works once and must be changed at sign-in.'), rr.json.temporary_password);
           else showMessage(tr('Could not reset'), el('p', { text: apiError(rr) }));
-        } })))));
+        } }),
+        el('button', { type: 'button', text: tr('Sites'), title: tr('Which sites {user} may see or change', { user: u.username }), onclick: () => openSiteAccess(u) })))));
   }
+}
+
+/** Per-site read/write/none for one user (see access.rs). Default (no grant) = full access. */
+async function openSiteAccess(u) {
+  const r = await api('GET', '/api/users/' + u.id + '/site-access');
+  if (!r.ok) { showMessage(tr('Could not load site access'), el('p', { text: apiError(r) })); return; }
+  const bySite = Object.fromEntries(r.json.grants.map((g) => [g.site, g.permission]));
+  const selects = r.json.sites.map(({ site, name }) => {
+    const sel = el('select', { 'aria-label': name || tr('local') },
+      el('option', { value: 'write', text: tr('Full access') }),
+      el('option', { value: 'read', text: tr('Read only') }),
+      el('option', { value: 'none', text: tr('No access') }));
+    sel.value = bySite[site] || 'write';
+    return [site, sel];
+  });
+  openForm(tr('Site access: {user}', { user: u.username }),
+    [el('p', { class: 'muted small', text: tr('What {user} may see or change per site. "Full access" is the default until you change it here.', { user: u.username }) }),
+      ...selects.map(([site, sel]) => field(r.json.sites.find((s) => s.site === site).name || tr('local'), sel))],
+    { onSubmit: async () => {
+      // only non-default rows are worth storing; "Full access" is already what no grant means
+      const grants = selects.filter(([, sel]) => sel.value !== 'write').map(([site, sel]) => [site, sel.value]);
+      const rr = await api('PUT', '/api/users/' + u.id + '/site-access', { grants });
+      return rr.ok ? null : apiError(rr);
+    } });
 }
 
 let auditRows = [];
