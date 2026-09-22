@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.4.0: an Overview tab across sites, and backups reaching an MSP
+
+* **Overview tab** (off by default; an administrator turns it on under Settings → Overview page):
+  one row per site — the local network and every remote agent you can see, respecting your own
+  site access — with online status, device count, open alerts by severity and last report time.
+  Click a row to open that site's devices. Useful once you manage more than a couple of sites: an
+  MSP with several customers, or one business with several branches.
+* **Backups can reach an MSP** (`denis run --backup-upstream https://your-msp:8081`, with a token
+  from `denis agent-token issue`): a customer's own scheduled backups are also pushed, outbound
+  only, to the MSP's master, landing under `backups/from-agents/<id>/` there — so the MSP still
+  has yesterday's device list if that customer is ever hit by ransomware, independent of whether
+  the customer also reports live as an agent. See [Deployment](docs/deployment.md#msp-keeping-a-copy-of-a-customers-backups).
+
 ## 1.3.0: install a license from the console, no file needed
 
 * **Settings → License**: paste a license's two lines directly into the console instead of

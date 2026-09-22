@@ -206,6 +206,36 @@ DENIS_AGENT_TOKEN=dat_… denis agent --master https://MASTER:8081 --master-ca /
   (WireGuard/SSH tunnel). Repeated bad tokens from one address are throttled.
 * Give each site its own learning period; the master handles it automatically.
 
+## MSP: keeping a copy of a customer's backups
+
+If you run one DENIS install per customer and manage them, you can have each customer's install
+push its own scheduled backups to your own master too — so you still have yesterday's device list
+(and everything else in the database) if a customer is ever hit by ransomware, without needing any
+inbound access to their network.
+
+On your (the MSP's) master, issue the customer a token the same way as for an agent — this only
+grants backup uploads, nothing else, unless you also set them up as a reporting agent:
+
+```bash
+denis run --ingest-listen 0.0.0.0:8081   # if not already running for agents
+denis agent-token issue --id customer-a --label "Customer A"
+```
+
+On the customer's own install:
+
+```bash
+DENIS_BACKUP_TOKEN=dat_… denis run --backup-upstream https://YOUR-MSP:8081
+```
+
+* Their local scheduled backups (Settings → Health → Backups) are unaffected — this only *also*
+  sends each one to you, outbound, right after it is made.
+* On your side they land under `backups/from-agents/customer-a/` next to your own database's
+  backups; they are named and pruned the same way local ones are.
+* A customer with `--backup-upstream` set but no reachable MSP just logs a warning and keeps its
+  local backup; nothing about their own install depends on you being reachable.
+* This is independent of whether that customer also reports live as an agent (`denis agent`) —
+  backups can flow to you even if their master runs entirely standalone otherwise.
+
 ## Alert notifications
 
 Configure **Slack, Teams, Discord, PagerDuty, Pushover, ntfy, e-mail and signed webhooks** in the console (*Alerting* tab, see [Alerting](alerting.md)); no restart, per-channel thresholds, a Test button. The simple command-line webhook below is the older way and still works:

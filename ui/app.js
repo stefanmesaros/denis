@@ -429,6 +429,38 @@ function renderEvents() {
   }));
 }
 
+// -------------------------------------------------------------- overview (MSP: one row per site)
+
+/** Open Devices pre-filtered to one site, from an Overview row. */
+function openSite(siteValue) {
+  setTab('assets');
+  if (!$('site').hidden) { $('site').value = siteValue; renderAssets(); }
+}
+
+function renderOverview() {
+  const openAlertsFor = (agentId) => state.alerts.filter((e) => !e.acked && (agentId ? e.agent_id === agentId : !e.agent_id));
+  const sevBadges = (list) => {
+    const by = (sev) => list.filter((e) => e.severity === sev).length;
+    const parts = ['high', 'medium', 'low'].map((sev) => (by(sev) ? el('span', { class: 'sev ' + sev, text: by(sev) }) : null)).filter(Boolean);
+    return parts.length ? el('span', { class: 'row' }, ...parts) : el('span', { class: 'muted', text: '0' });
+  };
+  const row = (siteValue, name, deviceCount, online, lastSeen, lastSeenTitle, agentId) => el('tr', { onclick: () => openSite(siteValue) },
+    el('td', {}, el('span', { class: 'dot' + (online ? ' on' : '') })),
+    el('td', { text: name }),
+    el('td', { class: 'num', text: deviceCount }),
+    el('td', {}, sevBadges(openAlertsFor(agentId))),
+    el('td', { text: lastSeen, title: lastSeenTitle }));
+  const rows = [];
+  if (!state.status || state.status.local_readable !== false) {
+    rows.push(row('__local', tr('local'), state.assets.filter((a) => !a.agent_id).length, true, tr('now'), '', null));
+  }
+  for (const g of state.agents) {
+    const online = now() - g.last_report_at < 120;
+    rows.push(row(g.id, g.name, state.assets.filter((a) => a.agent_id === g.id).length, online, ago(g.last_report_at), fmtTime(g.last_report_at), g.id));
+  }
+  $('overview-table').tBodies[0].replaceChildren(...rows);
+}
+
 // ----------------------------------------------------------------- sites
 
 function renderAgents() {
@@ -461,6 +493,7 @@ function renderStatus() {
   const s = state.status;
   const box = $('status');
   if (!s) { box.textContent = tr('connecting…'); return; }
+  $('tab-overview').hidden = !s.msp_overview;
   const parts = [
     [tr('mode'), s.mode === 'viewer' ? tr('viewer') : s.mode],
     [tr('iface'), s.interface + ' ' + s.subnet],
@@ -823,7 +856,7 @@ async function loadCompliance() {
 function setTab(t) {
   state.tab = t;
   for (const b of document.querySelectorAll('.tab')) b.classList.toggle('active', b.dataset.tab === t);
-  for (const v of ['assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'health', 'alerting', 'topology', 'ot', 'trends', 'events', 'agents', 'users', 'settings', 'audit', 'account']) $('view-' + v).hidden = t !== v;
+  for (const v of ['overview', 'assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'health', 'alerting', 'topology', 'ot', 'trends', 'events', 'agents', 'users', 'settings', 'audit', 'account']) $('view-' + v).hidden = t !== v;
   $('search').hidden = $('online-label').hidden = $('review-label').hidden = $('group-by').hidden = $('filters-box').hidden = t !== 'assets';
   if (t !== 'assets') $('filters-menu').hidden = true;
   if (t !== 'assets') $('review-all').hidden = true;
@@ -833,6 +866,7 @@ function setTab(t) {
   $('acked-label').hidden = t !== 'alerts';
   $('range').hidden = t !== 'trends';
   renderSiteFilter();
+  if (t === 'overview') renderOverview();
   if (t === 'topology') { if (topoMode === 'physical') renderPhysical(); else renderTopology(); }
   if (t === 'trends') loadTrends();
   if (t === 'ot') loadOt();
@@ -843,7 +877,7 @@ function setTab(t) {
   if (t === 'health') loadHealth();
   if (t === 'alerting') loadAlerting();
   if (t === 'users') { renderUsers(); renderApiTokens(); }
-  if (t === 'settings') { initBrandingForm(); loadLicenseBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); }
+  if (t === 'settings') { initBrandingForm(); initOverviewBox(); loadLicenseBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); }
   if (t === 'audit') renderAudit();
   if (t === 'account') renderAccount();
   if (t === 'agents') renderTokens();
@@ -868,6 +902,7 @@ async function refresh() {
   renderAlerts();
   renderEvents();
   renderAgents();
+  if (state.tab === 'overview') renderOverview();
   if (state.tab === 'topology') renderTopology();
   if (state.tab === 'trends') loadTrends();
   if (state.tab === 'ot') loadOt();

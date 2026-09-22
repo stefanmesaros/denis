@@ -215,6 +215,7 @@ async function start() {
   $('tab-alerting').hidden = !can('admin');
   $('data-box').hidden = !can('admin');
   $('update-box').hidden = !can('admin');
+  $('overview-box').hidden = !can('admin');
   $('license-box').hidden = !can('admin');
   $('tls-box').hidden = !can('admin');
   $('tokens-box').hidden = !can('admin');
@@ -938,14 +939,14 @@ $('account-logout').onclick = () => $('logout').click();
  */
 function applyHash() {
   const [what, arg] = location.hash.replace(/^#/, '').split('/');
-  const tabs = ['assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'health', 'topology', 'ot', 'trends', 'events', 'agents', 'alerting', 'users', 'settings', 'audit'];
+  const tabs = ['overview', 'assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'health', 'topology', 'ot', 'trends', 'events', 'agents', 'alerting', 'users', 'settings', 'audit'];
   if (tabs.includes(what) && !$('tab-' + what)?.hidden) setTab(what);
   if (what === 'account' && state.me) setTab('account');
   // #rules/watches: scroll to the OT command watches
   if (what === 'rules' && arg === 'watches') setTimeout(() => $('watches')?.scrollIntoView({ block: 'start' }), 700);
   // #settings/tls, #settings/updates ...: scroll to that section
   if (what === 'settings' && arg && !$('tab-settings').hidden) {
-    const box = { branding: 'branding-box', license: 'license-box', tls: 'tls-box', updates: 'update-box', data: 'data-box', setup: 'setup-box', security: 'security-box', switches: 'switches-box', vulndata: 'vuln-box' }[arg];
+    const box = { branding: 'branding-box', overview: 'overview-box', license: 'license-box', tls: 'tls-box', updates: 'update-box', data: 'data-box', setup: 'setup-box', security: 'security-box', switches: 'switches-box', vulndata: 'vuln-box' }[arg];
     if (box) setTimeout(() => $(box).scrollIntoView({ block: 'start' }), 50);
   }
   if (what === 'passkeys') { location.hash = '#account'; return; }
@@ -1148,6 +1149,16 @@ function initSidebar() {
 }
 
 // -------------------------------------------------------------------- HTTPS certificate
+
+function initOverviewBox() {
+  if (!can('admin')) return;
+  $('overview-enabled').checked = !!(state.status && state.status.msp_overview);
+}
+$('overview-enabled').onchange = async () => {
+  const r = await api('PUT', '/api/msp-overview', { enabled: $('overview-enabled').checked });
+  if (!r.ok) { showMessage(tr('Could not save'), el('p', { text: apiError(r) })); $('overview-enabled').checked = !$('overview-enabled').checked; return; }
+  await refresh();
+};
 
 async function loadLicenseBox() {
   if (!can('admin')) return;

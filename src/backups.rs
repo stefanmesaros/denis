@@ -158,14 +158,46 @@ pub fn is_due(s: &Settings, last_scheduled: Option<i64>, now: i64) -> bool {
     s.interval().is_some_and(|every| last_scheduled.is_none_or(|t| now - t >= every))
 }
 
-/// Background task: take the scheduled backup when it is due.
-pub async fn run(store: std::sync::Arc<dyn Store>, shared: std::sync::Arc<Shared>) {
+/// Where an MSP receives this install's own scheduled backups (`--backup-upstream`): outbound
+/// push only, the same trust model as an agent reporting to a master. The MSP keeps them so they
+/// still have yesterday's device list if this install is ever hit by ransomware.
+#[derive(Clone)]
+pub struct Upstream {
+    /// The MSP's base URL, e.g. `https://msp.example.com:9000`.
+    pub url: String,
+    /// A token issued by the MSP for this install (`denis agent-token issue`), read once from an
+    /// environment variable at start-up — never logged, never stored.
+    pub token: String,
+}
+
+fn http_client() -> ureq::Agent {
+    ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(60))).http_status_as_error(false).build().into()
+}
+
+/// Send one backup file's bytes to the MSP. The local backup already exists and is kept either
+/// way: a failed upload is logged and retried at the next scheduled backup, never fatal.
+fn upload(upstream: &Upstream, file: &Path) -> Result<()> {
+    let bytes = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
+    let endpoint = format!("{}/api/v1/backup", upstream.url.trim_end_matches('/'));
+    let resp = http_client()
+        .post(&endpoint)
+        .header("Authorization", format!("Bearer {}", upstream.token))
+        .header("Content-Type", "application/octet-stream")
+        .send(&bytes)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let code = resp.status().as_u16();
+    anyhow::ensure!((200..300).contains(&code), "the MSP refused the backup (HTTP {code}): check --backup-upstream and the token");
+    Ok(())
+}
+
+/// Background task: take the scheduled backup when it is due, and push it upstream if configured.
+pub async fn run(store: std::sync::Arc<dyn Store>, shared: std::sync::Arc<Shared>, upstream: Option<Upstream>) {
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(900));
     tokio::time::sleep(std::time::Duration::from_secs(120)).await;
     loop {
         tick.tick().await;
         let (s, sh) = (store.clone(), shared.clone());
-        let done = tokio::task::spawn_blocking(move || -> Result<Option<BackupFile>> {
+        let done = tokio::task::spawn_blocking(move || -> Result<Option<(BackupFile, PathBuf)>> {
             let settings = load(&*s)?;
             let last = list(&sh.db_path).iter().filter(|b| b.kind == "auto").map(|b| b.modified).max();
             let now = crate::model::now_ts();
@@ -174,11 +206,21 @@ pub async fn run(store: std::sync::Arc<dyn Store>, shared: std::sync::Arc<Shared
             }
             let made = create(&*s, &sh.db_path, "auto", now)?;
             prune_auto(&sh.db_path, settings.keep as usize);
-            Ok(Some(made))
+            let path = dir(&sh.db_path).join(&made.name);
+            Ok(Some((made, path)))
         })
         .await;
         match done {
-            Ok(Ok(Some(b))) => tracing::info!("scheduled backup written: {} ({})", b.name, crate::health::human_bytes(b.size)),
+            Ok(Ok(Some((b, path)))) => {
+                tracing::info!("scheduled backup written: {} ({})", b.name, crate::health::human_bytes(b.size));
+                if let Some(up) = upstream.clone() {
+                    match tokio::task::spawn_blocking(move || upload(&up, &path)).await {
+                        Ok(Ok(())) => tracing::info!("backup {} sent to the MSP", b.name),
+                        Ok(Err(e)) => tracing::warn!("could not send backup {} to the MSP: {e:#}", b.name),
+                        Err(e) => tracing::warn!("backup upload task failed: {e}"),
+                    }
+                }
+            }
             Ok(Ok(None)) => {}
             Ok(Err(e)) => tracing::warn!("scheduled backup failed: {e:#}"),
             Err(e) => tracing::warn!("scheduled backup task failed: {e}"),

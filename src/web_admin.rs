@@ -312,6 +312,27 @@ pub(crate) async fn site_access_put(State(st): State<AppState>, Extension(AuthUs
     }
 }
 
+// -------------------------------------------------------------------- MSP overview toggle
+
+/// Off by default: most installs are one site and never need a second menu item for it.
+pub(crate) const MSP_OVERVIEW_KEY: &str = "msp_overview_enabled";
+
+#[derive(Deserialize)]
+pub struct MspOverviewReq {
+    enabled: bool,
+}
+
+/// Show or hide the "Overview" tab (a row per site, for anyone managing more than a couple —
+/// an MSP with several customers, or one business with several branches). Reading whether it is
+/// on is part of `/api/status` (polled already); this only changes it, admin-only.
+pub(crate) async fn msp_overview_put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<MspOverviewReq>) -> Result<Response, ApiError> {
+    let now = now_ts();
+    let v: &[u8] = if b.enabled { b"1" } else { b"0" };
+    st.store.set_setting(MSP_OVERVIEW_KEY, v, now)?;
+    audit(&st, &me.username, "msp_overview.set", None, json!({ "enabled": b.enabled }));
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
 // -------------------------------------------------------------------- license
 
 fn license_json(eff: &crate::license::Effective) -> Value {

@@ -214,6 +214,16 @@ enum Cmd {
         /// Community edition, 100 devices, personal/non-commercial use.
         #[arg(long, env = "DENIS_LICENSE_FILE")]
         license_file: Option<PathBuf>,
+        /// Push this install's own scheduled backups to an MSP's master (its base URL, e.g.
+        /// https://msp.example.com:9000). So the MSP still has yesterday's device list if this
+        /// install is ever hit by ransomware. Needs a token issued there (`denis agent-token
+        /// issue`), read from --backup-upstream-token-env; outbound only, same as an agent.
+        #[arg(long, env = "DENIS_BACKUP_UPSTREAM")]
+        backup_upstream: Option<String>,
+        /// Environment variable holding the token for --backup-upstream (never on the command
+        /// line, so it does not show in the process list).
+        #[arg(long, default_value = "DENIS_BACKUP_TOKEN")]
+        backup_upstream_token_env: String,
     },
     /// Remote agent: collect on this network and report to a master.
     Agent {
@@ -482,6 +492,8 @@ async fn main() -> Result<()> {
             silent_minutes,
             retention_days,
             license_file,
+            backup_upstream,
+            backup_upstream_token_env,
         } => {
             let detect = DetectConfig {
                 learning_secs: learning_minutes.max(0) * 60,
@@ -530,6 +542,13 @@ async fn main() -> Result<()> {
                 }
             };
             let update = denis::update::UpdateConfig::new(update_repo, !no_update_check, db_path.clone())?.with_endpoints(update_api_base, update_download_prefix)?;
+            let backup_upstream = backup_upstream
+                .map(|url| {
+                    let token = std::env::var(&backup_upstream_token_env)
+                        .map_err(|_| anyhow::anyhow!("--backup-upstream needs a token: set the environment variable {backup_upstream_token_env}"))?;
+                    Ok::<_, anyhow::Error>(denis::backups::Upstream { url, token })
+                })
+                .transpose()?;
             let result = engine::run(engine::Config {
                 collector: collect.into_config(db_path),
                 listen,
@@ -548,6 +567,7 @@ async fn main() -> Result<()> {
                 public_url,
                 retention_days,
                 license_file,
+                backup_upstream,
             })
             .await;
             // an update was installed: continue as the new program (same arguments, same process)

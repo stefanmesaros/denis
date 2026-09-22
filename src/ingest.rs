@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
@@ -53,6 +54,10 @@ pub struct Ingest {
     failures: Mutex<HashMap<IpAddr, (u32, i64)>>,
     /// Reports are applied one at a time: simple, and plenty for this scale.
     apply_lock: Mutex<()>,
+    /// Where an agent's own backups (see `--backup-upstream` on their side) are kept: one
+    /// subfolder per agent id, under the master's own `backups` folder. `None` disables receiving
+    /// them at all (the route still exists, but every upload is refused).
+    agent_backups_dir: Option<PathBuf>,
 }
 
 /// The agent id a request's token was issued for.
@@ -69,6 +74,7 @@ impl Ingest {
         detector: Arc<Mutex<Detector>>,
         alerts: Arc<Alerts>,
         auth: Arc<Auth>,
+        agent_backups_dir: Option<PathBuf>,
     ) -> Self {
         Ingest {
             store,
@@ -77,7 +83,26 @@ impl Ingest {
             auth,
             failures: Mutex::new(HashMap::new()),
             apply_lock: Mutex::new(()),
+            agent_backups_dir,
         }
+    }
+
+    /// Write one agent's uploaded backup under its own subfolder, named the way `backups::create`
+    /// names local ones so the Health page can list and prune them the same way. Refuses an id
+    /// with anything that could escape the folder (already validated by `validate()` for reports,
+    /// but this path is reached before that, so it is re-checked here too).
+    fn store_agent_backup(&self, agent_id: &str, bytes: &[u8]) -> anyhow::Result<String> {
+        let dir = self.agent_backups_dir.as_deref().context("no --backup-upstream-dir configured on this master")?;
+        let id_ok = !agent_id.is_empty() && agent_id.len() <= 64 && agent_id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+        anyhow::ensure!(id_ok, "bad agent id");
+        let site_dir = dir.join(agent_id);
+        std::fs::create_dir_all(&site_dir)?;
+        let stamp = crate::report::iso(now_ts()).replace(['-', ':'], "");
+        let name = format!("denis-auto-{stamp}.db");
+        let tmp = site_dir.join(format!(".{name}.part"));
+        std::fs::write(&tmp, bytes)?;
+        std::fs::rename(&tmp, site_dir.join(&name))?;
+        Ok(name)
     }
 
     /// Seconds an address must wait, or 0 if it may try.
@@ -224,13 +249,13 @@ fn clamp_asset(a: &mut Asset) {
 
 // ---------------------------------------------------------------- HTTP
 
+/// Generous: a whole SQLite database, not a report. Still bounded so one agent cannot fill the disk.
+const MAX_BACKUP_BYTES: usize = 500 * 1024 * 1024;
+
 pub fn router(ingest: Arc<Ingest>) -> Router {
-    Router::new()
-        .route("/api/v1/ping", get(ping))
-        .route("/api/v1/report", post(report))
-        .layer(DefaultBodyLimit::max(MAX_BODY))
-        .layer(middleware::from_fn_with_state(ingest.clone(), auth))
-        .with_state(ingest)
+    let reports = Router::new().route("/api/v1/ping", get(ping)).route("/api/v1/report", post(report)).layer(DefaultBodyLimit::max(MAX_BODY));
+    let backups = Router::new().route("/api/v1/backup", post(backup_upload)).layer(DefaultBodyLimit::max(MAX_BACKUP_BYTES));
+    reports.merge(backups).layer(middleware::from_fn_with_state(ingest.clone(), auth)).with_state(ingest)
 }
 
 /// Bearer token -> agent identity, with per-address throttling of bad tokens.
@@ -264,6 +289,29 @@ async fn auth(State(ing): State<Arc<Ingest>>, mut req: Request, next: Next) -> R
 
 async fn ping() -> Json<serde_json::Value> {
     Json(serde_json::json!({"ok": true, "version": env!("CARGO_PKG_VERSION")}))
+}
+
+/// A customer's own scheduled backup, pushed here by their `--backup-upstream` (see
+/// `backups::run`). Kept so this master's operator still has yesterday's device list if that
+/// customer is hit by ransomware — outbound push only, same trust model as reporting itself.
+async fn backup_upload(State(ing): State<Arc<Ingest>>, Extension(who): Extension<AgentIdentity>, body: axum::body::Bytes) -> Response {
+    if body.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "empty body"}))).into_response();
+    }
+    let ok_header = &body[..body.len().min(16)];
+    if !ok_header.starts_with(b"SQLite format 3\0") {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "not a SQLite database"}))).into_response();
+    }
+    match ing.store_agent_backup(&who.0, &body) {
+        Ok(name) => {
+            tracing::info!("received a backup from agent {}: {name} ({})", who.0, crate::health::human_bytes(body.len() as u64));
+            (StatusCode::CREATED, Json(serde_json::json!({"ok": true, "name": name}))).into_response()
+        }
+        Err(e) => {
+            tracing::warn!("could not store backup from agent {}: {e:#}", who.0);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response()
+        }
+    }
 }
 
 async fn report(State(ing): State<Arc<Ingest>>, Extension(who): Extension<AgentIdentity>, Json(report): Json<Report>) -> Response {
@@ -302,12 +350,16 @@ mod tests {
     const M: Mac = Mac([0x3c, 0x22, 0xfb, 1, 2, 3]);
 
     fn setup(learning: i64) -> (Arc<Ingest>, Arc<dyn Store>) {
+        setup_with(learning, None)
+    }
+
+    fn setup_with(learning: i64, agent_backups_dir: Option<PathBuf>) -> (Arc<Ingest>, Arc<dyn Store>) {
         let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
         let cfg = DetectConfig { learning_secs: learning, settle_secs: 0, ..Default::default() };
         let det = Arc::new(Mutex::new(Detector::new(cfg, vec![], 0)));
         let alerts = Arc::new(Alerts::new(store.clone(), None));
         let auth = Arc::new(Auth::new(store.clone()));
-        (Arc::new(Ingest::new(store.clone(), det, alerts, auth)), store)
+        (Arc::new(Ingest::new(store.clone(), det, alerts, auth, agent_backups_dir)), store)
     }
 
     fn report(seq: u64, assets: Vec<Asset>, flows: Vec<FlowRecord>) -> Report {
@@ -483,6 +535,38 @@ mod tests {
         // revoking the token cuts the agent off immediately
         store.revoke_agent_token("site-b").unwrap();
         assert_eq!(call(&app, post_report(Some(&format!("Bearer {token}")), &body)).await.0, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_customers_backup_is_stored_under_its_own_agent_id_only_with_a_valid_sqlite_header() {
+        let dir = tempfile::tempdir().unwrap();
+        let backups_dir = dir.path().join("from-agents");
+        let (ing, _store) = setup_with(1000, Some(backups_dir.clone()));
+        let token = ing.auth.issue_agent_token("site-b", "Branch", 1).unwrap();
+        let other = ing.auth.issue_agent_token("site-c", "Other", 1).unwrap();
+        let app = router(ing);
+        let post = |token: &str, body: &'static [u8]| {
+            axum::http::Request::post("/api/v1/backup").header("authorization", format!("Bearer {token}")).body(Body::from(body)).unwrap()
+        };
+
+        // not a SQLite file: refused, nothing written
+        assert_eq!(call(&app, post(&token, b"not a database")).await.0, StatusCode::BAD_REQUEST);
+        assert!(!backups_dir.join("site-b").exists());
+
+        // a real (if tiny) SQLite header is accepted and lands under this agent's own folder
+        let mut sqlite_bytes = b"SQLite format 3\0".to_vec();
+        sqlite_bytes.extend([0u8; 100]);
+        let (st, v) = call(&app, post(&token, Box::leak(sqlite_bytes.clone().into_boxed_slice()))).await;
+        assert_eq!(st, StatusCode::CREATED, "{v}");
+        let files: Vec<_> = std::fs::read_dir(backups_dir.join("site-b")).unwrap().collect();
+        assert_eq!(files.len(), 1);
+        assert_eq!(std::fs::read(files[0].as_ref().unwrap().path()).unwrap(), sqlite_bytes);
+
+        // site-c's token cannot write into site-b's folder or vice versa: each writes its own
+        let (st, _) = call(&app, post(&other, Box::leak(sqlite_bytes.clone().into_boxed_slice()))).await;
+        assert_eq!(st, StatusCode::CREATED);
+        assert!(backups_dir.join("site-c").exists());
+        assert!(!backups_dir.join("site-c").join("does-not-leak-into-site-b").exists());
     }
 
     #[tokio::test]

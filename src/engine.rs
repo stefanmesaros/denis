@@ -112,6 +112,9 @@ pub struct Config {
     pub retention_days: i64,
     /// A signed commercial license file (see `license`). `None` = Community edition.
     pub license_file: Option<std::path::PathBuf>,
+    /// Push this install's own scheduled backups to an MSP (see `backups::Upstream`). `None` =
+    /// keep backups local only, same as before this existed.
+    pub backup_upstream: Option<crate::backups::Upstream>,
 }
 
 impl Default for Config {
@@ -134,6 +137,7 @@ impl Default for Config {
             public_url: None,
             retention_days: 90,
             license_file: None,
+            backup_upstream: None,
         }
     }
 }
@@ -732,7 +736,7 @@ pub async fn run(cfg: Config) -> Result<()> {
     // switches read over SNMP (ports, neighbours, what is plugged in where)
     tasks.push(tokio::spawn(crate::switches::run(store.clone(), coll.shared.clone())));
     // scheduled backups of the database
-    tasks.push(tokio::spawn(crate::backups::run(store.clone(), coll.shared.clone())));
+    tasks.push(tokio::spawn(crate::backups::run(store.clone(), coll.shared.clone(), cfg.backup_upstream.clone())));
 
     if let Some(sc) = cfg.syslog.clone() {
         let sl = Arc::new(crate::syslog::Syslog::new(sc));
@@ -898,7 +902,8 @@ pub async fn run(cfg: Config) -> Result<()> {
     };
 
     if let (Some(addr), Some(l)) = (cfg.ingest_listen, ingest_listener) {
-        let ing = Arc::new(Ingest::new(store.clone(), detector.clone(), alerts.clone(), auth.clone()));
+        let agent_backups_dir = Some(crate::backups::dir(&cfg.collector.db).join("from-agents"));
+        let ing = Arc::new(Ingest::new(store.clone(), detector.clone(), alerts.clone(), auth.clone(), agent_backups_dir));
         let rc = tls.as_ref().map(|h| h.config.clone());
         if rc.is_some() {
             tracing::info!("accepting agents on https://{addr} (per-agent bearer tokens)");

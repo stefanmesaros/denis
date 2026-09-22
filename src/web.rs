@@ -178,6 +178,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/audit", get(admin::audit_list))
         .route("/api/branding", get(admin::branding_get).put(admin::branding_put))
         .route("/api/license", get(admin::license_get).put(admin::license_put).delete(admin::license_delete))
+        .route("/api/msp-overview", put(admin::msp_overview_put))
         .route("/api/branding/logo", axum::routing::put(admin::logo_put).delete(admin::logo_delete).layer(DefaultBodyLimit::max(crate::branding::MAX_LOGO_BYTES + 1024)))
         .route("/branding/logo", get(admin::logo_get))
         .fallback(static_file)
@@ -205,7 +206,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path == "/api/reports/settings") && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path == "/api/reports/settings") && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -408,6 +409,7 @@ async fn status(State(st): State<AppState>, Extension(AuthUser(me)): Extension<A
     v["now"] = crate::model::now_ts().into();
     // whether the local site (no agent) shows in the site filter at all (see access.rs)
     v["local_readable"] = site_readable(&st, &me, &None).into();
+    v["msp_overview"] = matches!(st.store.get_setting(crate::web_admin::MSP_OVERVIEW_KEY), Ok(Some(b)) if b == b"1").into();
     let lic = effective_license(&st);
     v["license"] = serde_json::json!({
         "tier": lic.license.as_ref().map(|l| l.tier.as_str()),
@@ -958,6 +960,32 @@ mod tests {
         assert_eq!(st, StatusCode::FORBIDDEN);
         assert!(!store.get_event(e.id).unwrap().unwrap().acked);
         let _ = viewer;
+    }
+
+    #[tokio::test]
+    async fn the_overview_tab_toggle_is_admin_only_and_reflected_in_status() {
+        let (app, _store, [viewer, editor, admin]) = secured().await;
+
+        // off by default
+        let (_, _, v) = send(&app, req("GET", "/api/status", Some(&viewer), None)).await;
+        assert_eq!(v["msp_overview"], false);
+
+        // only an admin may turn it on
+        assert_eq!(send(&app, req("PUT", "/api/msp-overview", Some(&viewer), Some(serde_json::json!({"enabled": true})))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("PUT", "/api/msp-overview", Some(&editor), Some(serde_json::json!({"enabled": true})))).await.0, StatusCode::FORBIDDEN);
+        let (st, _, _) = send(&app, req("PUT", "/api/msp-overview", Some(&admin), Some(serde_json::json!({"enabled": true})))).await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+
+        // ...and everyone (any signed-in role) now sees it is on
+        for cookie in [&viewer, &editor, &admin] {
+            let (_, _, v) = send(&app, req("GET", "/api/status", Some(cookie), None)).await;
+            assert_eq!(v["msp_overview"], true, "{cookie}");
+        }
+
+        let (st, _, _) = send(&app, req("PUT", "/api/msp-overview", Some(&admin), Some(serde_json::json!({"enabled": false})))).await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+        let (_, _, v) = send(&app, req("GET", "/api/status", Some(&viewer), None)).await;
+        assert_eq!(v["msp_overview"], false);
     }
 
     #[tokio::test]
