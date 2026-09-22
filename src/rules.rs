@@ -193,7 +193,7 @@ pub const MAX_WATCHES: usize = 30;
 pub const MAX_IT_WATCHES: usize = 30;
 /// How many ports or addresses one IT watch may list.
 pub const MAX_LIST: usize = 30;
-pub const WATCH_PROTOS: &[&str] = &["any", "modbus", "s7", "enip", "dnp3", "bacnet", "opcua", "iec104", "tls", "modbus-tls", "opcua-tls", "iec104-tls", "dnp3-tls", "mqtt-tls"];
+pub const WATCH_PROTOS: &[&str] = &["any", "modbus", "s7", "enip", "dnp3", "bacnet", "opcua", "iec104", "fins", "hart-ip", "knxnet-ip", "mqtt", "coap", "tls", "modbus-tls", "opcua-tls", "iec104-tls", "dnp3-tls", "mqtt-tls"];
 
 impl Scope {
     /// Validate and normalise what came in.

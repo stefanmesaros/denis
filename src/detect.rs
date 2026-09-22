@@ -625,11 +625,11 @@ impl Detector {
                     RULE_OT_EXPOSURE,
                     score,
                     json!({
-                        "summary": format!("{proto} traffic between this device and {} outside the local network", r.remote),
+                        "summary": format!("Port {} ({proto}, an industrial control protocol) between this device and {} outside the local network", r.port, r.remote),
                         "protocol": proto, "port": r.port, "remote": r.remote,
                         "bytes_out": r.bytes_out, "bytes_in": r.bytes_in, "peers": exposed.len(),
                         "reasons": [format!(
-                            "+90 {proto} (port {}) is an industrial control protocol with little or no authentication; it must never cross the network boundary",
+                            "+90 port {} is normally {proto}, an industrial control protocol with little or no authentication; whatever is really running on it, that port must never cross the network boundary",
                             r.port
                         )],
                     }),

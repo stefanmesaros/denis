@@ -45,11 +45,26 @@ Passively decoded (nothing is ever sent):
 | BACnet/IP | 47808 | ReadProperty, WriteProperty, **ReinitializeDevice**, DeviceCommunicationControl | device instance, vendor (I-Am) |
 | OPC UA | 4840 | protocol and session only | – |
 | IEC 60870-5-104 | 2404 | commands (types 45–64), clock sync, reset | – |
+| Omron FINS | 9600 | memory/parameter/program area read/write, **run/stop** | – |
+| HART-IP | 5094 | protocol and session only (see below) | – |
+| MQTT | 1883 | PUBLISH (write), SUBSCRIBE (read) | – |
+| CoAP | 5683 | GET (read), POST/PUT/DELETE (write) | – |
+| KNXnet/IP | 3671 | protocol and message kind only (see below) | – |
 | LLDP, CDP | link layer | – | system name/description, port, capabilities |
 | PROFINET DCP | link layer | – | station name, vendor, role, IP |
 
-Each decoder verifies the protocol's own signature, so ordinary traffic that merely uses the same port number
-is not mistaken for industrial traffic.
+Each decoder verifies the protocol's own signature (magic bytes, a length field that has to match, a checksum, a
+declared version), so ordinary traffic that merely uses the same port number is not mistaken for industrial traffic,
+and **a port number by itself is never treated as identification**. **HART-IP** and **KNXnet/IP** are named and
+their direction is known, but not read from further: HART's command table and KNX's cEMI/APCI layout would need a
+capture to check the exact byte offsets against, which DENIS did not have, so it stops at "this is HART-IP" /
+"this is KNXnet/IP" rather than guess at read vs write. Every decoder above (including these two) has been checked
+against a real capture of that protocol, listed in `tools/ot-samples.sh`.
+
+Ports whose protocol has **no public, checkable signature** (Niagara Fox 1911, GE SRTP 18245, MELSEC 5007, PCWorx
+1962, CODESYS 2455) are used **only** for the *"industrial port crossing the boundary"* finding below: seeing that
+port leave the network is worth a look regardless of what is really on it, but DENIS never names a conversation,
+or judges a read from a write, from a port number alone.
 
 From this DENIS derives **roles** (server/PLC vs client/HMI), types (`plc`, `rtu`, `hmi`, `building controller`,
 `industrial switch`, `industrial device`…) and icons automatically, and shows them on the **OT** tab.
@@ -111,9 +126,8 @@ that is often enough: **a device that should never talk to a client, and does, i
 DENIS sees, between two local devices, without reading any content:
 
 * **that they talk**, over which port, in which direction (who opened the session), how many packets and bytes, and when;
-* the **protocol**, when the port names it: `opcua-tls` (4843), `modbus-tls` (802), `iec104-tls` (19998), `dnp3-tls` (19999),
-  `mqtt-tls` (8883), or `tls` on any other port. Protocols DENIS does not decode but whose port is known (Omron FINS, GE SRTP,
-  MELSEC, PCWorx, CODESYS, Niagara Fox) are paths too, marked *content not decoded*;
+* the **protocol**, when a TLS-secured port names it: `opcua-tls` (4843), `modbus-tls` (802), `iec104-tls` (19998),
+  `dnp3-tls` (19999), `mqtt-tls` (8883), or plain `tls` on any other port;
 * from the **TLS handshake**: the protocol version (1.0 to 1.3: a controller still on TLS 1.0 is worth knowing about) and the
   **server name** the client asked for (SNI). They appear in the OT tab's *commands seen* column, for example
   `TLS 1.3 handshake (server name plc1.plant.local)`.

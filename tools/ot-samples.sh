@@ -41,6 +41,7 @@ S7/1-S7comm-VarService-Read-DB1DBD0/1-S7comm-VarService-Read-DB1DBD0.pcap|s7read
 S7/4-S7comm-Download-DB1-with-password-request/4-S7comm-Download-DB1-with-password-request.pcap|s7download.pcap
 BACNET/BACnetARRAY-elements/BACnetARRAY-elements.pcap|bacnet.pcap
 EIP/EIP-FirmwareChange/EIP-FirmwareChange.pcap|eip.pcap
+FINS (OMRON)/omron/omron.pcap|fins.pcap
 LIST
   check "Modbus/TCP: a master polling a PLC" "$T/modbus.pcap" "modbus/502" "read holding registers (3)" "Devices (2)"
   check "Modbus/TCP test data: reads, writes, diagnostics, and a device that starts writing" "$T/modbus2.pcap" \
@@ -51,5 +52,15 @@ LIST
   check "BACnet/IP: Who-Is, I-Am and reads between building controllers" "$T/bacnet.pcap" "bacnet/47808" "Who-Is" "I-Am" "read property (12)"
   check "EtherNet/IP: a firmware change of a Logix controller (thousands of tag writes, then a reset)" "$T/eip.pcap" \
     "enip/44818" "CIP write (service 0x4d)" "CIP reset (service 0x05)" "ot_control_command"
+  check "Omron FINS: memory reads/writes and a RUN command (the one that matters most)" "$T/fins.pcap" \
+    "fins/9600" "memory area read (0x01.0x01)" "run (0x04.0x01)" "ot_control_command"
+fi
+
+echo "HART-IP (Wireshark wiki sample capture, fetched separately: not part of ICS-pcap)"
+if [ "${OFFLINE:-0}" = 0 ]; then
+  curl -sfL -m 60 -o "$T/hart_ip.pcap" "https://wiki.wireshark.org/uploads/__moin_import__/attachments/SampleCaptures/hart_ip.pcap" \
+    && check "HART-IP: a session and wrapped HART commands between a host and a field instrument" "$T/hart_ip.pcap" \
+      "hart-ip/5094" \
+    || { echo "  FAIL  could not download the HART-IP sample"; fail=1; }
 fi
 [ "$fail" = 0 ] && echo "all OT sample checks passed" || { echo "OT sample checks FAILED"; exit 1; }

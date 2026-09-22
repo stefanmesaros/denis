@@ -20,8 +20,8 @@ use std::net::Ipv4Addr;
 use crate::model::{OtClass, OtPdu};
 use crate::parse::clean_str;
 
-/// Well-known industrial server ports. Traffic to/from these towards the
-/// *outside* of the network is an exposure finding on its own.
+/// Ports DENIS decodes the content of (used by [`parse_pdu`]) and names in a conversation, keyed the same as
+/// [`EXPOSURE_PORTS`] so both lists agree on the name for a port they share.
 pub const OT_PORTS: &[(u16, &str)] = &[
     (502, "modbus"),
     (102, "s7"),
@@ -30,17 +30,24 @@ pub const OT_PORTS: &[(u16, &str)] = &[
     (47808, "bacnet"),
     (4840, "opcua"),
     (2404, "iec104"),
-    (1911, "niagara-fox"),
-    (9600, "omron-fins"),
-    (18245, "ge-srtp"),
-    (5007, "melsec"),
-    (1962, "pcworx"),
-    (2455, "codesys"),
+    (9600, "fins"),
+    (5094, "hart-ip"),
+    (3671, "knxnet-ip"),
+    (1883, "mqtt"),
+    (5683, "coap"),
 ];
 
-/// Protocol name for an OT server port, if it is one.
+/// Ports that name a protocol for the "industrial port crossing the network boundary" finding **only**: a device
+/// on one of these ports talking to the outside is worth a look because of the *port* alone, whatever the payload
+/// turns out to be (DENIS never decodes or names a conversation from these: it has no verifiable signature for them,
+/// so a wrong guess would be a false industrial-conversation claim). The finding's own wording says so.
+const EXPOSURE_ONLY_PORTS: &[(u16, &str)] = &[(1911, "niagara-fox"), (18245, "ge-srtp"), (5007, "melsec"), (1962, "pcworx"), (2455, "codesys")];
+
+/// The protocol usually run on an industrial port, for the boundary-exposure finding. Not a claim that traffic
+/// on this port really is that protocol (see [`EXPOSURE_ONLY_PORTS`]); for the ports DENIS actually decodes it is
+/// the confirmed name.
 pub fn ot_proto_for_port(port: u16) -> Option<&'static str> {
-    OT_PORTS.iter().find(|(p, _)| *p == port).map(|(_, n)| *n)
+    OT_PORTS.iter().chain(EXPOSURE_ONLY_PORTS).find(|(p, _)| *p == port).map(|(_, n)| *n)
 }
 
 /// Industrial protocols that run inside TLS on their own port: what is on the wire is encrypted, but the port says which protocol it is.
@@ -154,11 +161,10 @@ pub fn parse_opaque(is_tcp: bool, sport: u16, dport: u16, payload: &[u8]) -> Opt
             return Some(pdu(proto, src_is_server, OtClass::Opaque, detail, port));
         }
     }
-    // an industrial protocol DENIS does not decode (its port is the evidence). A port of a protocol that *is* decoded, with
-    // something else on it, is not counted: ordinary traffic that merely uses the number is not industrial traffic.
-    let (p, n) = named?;
-    let decoded = matches!(p, 502 | 102 | 44818 | 20000 | 47808 | 4840 | 2404);
-    (!decoded && !payload.is_empty()).then(|| pdu(n, sport == p && dport != p, OtClass::Opaque, "content not decoded", p))
+    // Nothing else is named from a port alone: a port number is not evidence, only a hint at where to look, and a
+    // wrong guess here would show up as a false industrial conversation. Traffic that is not TLS and does not match
+    // one of the decoders in `parse_pdu` is simply not reported as an OT path.
+    None
 }
 
 /// Decode one TCP/UDP payload as an industrial protocol, choosing the decoder
@@ -186,6 +192,12 @@ pub fn parse_pdu(is_tcp: bool, sport: u16, dport: u16, payload: &[u8]) -> Option
         if let Some(p) = server_port(2404) {
             return iec104(payload, sport == p && dport != p, p);
         }
+        if let Some(p) = server_port(5094) {
+            return hart_ip(payload, sport == p && dport != p, p);
+        }
+        if let Some(p) = server_port(1883) {
+            return mqtt(payload, sport == p && dport != p, p);
+        }
     } else {
         if let Some(p) = server_port(47808) {
             return bacnet(payload, p);
@@ -195,6 +207,18 @@ pub fn parse_pdu(is_tcp: bool, sport: u16, dport: u16, payload: &[u8]) -> Option
         }
         if let Some(p) = server_port(20000) {
             return dnp3(payload, p);
+        }
+        if let Some(p) = server_port(9600) {
+            return fins(payload, sport == p && dport != p, p);
+        }
+        if let Some(p) = server_port(5094) {
+            return hart_ip(payload, sport == p && dport != p, p);
+        }
+        if let Some(p) = server_port(3671) {
+            return knxnet_ip(payload, sport == p && dport != p, p);
+        }
+        if let Some(p) = server_port(5683) {
+            return coap(payload, sport == p && dport != p, p);
         }
     }
     None
@@ -432,6 +456,179 @@ fn dnp3(b: &[u8], port: u16) -> Option<OtPdu> {
         _ => (OtClass::Other, "function"),
     };
     Some(pdu("dnp3", false, class, format!("{name} ({func})"), port))
+}
+
+// ------------------------------------------------------------------ FINS (Omron)
+
+/// Omron FINS over UDP/TCP: a 10-byte header (ICF, RSV, GCT, 3 network addresses each, SID), then a 2-byte command
+/// code (MRC/SRC). Only the command groups documented in Omron's FINS command reference (W342) are classified;
+/// everything else is named but not judged, so an unfamiliar sub-command is never mislabelled as a read or a write.
+fn fins(b: &[u8], server_is_src: bool, port: u16) -> Option<OtPdu> {
+    if b.len() < 12 {
+        return None;
+    }
+    let icf = b[0];
+    // 0x80/0x81 = command (a response is required or not), 0xc0/0xc1 = response. GCT (byte 2) is a small hop count.
+    if !matches!(icf, 0x80 | 0x81 | 0xc0 | 0xc1) || b[2] > 8 {
+        return None;
+    }
+    let is_response = icf & 0x40 != 0;
+    if is_response != server_is_src {
+        return None; // the direction the header claims must agree with which side holds the well-known port
+    }
+    let (mrc, src) = (b[10], b[11]);
+    if is_response {
+        return Some(pdu("fins", true, OtClass::Other, format!("response ({mrc:#04x}.{src:#04x})"), port));
+    }
+    let (class, name) = match (mrc, src) {
+        (0x01, 0x01 | 0x04 | 0x05) => (OtClass::Read, "memory area read"),
+        (0x01, 0x02) => (OtClass::Write, "memory area write"),
+        (0x01, 0x03) => (OtClass::Write, "memory area fill"),
+        (0x02, 0x01) => (OtClass::Read, "parameter area read"),
+        (0x02, 0x02) => (OtClass::Write, "parameter area write"),
+        (0x02, 0x03) => (OtClass::Write, "parameter area clear"),
+        (0x03, 0x06) => (OtClass::Read, "program area read"),
+        (0x03, 0x07) => (OtClass::Write, "program area write"),
+        (0x03, 0x08) => (OtClass::Write, "program area clear"),
+        // Run/Stop is the one command in the whole protocol that matters most for OT security.
+        (0x04, 0x01) => (OtClass::Control, "run"),
+        (0x04, 0x02) => (OtClass::Control, "stop"),
+        (0x06, 0x01 | 0x03 | 0x20) => (OtClass::Read, "status read"),
+        _ => (OtClass::Other, "function"),
+    };
+    Some(pdu("fins", false, class, format!("{name} ({mrc:#04x}.{src:#04x})"), port))
+}
+
+// ------------------------------------------------------------------ HART-IP
+
+/// HART-IP (IEC 62734 / FieldComm Group HCF SPEC-081): an 8-byte header (version, message type, message id, status,
+/// sequence number, byte count) wrapping a HART command. Only the header is decoded: HART's own command set needs
+/// the field-instrument universal/common-practice/device-specific command tables to judge read from write, which
+/// is a lot of ground to cover correctly, so DENIS names the protocol and the direction and stops there (as it
+/// already does for OPC UA).
+fn hart_ip(b: &[u8], server_is_src: bool, port: u16) -> Option<OtPdu> {
+    if b.len() < 8 || b[0] != 1 {
+        return None; // version must be 1: everything issued under HART-IP so far uses it
+    }
+    let (msg_type, msg_id) = (b[1], b[2]);
+    if msg_type > 6 || msg_id > 9 {
+        return None;
+    }
+    let byte_count = u16::from_be_bytes([b[6], b[7]]) as usize;
+    if byte_count < 8 || byte_count > b.len() + 512 {
+        return None; // the declared size must be in the right ballpark of what actually arrived
+    }
+    let kind = match msg_type {
+        0 => "request",
+        1 => "response",
+        2 => "publish",
+        _ => "message",
+    };
+    Some(pdu("hart-ip", server_is_src, OtClass::Other, format!("{kind} (id {msg_id})"), port))
+}
+
+// ------------------------------------------------------------------ KNXnet/IP
+
+/// KNXnet/IP (ISO/IEC 14543-3, formerly EIBnet/IP): every frame starts with a 6-byte header whose first two bytes
+/// are always `06 10` (header length, protocol version), the third and fourth are the service type (one of the
+/// small set the standard defines), and the last two are the total frame length, which must match exactly.
+///
+/// A TUNNELLING_REQUEST or ROUTING_INDICATION carries a cEMI frame whose APCI would say whether a group address is
+/// being read or written, but locating it correctly needs to walk past a variable-length "additional information"
+/// block first; without a real capture to check that against, DENIS names the protocol and stops there rather than
+/// risk turning a read into a write (or the reverse) on a byte offset that was never seen in practice.
+fn knxnet_ip(b: &[u8], server_is_src: bool, port: u16) -> Option<OtPdu> {
+    if b.len() < 6 || b[0] != 0x06 || b[1] != 0x10 || u16::from_be_bytes([b[4], b[5]]) as usize != b.len() {
+        return None;
+    }
+    let service = u16::from_be_bytes([b[2], b[3]]);
+    let name = match service {
+        0x0201..=0x0206 => "search/description/connect",
+        0x0310..=0x0315 => "connection state/disconnect",
+        0x0420 | 0x0421 => "tunnelling",
+        0x0530 | 0x0531 => "routing",
+        _ => return None,
+    };
+    Some(pdu("knxnet-ip", server_is_src, OtClass::Other, name, port))
+}
+
+// ------------------------------------------------------------------ MQTT
+
+/// MQTT (OASIS standard, versions 3.1.1 and 5): a fixed header of a control-packet-type nibble and a "remaining
+/// length" encoded as a 1-4 byte variable-length integer that must account for exactly the rest of the packet.
+/// Devices in the field are usually publishers (sensor readings) or subscribers (setpoints, commands); CONNECT
+/// carries the protocol name, which is one more check against mistaking other traffic for MQTT.
+fn mqtt(b: &[u8], server_is_src: bool, port: u16) -> Option<OtPdu> {
+    let ptype = b.first()? >> 4;
+    if !(1..=14).contains(&ptype) {
+        return None;
+    }
+    let mut len = 0u32;
+    let mut i = 1;
+    for shift in 0..4 {
+        let byte = *b.get(i)?;
+        len |= ((byte & 0x7f) as u32) << (shift * 7);
+        i += 1;
+        if byte & 0x80 == 0 {
+            break;
+        }
+    }
+    if i + len as usize != b.len() {
+        return None;
+    }
+    let (class, name) = match ptype {
+        1 => {
+            // CONNECT: variable header starts with a length-prefixed protocol name ("MQTT" or the 3.1 "MQIsdp").
+            let body = b.get(i..)?;
+            let name_len = u16::from_be_bytes([*body.first()?, *body.get(1)?]) as usize;
+            let proto_name = body.get(2..2 + name_len)?;
+            if proto_name != b"MQTT" && proto_name != b"MQIsdp" {
+                return None;
+            }
+            (OtClass::Other, "connect")
+        }
+        2 => (OtClass::Other, "connack"),
+        3 => (OtClass::Write, "publish"), // a device announcing data, or a controller pushing a command topic
+        8 => (OtClass::Read, "subscribe"),
+        10 => (OtClass::Read, "unsubscribe"),
+        14 => (OtClass::Other, "disconnect"),
+        _ => (OtClass::Other, "packet"),
+    };
+    Some(pdu("mqtt", server_is_src, class, name, port))
+}
+
+// ------------------------------------------------------------------ CoAp
+
+/// CoAP (RFC 7252): a 4-byte header whose top two bits are always the version (1); the method codes of a request
+/// (GET/POST/PUT/DELETE, class 0) map onto read/write the same way HTTP verbs do. Responses (class 2-5) are not judged.
+fn coap(b: &[u8], server_is_src: bool, port: u16) -> Option<OtPdu> {
+    if b.len() < 4 {
+        return None;
+    }
+    let ver = b[0] >> 6;
+    let tkl = b[0] & 0x0f;
+    if ver != 1 || tkl > 8 || (4 + tkl as usize) > b.len() {
+        return None;
+    }
+    let code = b[1];
+    let (class_bits, detail) = (code >> 5, code & 0x1f);
+    if class_bits > 5 {
+        return None;
+    }
+    let (class, name) = if class_bits == 0 && detail > 0 {
+        match detail {
+            1 => (OtClass::Read, "GET"),
+            2 => (OtClass::Write, "POST"),
+            3 => (OtClass::Write, "PUT"),
+            4 => (OtClass::Write, "DELETE"),
+            _ => (OtClass::Other, "request"),
+        }
+    } else if class_bits == 0 {
+        (OtClass::Other, "empty")
+    } else {
+        (OtClass::Other, "response")
+    };
+    Some(pdu("coap", server_is_src, class, name, port))
 }
 
 // ------------------------------------------------------------------ BACnet
@@ -764,6 +961,10 @@ pub fn parse_profinet_dcp(b: &[u8]) -> Option<(BTreeMap<String, String>, Option<
 mod tests {
     use super::*;
 
+    fn unhex(s: &str) -> Vec<u8> {
+        (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect()
+    }
+
     fn class_of(p: Option<OtPdu>) -> (&'static str, bool, OtClass) {
         let p = p.expect("decoded");
         (p.proto, p.server_is_src, p.class)
@@ -1058,9 +1259,118 @@ mod tests {
         }
     }
 
+    // -------------------------------------------------------------- FINS (real bytes: automayt/ICS-pcap FINS (OMRON)/omron.pcap)
+
+    #[test]
+    fn fins_classifies_memory_reads_writes_and_the_run_stop_command() {
+        // real FINS header from the capture: ICF RSV GCT DNA DA1 DA2 SNA SA1 SA2 SID = 80 00 02 00 00 00 00 00 00 7a
+        const H: &str = "8000020000000000007a";
+        // Memory Area Read request (mrc 01, src 01)
+        assert_eq!(class_of(fins(&unhex(&format!("{H}0101")), false, 9600)), ("fins", false, OtClass::Read));
+        // Memory Area Write (01.02)
+        assert_eq!(class_of(fins(&unhex(&format!("{H}0102")), false, 9600)), ("fins", false, OtClass::Write));
+        // RUN (04.01) and STOP (04.02): the one command that matters most for OT security
+        let run = fins(&unhex(&format!("{H}0401000001")), false, 9600).unwrap();
+        assert_eq!((run.class, run.detail.as_str()), (OtClass::Control, "run (0x04.0x01)"));
+        assert_eq!(fins(&unhex(&format!("{H}0402")), false, 9600).unwrap().class, OtClass::Control);
+        // a response (ICF bit 6 set), the real reply bytes: never judged, only named
+        let resp = fins(&unhex("c000020000000000007a010100cccccc0001"), true, 9600).unwrap();
+        assert_eq!((resp.class, resp.detail.as_str()), (OtClass::Other, "response (0x01.0x01)"));
+        // the direction the header claims must agree with which side holds the well-known port
+        assert!(fins(&unhex("c000020000000000007a0101"), false, 9600).is_none(), "a response header from the 'client' side is refused");
+        // an unfamiliar sub-command is named but never guessed at
+        assert_eq!(class_of(fins(&unhex(&format!("{H}2601")), false, 9600)), ("fins", false, OtClass::Other));
+        // not FINS: a bad ICF or an absurd hop count
+        assert!(fins(&unhex("0000020000000000007a0101"), false, 9600).is_none());
+        assert!(fins(&[0x80, 0, 0xff, 0, 0, 0, 0, 0, 0, 0x7a, 1, 1], false, 9600).is_none());
+        assert!(fins(&[0x80, 0], false, 9600).is_none(), "too short");
+    }
+
+    // -------------------------------------------------------------- HART-IP (real bytes: automayt/ICS-pcap HART IP/hart_ip.pcap)
+
+    #[test]
+    fn hart_ip_is_identified_by_its_header_but_never_claims_to_read_the_wrapped_hart_command() {
+        // real bytes from the capture: version, type(0=request), id(0), status(0), seq(2), byte-count(0x0b=11), then 3 body bytes
+        let req = hart_ip(&unhex("010000000002000b010000"), false, 5094).unwrap();
+        assert_eq!((req.proto, req.server_is_src, req.class), ("hart-ip", false, OtClass::Other));
+        assert!(req.detail.contains("request"));
+        // the real response: type 1, id 1, seq 8, byte-count 0x0d=13, 5 body bytes
+        let resp = hart_ip(&unhex("010101000008000d0100003075"), true, 5094).unwrap();
+        assert!(resp.server_is_src && resp.detail.contains("response"));
+        // a wrapped command (id 3 = token-passing PDU) still says nothing about read or write: HART's own command table is not decoded
+        assert_eq!(hart_ip(&unhex("0100030000000011822640000000010203"), false, 5094).unwrap().class, OtClass::Other);
+        // not HART-IP: wrong version, an out-of-range message type or id, a byte count nowhere near the packet
+        assert!(hart_ip(&unhex("020000000002000b010000"), false, 5094).is_none());
+        assert!(hart_ip(&[1, 9, 0, 0, 0, 0, 0, 8], false, 5094).is_none());
+        assert!(hart_ip(&[1, 0, 10, 0, 0, 0, 0, 8], false, 5094).is_none());
+        assert!(hart_ip(&[1, 0, 0, 0, 0, 0, 0xff, 0xff], false, 5094).is_none());
+        assert!(hart_ip(&[1, 0, 0, 0, 0, 0, 0], false, 5094).is_none(), "too short");
+    }
+
+    // -------------------------------------------------------------- CoAP (real bytes: Wireshark wiki sample capture coap-cbor.pcap)
+
+    #[test]
+    fn coap_maps_its_methods_onto_read_and_write_from_real_bytes_and_never_guesses_a_response() {
+        // real POST request and its 4.05 (Method Not Allowed) response
+        let post = coap(&unhex("44020c3cd19796c1c13cff00"), false, 5683).unwrap();
+        assert_eq!((post.proto, post.server_is_src, post.class, post.detail.as_str()), ("coap", false, OtClass::Write, "POST"));
+        let resp = coap(&unhex("64850c3cd19796c1"), true, 5683).unwrap();
+        assert_eq!((resp.server_is_src, resp.class), (true, OtClass::Other));
+        // GET reads, PUT and DELETE write; an empty message (code 0.00) and a version other than 1 are refused
+        assert_eq!(coap(&[0x40, 0x01, 0, 0], false, 5683).unwrap().class, OtClass::Read);
+        assert_eq!(coap(&[0x40, 0x03, 0, 0], false, 5683).unwrap().class, OtClass::Write);
+        assert_eq!(coap(&[0x40, 0x04, 0, 0], false, 5683).unwrap().class, OtClass::Write);
+        assert_eq!(coap(&[0x40, 0x00, 0, 0], false, 5683).unwrap().class, OtClass::Other);
+        assert!(coap(&[0x80, 0x01, 0, 0], false, 5683).is_none(), "version 2 is not CoAP");
+        assert!(coap(&[0x4f, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], false, 5683).is_none(), "a token length of 15 is reserved");
+        assert!(coap(&[0x40], false, 5683).is_none(), "too short");
+    }
+
+    // -------------------------------------------------------------- KNXnet/IP (spec-exact bytes: ISO/IEC 14543-3 / KNX Association's KNXnet/IP)
+
+    #[test]
+    fn knxnet_ip_is_matched_by_its_fixed_header_and_named_by_service_type() {
+        // TUNNELLING_REQUEST (0x0420): header(6) + connection header(4) + a cEMI frame it does not look inside
+        let tunnel = [0x06, 0x10, 0x04, 0x20, 0, 16, /*conn hdr*/ 4, 0, 0, 0, /*cemi*/ 0x29, 0, 0xbc, 0xe0, 0x11, 0];
+        assert_eq!(class_of(knxnet_ip(&tunnel, false, 3671)), ("knxnet-ip", false, OtClass::Other));
+        // ROUTING_INDICATION (multicast)
+        let routed = [0x06, 0x10, 0x05, 0x30, 0, 12, 0x29, 0, 0xbc, 0xe0, 0x11, 0];
+        assert_eq!(knxnet_ip(&routed, true, 3671).unwrap().detail.as_str(), "routing");
+        // connection management (SEARCH_REQUEST)
+        let connect = [0x06, 0x10, 0x02, 0x01, 0, 6];
+        assert_eq!(knxnet_ip(&connect, false, 3671).unwrap().detail.as_str(), "search/description/connect");
+        // not KNXnet/IP: wrong magic, an unrecognised service type, or a declared length that does not match what arrived
+        assert!(knxnet_ip(&[0x06, 0x11, 0x02, 0x01, 0, 6], false, 3671).is_none());
+        assert!(knxnet_ip(&[0x06, 0x10, 0x09, 0x01, 0, 6], false, 3671).is_none());
+        assert!(knxnet_ip(&[0x06, 0x10, 0x02, 0x01, 0, 7], false, 3671).is_none());
+        assert!(knxnet_ip(&[0x06, 0x10], false, 3671).is_none(), "too short");
+    }
+
+    // -------------------------------------------------------------- MQTT (spec-exact bytes: OASIS MQTT 3.1.1)
+
+    #[test]
+    fn mqtt_is_matched_by_its_remaining_length_and_publish_subscribe_map_onto_write_and_read() {
+        // CONNECT: type 1, protocol name "MQTT", level 4, flags 2, keepalive 60, an empty client id
+        assert_eq!(class_of(mqtt(&unhex("100c00044d5154540402003c0000"), false, 1883)), ("mqtt", false, OtClass::Other));
+        // PUBLISH (type 3) is a device announcing data (or a controller pushing a command topic): treated as a write
+        let publish: Vec<u8> = [vec![0x30, 8, 0, 5], b"a/b/c".to_vec(), b"1".to_vec()].concat();
+        assert_eq!(class_of(mqtt(&publish, true, 1883)), ("mqtt", true, OtClass::Write));
+        // SUBSCRIBE (type 8) is a read: packet id, then one topic filter "a" with QoS 0
+        let subscribe: Vec<u8> = vec![0x82, 6, 0, 1, 0, 1, b'a', 0];
+        assert_eq!(mqtt(&subscribe, false, 1883).unwrap().class, OtClass::Read);
+        // a "remaining length" that does not exactly account for the rest of the packet is refused
+        assert!(mqtt(&[0x30, 20, 0, 5, b'x'], false, 1883).is_none());
+        // a CONNECT that does not name the MQTT protocol is refused (some other protocol reusing the port/framing)
+        assert!(mqtt(&unhex("100600044e4f5045"), false, 1883).is_none());
+        assert!(mqtt(&[0x00, 0], false, 1883).is_none(), "control packet type 0 is reserved");
+        assert!(mqtt(&[0xf0, 0], false, 1883).is_none(), "type 15 is reserved");
+    }
+
     #[test]
     fn every_ot_port_has_a_name_and_random_payloads_never_panic() {
         assert_eq!(ot_proto_for_port(502), Some("modbus"));
+        assert_eq!(ot_proto_for_port(9600), Some("fins"));
+        assert_eq!(ot_proto_for_port(1911), Some("niagara-fox"), "named for the boundary-exposure finding only");
         assert_eq!(ot_proto_for_port(80), None);
         let mut x = 0xdead_beef_cafe_f00du64;
         for _ in 0..20_000 {
@@ -1069,9 +1379,13 @@ mod tests {
             x ^= x >> 27;
             let n = (x.wrapping_mul(0x2545_f491_4f6c_dd1d) % 90) as usize;
             let payload: Vec<u8> = (0..n).map(|i| (x >> (i % 56)) as u8 ^ i as u8).collect();
-            for (port, tcp) in [(502, true), (102, true), (44818, true), (44818, false), (20000, true), (47808, false), (4840, true), (2404, true)] {
+            for (port, tcp) in [
+                (502, true), (102, true), (44818, true), (44818, false), (20000, true), (47808, false), (4840, true), (2404, true),
+                (9600, false), (5094, true), (5094, false), (3671, false), (1883, true), (5683, false),
+            ] {
                 let _ = parse_pdu(tcp, 50_000, port, &payload);
                 let _ = parse_pdu(tcp, port, 50_000, &payload);
+                let _ = parse_opaque(tcp, 50_000, port, &payload);
             }
             let _ = (parse_lldp(&payload), parse_cdp(&payload), parse_profinet_dcp(&payload));
         }
@@ -1083,10 +1397,6 @@ mod tests {
     const SH13: &str = "160303007a02000076030390270d1d1332bef2dae3874f44db3602ba33c00dba0edddff5e742ddad57c2b320fc60ed75deb6ce734c292061782722550ecc57a98166d4d318a3d359cc40a1e2130200002e002b0002030400330024001d002041c915f8f2b1fbf4e424636b0f46cc74302e81774e0271a457ba915740ffce751403030001011703030017054121be38534f1d71150eb6779fb2098e59d50e5c5cda17030303398f6c8d3bfd16a8e5346801fc2c8cc5a13c33a8e504cc036d953f3153afde1bfe82d3";
     const CH12: &str = "16030100b6010000b203033e524f541158034b7959d9fcd0df491917236716a0dd21bcd4aa7507804281b800001ec02cc030c02bc02fcca9cca8c024c028c023c027009f009e006b006700ff0100006b000000150013000010706c63312e706c616e742e6c6f63616c000b000403000102000a000c000a001d0017001e00190018002300000016000000170000000d002a0028040305030603080708080809080a080b080408050806040105010601030303010302040205020602";
     const SH12: &str = "16030300410200003d0303cc741492be19e37fee390c0532dccaa52fcc5c6dee5039f9ebf2731e2f61ea6f00c030000015ff01000100000b000403000102002300000017000016030303250b00032100031e00031b30820317308201ffa00302010202141d17203d338e9504ffdef86c470d69ddf216dd72300d06092a864886f70d01010b0500301b3119301706035504030c10706c63312e706c616e742e6c6f63616c301e170d3236303932313139323934395a170d3236303932333139323934395a301b3119";
-
-    fn unhex(s: &str) -> Vec<u8> {
-        (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect()
-    }
 
     #[test]
     fn a_tls_handshake_gives_the_version_the_direction_and_the_server_name_without_reading_any_content() {
@@ -1113,14 +1423,15 @@ mod tests {
     }
 
     #[test]
-    fn a_known_industrial_port_with_content_that_is_not_decoded_is_still_a_path() {
-        let p = parse_opaque(false, 40_000, 9600, b"\x80\x00\x02\x00\x00\x00").unwrap();
-        assert_eq!((p.proto, p.port, p.server_is_src, p.class, p.detail.as_str()), ("omron-fins", 9600, false, OtClass::Opaque, "content not decoded"));
-        assert!(parse_opaque(true, 9600, 40_000, b"x").unwrap().server_is_src);
-        // an empty segment says nothing; ordinary traffic on an ordinary port is not industrial
-        assert!(parse_opaque(true, 40_000, 9600, b"").is_none());
+    fn an_industrial_port_with_content_that_matches_no_decoder_is_not_named_from_the_port_alone() {
+        // a port a decoded protocol normally lives on, with bytes that fail that decoder's signature: no claim
+        assert!(parse_opaque(false, 40_000, 9600, b"\x80\x00\x02\x00\x00\x00").is_none());
+        assert!(parse_opaque(true, 9600, 40_000, b"x").is_none());
+        // a port that is only ever named for the boundary-exposure finding: never a decoded conversation either
+        assert!(parse_opaque(false, 40_000, 1911, b"hello there").is_none());
+        // ordinary traffic on an ordinary port is not industrial, and TLS is looked for over TCP only
         assert!(parse_opaque(true, 40_000, 8080, b"GET / HTTP/1.1\r\n").is_none());
-        assert!(parse_opaque(false, 5353, 40_000, b"\x17\x03\x03\x00\x05abcde").is_none(), "TLS is looked for over TCP only");
+        assert!(parse_opaque(false, 5353, 40_000, b"\x17\x03\x03\x00\x05abcde").is_none());
     }
 
     #[test]

@@ -119,7 +119,9 @@ Details and examples are in the [OT guide](ot-guide.md). In short:
 
 * `ot_new_conversation`: a communication path that did not exist during learning.
 * `ot_control_command`: stop/start, program download, restart. Never suppressed by learning.
-* `ot_internet_exposure`: an industrial protocol crossing the network boundary.
+* `ot_internet_exposure`: a **port normally used by an industrial protocol** crossing the network boundary. This is a
+  port-number check (some of those ports have no way to confirm the payload from the outside), so the wording says
+  "port X (normally Y)" rather than asserting the traffic is that protocol.
 * `ot_purdue_skip`: two industrial devices talk across **more than one Purdue level** (a controller straight to an
   office PC; L1 ↔ L4, L2 ↔ L4, L3.5 ↔ L1…). Needs the Purdue level on both devices in the register. Score 50, +15 with
   write/control commands. Adjacent levels and the DMZ (3.5) next to 3 or 4 are fine. Once per pair per six hours.

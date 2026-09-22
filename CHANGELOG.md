@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.0-rc.1: five more industrial and IIoT protocols, and an honest boundary between "decoded" and "port only"
+
+*A release candidate.*
+
+* **Five more protocols, each verified against a real capture**: **Omron FINS** (now fully decoded: memory/parameter/
+  program area reads and writes, and the **run/stop** command — the one that matters most), **MQTT** (PUBLISH as a
+  write, SUBSCRIBE as a read), **CoAP** (GET reads, POST/PUT/DELETE write), **HART-IP** and **KNXnet/IP** (protocol
+  and direction only: their command layout needs a capture to check exact byte offsets against, which DENIS did not
+  have for either, so it names the protocol and stops there rather than guess at read vs write). Every decoder,
+  including the seven already there, is checked in `tools/ot-samples.sh` against a real capture of that protocol.
+* **A port number alone is never protocol identification any more.** The previous "known industrial port, content
+  not decoded" fallback — which named a conversation from its port with no check of the payload at all — is gone.
+  Ports with no public, checkable signature (Niagara Fox, GE SRTP, MELSEC, PCWorx, CODESYS) are used **only** for
+  the *"industrial port crossing the boundary"* finding, whose wording now says "port X (normally Y)" instead of
+  asserting the traffic is that protocol.
+* Detection rules and watches gained the five new protocol names (`fins`, `hart-ip`, `knxnet-ip`, `mqtt`, `coap`).
+
 ## 0.5.0: encrypted OT traffic, allow-list watches, and a way to test without a plant
 
 * **Encrypted industrial traffic is no longer invisible.** Between two local devices DENIS now records the *path* of traffic it

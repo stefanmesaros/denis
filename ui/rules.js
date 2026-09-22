@@ -173,7 +173,7 @@ const WATCH_PRESETS = () => [
   { label: tr('IEC 60870-5-104: any command'), proto: 'iec104', controls: true },
 ];
 
-const PROTO_NAMES = () => ({ any: tr('any protocol'), modbus: 'Modbus', s7: 'Siemens S7', enip: 'EtherNet/IP', dnp3: 'DNP3', bacnet: 'BACnet', opcua: 'OPC UA', iec104: 'IEC 60870-5-104', tls: tr('any TLS (encrypted)'), 'modbus-tls': 'Modbus/TCP Security (TLS)', 'opcua-tls': 'OPC UA (TLS)', 'iec104-tls': 'IEC 104 (TLS)', 'dnp3-tls': 'DNP3 (TLS)', 'mqtt-tls': 'MQTT (TLS)' });
+const PROTO_NAMES = () => ({ any: tr('any protocol'), modbus: 'Modbus', s7: 'Siemens S7', enip: 'EtherNet/IP', dnp3: 'DNP3', bacnet: 'BACnet', opcua: 'OPC UA', iec104: 'IEC 60870-5-104', fins: 'Omron FINS', 'hart-ip': 'HART-IP', 'knxnet-ip': 'KNXnet/IP', mqtt: 'MQTT', coap: 'CoAP', tls: tr('any TLS (encrypted)'), 'modbus-tls': 'Modbus/TCP Security (TLS)', 'opcua-tls': 'OPC UA (TLS)', 'iec104-tls': 'IEC 104 (TLS)', 'dnp3-tls': 'DNP3 (TLS)', 'mqtt-tls': 'MQTT (TLS)' });
 
 /** From the communications matrix: start a watch for one command on one path. */
 function watchFor(conv, cmd) {
