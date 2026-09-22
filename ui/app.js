@@ -339,7 +339,10 @@ function renderSiteFilter() {
   const sel = $('site');
   sel.hidden = !multiSite() || !['assets', 'topology', 'trends'].includes(state.tab);
   if (!multiSite()) return;
-  const opts = [['__all', tr('All sites')], ['__local', tr('Local')], ...state.agents.map((g) => [g.id, g.name])];
+  // both lists already reflect this user's site access (RBAC): the local site only appears
+  // when readable, and state.agents (from /api/agents) already excludes unreadable ones
+  const localReadable = !state.status || state.status.local_readable !== false;
+  const opts = [['__all', tr('All sites')], ...(localReadable ? [['__local', tr('Local')]] : []), ...state.agents.map((g) => [g.id, g.name])];
   const sig = JSON.stringify(opts);
   if (sel.dataset.sig !== sig) {
     const cur = sel.value;

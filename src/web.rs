@@ -394,7 +394,7 @@ pub(crate) async fn asset_view(st: &AppState, id: i64) -> Result<Option<AssetVie
     Ok(a.map(|a| view(a, &alerts, meta.unwrap_or_default(), now)))
 }
 
-async fn status(State(st): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn status(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Json<serde_json::Value>, ApiError> {
     let (count, unacked) = blocking(&st.store, |s| {
         let q = EventQuery { limit: 1000, alerts_only: true, unacked_only: true, ..Default::default() };
         Ok((s.load_assets()?.len(), s.list_events(&q)?.len()))
@@ -405,6 +405,8 @@ async fn status(State(st): State<AppState>) -> Result<Json<serde_json::Value>, A
     v["alerts_unacked"] = unacked.into();
     v["auth_required"] = (!st.no_auth).into();
     v["now"] = crate::model::now_ts().into();
+    // whether the local site (no agent) shows in the site filter at all (see access.rs)
+    v["local_readable"] = site_readable(&st, &me, &None).into();
     v["license"] = serde_json::json!({
         "tier": st.license.license.as_ref().map(|l| l.tier.as_str()),
         "customer": st.license.license.as_ref().map(|l| l.customer.as_str()),
@@ -653,8 +655,10 @@ async fn conversations(State(st): State<AppState>, Extension(AuthUser(me)): Exte
     Ok(Json(serde_json::json!(rows)))
 }
 
-async fn agents(State(st): State<AppState>) -> Result<Json<Vec<crate::model::AgentInfo>>, ApiError> {
-    Ok(Json(blocking(&st.store, |s| s.list_agents()).await?))
+async fn agents(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Json<Vec<crate::model::AgentInfo>>, ApiError> {
+    let mut list = blocking(&st.store, |s| s.list_agents()).await?;
+    list.retain(|a| site_readable(&st, &me, &Some(a.id.clone())));
+    Ok(Json(list))
 }
 
 /// The device's learned baseline, with destinations most-recent-first and capped.
@@ -889,6 +893,22 @@ mod tests {
         // ...and an admin is never restricted, regardless of grants
         let (_, _, v) = send(&app, req("GET", "/api/assets", Some(&admin), None)).await;
         assert_eq!(v.as_array().unwrap().len(), 2);
+
+        // the site filter's own data sources agree: /api/agents drops site-a for the viewer...
+        let (_, _, v) = send(&app, req("GET", "/api/agents", Some(&viewer), None)).await;
+        assert!(v.as_array().unwrap().is_empty(), "{v}");
+        let (_, _, v) = send(&app, req("GET", "/api/agents", Some(&admin), None)).await;
+        assert_eq!(v.as_array().unwrap().len(), 1, "{v}");
+        // ...and /api/status says whether "Local" itself belongs in the site filter
+        let (_, _, v) = send(&app, req("GET", "/api/status", Some(&viewer), None)).await;
+        assert_eq!(v["local_readable"], true);
+        let (st, _, _) = send(&app, req("PUT", &format!("/api/users/{vera_id}/site-access"), Some(&admin), Some(serde_json::json!({"grants": [["", "none"]]})))).await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+        let (_, _, v) = send(&app, req("GET", "/api/status", Some(&viewer), None)).await;
+        assert_eq!(v["local_readable"], false);
+        let (_, _, v) = send(&app, req("GET", "/api/status", Some(&admin), None)).await;
+        assert_eq!(v["local_readable"], true);
+        send(&app, req("PUT", &format!("/api/users/{vera_id}/site-access"), Some(&admin), Some(serde_json::json!({"grants": [["site-a", "none"]]})))).await; // restore for the assertions below
 
         // reading back the grants shows what was set, plus every known site
         let (_, _, v) = send(&app, req("GET", &format!("/api/users/{vera_id}/site-access"), Some(&admin), None)).await;

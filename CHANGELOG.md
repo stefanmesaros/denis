@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.0: a proper logo, a unified look for controls, the site filter respects access control
+
+* **A new logo**: a checkmark joining three device nodes (verified, connected devices), replacing
+  the earlier radar-sweep mark. Used as the favicon and the default header/sign-in mark.
+* **Every button, dropdown and checkbox now looks like one family**: consistent padding, a subtle
+  shadow and hover state, and dropdowns/checkboxes are drawn the same way in every browser instead
+  of falling back to the operating system's own look. Every table's **Columns** button now sits in
+  a header strip attached to that table, not floating loose above it. Settings' section links
+  (Branding, HTTPS certificate, Updates…) are now a row of buttons, not plain text links.
+* **The site filter (Devices/Topology/Trends) respects per-site access control**: a user only sees
+  the sites they can actually read, both in the dropdown itself and in what "Local" and each
+  agent's name mean for them — matching what the Devices list already enforced server-side.
+
 ## 1.0.0: a commercial license, per-site access control, a logo
 
 * **License**: DENIS is no longer MIT/Apache-2.0. It is now source-available under the **DENIS

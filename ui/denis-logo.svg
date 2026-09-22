@@ -1,9 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="DENIS">
   <rect x="2" y="2" width="60" height="60" rx="14" fill="#2563eb"/>
-  <!-- a device at the centre, found by a radar-style sweep: the product in one glyph -->
-  <g fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round">
-    <path d="M 44 32 A 12 12 0 0 1 24.7 40.7" opacity="0.55"/>
-    <path d="M 50 32 A 18 18 0 0 1 21 46" opacity="0.85"/>
-  </g>
-  <circle cx="32" cy="32" r="6.5" fill="#ffffff"/>
+  <!-- a verified network: devices (the dots) joined into a checkmark -->
+  <path d="M19 33 L28 42 L46 20" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="19" cy="33" r="4" fill="#93c5fd"/>
+  <circle cx="28" cy="42" r="4" fill="#93c5fd"/>
+  <circle cx="46" cy="20" r="4" fill="#93c5fd"/>
 </svg>
