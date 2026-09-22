@@ -39,6 +39,18 @@ const EXPOSED: &[(u16, i32, &str)] = &[
     (1883, 10, "MQTT (unauthenticated by default) is open"),
     (8291, 10, "MikroTik Winbox management is open"),
     (515, 5, "LPD print service is open"),
+    (135, 15, "Windows RPC endpoint mapper is open"),
+    (111, 10, "rpcbind is open"),
+    (161, 10, "SNMP is open (a default or guessable community string can expose or change configuration)"),
+    (1433, 15, "Microsoft SQL Server is reachable on the network"),
+    (5432, 15, "PostgreSQL is reachable on the network"),
+    (6379, 20, "Redis is reachable on the network (no password by default)"),
+    (27017, 20, "MongoDB is reachable on the network (no password by default)"),
+    (9200, 20, "Elasticsearch is reachable on the network (no password by default)"),
+    (11211, 15, "Memcached is open (also abused for DDoS amplification)"),
+    (2375, 25, "the Docker API is open without TLS (full control of the host)"),
+    (5985, 15, "WinRM is open (remote PowerShell management)"),
+    (10000, 15, "Webmin is open"),
 ];
 
 /// Every fixed phrase a risk factor can consist of (the rest is numbers and a device type), so the

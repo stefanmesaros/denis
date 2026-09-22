@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0: many more critical ports scanned, identified and risk-scored
+
+* **Scanning and risk-scoring now cover far more services**: RPC/NetBIOS (111, 135, 137, 138), SNMP
+  (161), LDAP/LDAPS (389, 636), more databases (MSSQL, PostgreSQL, Oracle), Redis, MongoDB and
+  Elasticsearch (all unauthenticated by default), Memcached (DDoS amplification), the Docker API
+  without TLS (full host control if reachable), WinRM, Webmin, NFS, PPTP and more SMTP/IMAP/POP3
+  variants — about 25 additional ports, each shown as its own named risk factor (e.g. "+20 Redis is
+  reachable on the network (no password by default)") when found open, and counted by the
+  "risky service reaching outside the LAN" rule the same way Telnet/RDP/SMB already were.
+
 ## 1.1.0: a proper logo, a unified look for controls, the site filter respects access control
 
 * **A new logo**: a checkmark joining three device nodes (verified, connected devices), replacing

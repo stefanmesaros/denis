@@ -83,7 +83,10 @@ type Found = (&'static str, i32, serde_json::Value);
 
 /// Remote-administration, file-sharing and database ports: unremarkable inside
 /// a LAN, worth a look when a device starts using them towards the outside.
-const RISKY_PORTS: &[u16] = &[21, 22, 23, 25, 135, 137, 138, 139, 445, 1433, 3306, 3389, 5432, 5900, 6379, 27017];
+const RISKY_PORTS: &[u16] = &[
+    21, 22, 23, 25, 111, 135, 137, 138, 139, 161, 389, 445, 636, 1433, 1521, 1723, 2049, 2375, 2376,
+    3306, 3389, 5432, 5900, 5985, 5986, 6379, 9200, 10000, 11211, 27017,
+];
 
 /// Ports at or above this are the ephemeral range: with `min(sport, dport)` as
 /// the "service port" they are noise, not services.
