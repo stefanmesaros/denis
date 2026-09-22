@@ -215,6 +215,7 @@ async function start() {
   $('tab-alerting').hidden = !can('admin');
   $('data-box').hidden = !can('admin');
   $('update-box').hidden = !can('admin');
+  $('license-box').hidden = !can('admin');
   $('tls-box').hidden = !can('admin');
   $('tokens-box').hidden = !can('admin');
   $('branding-box').hidden = !can('admin');
@@ -944,7 +945,7 @@ function applyHash() {
   if (what === 'rules' && arg === 'watches') setTimeout(() => $('watches')?.scrollIntoView({ block: 'start' }), 700);
   // #settings/tls, #settings/updates ...: scroll to that section
   if (what === 'settings' && arg && !$('tab-settings').hidden) {
-    const box = { branding: 'branding-box', tls: 'tls-box', updates: 'update-box', data: 'data-box', setup: 'setup-box', security: 'security-box', switches: 'switches-box', vulndata: 'vuln-box' }[arg];
+    const box = { branding: 'branding-box', license: 'license-box', tls: 'tls-box', updates: 'update-box', data: 'data-box', setup: 'setup-box', security: 'security-box', switches: 'switches-box', vulndata: 'vuln-box' }[arg];
     if (box) setTimeout(() => $(box).scrollIntoView({ block: 'start' }), 50);
   }
   if (what === 'passkeys') { location.hash = '#account'; return; }
@@ -1147,6 +1148,38 @@ function initSidebar() {
 }
 
 // -------------------------------------------------------------------- HTTPS certificate
+
+async function loadLicenseBox() {
+  if (!can('admin')) return;
+  const r = await api('GET', '/api/license');
+  if (!r.ok) return;
+  const l = r.json;
+  const status = $('license-status');
+  if (!l.installed) {
+    status.textContent = tr('Community edition: personal, non-commercial use, up to {cap} devices.', { cap: l.device_cap });
+  } else {
+    const lines = [tr('Licensed to {customer} ({tier}).', { customer: l.customer, tier: l.tier })];
+    lines.push(l.device_cap ? tr('Up to {cap} devices.', { cap: l.device_cap }) : tr('No device limit.'));
+    if (l.activated_at) lines.push(tr('Activated {date}, valid {days} days from then.', { date: new Date(l.activated_at * 1000).toLocaleDateString(locale()), days: l.valid_days }));
+    if (l.problem) lines.push(tr('Problem: {reason} — the Community edition is in force until this is fixed.', { reason: l.problem }));
+    status.replaceChildren(...lines.flatMap((t, i) => [i ? el('div', {}) : null, el('div', { text: t, class: l.problem && i === lines.length - 1 ? 'form-error' : '' })]).filter(Boolean));
+  }
+  $('license-remove').hidden = !l.installed;
+  $('license-text').value = '';
+}
+$('license-save').onclick = async () => {
+  const text = $('license-text').value.trim();
+  if (!text) return;
+  const r = await api('PUT', '/api/license', text);
+  $('license-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
+  if (r.ok) loadLicenseBox();
+};
+$('license-remove').onclick = async () => {
+  if (!confirm(tr('Remove the installed license? The Community edition applies until another one is installed.'))) return;
+  const r = await api('DELETE', '/api/license');
+  $('license-msg').textContent = r.ok ? '' : apiError(r);
+  if (r.ok) loadLicenseBox();
+};
 
 async function loadTlsBox() {
   if (!can('admin')) return;

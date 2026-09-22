@@ -333,7 +333,7 @@
       <section id="view-settings" hidden>
         <p class="muted">Settings for the whole installation. Only administrators see this page; every change is written to the <a href="#audit">audit log</a>.</p>
         <nav class="subnav" aria-label="Settings sections">
-          <a href="#settings/branding">Branding (white label)</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/vulndata">Software data</a><a href="#settings/switches">Switches (SNMP)</a><a href="#settings/security">Sign-in security</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
+          <a href="#settings/branding">Branding (white label)</a><a href="#settings/license">License</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/vulndata">Software data</a><a href="#settings/switches">Switches (SNMP)</a><a href="#settings/security">Sign-in security</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
         </nav>
         <div id="branding-box" hidden>
           <h3 class="section">Branding (white label)</h3>
@@ -357,6 +357,12 @@
               <input id="br-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
               <button id="br-remove" type="button">Remove logo</button></div>
           </div>
+        </div>
+        <div id="license-box" hidden>
+          <h3 class="section">License</h3>
+          <div id="license-status" class="muted"></div>
+          <div class="row"><textarea id="license-text" rows="3" placeholder="Paste the two lines of a license file here…"></textarea></div>
+          <div class="row"><button id="license-save" type="button">Save license</button><button id="license-remove" type="button" hidden>Remove license</button><span id="license-msg" class="muted"></span></div>
         </div>
         <div id="tls-box" hidden>
           <h3 class="section">HTTPS certificate</h3>

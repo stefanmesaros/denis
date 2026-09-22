@@ -27,6 +27,10 @@ use crate::update::{sha256_hex, sign, verify_signature};
 /// expired: personal, non-commercial use only (see `LICENSE`, clause 1).
 pub const COMMUNITY_DEVICE_CAP: u32 = 100;
 
+/// The `settings` key a license pasted into Settings → License is stored under
+/// (`web_admin::license_put`); it always takes priority over `--license-file`.
+pub const SETTING_KEY: &str = "license_content";
+
 /// How long a license is valid for once first used, unless the license itself says otherwise.
 pub const DEFAULT_VALID_DAYS: u32 = 365;
 
@@ -91,16 +95,32 @@ pub fn keep_within_cap(ids: &[i64], cap: Option<u32>) -> std::collections::HashS
 /// cannot be read, its signature does not verify, or its activation window has passed. Never
 /// fails: an install always ends up with *some* effective license (Community at worst).
 pub fn load(path: Option<&Path>, store: &dyn Store) -> Effective {
-    load_with_key(path, store, LICENSE_PUBLIC_KEY)
+    let Some(path) = path else { return Effective::community(None) };
+    match std::fs::read_to_string(path) {
+        Ok(raw) => verify_and_activate(&raw, store, LICENSE_PUBLIC_KEY),
+        Err(e) => Effective::community(Some(format!("could not read {}: {e}", path.display()))),
+    }
 }
 
+/// Same as `load`, but the license text is already in hand (e.g. pasted into the console's
+/// Settings → License page) rather than read from a file. See `web_admin::license_put`.
+pub fn load_from_text(text: &str, store: &dyn Store) -> Effective {
+    verify_and_activate(text, store, LICENSE_PUBLIC_KEY)
+}
+
+/// Only used by tests, to check verification against a throwaway key instead of the real
+/// (embedded) `LICENSE_PUBLIC_KEY`.
+#[cfg(test)]
 fn load_with_key(path: Option<&Path>, store: &dyn Store, key: Option<[u8; 32]>) -> Effective {
     let Some(path) = path else { return Effective::community(None) };
-    let raw = match std::fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(e) => return Effective::community(Some(format!("could not read {}: {e}", path.display()))),
-    };
-    let (payload, license) = match verify_and_parse(&raw, key) {
+    match std::fs::read_to_string(path) {
+        Ok(raw) => verify_and_activate(&raw, store, key),
+        Err(e) => Effective::community(Some(format!("could not read {}: {e}", path.display()))),
+    }
+}
+
+fn verify_and_activate(raw: &str, store: &dyn Store, key: Option<[u8; 32]>) -> Effective {
+    let (payload, license) = match verify_and_parse(raw, key) {
         Ok(pair) => pair,
         Err(e) => return Effective::community(Some(e.to_string())),
     };
@@ -278,6 +298,18 @@ mod tests {
         let (_, other_public) = generate_keypair().unwrap();
         let eff2 = load_with_key(Some(&path), &store, Some(hex32(&other_public)));
         assert_eq!(eff2.device_cap, Some(COMMUNITY_DEVICE_CAP));
+    }
+
+    #[test]
+    fn load_from_text_works_without_a_file_on_disk() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let (seed, _) = generate_keypair().unwrap();
+        let text = issue(&seed, &sample(Some(250), 365)).unwrap();
+        // this build's real LICENSE_PUBLIC_KEY is set, but won't match a throwaway test key,
+        // so this only exercises that the text-based path reaches verification (not I/O)
+        let eff = load_from_text(&text, &store);
+        assert!(eff.problem.is_some());
+        assert_eq!(eff.device_cap, Some(COMMUNITY_DEVICE_CAP));
     }
 
     #[test]

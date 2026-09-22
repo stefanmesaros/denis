@@ -312,6 +312,53 @@ pub(crate) async fn site_access_put(State(st): State<AppState>, Extension(AuthUs
     }
 }
 
+// -------------------------------------------------------------------- license
+
+fn license_json(eff: &crate::license::Effective) -> Value {
+    json!({
+        "tier": eff.license.as_ref().map(|l| &l.tier),
+        "customer": eff.license.as_ref().map(|l| &l.customer),
+        "device_cap": eff.device_cap,
+        "commercial": eff.commercial,
+        "problem": eff.problem,
+        "activated_at": eff.activated_at,
+        "valid_days": eff.license.as_ref().map(|l| l.valid_days),
+        "installed": eff.license.is_some(),
+    })
+}
+
+/// The license in force right now (see `web::effective_license`): a GUI-pasted one always wins
+/// over `--license-file`. Anyone signed in may see it (it says which edition they are on).
+pub(crate) async fn license_get(State(st): State<AppState>) -> Result<Json<Value>, ApiError> {
+    Ok(Json(license_json(&crate::web::effective_license(&st))))
+}
+
+/// Paste a license file's two lines into the console instead of using `--license-file`. Verified
+/// before it is stored; a bad one is refused with why, and nothing changes.
+pub(crate) async fn license_put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, body: String) -> Result<Response, ApiError> {
+    let text = body.trim();
+    if text.is_empty() || text.len() > 4096 {
+        return Ok(err(StatusCode::BAD_REQUEST, "paste the license file's contents (two lines)"));
+    }
+    let eff = crate::license::load_from_text(text, &*st.store);
+    let Some(license) = &eff.license else {
+        return Ok(err(StatusCode::BAD_REQUEST, eff.problem.unwrap_or_else(|| "could not verify this license".into())));
+    };
+    let customer = license.customer.clone();
+    st.store.set_setting(crate::license::SETTING_KEY, format!("{text}\n").as_bytes(), now_ts())?;
+    audit(&st, &me.username, "license.install", None, json!({ "customer": customer, "problem": eff.problem }));
+    Ok(Json(license_json(&eff)).into_response())
+}
+
+/// Remove a pasted license: falls back to `--license-file` if one was given at start-up, else
+/// the Community edition. Does not touch a license given via `--license-file` (there is nothing
+/// stored to remove in that case).
+pub(crate) async fn license_delete(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Response, ApiError> {
+    st.store.delete_setting(crate::license::SETTING_KEY)?;
+    audit(&st, &me.username, "license.remove", None, json!({}));
+    Ok(Json(license_json(&crate::web::effective_license(&st))).into_response())
+}
+
 // -------------------------------------------------------------------- TLS
 
 /// The certificate the console is served with.

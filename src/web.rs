@@ -177,6 +177,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/agent-tokens/{agent_id}", delete(admin::tokens_revoke))
         .route("/api/audit", get(admin::audit_list))
         .route("/api/branding", get(admin::branding_get).put(admin::branding_put))
+        .route("/api/license", get(admin::license_get).put(admin::license_put).delete(admin::license_delete))
         .route("/api/branding/logo", axum::routing::put(admin::logo_put).delete(admin::logo_delete).layer(DefaultBodyLimit::max(crate::branding::MAX_LOGO_BYTES + 1024)))
         .route("/branding/logo", get(admin::logo_get))
         .fallback(static_file)
@@ -204,7 +205,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path == "/api/reports/settings") && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path == "/api/reports/settings") && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -407,13 +408,14 @@ async fn status(State(st): State<AppState>, Extension(AuthUser(me)): Extension<A
     v["now"] = crate::model::now_ts().into();
     // whether the local site (no agent) shows in the site filter at all (see access.rs)
     v["local_readable"] = site_readable(&st, &me, &None).into();
+    let lic = effective_license(&st);
     v["license"] = serde_json::json!({
-        "tier": st.license.license.as_ref().map(|l| l.tier.as_str()),
-        "customer": st.license.license.as_ref().map(|l| l.customer.as_str()),
-        "device_cap": st.license.device_cap,
-        "commercial": st.license.commercial,
-        "problem": st.license.problem,
-        "over_cap": st.license.over_cap(count as u32),
+        "tier": lic.license.as_ref().map(|l| l.tier.as_str()),
+        "customer": lic.license.as_ref().map(|l| l.customer.as_str()),
+        "device_cap": lic.device_cap,
+        "commercial": lic.commercial,
+        "problem": lic.problem,
+        "over_cap": lic.over_cap(count as u32),
     });
     Ok(Json(v))
 }
@@ -513,8 +515,9 @@ async fn assets(State(st): State<AppState>, Extension(AuthUser(me)): Extension<A
     // Community edition (or an expired/invalid license): only the first `cap` devices are
     // returned. Detection and alerting are unaffected — every device is still monitored, just
     // not listed here past the cap (see license::keep_within_cap and LICENSE, clause 1).
-    if st.license.device_cap.is_some() {
-        let keep = crate::license::keep_within_cap(&list.iter().map(|a| a.id).collect::<Vec<_>>(), st.license.device_cap);
+    let cap = effective_license(&st).device_cap;
+    if cap.is_some() {
+        let keep = crate::license::keep_within_cap(&list.iter().map(|a| a.id).collect::<Vec<_>>(), cap);
         list.retain(|a| keep.contains(&a.id));
     }
     list.sort_by(|a, b| b.last_seen.cmp(&a.last_seen).then(a.id.cmp(&b.id)));
@@ -529,6 +532,19 @@ pub(crate) fn site_readable(st: &AppState, me: &User, agent_id: &Option<String>)
 /// May `me` change this site's devices/alerts (acknowledge, edit, delete)?
 pub(crate) fn site_writable(st: &AppState, me: &User, agent_id: &Option<String>) -> bool {
     crate::access::writable(&*st.store, me.id, &me.role, agent_id)
+}
+
+/// The license actually in force right now: one pasted into Settings → License always takes
+/// priority (checked fresh on every call — cheap, and it lets an admin see the effect
+/// immediately without restarting), otherwise the one this process started with (`--license-file`
+/// / `DENIS_LICENSE_FILE`, or the Community edition if neither is set).
+pub(crate) fn effective_license(st: &AppState) -> crate::license::Effective {
+    if let Ok(Some(bytes)) = st.store.get_setting(crate::license::SETTING_KEY) {
+        if let Ok(text) = String::from_utf8(bytes) {
+            return crate::license::load_from_text(&text, &*st.store);
+        }
+    }
+    st.license.clone()
 }
 
 /// Standing weaknesses and housekeeping problems, with what to do about each.
@@ -724,8 +740,9 @@ async fn gather(st: &AppState, days: Option<i64>) -> Result<report::ReportData, 
     let mut data = blocking(&st.store, move |s| report::gather(s, days, now)).await?;
     // Same device cap as the Devices page and its CSV; alerts, findings and compliance are not
     // capped (this is a browsing limit, not a monitoring one — see the `assets` handler).
-    if st.license.device_cap.is_some() {
-        let keep = crate::license::keep_within_cap(&data.devices.iter().map(|d| d.asset.id).collect::<Vec<_>>(), st.license.device_cap);
+    let cap = effective_license(st).device_cap;
+    if cap.is_some() {
+        let keep = crate::license::keep_within_cap(&data.devices.iter().map(|d| d.asset.id).collect::<Vec<_>>(), cap);
         data.devices.retain(|d| keep.contains(&d.asset.id));
     }
     Ok(data)
@@ -941,6 +958,39 @@ mod tests {
         assert_eq!(st, StatusCode::FORBIDDEN);
         assert!(!store.get_event(e.id).unwrap().unwrap().acked);
         let _ = viewer;
+    }
+
+    #[tokio::test]
+    async fn a_license_can_be_pasted_into_settings_by_an_admin_only_and_removed_again() {
+        let (app, _store, [viewer, editor, admin]) = secured().await;
+        let put = |cookie: &str, body: &str| {
+            axum::http::Request::put("/api/license").header("host", "localhost").header("x-denis", "1")
+                .header("cookie", format!("{SESSION_COOKIE}={cookie}")).header("content-type", "text/plain")
+                .body(Body::from(body.to_string())).unwrap()
+        };
+
+        // before anything is installed: Community, readable by any signed-in role
+        let (st, _, v) = send(&app, req("GET", "/api/license", Some(&viewer), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["installed"], false);
+        assert_eq!(v["device_cap"], 100);
+
+        // garbage is refused, with a reason, and nothing is stored
+        let (st, _, v) = send(&app, put(&admin, "not a license file")).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST);
+        assert!(!v["error"].as_str().unwrap().is_empty());
+        let (_, _, v) = send(&app, req("GET", "/api/license", Some(&viewer), None)).await;
+        assert_eq!(v["installed"], false);
+
+        // only an admin may install or remove one
+        assert_eq!(send(&app, put(&viewer, "x")).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, put(&editor, "x")).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("DELETE", "/api/license", Some(&editor), None)).await.0, StatusCode::FORBIDDEN);
+
+        // removing one that was never installed is a harmless no-op, still Community afterwards
+        let (st, _, v) = send(&app, req("DELETE", "/api/license", Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["installed"], false);
     }
 
     #[tokio::test]

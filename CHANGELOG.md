@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.0: install a license from the console, no file needed
+
+* **Settings → License**: paste a license's two lines directly into the console instead of
+  passing `--license-file` — an administrator can install, see the status of, or remove a
+  license without touching the command line or restarting. It takes effect immediately. A
+  license given via `--license-file` still works and is used when nothing is pasted in the
+  console. In an MSP/multi-customer setup the license belongs on the top-level install with a
+  console (your own instance, or each customer's master) — agents reporting into a master never
+  need their own.
+
 ## 1.2.0: many more critical ports scanned, identified and risk-scored
 
 * **Scanning and risk-scoring now cover far more services**: RPC/NetBIOS (111, 135, 137, 138), SNMP

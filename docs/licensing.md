@@ -27,7 +27,11 @@ different build).
 
 ## Installing a license
 
-A license is a small signed text file. Once you have one:
+A license is a small signed text file, two lines. The easiest way: **Settings → License** (an
+administrator), paste both lines in and save — it verifies immediately, no restart needed, and
+if it does not verify the page says why. This is what most installs should use.
+
+Alternatively, a file on disk works the same way, and takes effect at start-up:
 
 ```bash
 denis serve --db denis.db --license-file /path/to/license.key
@@ -35,8 +39,13 @@ denis serve --db denis.db --license-file /path/to/license.key
 denis run --license-file /path/to/license.key
 ```
 
-`DENIS_LICENSE_FILE` works the same way as an environment variable. Restart DENIS after adding or
-replacing the file. The banner disappears once it verifies; if it does not, the banner says why.
+`DENIS_LICENSE_FILE` works the same way as an environment variable. A license pasted into
+Settings → License always takes priority over `--license-file` if both are present.
+
+**In an MSP/multi-customer setup**, the license belongs on the top-level installation that has a
+console — your own instance if you are a single business, or each customer's master if you are an
+MSP running one DENIS per customer. Agents reporting into a master never need their own license;
+the cap and terms apply to the install as a whole, not per agent.
 
 A license's validity is counted **from the first time it verifies on that install**, not from the
 day it was issued — moving the same file to a different install starts its own count there.
