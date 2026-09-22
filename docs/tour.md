@@ -3,9 +3,9 @@
 Everything DENIS shows or does, in the order you will meet it. Tabs an administrator only sees are marked.
 Addresses like `#rules` or `#device/12` can be bookmarked or pasted into a message.
 
-## Overview (optional)
+## MSP view (optional)
 
-Off by default. An administrator turns it on under **Settings → Overview page** for installs that
+Off by default. An administrator turns it on under **Settings → MSP view** for installs that
 manage more than a couple of sites — an MSP with several customers, or one business with several
 branches. One row per site (the local network and every remote agent you can see, respecting your
 own site access): online status, device count, open alerts by severity, last report time. Click a

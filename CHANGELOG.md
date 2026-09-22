@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.5.0: renamed to MSP view; live devices and alerts can reach an MSP
+
+* The tab and setting from 1.4.0 are renamed **Overview → MSP view**, to say plainly what it is for.
+* **`denis run --report-to https://your-msp:8081`**: a customer's own master can now relay its
+  devices and already-scored alerts to an MSP's master live, so they show up in **MSP view**
+  alongside every other customer. Built deliberately to stay cheap at scale: devices are sent only
+  when they actually changed (not the whole register every cycle — a customer with 1000 mostly-
+  unchanging devices sends next to nothing most cycles), alerts only past a cursor, and findings/
+  compliance are never sent at all (the MSP computes those itself once the register is mirrored,
+  the same way it already does for its own local devices). Default cycle: 60 seconds, not the
+  console's own on-screen refresh rate. See [Deployment](docs/deployment.md#msp-live-devices-and-alerts-from-a-customers-own-master).
+* Independent of `--backup-upstream` (1.4.0): run either, both, or neither.
+
 ## 1.4.0: an Overview tab across sites, and backups reaching an MSP
 
 * **Overview tab** (off by default; an administrator turns it on under Settings → Overview page):

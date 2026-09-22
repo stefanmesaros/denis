@@ -33,6 +33,7 @@ mod packaging;
 pub mod inventory;
 pub mod metrics;
 pub mod model;
+pub mod msp_relay;
 pub mod net;
 pub mod notify;
 pub mod ot;

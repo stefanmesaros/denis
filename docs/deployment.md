@@ -236,6 +236,41 @@ DENIS_BACKUP_TOKEN=dat_… denis run --backup-upstream https://YOUR-MSP:8081
 * This is independent of whether that customer also reports live as an agent (`denis agent`) —
   backups can flow to you even if their master runs entirely standalone otherwise.
 
+## MSP: live devices and alerts from a customer's own master
+
+Beyond backups, a customer's own master (not just a lightweight agent) can relay its devices and
+already-scored alerts to your master too, live — so it shows up in your **MSP view** (Settings →
+MSP view) alongside every other customer, each kept apart by [site access](tour.md#msp-view-optional).
+
+```bash
+denis run --ingest-listen 0.0.0.0:8081   # on your (the MSP's) master, if not already running
+denis agent-token issue --id customer-a --label "Customer A"
+```
+
+On the customer's own master:
+
+```bash
+DENIS_REPORT_TOKEN=dat_… denis run --report-to https://YOUR-MSP:8081
+```
+
+**Bandwidth-conscious by design** — this was built specifically so a large customer never means a
+large, constant stream of traffic:
+
+* **Devices are sent only when they actually changed** (compared by content, ignoring volatile
+  fields like "last seen"), not the whole register every cycle — a customer with 1000 devices that
+  are not currently changing sends next to nothing most cycles. A full resync happens every 6
+  hours regardless, so nothing silently drifts.
+* **Alerts are sent only past a cursor** (the ones you have not already received) — inherently a
+  small number, however many devices a customer has.
+* **Findings and compliance are never sent at all.** Once a customer's register is mirrored, your
+  master computes those itself the same way it already does for your own local devices — sending
+  them separately would just be redundant traffic.
+* The default cycle is **60 seconds**, deliberately not as frequent as the console's own on-screen
+  refresh (that never leaves the browser-to-local-master link anyway). Change it with
+  `--report-to-interval` if you want it less frequent still.
+* This does **not** replace `--backup-upstream` above — run both if you want live visibility *and*
+  a backup copy; they are independent and one does not require the other.
+
 ## Alert notifications
 
 Configure **Slack, Teams, Discord, PagerDuty, Pushover, ntfy, e-mail and signed webhooks** in the console (*Alerting* tab, see [Alerting](alerting.md)); no restart, per-channel thresholds, a Test button. The simple command-line webhook below is the older way and still works:

@@ -105,6 +105,58 @@ impl Ingest {
         Ok(name)
     }
 
+    /// Upsert a customer's relayed devices and store their already-scored alerts as-is (no
+    /// detection re-run here — see `msp_sync`). Returns (devices applied, events inserted).
+    fn apply_msp_sync(&self, id: &str, sync: crate::msp_relay::Sync, now: i64) -> anyhow::Result<(usize, usize)> {
+        let _guard = self.apply_lock.lock().unwrap();
+        let n_devices = sync.devices.len();
+        for doc in sync.devices {
+            let mut a = doc.asset;
+            a.agent_id = Some(id.to_string());
+            match self.store.find_asset(Some(id), &a.mac)? {
+                Some(existing) => {
+                    a.id = existing.id;
+                    a.first_seen = a.first_seen.min(existing.first_seen);
+                    self.store.save_asset(&mut a)?;
+                }
+                None => {
+                    a.id = 0;
+                    self.store.save_asset(&mut a)?;
+                }
+            }
+            self.store.save_meta(a.id, &doc.meta, &format!("customer:{id}"), now)?;
+        }
+        let n_events = sync.events.len();
+        for r in sync.events {
+            // the sender's own asset_id is meaningless here: resolve the real device by MAC
+            // (the identity every install already agrees on), skip if we truly don't have it yet
+            let Some(local) = self.store.find_asset(Some(id), &r.mac)? else {
+                tracing::debug!("MSP sync from {id}: skipped an event for a device not seen yet ({})", r.mac);
+                continue;
+            };
+            let mut e = r.event;
+            e.asset_id = local.id;
+            e.agent_id = Some(id.to_string());
+            self.store.insert_event(&mut e)?;
+        }
+        let existing = self.store.get_agent(id)?;
+        let label = existing.as_ref().map(|a| a.name.clone()).or_else(|| {
+            self.store.list_agent_tokens().ok()?.into_iter().find(|t| t.agent_id == id).map(|t| t.label)
+        });
+        self.store.upsert_agent(&AgentInfo {
+            id: id.to_string(),
+            name: label.filter(|s| !s.is_empty()).unwrap_or_else(|| id.to_string()),
+            site: existing.as_ref().and_then(|a| a.site.clone()),
+            version: existing.as_ref().map(|a| a.version.clone()).unwrap_or_default(),
+            subnet: existing.as_ref().map(|a| a.subnet.clone()).unwrap_or_default(),
+            first_seen: existing.as_ref().map(|a| a.first_seen).unwrap_or(now),
+            last_report_at: now,
+            last_run_id: existing.as_ref().map(|a| a.last_run_id.clone()).unwrap_or_default(),
+            last_seq: existing.as_ref().map(|a| a.last_seq).unwrap_or(0),
+        })?;
+        Ok((n_devices, n_events))
+    }
+
     /// Seconds an address must wait, or 0 if it may try.
     fn throttled(&self, ip: IpAddr, now: i64) -> i64 {
         let m = self.failures.lock().unwrap();
@@ -253,7 +305,11 @@ fn clamp_asset(a: &mut Asset) {
 const MAX_BACKUP_BYTES: usize = 500 * 1024 * 1024;
 
 pub fn router(ingest: Arc<Ingest>) -> Router {
-    let reports = Router::new().route("/api/v1/ping", get(ping)).route("/api/v1/report", post(report)).layer(DefaultBodyLimit::max(MAX_BODY));
+    let reports = Router::new()
+        .route("/api/v1/ping", get(ping))
+        .route("/api/v1/report", post(report))
+        .route("/api/v1/msp-sync", post(msp_sync))
+        .layer(DefaultBodyLimit::max(MAX_BODY));
     let backups = Router::new().route("/api/v1/backup", post(backup_upload)).layer(DefaultBodyLimit::max(MAX_BACKUP_BYTES));
     reports.merge(backups).layer(middleware::from_fn_with_state(ingest.clone(), auth)).with_state(ingest)
 }
@@ -285,6 +341,31 @@ async fn auth(State(ing): State<Arc<Ingest>>, mut req: Request, next: Next) -> R
     };
     req.extensions_mut().insert(AgentIdentity(id.agent_id));
     next.run(req).await
+}
+
+/// A customer's own master relaying its devices and already-scored alerts (`denis run
+/// --report-to`, see `msp_relay.rs`). Unlike `report`, this never runs detection here: the
+/// events are stored exactly as the customer already scored them, and devices are just
+/// upserted — an MSP mirrors what each customer's own console already decided, it does not
+/// re-decide it. The customer becomes a "site" (its token's agent id) like any agent's.
+async fn msp_sync(State(ing): State<Arc<Ingest>>, Extension(who): Extension<AgentIdentity>, Json(sync): Json<crate::msp_relay::Sync>) -> Response {
+    if sync.devices.len() > MAX_ASSETS || sync.events.len() > MAX_ASSETS {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "sync too large"}))).into_response();
+    }
+    let now = now_ts();
+    let id = who.0.clone();
+    let res = tokio::task::spawn_blocking(move || ing.apply_msp_sync(&id, sync, now)).await;
+    match res {
+        Ok(Ok((devices, events))) => (StatusCode::OK, Json(serde_json::json!({"ok": true, "devices": devices, "events": events}))).into_response(),
+        Ok(Err(e)) => {
+            tracing::warn!("could not apply MSP sync from {}: {e:#}", who.0);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response()
+        }
+        Err(e) => {
+            tracing::warn!("MSP sync task failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response()
+        }
+    }
 }
 
 async fn ping() -> Json<serde_json::Value> {
@@ -538,6 +619,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn msp_sync_upserts_devices_and_events_without_running_detection_and_registers_the_site() {
+        let (ing, store) = setup(1000);
+        let token = ing.auth.issue_agent_token("customer-a", "Customer A", 1).unwrap();
+        let app = router(ing);
+        let post = |token: &str, body: &crate::msp_relay::Sync| {
+            axum::http::Request::post("/api/v1/msp-sync")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(body).unwrap()))
+                .unwrap()
+        };
+
+        let a = asset(M, [10, 5, 0, 9]);
+        let ev = crate::model::Event {
+            id: 999, // this customer's own local id: meaningless here, must not leak through
+            agent_id: None,
+            asset_id: a.id,
+            kind: "new_device".into(),
+            timestamp: 100,
+            severity: "high".into(),
+            score: 80,
+            acked: false,
+            raw_details: serde_json::json!({"summary": "a new device appeared"}),
+        };
+        let sync = crate::msp_relay::Sync {
+            devices: vec![crate::msp_relay::DeviceDoc { asset: a.clone(), meta: crate::model::AssetMeta { owner: Some("Jana".into()), ..Default::default() } }],
+            events: vec![crate::msp_relay::RelayedEvent { event: ev, mac: a.mac }],
+            full: true,
+        };
+        let (st, v) = call(&app, post(&token, &sync)).await;
+        assert_eq!((st, v["devices"].as_u64(), v["events"].as_u64()), (StatusCode::OK, Some(1), Some(1)));
+
+        // the device is filed under the customer's own site, its manual metadata kept
+        let stored = store.load_assets().unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].agent_id.as_deref(), Some("customer-a"));
+        assert_eq!(store.get_meta(stored[0].id).unwrap().unwrap().owner.as_deref(), Some("Jana"));
+
+        // the event was stored exactly as scored, with a fresh local id — no detection re-run
+        // (an unlearned high-severity signal would otherwise need a learning period to alert)
+        let events = store.list_events(&EventQuery { limit: 10, alerts_only: true, ..Default::default() }).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].score, 80);
+        assert_ne!(events[0].id, 999, "a fresh local id, not the customer's own");
+
+        // the customer shows up as a site, named from its token's label on first sync
+        let agents = store.list_agents().unwrap();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].id, "customer-a");
+        assert_eq!(agents[0].name, "Customer A");
+    }
+
+    #[tokio::test]
     async fn a_customers_backup_is_stored_under_its_own_agent_id_only_with_a_valid_sqlite_header() {
         let dir = tempfile::tempdir().unwrap();
         let backups_dir = dir.path().join("from-agents");
@@ -589,5 +723,4 @@ mod tests {
         other.extensions_mut().insert(ConnectInfo::<SocketAddr>("198.51.100.7:5000".parse().unwrap()));
         assert_eq!(call(&app, other).await.0, StatusCode::OK);
     }
-
 }

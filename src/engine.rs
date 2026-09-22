@@ -115,6 +115,9 @@ pub struct Config {
     /// Push this install's own scheduled backups to an MSP (see `backups::Upstream`). `None` =
     /// keep backups local only, same as before this existed.
     pub backup_upstream: Option<crate::backups::Upstream>,
+    /// Relay this install's own devices and already-scored alerts to an MSP's master (see
+    /// `msp_relay::Upstream`). `None` = this install is not relayed anywhere, same as before.
+    pub report_to: Option<crate::msp_relay::Upstream>,
 }
 
 impl Default for Config {
@@ -138,6 +141,7 @@ impl Default for Config {
             retention_days: 90,
             license_file: None,
             backup_upstream: None,
+            report_to: None,
         }
     }
 }
@@ -737,6 +741,10 @@ pub async fn run(cfg: Config) -> Result<()> {
     tasks.push(tokio::spawn(crate::switches::run(store.clone(), coll.shared.clone())));
     // scheduled backups of the database
     tasks.push(tokio::spawn(crate::backups::run(store.clone(), coll.shared.clone(), cfg.backup_upstream.clone())));
+    if let Some(up) = cfg.report_to.clone() {
+        tracing::info!("relaying devices and alerts to the MSP at {}", up.url);
+        tasks.push(tokio::spawn(crate::msp_relay::run(store.clone(), up)));
+    }
 
     if let Some(sc) = cfg.syslog.clone() {
         let sl = Arc::new(crate::syslog::Syslog::new(sc));

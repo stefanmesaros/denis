@@ -224,6 +224,23 @@ enum Cmd {
         /// line, so it does not show in the process list).
         #[arg(long, default_value = "DENIS_BACKUP_TOKEN")]
         backup_upstream_token_env: String,
+        /// Relay this install's own devices and already-scored alerts to an MSP's master (its
+        /// base URL, e.g. https://msp.example.com:9000): it appears there as one more site,
+        /// like an agent's. Bandwidth-conscious by design: devices are sent only when they
+        /// actually change (not the whole register every cycle), alerts only past a cursor, and
+        /// findings/compliance are never sent — the MSP computes those itself once the register
+        /// is mirrored. Needs a token from the MSP (`denis agent-token issue`), read from
+        /// --report-to-token-env; outbound only, same trust model as an agent.
+        #[arg(long, env = "DENIS_REPORT_TO")]
+        report_to: Option<String>,
+        /// Environment variable holding the token for --report-to.
+        #[arg(long, default_value = "DENIS_REPORT_TOKEN")]
+        report_to_token_env: String,
+        /// Seconds between relay cycles for --report-to. Deliberately not as frequent as the
+        /// console's own UI refresh: alerts and device deltas do not need to be that fresh, and
+        /// a longer interval means less WAN traffic to the MSP.
+        #[arg(long, default_value_t = denis::msp_relay::DEFAULT_INTERVAL_SECS)]
+        report_to_interval: u64,
     },
     /// Remote agent: collect on this network and report to a master.
     Agent {
@@ -494,6 +511,9 @@ async fn main() -> Result<()> {
             license_file,
             backup_upstream,
             backup_upstream_token_env,
+            report_to,
+            report_to_token_env,
+            report_to_interval,
         } => {
             let detect = DetectConfig {
                 learning_secs: learning_minutes.max(0) * 60,
@@ -549,6 +569,13 @@ async fn main() -> Result<()> {
                     Ok::<_, anyhow::Error>(denis::backups::Upstream { url, token })
                 })
                 .transpose()?;
+            let report_to = report_to
+                .map(|url| {
+                    let token = std::env::var(&report_to_token_env)
+                        .map_err(|_| anyhow::anyhow!("--report-to needs a token: set the environment variable {report_to_token_env}"))?;
+                    Ok::<_, anyhow::Error>(denis::msp_relay::Upstream { url, token, interval: Duration::from_secs(report_to_interval.max(15)) })
+                })
+                .transpose()?;
             let result = engine::run(engine::Config {
                 collector: collect.into_config(db_path),
                 listen,
@@ -568,6 +595,7 @@ async fn main() -> Result<()> {
                 retention_days,
                 license_file,
                 backup_upstream,
+                report_to,
             })
             .await;
             // an update was installed: continue as the new program (same arguments, same process)
