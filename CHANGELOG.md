@@ -1,8 +1,6 @@
 # Changelog
 
-## 0.6.0-rc.1: five more industrial and IIoT protocols, and an honest boundary between "decoded" and "port only"
-
-*A release candidate.*
+## 0.6.0: five more industrial and IIoT protocols, and an honest boundary between "decoded" and "port only"
 
 * **Five more protocols, each verified against a real capture**: **Omron FINS** (now fully decoded: memory/parameter/
   program area reads and writes, and the **run/stop** command — the one that matters most), **MQTT** (PUBLISH as a
