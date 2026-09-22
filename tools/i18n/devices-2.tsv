@@ -63,3 +63,16 @@ garage door opener || Garagentorantrieb || motorisation de porte de garage || ab
 management controller || Management-Controller (BMC) || contrôleur de gestion (BMC) || controlador de gestión (BMC) || riadiaci kontrolér (BMC)
 powerline adapter || Powerline-Adapter || adaptateur CPL || adaptador Powerline || Powerline adaptér
 single-board computer || Einplatinencomputer || ordinateur monocarte || ordenador de placa única || jednodoskový počítač
+No room set || Keine Raum eingetragen || Aucune pièce indiquée || Sin sala indicada || Nie je nastavená miestnosť
+No owner set || Kein Besitzer eingetragen || Aucun propriétaire indiqué || Sin propietario indicado || Nie je nastavený vlastník
+{label} · {n} devices || {label} · {n} Geräte || {label} · {n} appareils || {label} · {n} dispositivos || {label} · {n} zariadení
+Group devices by || Geräte gruppieren nach || Regrouper les appareils par || Agrupar dispositivos por || Zoskupiť zariadenia podľa
+Not grouped || Nicht gruppiert || Non regroupé || Sin agrupar || Nezoskupené
+Group by type || Nach Typ gruppieren || Regrouper par type || Agrupar por tipo || Zoskupiť podľa typu
+Group by room || Nach Raum gruppieren || Regrouper par pièce || Agrupar por sala || Zoskupiť podľa miestnosti
+Group by owner || Nach Besitzer gruppieren || Regrouper par propriétaire || Agrupar por propietario || Zoskupiť podľa vlastníka
+Room || Raum || Pièce || Sala || Miestnosť
+Any || Beliebig || N'importe lequel || Cualquiera || Ľubovoľné
+e.g. Windows, Linux… || z. B. Windows, Linux … || p. ex. Windows, Linux… || p. ej. Windows, Linux… || napr. Windows, Linux…
+Clear filters || Filter zurücksetzen || Effacer les filtres || Borrar filtros || Vymazať filtre
+Filters || Filter || Filtres || Filtros || Filtre

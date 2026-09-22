@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0: grouping, multi-field filters and a room column for Devices; CSV export buttons
+
+* **Devices**: a **Room** column (from the location field), **Group by** (type, room or owner, each with a count
+  and an "unset" group for devices with nothing entered), and **Filters** — several conditions at once (type,
+  room, vendor, owner, a substring of the OS guess) with a count badge and a **Clear filters** button. Both are
+  per-browser and change only what is shown; CSV export is unaffected.
+* **Devices CSV** is now a button next to **Import CSV** (it was a plain link). **Alerts CSV** is a button that
+  only appears on the Alerts page (it used to sit in the same toolbar as the Devices export, on the Devices, Alerts
+  *and* Events tabs, which never made sense on Events).
+
 ## 0.6.0: five more industrial and IIoT protocols, and an honest boundary between "decoded" and "port only"
 
 * **Five more protocols, each verified against a real capture**: **Omron FINS** (now fully decoded: memory/parameter/

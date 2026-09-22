@@ -331,6 +331,58 @@ await check('the Reports page makes a report, keeps it in the list, serves it an
   return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
 });
 
+// ------------------------------------------------------------------ Devices: group by, and filter by several fields
+await check('Devices can be grouped by room/type/owner, and filters combine (type AND OS) to narrow the list', async () => {
+  takeProblems();
+  await evaluate("location.hash = '#assets'; setTab('assets'); 0");
+  await sleep(900);
+  const total = await evaluate("state.assets.length");
+  // group by device type: every row is either a group header (1 visible cell) or a data row
+  await evaluate("document.getElementById('group-by').value = 'device_type'; document.getElementById('group-by').dispatchEvent(new Event('change')); 0");
+  await sleep(400);
+  const grouped = await evaluate("[...document.querySelectorAll('#assets-table tbody tr')].map((r) => ({ group: r.classList.contains('group-row'), cells: r.cells.length }))");
+  if (!grouped.some((r) => r.group) || !grouped.some((r) => !r.group)) return 'grouping produced no group headers or no data rows: ' + JSON.stringify(grouped.slice(0, 4));
+  await evaluate("document.getElementById('group-by').value = 'none'; document.getElementById('group-by').dispatchEvent(new Event('change')); 0");
+  await sleep(300);
+  // filters: type + a free-text OS substring, combined with AND
+  await evaluate("document.getElementById('filters-btn').click(); 0");
+  await sleep(300);
+  const type = await evaluate("(() => { const s = document.querySelectorAll('#filters-menu select')[0]; const opt = [...s.options].find((o) => o.value === 'computer'); if (opt) s.value = 'computer'; else s.selectedIndex = 1; s.dispatchEvent(new Event('change')); return s.value; })()");
+  await sleep(300);
+  const afterType = await evaluate("state.assets.filter((a) => a === a).length, document.getElementById('count-assets').textContent");
+  await evaluate("(() => { const i = document.querySelector('#filters-menu input'); i.value = 'zzz-does-not-exist'; i.dispatchEvent(new Event('input')); })()");
+  await sleep(300);
+  const noneLeft = await evaluate("document.querySelectorAll('#assets-table tbody tr').length");
+  if (noneLeft !== 0) return `a nonsense OS filter combined with type=${type} still shows ${noneLeft} rows`;
+  const badge = await evaluate("document.getElementById('filters-count').textContent");
+  if (badge !== '2') return 'the filter count badge: ' + badge;
+  // clear filters: back to the full list
+  await evaluate("document.querySelector('#filters-menu .cols-reset').click(); 0");
+  await sleep(300);
+  const restored = await evaluate("document.querySelectorAll('#assets-table tbody tr').length");
+  if (restored !== total) return `clearing filters gave ${restored} rows, expected ${total}`;
+  if (!(await evaluate("document.getElementById('filters-count').hidden"))) return 'the filter badge did not clear';
+  void afterType;
+  const bad = await evaluate(BAD_TEXT);
+  const p = takeProblems();
+  return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
+});
+
+// ------------------------------------------------------------------ export buttons: Devices CSV / Alerts CSV
+await check('Devices CSV is a button next to Import CSV, and Alerts CSV is a button only on the Alerts page', async () => {
+  takeProblems();
+  await evaluate("location.hash = '#assets'; setTab('assets'); 0");
+  await sleep(500);
+  const onAssets = await evaluate("({ devicesIsButton: document.getElementById('export-assets').classList.contains('button'), devicesVisible: !document.getElementById('exports-assets').hidden, alertsHidden: document.getElementById('exports-alerts').hidden })");
+  if (!onAssets.devicesIsButton || !onAssets.devicesVisible || !onAssets.alertsHidden) return 'on Devices: ' + JSON.stringify(onAssets);
+  await evaluate("location.hash = '#alerts'; setTab('alerts'); 0");
+  await sleep(500);
+  const onAlerts = await evaluate("({ alertsIsButton: document.getElementById('export-alerts').classList.contains('button'), alertsVisible: !document.getElementById('exports-alerts').hidden, devicesHidden: document.getElementById('exports-assets').hidden })");
+  if (!onAlerts.alertsIsButton || !onAlerts.alertsVisible || !onAlerts.devicesHidden) return 'on Alerts: ' + JSON.stringify(onAlerts);
+  const p = takeProblems();
+  return p.length ? p.join('; ') : null;
+});
+
 // ------------------------------------------------------------------ table columns: hide, reorder, resize, remember
 await check('table columns can be hidden, reordered and resized, stay so when the rows are redrawn and after a reload, and can be reset', async () => {
   takeProblems();

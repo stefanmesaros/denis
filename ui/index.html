@@ -72,18 +72,30 @@
         <div class="toolbar">
           <input id="search" type="search" placeholder="Filter by IP, MAC, name, owner, serial, tag…" aria-label="Filter devices">
           <select id="site" aria-label="Filter by site" hidden></select>
+          <select id="group-by" aria-label="Group devices by" hidden>
+            <option value="none">Not grouped</option>
+            <option value="device_type">Group by type</option>
+            <option value="location">Group by room</option>
+            <option value="owner">Group by owner</option>
+          </select>
+          <span class="filters-box" hidden id="filters-box">
+            <button id="filters-btn" type="button" class="cols-btn" aria-haspopup="dialog">Filters<span id="filters-count" class="badge" hidden></span></button>
+            <div id="filters-menu" class="cols-menu" hidden role="dialog" aria-label="Filter devices"></div>
+          </span>
           <select id="range" aria-label="Time range" hidden>
             <option value="24">Last 24 hours</option>
             <option value="168">Last 7 days</option>
             <option value="720">Last 30 days</option>
           </select>
           <span class="spacer"></span>
-          <span class="exports">
+          <span class="exports" id="exports-assets">
             <button id="add-asset" type="button" hidden>+ Add asset</button>
             <button id="import-assets" type="button" hidden>Import CSV</button>
             <input id="import-file" type="file" accept=".csv,text/csv" hidden>
-            <a id="export-assets" href="/api/export/assets.csv?days=7" download>Devices CSV</a>
-            <a id="export-alerts" href="/api/export/alerts.csv?days=30" download>Alerts CSV</a>
+            <a id="export-assets" class="button" href="/api/export/assets.csv?days=7" download>Devices CSV</a>
+          </span>
+          <span class="exports" id="exports-alerts" hidden>
+            <a id="export-alerts" class="button" href="/api/export/alerts.csv?days=30" download>Alerts CSV</a>
           </span>
           <label class="check" id="online-label"><input id="only-online" type="checkbox"> online only</label>
           <label class="check" id="review-label"><input id="only-review" type="checkbox"> needs review <span id="review-count" class="muted"></span></label>
@@ -105,6 +117,7 @@
               <th data-sort="vendor">Vendor</th>
               <th data-sort="name">Name</th>
               <th data-sort="device_type">Type</th>
+              <th data-sort="location">Room</th>
               <th data-sort="os_guess">OS guess</th>
               <th data-sort="ports">Open ports</th>
               <th data-sort="last_seen">Last seen</th>

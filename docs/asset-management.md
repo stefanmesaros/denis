@@ -65,9 +65,18 @@ they would simply reappear: set their status to `retired` instead).
 * A device with status **lost** or **stolen** is listed in the same section.
 * Retired/spare devices are expected to be offline and never raise "went silent" alerts.
 
+## Grouping and filtering the list
+
+**Group by** (top of the Devices tab) splits the list into sections by **type**, **room** (location) or **owner**,
+each with a count; devices with nothing entered for that field land in an "unset" group at the end. **Filters**
+combines several conditions at the same time — type, room, vendor and owner (pick from what is actually in your
+register) plus a substring of the OS guess — so "type is computer, room is Office 11, OS contains Unix" narrows to
+exactly that. Both are per-browser and only change what is *shown*; **Devices CSV** always exports everything.
+
 ## CSV export and import
 
-**Devices CSV** (on the Devices tab) exports every device, discovered and entered columns together.
+**Devices CSV** (a button on the Devices tab, next to **Import CSV**) exports every device, discovered and entered
+columns together, regardless of any group-by or filter currently applied.
 
 To **edit in a spreadsheet and import back**:
 

@@ -22,11 +22,19 @@ browser's site data resets it. Sorting by a heading works as before, and the lay
 
 ![Devices](img/devices.png)
 
-Every device found. Columns: online dot, risk score, IP, MAC, manufacturer, name (with its icon), type, guessed OS,
-open ports, last seen. Click a header to sort; type in the filter box to search IPs, MACs, names, owners, serial
-numbers, tags and more. **online only** hides silent devices; **needs review** shows the
-[review queue](asset-management.md#the-review-queue). Buttons export the list and alerts (**CSV**), open the
-**printable report**, add a device by hand, or import a CSV.
+Every device found. Columns: online dot, risk score, IP, MAC, manufacturer, name (with its icon), type, room
+(location), guessed OS, open ports, last seen. Click a header to sort; type in the filter box to search IPs, MACs,
+names, owners, serial numbers, tags and more.
+
+* **Group by** (type, room or owner) breaks the list into sections, each with its own count; a device with nothing
+  entered for the field falls into an "unset" group at the end. Sorting still works inside each group.
+* **Filters** combines several conditions at once (type **and** room **and** vendor **and** owner **and** a
+  substring of the OS guess) — a badge on the button shows how many are set; **Clear filters** resets them.
+* **online only** hides silent devices; **needs review** shows the [review queue](asset-management.md#the-review-queue).
+* **Devices CSV** and **Import CSV** are buttons next to each other; **+ Add asset** adds one by hand.
+
+Group-by and filters are per-browser, like table columns; they narrow what is shown, not what is exported (**Devices
+CSV** always exports every device).
 
 The **risk score** (0–100) is explained factor by factor on the device page: exposed services (Telnet, RDP…),
 how well the device is identified, and its open alerts. Devices you rate *critical* weigh more.
@@ -62,7 +70,8 @@ logged). Click an alert for the full story:
 ![An alert](img/alert-dialog.png)
 
 *what happened*, *why it scored what it did*, and **what to do next**. **Acknowledge** an alert when it is handled;
-acknowledged alerts no longer count towards a device's risk score.
+acknowledged alerts no longer count towards a device's risk score. **Alerts CSV** (a button, next to *show
+acknowledged*) exports the list.
 
 ## Findings
 

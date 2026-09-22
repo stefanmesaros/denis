@@ -237,7 +237,7 @@ async function start() {
   applyHash();
   maybeShowSetupGuide();
   if (poller) clearInterval(poller);
-  poller = setInterval(refresh, 5000);
+  poller = setInterval(refresh, 10000);
   if (healthPoller) clearInterval(healthPoller);
   healthPoller = setInterval(() => { if (state.tab === 'health') loadHealth(); else loadHealthBadge(); }, 60000);
 }

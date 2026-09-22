@@ -26,7 +26,8 @@ const RANK = { viewer: 1, editor: 2, admin: 3 };
 const can = (role) => !!(state.me && RANK[state.me.role] >= RANK[role]);
 const state = {
   assets: [], events: [], alerts: [], agents: [], status: null, me: null, options: null,
-  tab: 'assets', sort: 'last_seen', asc: false, selected: null,
+  tab: 'assets', sort: 'last_seen', asc: false, selected: null, groupBy: 'none',
+  filters: { device_type: '', location: '', vendor: '', owner: '', os_guess: '' },
 };
 
 function el(tag, props = {}, ...kids) {
@@ -105,6 +106,7 @@ const sorters = {
   vendor: (a) => vendor(a).toLowerCase(),
   name: (a) => name(a).toLowerCase(),
   device_type: (a) => a.device_type,
+  location: (a) => ((a.meta && a.meta.location) || '').toLowerCase(),
   os_guess: (a) => a.os_guess || '',
   ports: (a) => a.open_ports.length,
   last_seen: (a) => a.last_seen,
@@ -119,6 +121,85 @@ function matches(a, q) {
 
 const multiSite = () => state.agents.length > 0;
 
+// -------------------------------------------------------- Devices: filter by several fields at once
+
+/** Every distinct, non-empty value of `field` among the devices, sorted for a dropdown. */
+function distinctValues(field) {
+  const get = { device_type: (a) => tr(a.device_type), location: (a) => a.meta && a.meta.location, vendor: (a) => vendor(a) || null, owner: (a) => a.meta && a.meta.owner }[field];
+  const seen = new Set(state.assets.map(get).filter(Boolean));
+  return [...seen].sort((a, b) => a.localeCompare(b, locale()));
+}
+
+/** Does this device pass every filter that is set? (An empty filter matches everything.) */
+function passesFilters(a) {
+  const f = state.filters;
+  if (f.device_type && tr(a.device_type) !== f.device_type) return false;
+  if (f.location && (a.meta && a.meta.location) !== f.location) return false;
+  if (f.vendor && vendor(a) !== f.vendor) return false;
+  if (f.owner && (a.meta && a.meta.owner) !== f.owner) return false;
+  if (f.os_guess && !(a.os_guess || '').toLowerCase().includes(f.os_guess.toLowerCase())) return false;
+  return true;
+}
+
+const activeFilterCount = () => Object.values(state.filters).filter(Boolean).length;
+
+function drawFiltersMenu() {
+  const menu = $('filters-menu');
+  const field = (key, labelText, options) => {
+    const sel = el('select', { 'aria-label': labelText });
+    sel.append(el('option', { value: '', text: tr('Any') }), ...options.map((v) => el('option', { value: v, text: v })));
+    sel.value = state.filters[key];
+    sel.onchange = () => { state.filters[key] = sel.value; renderAssets(); drawFiltersMenu(); };
+    return el('label', {}, labelText, sel);
+  };
+  const os = el('input', { value: state.filters.os_guess, placeholder: tr('e.g. Windows, Linux…') });
+  os.oninput = () => { state.filters.os_guess = os.value; renderAssets(); };
+  menu.replaceChildren(
+    field('device_type', tr('Type'), distinctValues('device_type')),
+    field('location', tr('Room'), distinctValues('location')),
+    field('vendor', tr('Vendor'), distinctValues('vendor')),
+    field('owner', tr('Owner'), distinctValues('owner')),
+    el('label', {}, tr('OS guess'), os),
+    el('div', { class: 'row' }, el('button', { type: 'button', class: 'cols-reset', text: tr('Clear filters'), onclick: () => {
+      for (const k of Object.keys(state.filters)) state.filters[k] = '';
+      renderAssets();
+      drawFiltersMenu();
+    } })));
+}
+$('filters-btn').onclick = (ev) => {
+  ev.stopPropagation();
+  const menu = $('filters-menu');
+  menu.hidden = !menu.hidden;
+  if (!menu.hidden) drawFiltersMenu();
+};
+document.addEventListener('click', (ev) => { if (!$('filters-menu').hidden && !ev.composedPath().includes($('filters-menu')) && ev.target !== $('filters-btn')) $('filters-menu').hidden = true; });
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') $('filters-menu').hidden = true; });
+
+/** How the Devices list is currently grouped: `none`, `device_type`, `location` or `owner`. */
+const GROUP_LABEL = () => ({
+  device_type: (a) => tr(a.device_type),
+  location: (a) => (a.meta && a.meta.location) || tr('No room set'),
+  owner: (a) => (a.meta && a.meta.owner) || tr('No owner set'),
+});
+const GROUP_UNSET = () => new Set([tr('No room set'), tr('No owner set')]);
+
+/** Split an already-sorted list into `[label, devices[]]` groups, sorted by label (an "unset" group sorts last). */
+function groupRows(rows, groupBy) {
+  const label = GROUP_LABEL()[groupBy];
+  if (!label) return null;
+  const groups = new Map();
+  for (const a of rows) {
+    const k = label(a);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(a);
+  }
+  const unset = GROUP_UNSET();
+  return [...groups.entries()].sort(([x], [y]) => {
+    if (unset.has(x) !== unset.has(y)) return unset.has(x) ? 1 : -1;
+    return x.localeCompare(y, locale());
+  });
+}
+
 const inSite = (a, site) => !site || site === '__all' || (site === '__local' ? !a.agent_id : a.agent_id === site);
 
 /** A device nobody has looked at yet (the review queue). Hand-entered devices count as reviewed. */
@@ -131,7 +212,10 @@ function renderAssets() {
   const site = $('site').value;
   const key = sorters[state.sort];
   const rows = state.assets.filter((a) =>
-    matches(a, q) && (!onlyOnline || isOnline(a)) && (!onlyReview || needsReview(a)) && inSite(a, site));
+    matches(a, q) && (!onlyOnline || isOnline(a)) && (!onlyReview || needsReview(a)) && inSite(a, site) && passesFilters(a));
+  const fc = activeFilterCount();
+  $('filters-count').hidden = !fc;
+  $('filters-count').textContent = fc;
   const pending = state.assets.filter(needsReview).length;
   $('review-count').textContent = pending ? '(' + pending + ')' : '';
   $('review-all').hidden = !(onlyReview && rows.length && can('editor'));
@@ -147,8 +231,8 @@ function renderAssets() {
   });
   const showSite = multiSite();
   for (const c of document.querySelectorAll('.site-col')) c.hidden = !showSite;
-  const body = $('assets-table').tBodies[0];
-  body.replaceChildren(...rows.map((a) => el('tr', { onclick: () => showDetail(a.id) },
+  const cols = 11 + (showSite ? 1 : 0);
+  const row = (a) => el('tr', { onclick: () => showDetail(a.id) },
     el('td', {}, el('span', { class: 'dot' + (isOnline(a) ? ' on' : ''), title: isOnline(a) ? tr('online') : tr('not seen recently') })),
     showSite ? el('td', { text: siteName(a.agent_id) }) : null,
     el('td', {}, riskTag(a)),
@@ -157,9 +241,20 @@ function renderAssets() {
     el('td', { text: vendor(a) }),
     el('td', { class: 'namecell' }, iconBadge(a), el('span', { text: name(a) }), a.meta && a.meta.manual ? el('span', { class: 'tag', text: tr('manual') }) : null, needsReview(a) && now() - a.first_seen < 14 * 86400 ? el('span', { class: 'tag new', title: tr('joined recently and nobody has reviewed it'), text: tr('new') }) : null, a.is_self ? el('span', { class: 'tag self', text: a.agent_id ? tr('agent host') : tr('this device') }) : null),
     el('td', {}, el('span', { class: 'tag', text: tr(a.device_type) })),
+    el('td', { text: (a.meta && a.meta.location) || '' }),
     el('td', { text: a.os_guess || '' }),
     el('td', { class: 'ports mono', text: portsText(a), title: portsText(a) }),
-    el('td', { text: ago(a.last_seen), title: fmtTime(a.last_seen) }))));
+    el('td', { text: ago(a.last_seen), title: fmtTime(a.last_seen) }));
+  const body = $('assets-table').tBodies[0];
+  const groups = groupRows(rows, state.groupBy);
+  if (groups) {
+    body.replaceChildren(...groups.flatMap(([label, devices]) => [
+      el('tr', { class: 'group-row' }, el('td', { colSpan: cols, text: tr('{label} · {n} devices', { label, n: devices.length }) })),
+      ...devices.map(row),
+    ]));
+  } else {
+    body.replaceChildren(...rows.map(row));
+  }
   $('empty').hidden = state.assets.length > 0;
   $('count-assets').textContent = '(' + rows.length + (rows.length !== state.assets.length ? '/' + state.assets.length : '') + ')';
   for (const th of $('assets-table').tHead.rows[0].cells) {
@@ -636,10 +731,12 @@ function setTab(t) {
   state.tab = t;
   for (const b of document.querySelectorAll('.tab')) b.classList.toggle('active', b.dataset.tab === t);
   for (const v of ['assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'health', 'alerting', 'topology', 'ot', 'trends', 'events', 'agents', 'users', 'settings', 'audit', 'account']) $('view-' + v).hidden = t !== v;
-  $('search').hidden = $('online-label').hidden = $('review-label').hidden = t !== 'assets';
+  $('search').hidden = $('online-label').hidden = $('review-label').hidden = $('group-by').hidden = $('filters-box').hidden = t !== 'assets';
+  if (t !== 'assets') $('filters-menu').hidden = true;
   if (t !== 'assets') $('review-all').hidden = true;
   // export and import links belong to the lists they export
-  document.querySelector('.exports').hidden = !['assets', 'alerts', 'events'].includes(t);
+  $('exports-assets').hidden = t !== 'assets';
+  $('exports-alerts').hidden = t !== 'alerts';
   $('acked-label').hidden = t !== 'alerts';
   $('range').hidden = t !== 'trends';
   renderSiteFilter();
@@ -698,6 +795,7 @@ for (const th of $('assets-table').tHead.rows[0].cells) {
 }
 $('search').oninput = renderAssets;
 $('only-online').onchange = renderAssets;
+$('group-by').onchange = () => { state.groupBy = $('group-by').value; renderAssets(); };
 $('only-review').onchange = renderAssets;
 $('site').onchange = () => { renderAssets(); if (state.tab === 'topology') renderTopology(); if (state.tab === 'trends') loadTrends(); };
 $('range').onchange = loadTrends;
