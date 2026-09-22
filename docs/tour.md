@@ -179,6 +179,12 @@ with its own minimum score, a **Test** button and live delivery status. **Mainte
 Accounts and roles (*viewer* reads, *editor* also edits devices and acknowledges alerts, *admin* also manages
 users, settings and rules) and **API tokens** for scripts and Grafana.
 
+**Sites** (per user) opens which sites — the local network, or a remote agent — that person may see or change:
+**full access**, **read only**, or **no access**. Nothing is set by default, which means full access everywhere,
+same as before this existed; an administrator restricts a user only by opening this and choosing otherwise.
+Administrators themselves are never restricted. Useful for an MSP whose technicians should only see their own
+customers, or to keep a sensitive site out of a viewer's sight entirely.
+
 ## Settings (administrators)
 
 ![Settings](img/settings.png)

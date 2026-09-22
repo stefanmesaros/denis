@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0.0: a commercial license, per-site access control, a logo
+
+* **License**: DENIS is no longer MIT/Apache-2.0. It is now source-available under the **DENIS
+  Community License**: free to read, build and run for personal, non-commercial use on up to 100
+  devices. Any organisational use, or more than 100 devices, needs a commercial license — see
+  [LICENSE](LICENSE) and [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md). A license is a small
+  signed file (`denis serve --license-file …` / `denis run --license-file …`); the Devices page
+  shows a banner when you are over the Community cap or a license file has a problem, and the
+  device list (and its CSV/report) is limited to the first 100 devices until one is installed.
+  Detection and alerting are never limited by this — every device is still monitored.
+* **Per-site access control**: an administrator can now grant each user **read**, **write** or
+  **no access** to each site (the local network, or a remote agent) from the Users page (the
+  **Sites** button on a user's row). Useful for an MSP whose technicians should only see their
+  own customers, or to keep one site's devices out of a viewer's sight entirely. Nothing changes
+  for an install that never opens this: with no grant set, everyone keeps seeing everything, same
+  as before.
+* **A logo**: DENIS has its own mark now (a device found by a radar sweep), used as the browser
+  tab icon and as the default header/sign-in logo when no operator has uploaded their own
+  white-label one.
+
 ## 0.7.0: grouping, multi-field filters and a room column for Devices; CSV export buttons
 
 * **Devices**: a **Room** column (from the location field), **Group by** (type, room or owner, each with a count

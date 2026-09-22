@@ -52,8 +52,9 @@ page, or `cargo build --release`):
    optional built-in HTTPS, strict headers. Every detection is visible and tunable (*Rules* tab).
 9. **Plays well with the rest of your stack.** Syslog/CEF for SIEMs, OpenObserve export, Prometheus `/metrics`,
    REST API, `denis backup`.
-10. **Many sites, your brand.** Agents on remote sites report to one master (outbound connections only); white-label
-    the console with your logo, colour and default day/night theme.
+10. **Many sites, your brand.** Agents on remote sites report to one master (outbound connections only), with
+    **per-user, per-site access** (read/write/none, e.g. for an MSP whose technicians see only their own
+    customers); white-label the console with your logo, colour and default day/night theme.
 11. **Built to explain itself.** Documentation and a guided demo ship inside the binary; the code is commented for
     maintainers and fuzz-tested where it parses hostile input.
 

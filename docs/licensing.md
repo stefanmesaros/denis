@@ -1,0 +1,42 @@
+# Licensing
+
+DENIS is **source-available**, not open source under the old MIT/Apache-2.0 terms it used before
+v1.0.0. The full terms are in `LICENSE`, in the root of the repository; this page is a summary,
+not a substitute for reading it.
+
+## Community edition
+
+Free to use for **personal or other non-commercial purposes**, on a single installation
+monitoring **up to 100 devices**. This covers a household network, or trying DENIS out.
+
+## Commercial use
+
+Any use by or for a business, non-profit, government body or other organisation — regardless of
+device count — and any installation over the 100-device cap, needs a **commercial license**. See
+`LICENSE-COMMERCIAL.md`, in the root of the repository, for how to get one.
+
+## What changes without a license
+
+Nothing is crippled. Detection, alerting and everything that keeps you safe keeps working exactly
+the same, on every device DENIS finds — a license never turns off protection to make a point.
+What is limited is the **browsable list**: past the 100-device cap, the Devices page (and its CSV
+and printable report) shows only the first 100 devices, chosen by a stable order so it is always
+the same ones, not a different 100 each time. A banner explains why, with a device count, whenever
+you are over the cap or a license file cannot be verified (expired, edited, or issued for a
+different build).
+
+## Installing a license
+
+A license is a small signed text file. Once you have one:
+
+```bash
+denis serve --db denis.db --license-file /path/to/license.key
+# or, for the full discovery/detection mode:
+denis run --license-file /path/to/license.key
+```
+
+`DENIS_LICENSE_FILE` works the same way as an environment variable. Restart DENIS after adding or
+replacing the file. The banner disappears once it verifies; if it does not, the banner says why.
+
+A license's validity is counted **from the first time it verifies on that install**, not from the
+day it was issued — moving the same file to a different install starts its own count there.
