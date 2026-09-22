@@ -73,6 +73,10 @@ combines several conditions at the same time — type, room, vendor and owner (p
 register) plus a substring of the OS guess — so "type is computer, room is Office 11, OS contains Unix" narrows to
 exactly that. Both are per-browser and only change what is *shown*; **Devices CSV** always exports everything.
 
+On a large network the list is rendered lazily: past a few hundred devices, filtering, sorting and grouping still
+run over every device, but only the rows near where you are scrolled are actually drawn, so the table stays smooth
+with thousands of devices. Smaller networks look and behave exactly the same as before.
+
 ## CSV export and import
 
 **Devices CSV** (a button on the Devices tab, next to **Import CSV**) exports every device, discovered and entered

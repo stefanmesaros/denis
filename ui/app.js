@@ -202,6 +202,72 @@ function groupRows(rows, groupBy) {
 
 const inSite = (a, site) => !site || site === '__all' || (site === '__local' ? !a.agent_id : a.agent_id === site);
 
+// ---------------------------------------------- Devices: lazy (virtualized) rendering for large lists
+//
+// Filtering, sorting and grouping always run over the whole `state.assets` array, however big it is; only
+// the rows near the current scroll position ever become real <tr> elements. Below VIRTUALIZE_ABOVE rows the
+// table renders exactly as before, in one #assets-scroll with no height limit of its own (the common case:
+// nearly everyone's network fits on one screen or two, and nothing about it should look different).
+// Above it, #assets-scroll becomes a bounded, independently-scrolling box (class "virtual") with a spacer
+// row above and below the rendered window, so the scrollbar still reflects the true length of the list.
+const VIRTUALIZE_ABOVE = 300;
+const ROW_H = 37; // px: td/th padding (8px 12px) plus one text line and the 1px border
+const GROUP_ROW_H = 41; // px: group rows add 4px of padding-top
+let assetsVirtual = null; // { items, offsets, rowFn, groupRowFn } while virtualizing; null otherwise
+
+const itemH = (it) => (it.kind === 'group' ? GROUP_ROW_H : ROW_H);
+
+/** Prefix sums of item heights: offsets[i] is the top of item i, offsets[length] is the total height. */
+function buildOffsets(items) {
+  const offsets = new Array(items.length + 1);
+  offsets[0] = 0;
+  for (let i = 0; i < items.length; i++) offsets[i + 1] = offsets[i] + itemH(items[i]);
+  return offsets;
+}
+
+/** The index of the item covering vertical position `y`, by binary search over `offsets` (see buildOffsets). */
+function indexAtOffset(offsets, y) {
+  let lo = 0, hi = offsets.length - 2;
+  if (hi < 0) return 0;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (offsets[mid + 1] <= y) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
+/** Rebuild only the rows currently near the viewport, from the list computed by the last renderAssets(). */
+function drawVirtualWindow() {
+  if (!assetsVirtual) return;
+  const { items, offsets, rowFn, groupRowFn, cols } = assetsVirtual;
+  const scroller = $('assets-scroll');
+  const body = $('assets-table').tBodies[0];
+  const total = offsets[offsets.length - 1];
+  const viewH = scroller.clientHeight || 500;
+  const scrollTop = scroller.scrollTop;
+  const OVERSCAN = 8; // extra rows above/below the viewport, so a small scroll never shows a blank flash
+  const start = Math.max(0, indexAtOffset(offsets, scrollTop) - OVERSCAN);
+  const end = Math.min(items.length, indexAtOffset(offsets, scrollTop + viewH) + OVERSCAN + 1);
+  const topH = offsets[start];
+  const bottomH = total - offsets[end];
+  const frag = [];
+  if (topH > 0) frag.push(el('tr', { class: 'vspacer' }, el('td', { colSpan: cols, style: `height:${topH}px;padding:0` })));
+  for (let i = start; i < end; i++) {
+    const it = items[i];
+    frag.push(it.kind === 'group' ? groupRowFn(it) : rowFn(it.asset));
+  }
+  if (bottomH > 0) frag.push(el('tr', { class: 'vspacer' }, el('td', { colSpan: cols, style: `height:${bottomH}px;padding:0` })));
+  body.replaceChildren(...frag);
+}
+
+let virtualScrollQueued = false;
+$('assets-scroll').addEventListener('scroll', () => {
+  if (virtualScrollQueued) return;
+  virtualScrollQueued = true;
+  requestAnimationFrame(() => { virtualScrollQueued = false; drawVirtualWindow(); });
+});
+window.addEventListener('resize', () => drawVirtualWindow());
+
 /** A device nobody has looked at yet (the review queue). Hand-entered devices count as reviewed. */
 const needsReview = (a) => !(a.meta && (a.meta.reviewed || a.meta.manual)) && !a.is_self;
 
@@ -245,15 +311,21 @@ function renderAssets() {
     el('td', { text: a.os_guess || '' }),
     el('td', { class: 'ports mono', text: portsText(a), title: portsText(a) }),
     el('td', { text: ago(a.last_seen), title: fmtTime(a.last_seen) }));
-  const body = $('assets-table').tBodies[0];
+  const groupRow = (it) => el('tr', { class: 'group-row' }, el('td', { colSpan: cols, text: tr('{label} · {n} devices', { label: it.label, n: it.count }) }));
   const groups = groupRows(rows, state.groupBy);
-  if (groups) {
-    body.replaceChildren(...groups.flatMap(([label, devices]) => [
-      el('tr', { class: 'group-row' }, el('td', { colSpan: cols, text: tr('{label} · {n} devices', { label, n: devices.length }) })),
-      ...devices.map(row),
-    ]));
+  const items = groups
+    ? groups.flatMap(([label, devices]) => [{ kind: 'group', label, count: devices.length }, ...devices.map((a) => ({ kind: 'device', asset: a }))])
+    : rows.map((a) => ({ kind: 'device', asset: a }));
+  const body = $('assets-table').tBodies[0];
+  const scroller = $('assets-scroll');
+  if (items.length > VIRTUALIZE_ABOVE) {
+    scroller.classList.add('virtual');
+    assetsVirtual = { items, offsets: buildOffsets(items), rowFn: row, groupRowFn: groupRow, cols };
+    drawVirtualWindow();
   } else {
-    body.replaceChildren(...rows.map(row));
+    scroller.classList.remove('virtual');
+    assetsVirtual = null;
+    body.replaceChildren(...items.map((it) => (it.kind === 'group' ? groupRow(it) : row(it.asset))));
   }
   $('empty').hidden = state.assets.length > 0;
   $('count-assets').textContent = '(' + rows.length + (rows.length !== state.assets.length ? '/' + state.assets.length : '') + ')';

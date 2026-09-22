@@ -72,6 +72,12 @@ tr.group-row { cursor: default; background: var(--panel); }
 tr.group-row:hover { background: var(--panel); }
 tr.group-row td { font-weight: 600; color: var(--muted); padding-top: 12px; border-bottom: 1px solid var(--line); }
 tr:last-child td { border-bottom: 0; }
+/* Devices: past a few hundred rows, only the rows near the current scroll position are in the DOM (see
+   VIRTUALIZE_ABOVE in app.js). Below that, #assets-scroll stays a plain, unbounded .table-wrap, unchanged. */
+#assets-scroll.virtual { max-height: 70vh; overflow-y: auto; }
+tr.vspacer { cursor: default; }
+tr.vspacer td { border-bottom: 0; }
+tr.vspacer:hover { background: transparent; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--off); }
 .dot.on { background: var(--ok); }

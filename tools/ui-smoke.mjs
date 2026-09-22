@@ -368,6 +368,59 @@ await check('Devices can be grouped by room/type/owner, and filters combine (typ
   return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
 });
 
+// ------------------------------------------------------------------ Devices: lazy rendering for a large list
+await check('Devices past a few hundred rows are rendered lazily (windowed), filtering and grouping still see all of them', async () => {
+  takeProblems();
+  await evaluate("location.hash = '#assets'; setTab('assets'); 0");
+  await sleep(500);
+  // fabricate a large in-memory list (no server round-trip needed: this exercises the rendering path only)
+  // and stop the periodic refresh so it is not overwritten mid-check.
+  const injected = await evaluate(`(() => {
+    for (let i = 1; i < 99999; i++) clearInterval(i);
+    const fake = (i) => ({
+      id: 100000 + i, ip: '10.0.' + (i % 255) + '.' + (i % 200), mac: '02:00:00:' + i.toString(16).padStart(6, '0').match(/../g).join(':'),
+      vendor: 'Acme', randomized_mac: false, hostnames: [], display_name: 'lazydev-' + i, device_type: i % 3 === 0 ? 'computer' : 'printer',
+      os_guess: i % 2 === 0 ? 'Linux' : 'Windows', open_ports: [], fingerprint: { mdns_names: [] },
+      risk: { score: i % 100, level: 'low', factors: [] }, meta: { location: 'Room ' + (i % 5), owner: 'user' + (i % 4) },
+      last_seen: Math.floor(Date.now() / 1000), first_seen: Math.floor(Date.now() / 1000), is_self: false, agent_id: null,
+      ip_history: [], guess_reasons: [],
+    });
+    state.assets = Array.from({ length: 2000 }, (_, i) => fake(i));
+    renderAssets();
+    return { total: state.assets.length, domRows: document.querySelectorAll('#assets-table tbody tr').length, virtual: document.getElementById('assets-scroll').classList.contains('virtual'), count: document.getElementById('count-assets').textContent };
+  })()`);
+  if (!injected.virtual) return 'a 2000-device list did not switch #assets-scroll to windowed rendering';
+  if (injected.count !== '(2000)') return 'the count label: ' + injected.count;
+  if (injected.domRows >= 200) return `${injected.domRows} rows were put in the DOM for a 2000-device list: not windowed`;
+  // scrolling moves the window
+  const scrolled = await evaluate(`(async () => {
+    const scroller = document.getElementById('assets-scroll');
+    scroller.scrollTop = scroller.scrollHeight / 2;
+    scroller.dispatchEvent(new Event('scroll'));
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return [...document.querySelectorAll('#assets-table tbody tr:not(.vspacer)')].slice(0, 1).map((r) => r.cells[6].textContent)[0];
+  })()`);
+  if (scrolled === 'lazydev-0') return 'scrolling did not move the rendered window';
+  // filtering still searches the whole 2000, not just what happens to be on screen
+  await evaluate("document.getElementById('search').value = 'lazydev-19'; document.getElementById('search').dispatchEvent(new Event('input')); 0");
+  await sleep(200);
+  const filtered = await evaluate("({ count: document.getElementById('count-assets').textContent, domRows: document.querySelectorAll('#assets-table tbody tr:not(.vspacer)').length })");
+  if (filtered.count !== '(111/2000)') return 'filtering a 2000-row list: ' + filtered.count; // lazydev-19, -190..-199, -1900..-1999
+  if (filtered.domRows !== 111) return `filtering found the 111 matches but only ${filtered.domRows} are in the DOM (should be under the windowing threshold)`;
+  await evaluate("document.getElementById('search').value = ''; document.getElementById('search').dispatchEvent(new Event('input')); 0");
+  await sleep(200);
+  // grouping combines correctly with windowing (group headers and data rows both appear near the scroll position)
+  await evaluate("document.getElementById('group-by').value = 'location'; document.getElementById('group-by').dispatchEvent(new Event('change')); 0");
+  await sleep(200);
+  const grouped = await evaluate("[...document.querySelectorAll('#assets-table tbody tr')].map((r) => r.className)");
+  if (!grouped.includes('group-row')) return 'grouping a windowed list produced no group headers: ' + JSON.stringify(grouped.slice(0, 6));
+  await evaluate("document.getElementById('group-by').value = 'none'; document.getElementById('group-by').dispatchEvent(new Event('change')); location.reload(); 0");
+  await sleep(1200); // the reload restores the real (small) demo dataset and the periodic refresh
+  const bad = await evaluate(BAD_TEXT);
+  const p = takeProblems();
+  return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
+});
+
 // ------------------------------------------------------------------ export buttons: Devices CSV / Alerts CSV
 await check('Devices CSV is a button next to Import CSV, and Alerts CSV is a button only on the Alerts page', async () => {
   takeProblems();

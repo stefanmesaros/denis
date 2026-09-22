@@ -9,6 +9,11 @@
 * **Devices CSV** is now a button next to **Import CSV** (it was a plain link). **Alerts CSV** is a button that
   only appears on the Alerts page (it used to sit in the same toolbar as the Devices export, on the Devices, Alerts
   *and* Events tabs, which never made sense on Events).
+* **Scaling to a large network**: the console polls every **10 seconds** instead of 5 (the register does not change
+  fast enough to need faster, and it halves the load on both sides). The Devices table now renders **lazily**: past
+  a few hundred devices, filtering, sorting and grouping still run over every device, but only the rows near the
+  current scroll position are ever put on the page, so a list of thousands scrolls as smoothly as a list of forty.
+  Smaller networks (almost everyone) see no difference at all.
 
 ## 0.6.0: five more industrial and IIoT protocols, and an honest boundary between "decoded" and "port only"
 
