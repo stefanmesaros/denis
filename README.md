@@ -66,9 +66,8 @@ simulated industrial network through the whole pipeline; fuzz tests of all parse
 master and agent talking over HTTP; the UI exercised in a browser (sign-in, forced password change, editing,
 users, OT, topology, trends, report).
 
-**Not yet verified or built** (be honest with customers about these):
+**Not yet verified**:
 
-* **Linux at runtime** and the **systemd units** (only `net.rs`/`model.rs` type-check for Linux).
 * **Agent ↔ master across a real network** (loopback only so far). **Built-in TLS** (`--tls-cert/--tls-key`,
   agent `--master-ca`) was verified on loopback with a private CA (TLS 1.3 + HTTP/2, old TLS refused, agent
   reporting over HTTPS) but not with a public certificate authority or a reverse proxy in front.
