@@ -50,8 +50,9 @@ page, or `cargo build --release`):
    warranty…), each with **Verify fix** (a fresh scan) and **Accept risk** (a reason, an end date, an audit trail) and a *Compliance* view mapping your coverage to CIS Controls v8, NIST CSF 2.0, IEC 62443-3-3, NIST SP 800-82, ISO/IEC 27001 Annex A and NIS2, and *Reports* that are kept on the server (made by hand or on a schedule) to view, download or print.
 8. **A console you can trust, in your language.** English, German, French, Spanish and Slovak. Roles, passkey sign-in (WebAuthn), Argon2id, lock-outs, API tokens, an audit log,
    optional built-in HTTPS, strict headers. Every detection is visible and tunable (*Rules* tab).
-9. **Plays well with the rest of your stack.** Syslog/CEF for SIEMs, OpenObserve export, Prometheus `/metrics`,
-   REST API, `denis backup`.
+9. **Plays well with the rest of your stack.** SIEM export in CEF, LEEF or JSON over UDP/TCP/TLS — pick the
+   format, transport and which streams (events, findings, audit) from *Settings → SIEM / Log export*, no
+   restart — OpenObserve export, Prometheus `/metrics`, REST API, `denis backup`.
 10. **Many sites, your brand.** Agents on remote sites report to one master (outbound connections only), with
     **per-user, per-site access** (read/write/none, e.g. for an MSP whose technicians see only their own
     customers); white-label the console with your logo, colour and default day/night theme.
@@ -60,7 +61,7 @@ page, or `cargo build --release`):
 
 ## Status: what is verified, what is not
 
-Verified on macOS (Apple Silicon, Wi-Fi, a /24 with ~45 devices): ~290 unit tests and an end-to-end replay of a
+Verified on macOS (Apple Silicon, Wi-Fi, a /24 with ~45 devices): 480+ unit tests and an end-to-end replay of a
 simulated industrial network through the whole pipeline; fuzz tests of all parsers; `cargo audit` clean; a
 master and agent talking over HTTP; the UI exercised in a browser (sign-in, forced password change, editing,
 users, OT, topology, trends, report).
@@ -74,7 +75,8 @@ users, OT, topology, trends, report).
 * ARP conflict and industrial detections on **real** wire traffic (tested with hand-built frames and replay;
   no forged or industrial traffic was generated on a live network).
 * `unusual_hours` and `device_silent` on real elapsed time (tested with injected clocks).
-* The **OpenObserve export** and **syslog** are tested against simulated endpoints, not a real OpenObserve or SIEM.
+* The **OpenObserve export** and **SIEM export** (syslog: CEF/LEEF/JSON) are tested against simulated
+  endpoints, not a real OpenObserve or SIEM.
 * The **German, French, Spanish and Slovak translations** are complete (a test fails if any string or placeholder is
   missing) but have not been reviewed by native-speaking security professionals: expect wording to improve. Alert
   texts already recorded stay in English.
@@ -109,16 +111,17 @@ src/findings.rs     standing weaknesses and housekeeping problems, with fixes
 src/tracking.rs     validated asset edits, CSV import, warranty arithmetic, icons
 src/passkey.rs      WebAuthn/passkey verification (ES256, strict)
 src/auth.rs         users, sessions, per-agent tokens (Argon2id, hashed tokens, lock-out)
-src/web.rs          API + embedded UI, auth middleware, security headers
+src/web/            API + embedded UI, auth middleware, security headers (mod.rs routes/reads, common.rs shared with web_*)
 src/web_admin.rs    state-changing handlers (session, users, tokens, asset edits, import)
+src/web_siem.rs     SIEM / log export settings (GET/PUT, a test-send endpoint)
 src/ingest.rs       master side of the agent protocol (per-agent tokens, idempotent batches)
 src/agent.rs        agent reporter
 src/tls.rs          optional built-in HTTPS (rustls)
 src/engine.rs       collector + detector + web wiring (`run`, `run_agent`)
-src/store/          `Store` trait + SQLite (schema v5, transactional migrations)
+src/store/          `Store` trait (split into focused sub-traits) + SQLite (schema v14, transactional migrations)
 src/branding.rs     white-label settings and safe logo handling
 src/channels.rs     notification channels (Slack/Teams/Discord/PagerDuty/Pushover/ntfy/e-mail/webhook)
-src/syslog.rs       syslog/CEF alert export for SIEMs
+src/syslog.rs       SIEM export: syslog in CEF, LEEF or JSON, over UDP/TCP/TLS
 src/sink.rs         OpenObserve exporter (cursor-based, at-least-once)
 src/report.rs       CSV / printable HTML (escaping, formula-injection guard)
 ui/                 the web UI (plain JS, no build step, strict CSP)

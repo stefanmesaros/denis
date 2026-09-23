@@ -231,7 +231,14 @@ On the **Rules** page (administrators):
   the rule stays quiet about. Typical uses: "never tell me about new destinations for the printers", "the lab VLAN
   may do anything", "this HMI is allowed to write". For industrial alerts the **sending** device counts too, so
   excepting the engineering station silences its control commands. An excepted alert is not stored at all; the
-  audit log records who set the exception.
+  audit log records who set the exception. A device-kind exception shows as a row — its name, MAC and IP, and,
+  when it was added the quick way below, why.
+* **Add exception**, on an alert itself (its row on the *Alerts* page, or its own detail dialog; administrators):
+  one click adds the right exception for that exact alert, without a trip to the Rules page, and acknowledges the
+  alert in the same step. What it adds depends on the rule: a device-scope exception for an ordinary rule; the
+  alerting device added to that network watch's own exceptions (`it_watch`); or the **sender** (who sent the
+  command, found by MAC — not necessarily the device the alert is filed under) added to that OT command watch's
+  allowed senders (`ot_command_watch`).
 * **OT command watches** ([OT guide](ot-guide.md#command-watches)): tell DENIS which commands to alert on, for
   which targets, and from which senders never.
 

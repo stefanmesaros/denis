@@ -63,4 +63,4 @@ and use `sent_at` to reject old replays.
 
 * `--webhook <url>` on the command line: a simple Slack/Discord-compatible text webhook (older; the channels
   above are more capable and can be edited without a restart).
-* [`--syslog` and OpenObserve](export.md) for SIEMs and log platforms.
+* [SIEM export (CEF/LEEF/JSON) and OpenObserve](export.md) for SIEMs and log platforms.

@@ -1,4 +1,4 @@
-# Exporting data: OpenObserve and syslog/CEF
+# Exporting data: OpenObserve and SIEM (syslog: CEF/LEEF/JSON)
 
 DENIS can push its data to [OpenObserve](https://openobserve.ai) so a customer who already runs it (for
 logs, deep-packet-inspection output, etc.) can see network inventory, alerts and trends in the same console.
@@ -58,26 +58,49 @@ resume). It has **not yet been tried against a real OpenObserve server**: do tha
 
 ---
 
-# Alerts to a SIEM (syslog / CEF)
+# SIEM export (syslog: CEF, LEEF or JSON)
 
-```bash
-denis run --syslog udp://siem.example.com:514        # or tcp://siem.example.com:6514
+Fully configured from the console — **Settings → SIEM / Log export** — with no restart: turn it on, pick a
+format and a transport, choose which streams to send, and use **Send a test message** to check a target
+before saving it.
+
+* **Format**: **CEF** (ArcSight; Splunk, QRadar, Wazuh, Microsoft Sentinel, Graylog and others parse it
+  natively), **LEEF** (IBM QRadar's own format), or plain **JSON** (one object per message, for anything
+  else — Elastic, a custom collector, …). All three share the same RFC 5424 syslog envelope; only the body
+  differs.
+* **Transport**: **UDP** (one datagram per message, fire and forget), **TCP** (newline-framed, retried after
+  a failure so the backlog arrives in order), or **TLS** (TCP wrapped in encryption — the usual choice
+  crossing anything but a trusted LAN or a VPN). A self-signed collector's certificate can be trusted without
+  verification (an explicit opt-out in the settings) when there is no public CA to check it against.
+* **Streams**, each independently on or off:
+  * **Events and alerts** — everything the detector raised (the same as every DENIS release before this
+    one sent); `info`-level events are skipped as noise for a SIEM.
+  * **Findings** — standing weaknesses (end-of-support software, known-exploited vulnerabilities, risky
+    open ports, …). These have no natural sequence, so each one is sent once, the first time it is seen,
+    and again if it clears and later comes back.
+  * **Audit log** — who changed what in the console.
+
+A CEF message looks like this (LEEF and JSON carry the same fields, in their own format):
+
 ```
-
-Every alert (not the low-level `info` events) is sent as an RFC 5424 syslog message whose body is an
-ArcSight **CEF** record, which Splunk, QRadar, Wazuh, Microsoft Sentinel, Graylog and others parse natively:
-
-```
-<163>1 2026-09-20T21:42:48Z denis-host denis - arp_conflict - CEF:0|DENIS|DENIS|0.1.0|arp_conflict|192.0.2.10 claimed by two devices|8|rt=1789940568000 cs1Label=score cs1=85 cs2Label=eventId cs2=7 src=192.0.2.130 smac=02:00:5e:10:00:01 shost=Laptop-42 msg=+60 claims the gateway address; +25 first seen 2 min ago
+<163>1 2026-09-20T21:42:48Z denis-host denis - arp_conflict - CEF:0|DENIS|DENIS|1.13.0|arp_conflict|192.0.2.10 claimed by two devices|8|rt=1789940568000 cs1Label=score cs1=85 src=192.0.2.130 smac=02:00:5e:10:00:01 shost=Laptop-42 msg=+60 claims the gateway address; +25 first seen 2 min ago eventId=7
 ```
 
 * Facility `local4`; syslog severity error / warning / notice for high / medium / low; CEF severity 1–10.
-* Fields: `src` (IP), `smac`, `shost` (the device's name), `cs1` score, `cs2` event id, `cs3` site (for agents),
-  `msg` the reasons behind the score, `rt` event time in milliseconds.
-* **UDP** sends one datagram per alert and cannot tell whether it arrived. **TCP** (newline-framed) is
-  retried after a failure and the backlog is sent in order; use it when you can. There is no TLS syslog yet:
-  keep it on a trusted network or a VPN.
-* Like the OpenObserve export it runs from a saved position in the database, so a dead SIEM never affects
-  detection, and delivery is at least once (de-duplicate on `cs2`).
-* Text from the network (device names, hostnames) is escaped so it cannot forge CEF fields or extra records.
+* Fields: `src` (IP), `smac`, `shost` (the device's name), `cs1` score, `eventId`, `site` (for agents), `msg`
+  the reasons behind the score or, for a finding, what to do about it, `rt`/`devTime` the event time.
+* Like the OpenObserve export each stream runs from its own saved position in the database, so a dead SIEM
+  never affects detection, and delivery is at least once (de-duplicate on `eventId` for events).
+* Text from the network (device names, hostnames) is escaped so it cannot forge a CEF/LEEF field or an
+  extra record, in any of the three formats.
 * Health shows in the header (`syslog ok …` / `FAILING`).
+
+## The legacy `--syslog` flag
+
+```bash
+denis run --syslog udp://siem.example.com:514        # or tcp://…:6514, or tls://…:6514
+```
+
+Still works, for a headless install or a config-management script: CEF, the events stream only, exactly as
+before. It only **seeds** the console's own setting, once, the first time nothing has been saved there yet —
+after that, Settings → SIEM / Log export is authoritative, and the flag is ignored on every later start.

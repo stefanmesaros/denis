@@ -14,7 +14,7 @@ It works on office and home networks (IT) and on industrial networks (OT).
 | Use it on an industrial (OT/ICS) network | [OT guide](ot-guide.md) |
 | Run it for a client: users, agents, TLS, backups | [Deployment & administration](deployment.md) |
 | Send alerts to Slack, Teams, e-mail, PagerDuty, Pushover, ntfy or a webhook; maintenance mode | [Alerting](alerting.md) |
-| Send events, audit log and inventory to OpenObserve, or alerts to a SIEM (syslog/CEF) | [Export](export.md) |
+| Send events, audit log and inventory to OpenObserve, or events/findings/audit to a SIEM (syslog: CEF/LEEF/JSON) | [Export](export.md) |
 | Put the customer's logo, colours and day/night mode on the portal | [Branding](branding.md) |
 | Keep DENIS up to date (changelog, install now or later, automatic backup) | [Updates](updates.md) |
 | Assess or harden its security | [Security](security.md) |
