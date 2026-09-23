@@ -1022,27 +1022,37 @@ mod tests {
         assert_eq!(v["configured_mirror_ifaces"], serde_json::Value::Null);
         assert!(v["mains"].is_array() && v["all"].is_array());
 
+        // a name that does not exist on this machine is refused (it would otherwise crash-loop
+        // the capture engine on the next restart) and never saved
+        let up = crate::net::list_all_up().unwrap();
+        let fake = serde_json::json!({"iface": "definitely-not-a-real-nic-xyz"});
+        assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&admin), Some(fake))).await.0, StatusCode::BAD_REQUEST);
+        let (_, _, v) = send(&app, req("GET", "/api/interfaces", Some(&viewer), None)).await;
+        assert_eq!(v["configured_iface"], serde_json::Value::Null, "the rejected name must not have been saved");
+
+        assert!(up.len() >= 2, "this test needs at least two up network interfaces on the host to exercise real names: {up:?}");
+        let (iface, m1, m2) = (up[0].clone(), up[1].clone(), up.get(2).cloned().unwrap_or_else(|| up[1].clone()));
+
         // only an admin may set it; more than one mirror interface is fine (one per VLAN, say)
-        let body = serde_json::json!({"iface": "eth0", "mirror_ifaces": ["eth1", "eth2"]});
+        let body = serde_json::json!({"iface": iface, "mirror_ifaces": [m1, m2]});
         assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&viewer), Some(body.clone()))).await.0, StatusCode::FORBIDDEN);
         assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&editor), Some(body.clone()))).await.0, StatusCode::FORBIDDEN);
         assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&admin), Some(body))).await.0, StatusCode::NO_CONTENT);
 
         // the choice is now reflected, for everyone, and it is persisted (not just cached)
         let (_, _, v) = send(&app, req("GET", "/api/interfaces", Some(&viewer), None)).await;
-        assert_eq!(v["configured_iface"].as_str(), Some("eth0"));
-        assert_eq!(v["configured_mirror_ifaces"].as_array().unwrap(), &["eth1", "eth2"]);
-        assert_eq!(crate::capture_config::load(&*store).iface.as_deref(), Some("eth0"));
+        assert_eq!(v["configured_iface"].as_str(), Some(iface.as_str()));
+        assert_eq!(crate::capture_config::load(&*store).iface.as_deref(), Some(iface.as_str()));
 
         // a mirror interface cannot be the same as the discovery one
-        let same = serde_json::json!({"iface": "eth0", "mirror_ifaces": ["eth0"]});
+        let same = serde_json::json!({"iface": iface, "mirror_ifaces": [iface]});
         assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&admin), Some(same))).await.0, StatusCode::BAD_REQUEST);
 
         // clearing the mirror interfaces (an explicit empty list) leaves the main one alone
-        let clear_mirrors = serde_json::json!({"iface": "eth0", "mirror_ifaces": []});
+        let clear_mirrors = serde_json::json!({"iface": iface, "mirror_ifaces": []});
         assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&admin), Some(clear_mirrors))).await.0, StatusCode::NO_CONTENT);
         let (_, _, v) = send(&app, req("GET", "/api/interfaces", Some(&viewer), None)).await;
-        assert_eq!(v["configured_iface"].as_str(), Some("eth0"));
+        assert_eq!(v["configured_iface"].as_str(), Some(iface.as_str()));
         assert_eq!(v["configured_mirror_ifaces"].as_array().unwrap().len(), 0);
 
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();

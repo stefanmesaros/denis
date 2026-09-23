@@ -460,6 +460,17 @@ pub(crate) async fn interfaces_put(State(st): State<AppState>, Extension(AuthUse
             return Ok(err(StatusCode::BAD_REQUEST, "too many mirror interfaces"));
         }
     }
+    // A name that does not exist on this machine would otherwise be accepted and stored, only to
+    // make the capture engine fail to start on the next restart — under systemd's Restart=always
+    // that is a crash-loop from a single typo. Same source `interfaces_get` already offers as
+    // candidates, so the two can never disagree about what "exists" means.
+    let wanted: Vec<String> = b.iface.iter().chain(b.mirror_ifaces.iter().flatten()).cloned().collect();
+    if !wanted.is_empty() {
+        let up = tokio::task::spawn_blocking(crate::net::list_all_up).await.map_err(|e| anyhow::anyhow!(e))??;
+        if let Some(missing) = wanted.iter().find(|w| !up.contains(w)) {
+            return Ok(err(StatusCode::BAD_REQUEST, format!("no such interface: {missing} (available: {})", up.join(", "))));
+        }
+    }
     let now = now_ts();
     let store = st.store.clone();
     let (iface, mirrors) = (b.iface.clone(), b.mirror_ifaces.clone());
