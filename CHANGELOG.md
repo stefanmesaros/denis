@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.13.5: documentation refresh (SIEM export, Add exception, README)
+
+* **`docs/export.md`'s SIEM section rewritten** for what ships since 1.13.0 — CEF/LEEF/JSON,
+  UDP/TCP/TLS, independently-toggleable events/findings/audit streams, the Test button — instead
+  of describing the old CLI-only, CEF-only, no-TLS behaviour. Same for the one-line mentions in
+  `docs/index.md` and `docs/alerting.md`.
+* **`docs/detection-rules.md`** now describes "Add exception" (1.13.2/1.13.3) next to the existing
+  Exceptions section.
+* **`README.md`** refreshed: the SIEM bullet, the `src/` file table (the Task-4 refactor split
+  `src/web.rs` into `src/web/`; schema version v5 → v14; added `src/web_siem.rs`), and the unit
+  test count.
+* These `docs/*.md` files are the single source for both GitHub's own rendering and the console's
+  built-in `/docs` pages (compiled in, rendered on request) — this release is what makes the
+  in-product copy match.
+
 ## 1.13.4: fixed an exception-row rendering glitch; clearer Rules page forms
 
 * **Fixed: an exception's name/MAC/IP could overlap its own note and wrap one character per
