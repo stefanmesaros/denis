@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.13.4: fixed an exception-row rendering glitch; clearer Rules page forms
+
+* **Fixed: an exception's name/MAC/IP could overlap its own note and wrap one character per
+  line** in the narrower OT/network watch edit dialogs — a flex-sizing bug in the row added in
+  1.13.3 (the note had no width limit of its own and starved its sibling to zero). Both lines now
+  wrap normally at the row's real width, in any dialog.
+* The exception/watch-exclusion remove button is now a small square at the **start** of the row,
+  not the end.
+* The "add one" mini-form under Exceptions (and a watch's "Never for..." lists) now labels both
+  fields ("Match by" and the chosen kind's own name) and never pre-selects a real value for you —
+  a device or type picker starts on an empty "Choose one…" — and is visually set apart from the
+  list above it.
+* "Add a watch" is now **"New Rule"** (both OT and network watch sections), set apart from the
+  last watch above it with its own spacing, instead of reading as part of that row.
+
 ## 1.13.3: exceptions show who and why; "Add exception" also acknowledges the alert
 
 Follow-up to 1.13.2's "create an exception from an alert", after trying it out:
