@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.11.0: more ports, ICS-CERT advisories, EPSS scores, and five more compliance standards
+
+* **More ports scanned and risk-scored**: Kerberos, legacy r-services (rexec/rlogin/rsh), a SOCKS
+  proxy, OpenVPN, container/orchestration (Docker already covered; now Kubernetes' API server and
+  kubelet), message queues (RabbitMQ, Kafka), monitoring stacks (Prometheus, Kibana) and IRC (a
+  common sign of a compromised device "phoning home").
+* **CISA ICS-CERT advisories**: a new, separate finding for industrial devices — "the manufacturer
+  has an open ICS-CERT advisory" — matched only by vendor name (Siemens, Schneider Electric,
+  Rockwell Automation, …), never by firmware version, since that is not read passively. Explicitly
+  conservative: it never claims a specific device is affected, only that its manufacturer has an
+  open advisory worth checking against the exact model and firmware.
+* **EPSS scores**: known-exploited-vulnerability findings now carry FIRST.org's EPSS score — a
+  modelled probability of exploitation in the next 30 days — alongside the existing CVE and
+  ransomware-use context, to help prioritise among several open findings.
+* **Five more compliance standards**: DORA, PCI DSS v4.0, the HIPAA Security Rule, SOC 2 (Trust
+  Services Criteria) and CMMC 2.0 (via NIST SP 800-171) join the existing CIS Controls v8, NIST
+  CSF, IEC 62443-3-3, NIST SP 800-82, ISO/IEC 27001 Annex A and NIS2 mapping on the Compliance
+  page — the same underlying evidence (inventory completeness, monitoring, MFA, audit log), shown
+  in each standard's own words and control references.
+
 ## 1.10.0: security and reliability fixes from an architectural audit
 
 * **Fixed: a device's own endpoints were not site-scoped** (IDOR). `/api/assets` already filtered

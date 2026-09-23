@@ -125,6 +125,24 @@ pub struct Kev {
     pub ransomware: bool,
 }
 
+/// One CISA ICS-CERT advisory, matched only by vendor name (see `Intel::ics`) — a coarser,
+/// more conservative signal than the version-matched `kev` list above: a passively observed
+/// vendor name (from the IEEE OUI registry, or an industrial protocol's own identity read)
+/// cannot confirm a firmware version, so this never claims a specific CVE applies, only that
+/// the manufacturer has an open advisory worth checking against the device's actual firmware.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct IcsAdvisory {
+    /// e.g. `"ICSA-24-123-01"`.
+    pub id: String,
+    pub title: String,
+    /// As CISA writes it, e.g. `"Siemens"`; matched case-insensitively, either direction, against
+    /// a device's own vendor string (`"Siemens AG"` matches `"Siemens"`).
+    pub vendor: String,
+    pub published: String,
+    #[serde(default)]
+    pub cves: Vec<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Data {
     /// When the data was built (`YYYY-MM-DD`).
@@ -133,6 +151,13 @@ pub struct Data {
     pub kev_catalog_version: Option<String>,
     pub eol: BTreeMap<String, Vec<Cycle>>,
     pub kev: Vec<Kev>,
+    /// FIRST.org EPSS score (0.0-1.0: modelled probability of exploitation in the next 30 days)
+    /// for a `kev` CVE above, when available. Purely informational context alongside a `kev`
+    /// finding; never changes whether one fires.
+    #[serde(default)]
+    pub epss: BTreeMap<String, f32>,
+    #[serde(default)]
+    pub ics: Vec<IcsAdvisory>,
 }
 
 impl Range {
@@ -268,6 +293,27 @@ impl Intel {
     pub fn products(&self) -> Vec<&str> {
         self.data.eol.keys().map(String::as_str).collect()
     }
+
+    /// ICS-CERT advisories for a device's own vendor string (see `IcsAdvisory` for why this is
+    /// vendor-only, not version-matched). Empty vendor never matches anything.
+    pub fn ics(&self, device_vendor: &str) -> Vec<&IcsAdvisory> {
+        let dv = device_vendor.trim().to_ascii_lowercase();
+        if dv.is_empty() {
+            return Vec::new();
+        }
+        self.data
+            .ics
+            .iter()
+            .filter(|a| {
+                let av = a.vendor.to_ascii_lowercase();
+                !av.is_empty() && (dv.contains(&av) || av.contains(&dv))
+            })
+            .collect()
+    }
+
+    pub fn epss(&self, cve: &str) -> Option<f32> {
+        self.data.epss.get(cve).copied()
+    }
 }
 
 // ----------------------------------------------------------------------------------------- refreshing
@@ -390,7 +436,7 @@ pub struct Evidence {
     pub asset_id: i64,
     pub product: &'static str,
     pub version: String,
-    /// `eol`, `eol_soon` or `kev`.
+    /// `eol`, `eol_soon`, `kev` or `ics`.
     pub kind: &'static str,
     pub cycle: Option<String>,
     pub date: Option<String>,
@@ -400,6 +446,11 @@ pub struct Evidence {
     /// The banner names a distribution: the fix may already be in, under the same version number.
     pub backport: bool,
     pub ransomware: bool,
+    /// `kev` only: FIRST.org's EPSS score, if known (see `IcsAdvisory`/`Data::epss`).
+    pub epss: Option<f32>,
+    /// `ics` only: the device's own vendor string that matched, and the advisory's id.
+    pub vendor: Option<String>,
+    pub advisory_id: Option<String>,
 }
 
 /// The evidence one device's banners give, judged against `intel`.
@@ -407,16 +458,43 @@ pub fn evidence_for(asset_id: i64, software: &[Software], intel: &Intel, today: 
     let mut out = Vec::new();
     for s in software {
         let base = |kind: &'static str| Evidence {
-            asset_id, product: product_name(s.product), version: s.version.clone(), kind, cycle: None, date: None, days_left: None, cve: None, name: None, backport: s.distro, ransomware: false,
+            asset_id, product: product_name(s.product), version: s.version.clone(), kind, cycle: None, date: None, days_left: None, cve: None, name: None,
+            backport: s.distro, ransomware: false, epss: None, vendor: None, advisory_id: None,
         };
         if let Some(e) = intel.eol(s.product, &s.version, today) {
             out.push(Evidence { cycle: Some(e.cycle), date: e.date, days_left: e.days_left, ..base(if e.state == "ended" { "eol" } else { "eol_soon" }) });
         }
         for k in intel.kev(s.product, &s.version) {
-            out.push(Evidence { cve: Some(k.cve.clone()), name: Some(k.name.clone()), date: Some(k.added.clone()), ransomware: k.ransomware, ..base("kev") });
+            out.push(Evidence { cve: Some(k.cve.clone()), name: Some(k.name.clone()), date: Some(k.added.clone()), ransomware: k.ransomware, epss: intel.epss(&k.cve), ..base("kev") });
         }
     }
     out
+}
+
+/// ICS-CERT advisory evidence for an industrial device, matched only by vendor (see
+/// `Intel::ics`). `None`/empty vendor yields nothing.
+pub fn ics_evidence_for(asset_id: i64, device_vendor: Option<&str>, intel: &Intel) -> Vec<Evidence> {
+    let Some(vendor) = device_vendor else { return Vec::new() };
+    intel
+        .ics(vendor)
+        .into_iter()
+        .map(|a| Evidence {
+            asset_id,
+            product: "",
+            version: String::new(),
+            kind: "ics",
+            cycle: None,
+            date: Some(a.published.clone()),
+            days_left: None,
+            cve: a.cves.first().cloned(),
+            name: Some(a.title.clone()),
+            backport: false,
+            ransomware: false,
+            epss: None,
+            vendor: Some(a.vendor.clone()),
+            advisory_id: Some(a.id.clone()),
+        })
+        .collect()
 }
 
 /// Background task: read the refreshed support dates at start, and fetch new ones every week when an administrator asked for that.
@@ -473,6 +551,9 @@ mod tests {
                 }
             }
         }
+        // EPSS and ICS advisories both round-trip through the real, bundled file
+        assert!(!d.epss.is_empty() && d.epss.values().all(|s| (0.0..=1.0).contains(s)));
+        assert!(!d.ics.is_empty() && d.ics.iter().all(|a| a.id.starts_with("ICSA-") && !a.vendor.is_empty() && days_of(&a.published).is_some()));
     }
 
     #[test]
@@ -509,6 +590,8 @@ mod tests {
                 kev_catalog_version: None,
                 eol: eol.iter().map(|(p, cs)| (p.to_string(), cs.iter().map(|(c, e)| Cycle { cycle: c.to_string(), eol: e.clone(), latest: None }).collect())).collect(),
                 kev,
+                epss: BTreeMap::new(),
+                ics: Vec::new(),
             },
             refreshed_at: None,
         }
@@ -616,5 +699,45 @@ mod tests {
         assert!(days_of("2026-13-01").is_none() && days_of("x").is_none() && days_of("").is_none());
         assert_eq!(day("2026-09-22") - day("2026-09-21"), 1);
         assert_eq!(day("2028-03-01") - day("2028-02-28"), 2, "a leap year");
+    }
+
+    fn intel_with_ics(ics: Vec<IcsAdvisory>) -> Intel {
+        Intel { data: Data { generated: "2026-01-01".into(), kev_catalog_version: None, eol: BTreeMap::new(), kev: Vec::new(), epss: BTreeMap::new(), ics }, refreshed_at: None }
+    }
+
+    fn advisory(vendor: &str) -> IcsAdvisory {
+        IcsAdvisory { id: "ICSA-24-001-01".into(), title: "A PLC vulnerability".into(), vendor: vendor.into(), published: "2026-01-01".into(), cves: vec!["CVE-2026-0001".into()] }
+    }
+
+    #[test]
+    fn ics_advisories_match_by_vendor_only_case_insensitively_either_direction() {
+        let i = intel_with_ics(vec![advisory("Siemens")]);
+        assert_eq!(i.ics("Siemens AG").len(), 1, "a longer device vendor string contains the advisory's shorter one");
+        assert_eq!(i.ics("SIEMENS").len(), 1, "case-insensitive");
+        assert_eq!(i.ics("Rockwell Automation").len(), 0);
+        assert_eq!(i.ics("").len(), 0, "an empty vendor never matches anything");
+    }
+
+    #[test]
+    fn ics_evidence_never_claims_a_version_and_carries_the_advisory_id() {
+        let i = intel_with_ics(vec![advisory("Schneider Electric")]);
+        let ev = ics_evidence_for(7, Some("Schneider Electric Industries"), &i);
+        assert_eq!(ev.len(), 1);
+        assert_eq!((ev[0].asset_id, ev[0].kind, ev[0].version.as_str(), ev[0].advisory_id.as_deref(), ev[0].cve.as_deref()), (7, "ics", "", Some("ICSA-24-001-01"), Some("CVE-2026-0001")));
+        assert!(ics_evidence_for(7, None, &i).is_empty());
+        assert!(ics_evidence_for(7, Some("Unrelated Corp"), &i).is_empty());
+    }
+
+    #[test]
+    fn epss_enriches_kev_evidence_when_known_and_is_absent_otherwise() {
+        let kev = Kev { cve: "CVE-2026-0002".into(), name: "test".into(), added: "2026-01-01".into(), product: "nginx".to_string(), ranges: vec![Range { exact: Some("1.0.0".into()), from: None, from_incl: false, to: None, to_incl: false }], ransomware: false };
+        let mut epss = BTreeMap::new();
+        epss.insert("CVE-2026-0002".to_string(), 0.87);
+        let i = Intel { data: Data { generated: "2026-01-01".into(), kev_catalog_version: None, eol: BTreeMap::new(), kev: vec![kev], epss, ics: Vec::new() }, refreshed_at: None };
+        let sw = [Software { product: "nginx", version: "1.0.0".into(), source: "http", distro: false }];
+        let ev = evidence_for(1, &sw, &i, 0);
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].epss, Some(0.87));
+        assert_eq!(i.epss("CVE-nope"), None);
     }
 }

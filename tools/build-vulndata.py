@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
-"""Build data/vulndata.json: the data DENIS ships for "past end of life" and "known exploited vulnerability" findings.
+"""Build data/vulndata.json: the data DENIS ships for "past end of life", "known exploited
+vulnerability" and "manufacturer has an ICS-CERT advisory" findings.
 
 Sources (all public):
   * endoflife.date  (https://endoflife.date/api/<product>.json): support end dates per release cycle.
   * CISA Known Exploited Vulnerabilities catalog: which CVEs are being exploited now.
   * NVD (https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=...): for each such CVE, the affected version ranges
     of a product that a service banner can name.
+  * FIRST.org EPSS (https://api.first.org/data/v1/epss): a modelled probability of exploitation
+    in the next 30 days, for each CVE above. Purely informational context; never changes a match.
+  * CISA's ICS Advisories feed (https://www.cisa.gov/cybersecurity-advisories/ics-advisories.xml):
+    vendor + CVE ids per advisory, for the "manufacturer has an open advisory" finding. Matched
+    only by vendor name, never by version (an industrial device's firmware is not read passively).
 
 Needs curl. A CVE goes into the file only when NVD gives clean version ranges for one product (no "and running on ..." conditions),
 because a claim needs version evidence. Run it by hand, read the result, commit it; DENIS never fetches CVE data by itself.
 
     python3 tools/build-vulndata.py            # writes data/vulndata.json
 """
-import json, subprocess, sys, time, datetime, pathlib
+import html, json, re, subprocess, sys, time, datetime, pathlib
+import xml.etree.ElementTree as ET
 
 # banner product key -> endoflife.date product (only where the project publishes support dates)
 EOL_PRODUCTS = {
@@ -37,10 +44,63 @@ KEV_PRODUCTS = {
 UA = {"User-Agent": "denis-vulndata-builder"}
 
 
-def get(url):
+def get_raw(url):
     # curl, because it uses the system's certificate store on every platform (Python's may have none)
     out = subprocess.run(["curl", "-sS", "--fail", "-m", "90", "-H", "User-Agent: " + UA["User-Agent"], url], capture_output=True, check=True)
-    return json.loads(out.stdout)
+    return out.stdout.decode("utf-8")
+
+
+def get(url):
+    return json.loads(get_raw(url))
+
+
+def ics_advisories(rss_xml):
+    """CISA's ICS Advisories RSS: each item's description embeds a "csaf-table" HTML table of
+    (CVSS summary, Vendor, Equipment, Vulnerability) rows -- the same one shown on the advisory
+    page -- so this is read directly, without a per-advisory follow-up fetch."""
+    root = ET.fromstring(rss_xml)
+    out = []
+    for item in root.iter("item"):
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        pub = (item.findtext("pubDate") or "").strip()
+        desc = html.unescape(item.findtext("description") or "")
+        advisory_id = link.rstrip("/").rsplit("/", 1)[-1].upper()
+        if not advisory_id.startswith("ICSA-"):
+            continue
+        published = datetime.date.today().isoformat()
+        try:
+            published = datetime.datetime.strptime(pub[:25], "%a, %d %b %y %H:%M:%S").date().isoformat()
+        except ValueError:
+            pass
+        cves = sorted(set(re.findall(r"CVE-\d{4}-\d{4,7}", desc)))
+        tables = re.findall(r'<div class="csaf-table">(.*?)</div>', desc, re.S)
+        vendors = set()
+        if tables:
+            cells = [re.sub(r"<[^>]+>", "", c).strip() for c in re.findall(r"<td[^>]*>(.*?)</td>", tables[0], re.S)]
+            if len(cells) % 4 == 0:
+                vendors = {cells[i + 1] for i in range(0, len(cells), 4) if cells[i + 1]}
+        if not vendors:
+            continue  # no vendor to match against: cannot be used for the finding
+        for vendor in sorted(vendors):
+            out.append({"id": advisory_id, "title": title, "vendor": vendor, "published": published, "cves": cves})
+    return out
+
+
+def epss_scores(cves):
+    """FIRST.org EPSS score per CVE, batched (the API accepts a comma-separated list)."""
+    scores = {}
+    cves = sorted(set(cves))
+    for i in range(0, len(cves), 40):
+        chunk = cves[i:i + 40]
+        data = get(f"https://api.first.org/data/v1/epss?cve={','.join(chunk)}")
+        for row in data.get("data", []):
+            try:
+                scores[row["cve"]] = round(float(row["epss"]), 4)
+            except (KeyError, ValueError):
+                pass
+        time.sleep(0.5)
+    return scores
 
 
 def ranges_for(cve_item, cpe_product):
@@ -98,18 +158,32 @@ def main():
                         "ransomware": v.get("knownRansomwareCampaignUse") == "Known"})
         print(f"kev {v['cveID']} {key} {rng}", file=sys.stderr)
     entries.sort(key=lambda e: e["cve"])
+
+    epss = epss_scores(e["cve"] for e in entries)
+    print(f"epss: {len(epss)} of {len(entries)} known-exploited CVEs scored", file=sys.stderr)
+
+    ics_rss = get_raw("https://www.cisa.gov/cybersecurity-advisories/ics-advisories.xml")
+    ics = ics_advisories(ics_rss)
+    ics.sort(key=lambda a: (a["id"], a["vendor"]))
+    print(f"ics: {len(ics)} (advisory, vendor) pairs from the current feed", file=sys.stderr)
+
     out = {
         "generated": today,
-        "sources": {"eol": "https://endoflife.date", "kev": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog", "ranges": "https://nvd.nist.gov"},
+        "sources": {
+            "eol": "https://endoflife.date", "kev": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+            "ranges": "https://nvd.nist.gov", "epss": "https://www.first.org/epss/", "ics": "https://www.cisa.gov/news-events/cybersecurity-advisories?f%5B0%5D=advisory_type%3A94",
+        },
         "kev_catalog_version": kev.get("catalogVersion"),
         "eol": eol,
         "kev": entries,
+        "epss": epss,
+        "ics": ics,
         "skipped": skipped,
     }
     path = pathlib.Path(__file__).resolve().parent.parent / "data" / "vulndata.json"
     path.parent.mkdir(exist_ok=True)
     path.write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
-    print(f"wrote {path} ({len(entries)} known-exploited entries, {sum(len(c) for c in eol.values())} support cycles)", file=sys.stderr)
+    print(f"wrote {path} ({len(entries)} known-exploited entries, {sum(len(c) for c in eol.values())} support cycles, {len(ics)} ICS advisory/vendor pairs)", file=sys.stderr)
 
 
 if __name__ == "__main__":

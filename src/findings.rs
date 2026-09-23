@@ -110,6 +110,9 @@ const EOL_SOON: Kind = kind("eol_soon", "low", "Software whose support ends with
 const KEV_SOFTWARE: Kind = kind("kev_software", "high", "Software with a vulnerability that attackers are exploiting",
     "The version a device announces is in the range affected by a vulnerability on CISA's list of known exploited vulnerabilities. Distributions sometimes fix a flaw without changing the version number, so check before assuming the device is open to it.",
     "Update to a fixed version, or ask your distribution or vendor whether the fix is already included in this one. Until then restrict who can reach the service.");
+const ICS_ADVISORY: Kind = kind("ics_advisory", "medium", "The manufacturer has an open ICS-CERT advisory",
+    "CISA has published an ICS-CERT advisory naming this device's manufacturer. This is a coarser signal than the software checks above: an industrial device's firmware version is not read passively, so this cannot say whether this specific device is affected — only that it is worth checking.",
+    "Look up the advisory (its id is in the evidence below) and compare it against this device's exact model and firmware version.");
 
 /// Exposed-service findings: (port, kind, applies to computers/NAS/servers too?)
 const PORT_FINDINGS: &[(u16, &Kind, bool)] = &[
@@ -134,7 +137,7 @@ pub fn texts() -> Vec<&'static str> {
         .collect()
 }
 
-const ALL_KINDS: [&Kind; 19] = [&EOL_SOFTWARE, &EOL_SOON, &KEV_SOFTWARE, &TELNET, &FTP, &RDP, &VNC, &SMB, &MYSQL, &MQTT, &WINBOX, &LOST, &RETIRED, &CRIT_NO_OWNER, &OT_NO_LEVEL, &UNIDENTIFIED, &UNREVIEWED, &WARRANTY_EXPIRED, &WARRANTY_EXPIRING];
+const ALL_KINDS: [&Kind; 20] = [&EOL_SOFTWARE, &EOL_SOON, &KEV_SOFTWARE, &ICS_ADVISORY, &TELNET, &FTP, &RDP, &VNC, &SMB, &MYSQL, &MQTT, &WINBOX, &LOST, &RETIRED, &CRIT_NO_OWNER, &OT_NO_LEVEL, &UNIDENTIFIED, &UNREVIEWED, &WARRANTY_EXPIRED, &WARRANTY_EXPIRING];
 
 /// Is `id` a kind of finding this program knows?
 pub fn is_known(id: &str) -> bool {
@@ -268,6 +271,15 @@ pub fn compute(assets: &[Asset], metas: &HashMap<i64, AssetMeta>, now: i64) -> V
                 add(match e.kind { "eol" => &EOL_SOFTWARE, "eol_soon" => &EOL_SOON, _ => &KEV_SOFTWARE }, a.id);
             }
             evidence.extend(found);
+        } else {
+            // No banner version to match against NVD for an industrial device, but its
+            // manufacturer may have an open ICS-CERT advisory worth checking (vendor-only, see
+            // vulndata::ics_evidence_for).
+            let found = crate::vulndata::ics_evidence_for(a.id, a.vendor.as_deref(), &intel);
+            if !found.is_empty() {
+                add(&ICS_ADVISORY, a.id);
+            }
+            evidence.extend(found);
         }
         if matches!(m.criticality.as_deref(), Some("high" | "critical")) && m.owner.is_none() {
             add(&CRIT_NO_OWNER, a.id);
@@ -292,7 +304,11 @@ pub fn compute(assets: &[Asset], metas: &HashMap<i64, AssetMeta>, now: i64) -> V
         .into_iter()
         .map(|(k, mut ids)| {
             ids.sort_unstable();
-            let ev: Vec<crate::vulndata::Evidence> = evidence.iter().filter(|e| match e.kind { "eol" => k.id == "eol_software", "eol_soon" => k.id == "eol_soon", _ => k.id == "kev_software" }).cloned().collect();
+            let ev: Vec<crate::vulndata::Evidence> = evidence
+                .iter()
+                .filter(|e| match e.kind { "eol" => k.id == "eol_software", "eol_soon" => k.id == "eol_soon", "ics" => k.id == "ics_advisory", _ => k.id == "kev_software" })
+                .cloned()
+                .collect();
             Finding { id: k.id, severity: k.severity, title: k.title, why: k.why, fix: k.fix, assets: ids, evidence: ev }
         })
         .collect();
@@ -493,5 +509,14 @@ mod tests {
         let mut plc = with_banners(9, "plc", &[("banner.http", "Server: Apache/2.4.49")]);
         plc.fingerprint.identity.insert("enip.product_name".into(), "PLC".into());
         assert!(compute(&[plc], &HashMap::new(), NOW).iter().all(|x| x.id != "kev_software"));
+    }
+
+    #[test]
+    fn ics_advisory_is_a_known_finding_kind_with_its_own_severity_and_text() {
+        // the actual vendor-matching logic is unit-tested in vulndata.rs
+        // (Intel::ics/ics_evidence_for); this checks the finding is wired up as a real kind.
+        assert!(is_known("ics_advisory"));
+        assert_eq!(title_of("ics_advisory"), Some("The manufacturer has an open ICS-CERT advisory"));
+        assert!(!is_banner_finding("ics_advisory"), "no version to re-check with a rescan");
     }
 }

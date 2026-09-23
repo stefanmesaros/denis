@@ -116,8 +116,10 @@ within seconds, survive restarts and are written to the audit log ([details](det
 
 How complete your register is (reviewed, typed, owned, rated, Purdue levels) and how DENIS's capabilities line up
 with controls of **CIS Controls v8**, **NIST CSF 2.0**, **IEC 62443-3-3**, **NIST SP 800-82** (through its NIST
-SP 800-53 controls), **ISO/IEC 27001:2022 Annex A** and **NIS2 Article 21**: which are in place, partly or not yet,
-and why. It is evidence for your own assessment, not a certification. Print the page to keep it.
+SP 800-53 controls), **ISO/IEC 27001:2022 Annex A**, **NIS2 Article 21**, **DORA**, **PCI DSS v4.0**, the
+**HIPAA Security Rule**, **SOC 2** (Trust Services Criteria) and **CMMC 2.0** (through NIST SP 800-171): which are
+in place, partly or not yet, and why. It is evidence for your own assessment, not a certification. Print the page
+to keep it.
 
 ## Topology
 

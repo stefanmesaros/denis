@@ -538,7 +538,330 @@
    }
   ]
  },
- "generated": "2026-09-21",
+ "epss": {
+  "CVE-2010-4344": 0.7171,
+  "CVE-2010-4345": 0.1797,
+  "CVE-2012-1823": 1.0,
+  "CVE-2018-6789": 0.8214,
+  "CVE-2019-0211": 0.6501,
+  "CVE-2019-10149": 0.9996,
+  "CVE-2019-16928": 0.4164,
+  "CVE-2021-41773": 0.9999,
+  "CVE-2021-42013": 0.9996
+ },
+ "generated": "2026-09-23",
+ "ics": [
+  {
+   "cves": [
+    "CVE-2026-38056",
+    "CVE-2026-38057",
+    "CVE-2026-38058",
+    "CVE-2026-38059"
+   ],
+   "id": "ICSA-26-183-01",
+   "published": "2026-09-23",
+   "title": "ST Engineering iDirect iQ-Series Terminals (Update A)",
+   "vendor": "ST Engineering iDirect"
+  },
+  {
+   "cves": [
+    "CVE-2026-13584"
+   ],
+   "id": "ICSA-26-211-07",
+   "published": "2026-09-23",
+   "title": "Mitsubishi Electric CC-Link IE TSN Communication Protocol (Update A)",
+   "vendor": "Mitsubishi Electric"
+  },
+  {
+   "cves": [
+    "CVE-2026-75925"
+   ],
+   "id": "ICSA-26-246-02",
+   "published": "2026-09-23",
+   "title": "IXON VPN Client",
+   "vendor": "IXON"
+  },
+  {
+   "cves": [
+    "CVE-2026-19471",
+    "CVE-2026-19472"
+   ],
+   "id": "ICSA-26-246-04",
+   "published": "2026-09-23",
+   "title": "Rockwell Automation ArmorStart LT",
+   "vendor": "Rockwell Automation"
+  },
+  {
+   "cves": [
+    "CVE-2026-85083"
+   ],
+   "id": "ICSA-26-251-01",
+   "published": "2026-09-23",
+   "title": "CareCam Pro IP Cameras",
+   "vendor": "CareCam"
+  },
+  {
+   "cves": [
+    "CVE-2026-81821",
+    "CVE-2026-81822",
+    "CVE-2026-81823",
+    "CVE-2026-81824"
+   ],
+   "id": "ICSA-26-253-01",
+   "published": "2026-09-23",
+   "title": "AVEVA Pipeline Integrity Monitor",
+   "vendor": "AVEVA"
+  },
+  {
+   "cves": [
+    "CVE-2026-66372",
+    "CVE-2026-66887",
+    "CVE-2026-66890",
+    "CVE-2026-68070",
+    "CVE-2026-68950",
+    "CVE-2026-68953"
+   ],
+   "id": "ICSA-26-258-01",
+   "published": "2026-09-23",
+   "title": "Digital Watchdog VMAX DVR and NVR Product Lineups",
+   "vendor": "Digital Watchdog"
+  },
+  {
+   "cves": [
+    "CVE-2026-78225",
+    "CVE-2026-81855"
+   ],
+   "id": "ICSA-26-258-02",
+   "published": "2026-09-23",
+   "title": "W\u00e4rtsil\u00e4 FOS-Onboard",
+   "vendor": "W\u00e4rtsil\u00e4"
+  },
+  {
+   "cves": [
+    "CVE-2026-73807",
+    "CVE-2026-82567"
+   ],
+   "id": "ICSA-26-258-03",
+   "published": "2026-09-23",
+   "title": "mySCADA myPRO Manager",
+   "vendor": "mySCADA Technologies"
+  },
+  {
+   "cves": [
+    "CVE-2026-81861"
+   ],
+   "id": "ICSA-26-258-04",
+   "published": "2026-09-23",
+   "title": "Schneider Electric SCADAPack x70 Products",
+   "vendor": "Schneider Electric"
+  },
+  {
+   "cves": [
+    "CVE-2024-42384",
+    "CVE-2024-42385",
+    "CVE-2024-42386",
+    "CVE-2024-42391",
+    "CVE-2024-42392",
+    "CVE-2026-62645",
+    "CVE-2026-62646",
+    "CVE-2026-62647",
+    "CVE-2026-62648",
+    "CVE-2026-62649",
+    "CVE-2026-62650",
+    "CVE-2026-62652",
+    "CVE-2026-62653",
+    "CVE-2026-62654"
+   ],
+   "id": "ICSA-26-258-05",
+   "published": "2026-09-23",
+   "title": "Siemens Reyrolle 7SR5",
+   "vendor": "Siemens"
+  },
+  {
+   "cves": [
+    "CVE-2026-80465"
+   ],
+   "id": "ICSA-26-258-06",
+   "published": "2026-09-23",
+   "title": "Siemens Mendix SAML",
+   "vendor": "Siemens"
+  },
+  {
+   "cves": [
+    "CVE-2026-58113"
+   ],
+   "id": "ICSA-26-258-07",
+   "published": "2026-09-23",
+   "title": "Siemens Teamcenter",
+   "vendor": "Siemens"
+  },
+  {
+   "cves": [
+    "CVE-2026-81305",
+    "CVE-2026-81321",
+    "CVE-2026-84398",
+    "CVE-2026-84400",
+    "CVE-2026-85478",
+    "CVE-2026-85497",
+    "CVE-2026-88259"
+   ],
+   "id": "ICSA-26-258-08",
+   "published": "2026-09-23",
+   "title": "CareCam CM2507",
+   "vendor": "CareCam"
+  },
+  {
+   "cves": [
+    "CVE-2026-77960",
+    "CVE-2026-86520",
+    "CVE-2026-86689"
+   ],
+   "id": "ICSA-26-260-01",
+   "published": "2026-09-23",
+   "title": "Bransys ELD",
+   "vendor": "Bransys"
+  },
+  {
+   "cves": [
+    "CVE-2026-15688"
+   ],
+   "id": "ICSA-26-260-02",
+   "published": "2026-09-23",
+   "title": "Mitsubishi Electric GX Works3 and Motion Control Settings",
+   "vendor": "Mitsubishi Electric"
+  },
+  {
+   "cves": [
+    "CVE-2024-3980",
+    "CVE-2024-3982",
+    "CVE-2024-4872",
+    "CVE-2024-7940",
+    "CVE-2024-7941"
+   ],
+   "id": "ICSA-26-260-03",
+   "published": "2026-09-23",
+   "title": "Hitachi Energy FACTS Control Platform (FCP)",
+   "vendor": "Hitachi Energy"
+  },
+  {
+   "cves": [
+    "CVE-2025-6625"
+   ],
+   "id": "ICSA-26-260-04",
+   "published": "2026-09-23",
+   "title": "Schneider Electric Modicon M340 Controller and Communication Modules",
+   "vendor": "Schneider Electric"
+  },
+  {
+   "cves": [
+    "CVE-2026-13336",
+    "CVE-2026-13337"
+   ],
+   "id": "ICSA-26-260-05",
+   "published": "2026-09-23",
+   "title": "Schneider Electric NetBotz 5 750/755",
+   "vendor": "Schneider Electric"
+  },
+  {
+   "cves": [
+    "CVE-2026-31431"
+   ],
+   "id": "ICSA-26-260-06",
+   "published": "2026-09-23",
+   "title": "ABB Ability Edgenius",
+   "vendor": "ABB"
+  },
+  {
+   "cves": [
+    "CVE-2026-13348"
+   ],
+   "id": "ICSA-26-260-07",
+   "published": "2026-09-23",
+   "title": "Schneider Electric PowerChute Serial Shutdown",
+   "vendor": "Schneider Electric"
+  },
+  {
+   "cves": [
+    "CVE-2026-87121"
+   ],
+   "id": "ICSA-26-265-01",
+   "published": "2026-09-23",
+   "title": "lwIP TCP/IP Stack MQTT Client Application",
+   "vendor": "lwIP"
+  },
+  {
+   "cves": [
+    "CVE-2026-91018"
+   ],
+   "id": "ICSA-26-265-02",
+   "published": "2026-09-23",
+   "title": "lwIP (Lightweight IP)",
+   "vendor": "lwIP"
+  },
+  {
+   "cves": [
+    "CVE-2026-50093"
+   ],
+   "id": "ICSA-26-265-03",
+   "published": "2026-09-23",
+   "title": "Siemens Siveillance Control",
+   "vendor": "Siemens"
+  },
+  {
+   "cves": [
+    "CVE-2026-31431"
+   ],
+   "id": "ICSA-26-265-04",
+   "published": "2026-09-23",
+   "title": "Siemens SIPLUS and SIMATIC Products",
+   "vendor": "Siemens"
+  },
+  {
+   "cves": [
+    "CVE-2026-34223"
+   ],
+   "id": "ICSA-26-265-05",
+   "published": "2026-09-23",
+   "title": "Siemens Desigo CC family",
+   "vendor": "Siemens"
+  },
+  {
+   "cves": [
+    "CVE-2026-18963"
+   ],
+   "id": "ICSA-26-265-06",
+   "published": "2026-09-23",
+   "title": "Siemens Industrial Edge Management",
+   "vendor": "Siemens"
+  },
+  {
+   "cves": [
+    "CVE-2026-67367"
+   ],
+   "id": "ICSA-26-265-07",
+   "published": "2026-09-23",
+   "title": "Siemens SIMOVE Fleetmanager and SIPLANT",
+   "vendor": "Siemens"
+  },
+  {
+   "cves": [
+    "CVE-2026-89207"
+   ],
+   "id": "ICSA-26-265-08",
+   "published": "2026-09-23",
+   "title": "Siemens WTV676 and WTV776",
+   "vendor": "Siemens"
+  },
+  {
+   "cves": [
+    "CVE-2026-88020"
+   ],
+   "id": "ICSA-26-265-09",
+   "published": "2026-09-23",
+   "title": "OpenPLC Runtime v3",
+   "vendor": "Autonomy Logic"
+  }
+ ],
  "kev": [
   {
    "added": "2022-03-25",
@@ -671,7 +994,7 @@
    "ransomware": true
   }
  ],
- "kev_catalog_version": "2026.09.18",
+ "kev_catalog_version": "2026.09.22",
  "skipped": [
   "CVE-2024-38475",
   "CVE-2024-4577",
@@ -680,6 +1003,8 @@
  ],
  "sources": {
   "eol": "https://endoflife.date",
+  "epss": "https://www.first.org/epss/",
+  "ics": "https://www.cisa.gov/news-events/cybersecurity-advisories?f%5B0%5D=advisory_type%3A94",
   "kev": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
   "ranges": "https://nvd.nist.gov"
  }

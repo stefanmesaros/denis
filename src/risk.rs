@@ -51,6 +51,16 @@ const EXPOSED: &[(u16, i32, &str)] = &[
     (2375, 25, "the Docker API is open without TLS (full control of the host)"),
     (5985, 15, "WinRM is open (remote PowerShell management)"),
     (10000, 15, "Webmin is open"),
+    (512, 20, "rexec is open (unencrypted remote execution)"),
+    (513, 20, "rlogin is open (unencrypted remote login)"),
+    (514, 15, "rsh is open (unencrypted remote shell)"),
+    (6667, 15, "IRC is open (a common indicator of a compromised device \"phoning home\")"),
+    (6443, 15, "a Kubernetes API server is reachable on the network"),
+    (10250, 20, "a Kubernetes kubelet API is reachable on the network"),
+    (5672, 15, "RabbitMQ (AMQP) is reachable on the network"),
+    (15672, 15, "the RabbitMQ management interface is reachable on the network"),
+    (9092, 15, "Kafka is reachable on the network"),
+    (1080, 10, "a SOCKS proxy is open"),
 ];
 
 /// Every fixed phrase a risk factor can consist of (the rest is numbers and a device type), so the

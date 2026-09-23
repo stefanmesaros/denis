@@ -44,13 +44,15 @@ async function loadFindings() {
 
 /** One sentence about software a device announced: what was read, and what that means. */
 function evidenceText(e) {
-  const v = { product: e.product, version: e.version, cycle: e.cycle, date: e.date, n: e.days_left, cve: e.cve, name: e.name };
+  const v = { product: e.product, version: e.version, cycle: e.cycle, date: e.date, n: e.days_left, cve: e.cve, name: e.name, vendor: e.vendor, id: e.advisory_id };
   const parts = [];
   if (e.kind === 'eol') parts.push(e.date ? tr('{product} {version}: support for the {cycle} series ended on {date}.', v) : tr('{product} {version}: support for the {cycle} series has ended.', v));
   else if (e.kind === 'eol_soon') parts.push(tr('{product} {version}: support for the {cycle} series ends on {date} (in {n} days).', v));
+  else if (e.kind === 'ics') parts.push(tr('{vendor} has an open ICS-CERT advisory, {id} ({name}), published {date}.', v));
   else parts.push(tr('{product} {version} is in the range affected by {cve} ({name}), which attackers are exploiting.', v));
   if (e.backport) parts.push(e.kind === 'kev' ? tr('The banner names a distribution, which may have fixed this without changing the version number: check.') : tr('A distribution may still patch it: check with yours.'));
   if (e.ransomware) parts.push(tr('Used in ransomware campaigns.'));
+  if (e.kind === 'kev' && typeof e.epss === 'number') parts.push(tr('EPSS: {pct}% modelled probability of exploitation in the next 30 days.', { pct: Math.round(e.epss * 100) }));
   return parts.join(' ');
 }
 

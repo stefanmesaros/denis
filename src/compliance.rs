@@ -1,7 +1,8 @@
 //! Coverage and standards mapping: how complete the inventory is, which protective and
 //! detective capabilities are switched on, and how that lines up with the controls of
 //! CIS Controls v8, NIST CSF, IEC 62443-3-3, NIST SP 800-82 (via its SP 800-53 controls),
-//! ISO/IEC 27001 Annex A and NIS2.
+//! ISO/IEC 27001 Annex A, NIS2, DORA, PCI DSS v4.0, the HIPAA Security Rule, SOC 2 (Trust
+//! Services Criteria) and CMMC 2.0 (via NIST SP 800-171).
 //!
 //! This is *evidence*, not certification. Each line says what DENIS can show and whether
 //! it is currently in place on this installation; whether a control is *satisfied* for an
@@ -269,7 +270,7 @@ pub fn assess(i: &Inputs) -> Report {
         Control {
             reference: "NIS2 · Article 21(2)(i)", title: "Asset management",
             evidence: "Asset register with owner, criticality, lifecycle and change history.",
-            status: inventory_status, note: "Inventory completeness {percent}%.", vars: inventory_note_vars,
+            status: inventory_status, note: "Inventory completeness {percent}%.", vars: inventory_note_vars.clone(),
         },
         // NIST SP 800-82 Rev. 3 (guide to OT security) points to these NIST SP 800-53 controls
         Control {
@@ -303,7 +304,99 @@ pub fn assess(i: &Inputs) -> Report {
         Control {
             reference: "NIS2 · Article 21(2)(j)", title: "Multi-factor authentication",
             evidence: "A second sign-in step: a passkey (a verified fingerprint, face, PIN or security key) or a one-time code from an authenticator app.",
+            status: mfa_status, note: mfa_note, vars: mfa_vars.clone(),
+        },
+        // ---- DORA (Regulation (EU) 2022/2554), PCI DSS v4.0, HIPAA Security Rule, SOC 2 and
+        // CMMC 2.0 (Level 2 / NIST SP 800-171): the same evidence again, in their own words.
+        Control {
+            reference: "DORA · Article 8(1)", title: "Identification of ICT assets",
+            evidence: "Asset register with owner, criticality, lifecycle and change history, covering both IT and OT.",
+            status: inventory_status, note: "Inventory completeness {percent}%.", vars: inventory_note_vars.clone(),
+        },
+        Control {
+            reference: "DORA · Article 10(1)", title: "Prompt detection of anomalous activities",
+            evidence: "Continuous passive and (optionally) active monitoring with learned baselines and explainable rules.",
+            status: monitoring_status,
+            note: if !i.learning_finished { "Still in the learning period: new devices and destinations are learned, not alerted on." } else { "{a} of {b} detection rules are on." },
+            vars: ratio(i.rules_enabled, i.rules_total),
+        },
+        Control {
+            reference: "DORA · Article 17(1)", title: "ICT-related incident management",
+            evidence: "Scored alerts with advice on what to do, delivery to chat, e-mail, PagerDuty or a SIEM, and an audit trail.",
+            status: if i.channels_enabled + i.exports_configured > 0 { "in_place" } else { "partial" },
+            note: "{channels} notification channel(s) and {exports} export(s) configured; alerts are always visible in the console.",
+            vars: vars([("channels", i.channels_enabled.to_string()), ("exports", i.exports_configured.to_string())]),
+        },
+        Control {
+            reference: "PCI DSS v4.0 · 12.5.1", title: "Inventory of system components in scope",
+            evidence: "Asset register with owner, criticality, lifecycle and change history.",
+            status: inventory_status, note: "Inventory completeness {percent}%.", vars: inventory_note_vars.clone(),
+        },
+        Control {
+            reference: "PCI DSS v4.0 · 11.5.1", title: "Network intrusion detection",
+            evidence: "Continuous passive and (optionally) active monitoring with learned baselines and explainable rules.",
+            status: monitoring_status,
+            note: if !i.learning_finished { "Still in the learning period: new devices and destinations are learned, not alerted on." } else { "{a} of {b} detection rules are on." },
+            vars: ratio(i.rules_enabled, i.rules_total),
+        },
+        Control {
+            reference: "PCI DSS v4.0 · 8.4.2", title: "Multi-factor authentication into the CDE",
+            evidence: "A second sign-in step: a passkey (a verified fingerprint, face, PIN or security key) or a one-time code from an authenticator app.",
+            status: mfa_status, note: mfa_note, vars: mfa_vars.clone(),
+        },
+        Control {
+            reference: "HIPAA Security Rule · §164.308(a)(1)(ii)(A)", title: "Risk analysis",
+            evidence: "Asset register and findings for exposed and risky services feed the risk analysis with concrete, current evidence.",
+            status: inventory_status, note: "Inventory completeness {percent}%.", vars: inventory_note_vars.clone(),
+        },
+        Control {
+            reference: "HIPAA Security Rule · §164.312(b)", title: "Audit controls",
+            evidence: "An audit log of every sign-in, change, user, token, channel and rule edit, exportable to a SIEM.",
+            status: "in_place", note: "The audit log is always on.", vars: Vars::new(),
+        },
+        Control {
+            reference: "HIPAA Security Rule · §164.312(d)", title: "Person or entity authentication",
+            evidence: "A second sign-in step: a passkey (a verified fingerprint, face, PIN or security key) or a one-time code from an authenticator app.",
+            status: mfa_status, note: mfa_note, vars: mfa_vars.clone(),
+        },
+        Control {
+            reference: "SOC 2 · CC7.1", title: "Detects and monitors changes to infrastructure",
+            evidence: "Asset register with owner, criticality, lifecycle and change history.",
+            status: inventory_status, note: "Inventory completeness {percent}%.", vars: inventory_note_vars.clone(),
+        },
+        Control {
+            reference: "SOC 2 · CC7.2", title: "Monitors system components for anomalies",
+            evidence: "Continuous passive and (optionally) active monitoring with learned baselines and explainable rules.",
+            status: monitoring_status,
+            note: if !i.learning_finished { "Still in the learning period: new devices and destinations are learned, not alerted on." } else { "{a} of {b} detection rules are on." },
+            vars: ratio(i.rules_enabled, i.rules_total),
+        },
+        Control {
+            reference: "SOC 2 · CC6.1", title: "Logical access security",
+            evidence: "A second sign-in step: a passkey (a verified fingerprint, face, PIN or security key) or a one-time code from an authenticator app.",
+            status: mfa_status, note: mfa_note, vars: mfa_vars.clone(),
+        },
+        Control {
+            reference: "CMMC 2.0 · CM.L2-3.4.1", title: "Baseline configurations and system inventories",
+            evidence: "Asset register with owner, criticality, lifecycle and change history.",
+            status: inventory_status, note: "Inventory completeness {percent}%.", vars: inventory_note_vars,
+        },
+        Control {
+            reference: "CMMC 2.0 · SI.L2-3.14.6", title: "Monitor systems to detect attacks",
+            evidence: "Continuous passive and (optionally) active monitoring with learned baselines and explainable rules.",
+            status: monitoring_status,
+            note: if !i.learning_finished { "Still in the learning period: new devices and destinations are learned, not alerted on." } else { "{a} of {b} detection rules are on." },
+            vars: ratio(i.rules_enabled, i.rules_total),
+        },
+        Control {
+            reference: "CMMC 2.0 · IA.L2-3.5.3", title: "Multi-factor authentication for privileged accounts",
+            evidence: "A second sign-in step: a passkey (a verified fingerprint, face, PIN or security key) or a one-time code from an authenticator app.",
             status: mfa_status, note: mfa_note, vars: mfa_vars,
+        },
+        Control {
+            reference: "CMMC 2.0 · AU.L2-3.3.1", title: "Create and retain system audit logs",
+            evidence: "An audit log of every sign-in, change, user, token, channel and rule edit, exportable to a SIEM.",
+            status: "in_place", note: "The audit log is always on.", vars: Vars::new(),
         },
     ]);
     if i.active_discovery {
@@ -408,6 +501,32 @@ mod tests {
         assert_eq!(status_of(&r, "CM-8"), status_of(&r, "A.5.9"), "same evidence, same status");
         assert_eq!(status_of(&r, "RA-5"), "in_place");
         assert_eq!(status_of(&r, "SI-4"), "not_in_place", "no traffic analysis");
+    }
+
+    #[test]
+    fn dora_pci_hipaa_soc2_and_cmmc_reuse_the_same_evidence_as_the_others() {
+        let assets: Vec<Asset> = (1..=2).map(|i| dev(i, "computer")).collect();
+        let metas: HashMap<i64, AssetMeta> = (1..=2).map(|i| (i, AssetMeta { reviewed: true, owner: Some("Ops".into()), criticality: Some("normal".into()), ..Default::default() })).collect();
+        let mut i = inputs(&assets, &metas);
+        i.traffic_analysis = true;
+        i.admins_with_mfa = 1;
+        let r = assess(&i);
+        for c in ["DORA · Article 8(1)", "PCI DSS v4.0 · 12.5.1", "HIPAA Security Rule · §164.308(a)(1)(ii)(A)", "SOC 2 · CC7.1", "CMMC 2.0 · CM.L2-3.4.1"] {
+            assert_eq!(status_of(&r, c), "in_place", "{c}: same inventory evidence as CIS 1.1");
+        }
+        for c in ["DORA · Article 10(1)", "PCI DSS v4.0 · 11.5.1", "SOC 2 · CC7.2", "CMMC 2.0 · SI.L2-3.14.6"] {
+            assert_eq!(status_of(&r, c), "in_place", "{c}: same monitoring evidence as NIS2 21(2)(b)/DE.CM-01");
+        }
+        for c in ["PCI DSS v4.0 · 8.4.2", "HIPAA Security Rule · §164.312(d)", "SOC 2 · CC6.1", "CMMC 2.0 · IA.L2-3.5.3"] {
+            assert_eq!(status_of(&r, c), "in_place", "{c}: same MFA evidence as CIS 6.5");
+        }
+        for c in ["HIPAA Security Rule · §164.312(b)", "CMMC 2.0 · AU.L2-3.3.1"] {
+            assert_eq!(status_of(&r, c), "in_place", "{c}: the audit log is always on");
+        }
+        // no admins with MFA yet: the new frameworks' MFA controls move too, not just NIS2's
+        i.admins_with_mfa = 0;
+        let r = assess(&i);
+        assert_eq!(status_of(&r, "PCI DSS v4.0 · 8.4.2"), "not_in_place");
     }
 
     #[test]
