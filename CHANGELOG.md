@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.13.1: clearer watch forms, five worked rule examples, support dates refresh on by default
+
+* **Rules page: clearer OT command watch / network watch forms.**
+  * "Start from a common watch…" no longer appears when *editing* an existing watch — it has no
+    saved value to reflect (a preset only ever pre-fills fields once), so showing it there just
+    looked like a forgotten setting. Only shown when adding a new watch, and now labelled to say
+    what it does.
+  * "Enabled" moved to the top of the form (was the last field) and relabelled "Watch enabled".
+  * "Never for these senders"/"Never for these devices" are now a collapsed section, opened
+    automatically only when already in use — most watches never need it.
+  * Every place that names a rule needing `--flows` now carries a `*` with a tooltip, and shows a
+    highlighted warning specifically when traffic analysis is not currently running, instead of
+    static prose that reads the same whether it applies right now or not.
+* **Five worked examples for network watches** added to the docs, including the specific
+  "does this device talk to others on the network it shouldn't" allow-list pattern.
+* **Support dates (end-of-support software) now refresh from endoflife.date on their own by
+  default** on a fresh install, instead of requiring an administrator to find the switch under
+  Settings → Software data first. Still just the one public site, nothing about your network
+  sent, and still a plain toggle to turn off. Existing installs keep whatever they already chose.
+
 ## 1.13.0: SIEM export (CEF/LEEF/JSON, GUI-configurable), a big internal refactor, six review fixes
 
 * **New: SIEM / log export**, fully configurable from Settings, no restart needed. Send events
