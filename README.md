@@ -75,6 +75,8 @@ users, OT, topology, trends, report).
   no forged or industrial traffic was generated on a live network).
 * The **OpenObserve export** and **SIEM export** (syslog: CEF/LEEF/JSON) are tested against simulated
   endpoints, not a real OpenObserve or SIEM.
+* The **SMB and MSSQL banner readers** (extended banners) are fuzz-tested and verified against hand-built
+  packets matching each protocol's specification, but not yet against a real Windows Server or SQL Server.
 * The **German, French, Spanish and Slovak translations** are complete (a test fails if any string or placeholder is
   missing) but only Slovak has been reviewed by native-speaking security professional: expect wording to improve. Alert
   texts already recorded stay in English.
@@ -99,8 +101,8 @@ src/compliance.rs   coverage and standards mapping (CIS / NIST CSF / IEC 62443 /
 src/reports.rs      saved reports and their schedule
 src/snmp.rs         SNMP v2c client (BER, GET/GETBULK walks)
 src/topology.rs     switches over SNMP: ports, LLDP neighbours, MAC-to-port; the physical map
-src/banners.rs      service banners (SSH/FTP/SMTP/HTTP) and the product and version in them
-src/vulndata.rs     end-of-support dates and known-exploited ranges (data/vulndata.json)
+src/banners.rs      service banners (SSH/FTP/SMTP/HTTP, Telnet/MySQL/MariaDB/SMB/MSSQL) and the product and version in them
+src/vulndata.rs     end-of-support dates and known-exploited ranges (bundled, live CISA/NVD/EPSS refresh, custom CVEs)
 src/docs.rs         the documentation served inside the console
 ui/i18n.js          language handling; texts in tools/i18n/*.tsv -> ui/i18n/*.json (python3 tools/i18n/build.py)
 src/metrics.rs      Prometheus exposition

@@ -193,16 +193,30 @@ or SMTP (25) server sends when you connect, and the **`Server` / `X-Powered-By` 
 never happens for industrial devices or excluded ranges, which are not scanned at all. The banners are kept as plain text
 (control characters removed, 200 characters at most) and shown in the device's panel.
 
+**Extended banners** (Telnet 23, MySQL/MariaDB 3306, SMB 445, MSSQL 1433) read the same way, one or two more connections
+each, only for a port the scan already found open — on by default, `--no-extended-banners` turns them off for an
+administrator who would rather not connect to those specific ports at all. Telnet's banner and SMB's Windows build (read
+from an SMB2 Session Setup's NTLMSSP challenge, same technique as `smbclient`/nmap's `smb-os-discovery`) and MSSQL's SQL
+Server build (from a TDS PRELOGIN exchange) are kept as evidence in the device panel; MySQL/MariaDB's greeting gives a real
+product and version like the others below. Windows/SQL Server build numbers are not (yet) matched against support-date or
+CVE data — that needs a different kind of mapping than the semantic-version products below use.
+
 From a banner DENIS takes a **product and a version** (OpenSSH, Dropbear, nginx, Apache HTTP Server, PHP, OpenSSL, lighttpd,
-IIS, Exim, ProFTPD, vsftpd) and asks two questions of it. **No version in the banner means no claim at all.**
+IIS, Exim, ProFTPD, vsftpd, MySQL, MariaDB) and asks two questions of it. **No version in the banner means no claim at all.**
 
 * **Is this version still supported?** (`eol_software`, `eol_soon`.) From [endoflife.date](https://endoflife.date): support
-  dates for nginx, Apache HTTP Server, PHP, OpenSSL, Exim and ProFTPD. A release whose date has passed is a finding; one that
-  ends within 90 days is a low one. OpenSSH, lighttpd, vsftpd and Dropbear have no published support dates, so they are never judged this way.
+  dates for nginx, Apache HTTP Server, PHP, OpenSSL, Exim and ProFTPD, refreshed weekly by default (Settings → Software data).
+  A release whose date has passed is a finding; one that ends within 90 days is a low one. OpenSSH, lighttpd, vsftpd, Dropbear,
+  MySQL and MariaDB have no published support dates built in, so they are never judged this way.
 * **Is it in the range of a vulnerability that is being exploited?** (`kev_software`.) From the CISA *Known Exploited
-  Vulnerabilities* catalog, with the affected version ranges from NVD; only CVEs whose NVD ranges are clean and single-product
-  are included (nine today, for Apache HTTP Server, PHP and Exim). This is a deliberately **short, high-confidence** list, not a
-  scanner's thousand CVEs.
+  Vulnerabilities* catalog, with the affected version ranges from NVD and an exploitation-probability score from FIRST.org
+  EPSS where known; only CVEs whose NVD ranges are clean and single-product are included. This ships as a **short,
+  high-confidence** list, not a scanner's thousand CVEs, and can be extended two ways from Settings → Software data:
+  * **Update now** fetches the current CISA catalog live, looks up ranges on NVD and scores on EPSS, for the same
+    recognised products above; an optional weekly auto-refresh sits beside it (off by default: heavier than the EOL
+    refresh, an administrator's own choice to turn on).
+  * **Custom CVEs**: add one by hand (CVE id, product, name, date, an exact version or a range) for software DENIS does not
+    ship data for yet, or one you want flagged sooner than the next release. Matched exactly like the list above.
 
 Each finding lists, per device, what was read and what it means (product, version, the release series and its end date, or the
 CVE and its name; "used in ransomware campaigns" where CISA says so).

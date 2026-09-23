@@ -67,6 +67,12 @@ struct Collect {
     /// Never send probes to this range (repeatable). Still observed passively.
     #[arg(long = "exclude", value_name = "CIDR")]
     exclude: Vec<ipnet::Ipv4Net>,
+    /// Do not read Telnet, MySQL/MariaDB, SMB (Windows build) or MSSQL's banners on the ports the
+    /// scan already found open. Same one-extra-connection cost as any other banner DENIS reads
+    /// (SSH, FTP, ...); this exists for an administrator who would rather not connect to those
+    /// specific ports at all.
+    #[arg(long)]
+    no_extended_banners: bool,
 }
 
 impl Collect {
@@ -84,6 +90,7 @@ impl Collect {
             flows: engine::flows_needed(self.flows || ot, &self.mirror_ifaces),
             exclude: self.exclude,
             arp_pace: Duration::from_millis(if ot { 50 } else { 2 }),
+            extended_banners: !self.no_extended_banners,
             ..Default::default()
         }
     }

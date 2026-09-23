@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.15.0: Telnet, MySQL/MariaDB, SMB and MSSQL banners
+
+Extends which services DENIS can read a product, version or build number from. Telnet and
+RDP/SMB/database ports were already flagged as risky when open (`telnet_open`, `rdp_open`, `smb`,
+…); this adds real evidence, where available, to four of them.
+
+* **MySQL/MariaDB (3306)**: the server's own greeting packet, sent unauthenticated the instant the
+  socket connects, gives a real product and version — told apart from each other by MariaDB's own
+  version-string marker. Matched against known-exploited vulnerabilities and (once entered) custom
+  CVEs exactly like every other product.
+* **SMB (445)**: Windows' own build number (e.g. `10.0.19041`), read from the NTLMSSP challenge in
+  an SMB2 Session Setup — the same technique `smbclient`/nmap's `smb-os-discovery` use. Two short,
+  unauthenticated round trips (Negotiate, then Session Setup); Samba does not normally set the flag
+  that makes this possible, so it correctly gives nothing there rather than a guess. Shown as
+  evidence in the device panel; not matched against CVE data yet (Windows build numbers need a
+  different kind of support-date/CVE mapping than the semantic-version products above).
+* **MSSQL (1433)**: SQL Server's own build number, read from a TDS PRELOGIN exchange — always sent
+  in the clear regardless of whether the connection later negotiates TLS. Shown as evidence, not yet
+  matched against CVE data, for the same reason as SMB above.
+* **Telnet (23)**: its login banner is now read and shown as evidence in the device panel (Telnet's
+  banners vary too much between vendors to judge a version from reliably, so it is not matched
+  against CVE data — the port itself already being open is what `telnet_open` flags).
+* **`--no-extended-banners`**: turns all four off. Same cost as any other banner DENIS already
+  reads — one extra connection (two for SMB), only for a port the scan already found open — but
+  this exists for an administrator who would rather not connect to those specific ports at all.
+* Not pursuing a version for **RDP**: without a full NLA/CredSSP negotiation (well beyond a single
+  polite connection) RDP's own handshake does not reliably expose the Windows build behind it, so
+  `rdp_open` (the open port itself) remains the finding there, without a version claim attached.
+* The SMB and MSSQL parsers are new binary-protocol code: bounds-checked throughout (fuzz-tested
+  against random and truncated input) and verified against hand-built packets matching each
+  protocol's published specification, but **not yet verified against a real Windows Server or SQL
+  Server instance** — be aware of that until it has been.
+
 ## 1.14.1: a live CISA/NVD known-exploited feed, Compliance as cards, more Trends charts
 
 Follow-up to 1.14.0, from the same round of feedback.

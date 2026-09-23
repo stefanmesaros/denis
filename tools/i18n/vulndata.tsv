@@ -17,6 +17,10 @@ SSH banner || SSH-Banner || Bannière SSH || Banner SSH || SSH banner
 Web server banner || Webserver-Banner || Bannière du serveur web || Banner del servidor web || Banner webového servera
 FTP banner || FTP-Banner || Bannière FTP || Banner FTP || FTP banner
 Mail server banner || Mailserver-Banner || Bannière du serveur de messagerie || Banner del servidor de correo || Banner poštového servera
+Telnet banner || Telnet-Banner || Bannière Telnet || Banner de Telnet || Telnet banner
+Database server banner || Datenbankserver-Banner || Bannière du serveur de base de données || Banner del servidor de base de datos || Banner databázového servera
+Windows build (from SMB) || Windows-Build (von SMB) || Version de Windows (via SMB) || Compilación de Windows (por SMB) || Windows build (zo SMB)
+SQL Server build || SQL-Server-Build || Version de SQL Server || Compilación de SQL Server || SQL Server build
 {product} {version}: support for the {cycle} series ended on {date}. || {product} {version}: Der Support für die Reihe {cycle} endete am {date}. || {product} {version} : la prise en charge de la série {cycle} s'est terminée le {date}. || {product} {version}: el soporte de la serie {cycle} terminó el {date}. || {product} {version}: podpora série {cycle} skončila {date}.
 {product} {version}: support for the {cycle} series has ended. || {product} {version}: Der Support für die Reihe {cycle} ist beendet. || {product} {version} : la prise en charge de la série {cycle} est terminée. || {product} {version}: el soporte de la serie {cycle} ha terminado. || {product} {version}: podpora série {cycle} skončila.
 {product} {version}: support for the {cycle} series ends on {date} (in {n} days). || {product} {version}: Der Support für die Reihe {cycle} endet am {date} (in {n} Tagen). || {product} {version} : la prise en charge de la série {cycle} se termine le {date} (dans {n} jours). || {product} {version}: el soporte de la serie {cycle} termina el {date} (en {n} días). || {product} {version}: podpora série {cycle} skončí {date} (o {n} dní).

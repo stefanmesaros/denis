@@ -64,6 +64,11 @@ pub struct CollectorConfig {
     /// Delay between ARP requests of a sweep. 2 ms is fine for IT; OT networks
     /// use much gentler pacing.
     pub arp_pace: Duration,
+    /// Also read Telnet, MySQL/MariaDB, SMB and MSSQL's banners on the ports the scan already found open (see
+    /// `banners::EXTENDED_BANNER_PORTS`). On by default; the same one-extra-connection cost as any
+    /// other banner already read, but `--no-extended-banners` says not to connect to those specific
+    /// ports at all.
+    pub extended_banners: bool,
 }
 
 impl CollectorConfig {
@@ -96,6 +101,7 @@ impl Default for CollectorConfig {
             flows: false,
             exclude: Vec::new(),
             arp_pace: Duration::from_millis(2),
+            extended_banners: true,
         }
     }
 }
@@ -540,7 +546,7 @@ impl Collector {
             // them, and excluded ranges are refused here)
             let (rescan_tx, rescan_rx) = mpsc::channel::<RescanRequest>(4);
             *shared.rescan_tx.lock().unwrap_or_else(|e| e.into_inner()) = Some(rescan_tx);
-            tokio::spawn(rescanner(cfg.exclude.clone(), cfg.scan_timeout, cfg.scan_concurrency, rescan_rx, tx.clone()));
+            tokio::spawn(rescanner(cfg.exclude.clone(), cfg.scan_timeout, cfg.scan_concurrency, cfg.extended_banners, rescan_rx, tx.clone()));
         }
 
         let scheduler = tokio::spawn(schedule(
@@ -552,6 +558,7 @@ impl Collector {
                 passive_only: cfg.passive_only,
                 scan_timeout: cfg.scan_timeout,
                 scan_concurrency: cfg.scan_concurrency,
+                extended_banners: cfg.extended_banners,
             },
             iface.clone(),
             inv.clone(),
@@ -1162,6 +1169,7 @@ struct SchedCfg {
     passive_only: bool,
     scan_timeout: Duration,
     scan_concurrency: usize,
+    extended_banners: bool,
 }
 
 async fn schedule(
@@ -1198,7 +1206,7 @@ async fn schedule(
 
 /// Answers "scan these devices again": each address is probed like a normal port scan, and what it shows is both
 /// reported back and fed into the inventory (so the register shows the fresh port list too).
-async fn rescanner(exclude: Vec<Ipv4Net>, timeout: Duration, concurrency: usize, mut rx: mpsc::Receiver<RescanRequest>, tx: mpsc::Sender<Observation>) {
+async fn rescanner(exclude: Vec<Ipv4Net>, timeout: Duration, concurrency: usize, extended_banners: bool, mut rx: mpsc::Receiver<RescanRequest>, tx: mpsc::Sender<Observation>) {
     while let Some(req) = rx.recv().await {
         let sem = Arc::new(Semaphore::new(concurrency.max(1)));
         let mut out = Vec::new();
@@ -1213,7 +1221,7 @@ async fn rescanner(exclude: Vec<Ipv4Net>, timeout: Duration, concurrency: usize,
                 answered = active::icmp_sweep(&[ip], Duration::from_millis(800)).await.unwrap_or(0) > 0;
             }
             if answered {
-                let banners = crate::banners::grab(ip, &open, timeout.max(Duration::from_millis(800))).await;
+                let banners = crate::banners::grab(ip, &open, timeout.max(Duration::from_millis(800)), extended_banners).await;
                 let _ = tx.send(Observation::Ports { ip, open: open.clone() }).await;
                 let _ = tx.send(Observation::Banners { ip, fields: banners.clone() }).await;
                 out.push((ip, RescanOutcome::Scanned(open, banners)));
@@ -1281,10 +1289,10 @@ async fn sweep_cycle(
     let sem = Arc::new(Semaphore::new(cfg.scan_concurrency));
     let mut set = JoinSet::new();
     for ip in to_scan {
-        let (sem, timeout) = (sem.clone(), cfg.scan_timeout);
+        let (sem, timeout, extended) = (sem.clone(), cfg.scan_timeout, cfg.extended_banners);
         set.spawn(async move {
             let open = active::scan_host(ip, sem, timeout).await;
-            let banners = crate::banners::grab(ip, &open, timeout.max(Duration::from_millis(800))).await;
+            let banners = crate::banners::grab(ip, &open, timeout.max(Duration::from_millis(800)), extended).await;
             (ip, open, banners)
         });
     }
@@ -1422,7 +1430,7 @@ mod tests {
         let (obs_tx, mut obs_rx) = mpsc::channel(16);
         let (tx, rx) = mpsc::channel(4);
         let exclude: Vec<Ipv4Net> = vec!["10.99.0.0/16".parse().unwrap()];
-        tokio::spawn(rescanner(exclude, Duration::from_millis(300), 16, rx, obs_tx));
+        tokio::spawn(rescanner(exclude, Duration::from_millis(300), 16, true, rx, obs_tx));
         let (reply, answer) = tokio::sync::oneshot::channel();
         let local = Ipv4Addr::LOCALHOST;
         tx.send(RescanRequest { ips: vec![local, Ipv4Addr::new(10, 99, 1, 1), Ipv4Addr::new(240, 0, 0, 1)], reply }).await.unwrap();

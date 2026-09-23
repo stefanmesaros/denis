@@ -35,7 +35,7 @@ pub const SOON_DAYS: i64 = 90;
 
 /// The products a service banner can actually name (see `banners.rs`): the only ones a custom
 /// CVE entry can be matched against.
-pub const KNOWN_PRODUCTS: &[&str] = &["openssh", "dropbear", "nginx", "apache-http-server", "php", "openssl", "lighttpd", "iis", "exim", "proftpd", "vsftpd"];
+pub const KNOWN_PRODUCTS: &[&str] = &["openssh", "dropbear", "nginx", "apache-http-server", "php", "openssl", "lighttpd", "iis", "exim", "proftpd", "vsftpd", "mysql", "mariadb"];
 
 // ------------------------------------------------------------------------------------------ versions
 
@@ -684,6 +684,8 @@ pub fn product_name(key: &str) -> &'static str {
         "exim" => "Exim",
         "proftpd" => "ProFTPD",
         "vsftpd" => "vsftpd",
+        "mysql" => "MySQL",
+        "mariadb" => "MariaDB",
         _ => "software",
     }
 }
