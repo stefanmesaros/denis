@@ -73,13 +73,12 @@ users, OT, topology, trends, report).
   reporting over HTTPS) but not with a public certificate authority or a reverse proxy in front.
 * ARP conflict and industrial detections on **real** wire traffic (tested with hand-built frames and replay;
   no forged or industrial traffic was generated on a live network).
-* `unusual_hours` and `device_silent` on real elapsed time (tested with injected clocks).
 * The **OpenObserve export** and **SIEM export** (syslog: CEF/LEEF/JSON) are tested against simulated
   endpoints, not a real OpenObserve or SIEM.
 * The **German, French, Spanish and Slovak translations** are complete (a test fails if any string or placeholder is
-  missing) but have not been reviewed by native-speaking security professionals: expect wording to improve. Alert
+  missing) but only Slovak has been reviewed by native-speaking security professional: expect wording to improve. Alert
   texts already recorded stay in English.
-* No multi-factor auth / SSO, no Postgres backend, no IPv6, no Windows.
+* No SSO, no Postgres backend, no IPv6, no Windows.
 * An independent **penetration test** and a disclosure policy: required before selling it.
 
 ## Development
