@@ -254,6 +254,13 @@ pub trait AuthStore: Send + Sync {
     fn list_api_tokens(&self) -> Result<Vec<ApiToken>>;
     fn revoke_api_token(&self, id: i64) -> Result<bool>;
     fn touch_api_token(&self, token_hash: &str, ts: i64) -> Result<()>;
+
+    // ----- per-site access grants (crate::access)
+    /// Every grant on record, as `(user_id, site, permission)`; `permission` is `"read"`,
+    /// `"write"` or `"none"`.
+    fn site_access_all(&self) -> Result<Vec<(i64, String, String)>>;
+    /// Replace every grant for one user with `rows` (site, permission).
+    fn site_access_set_for_user(&self, user_id: i64, rows: &[(String, String)]) -> Result<()>;
 }
 
 /// Everything else an administrator manages: remote agents, backups, the audit trail,

@@ -292,7 +292,7 @@ pub(crate) async fn users_reset(State(st): State<AppState>, Extension(AuthUser(m
 /// the console can offer one row per site even where nothing has been set yet.
 pub(crate) async fn site_access_get(State(st): State<AppState>, Path(id): Path<i64>) -> Result<Json<Value>, ApiError> {
     let (grants, agents) = blocking(&st.store, move |s| {
-        let all = crate::access::load_all(s);
+        let all = crate::access::load_all(s)?;
         Ok((all.into_iter().filter(|g| g.user_id == id).collect::<Vec<_>>(), s.list_agents()?))
     })
     .await?;

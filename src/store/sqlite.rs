@@ -12,7 +12,7 @@ use super::{
 };
 use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, ReportMeta, RiskAcceptance, User};
 
-const SCHEMA_VERSION: i64 = 13;
+const SCHEMA_VERSION: i64 = 14;
 
 /// Phase 1 schema.
 const V1: &str = "CREATE TABLE assets (
@@ -208,6 +208,19 @@ const V13: &str = "CREATE TABLE topo_snapshots (
         snapshot  TEXT
      );";
 
+/// Per-site access grants (`crate::access`), moved out of the `site_access` JSON blob under
+/// `settings` into a real table: an admin/editor's grants are now enforced by a foreign key
+/// (`ON DELETE CASCADE`, live since V13 turned `PRAGMA foreign_keys` on) instead of the ad hoc
+/// JSON-filtering `delete_user` used to do inline, and a corrupted row is impossible by
+/// construction rather than something `access::load_all` had to fail open on. The data migration
+/// (old JSON -> rows) runs in Rust right after this DDL, in `init`, in the same transaction.
+const V14: &str = "CREATE TABLE site_access (
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        site       TEXT NOT NULL,
+        permission TEXT NOT NULL CHECK (permission IN ('read', 'write', 'none')),
+        PRIMARY KEY (user_id, site)
+     ) WITHOUT ROWID;";
+
 /// Phase 3.8: API tokens for scripts and integrations.
 const V7: &str = "CREATE TABLE api_tokens (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -232,6 +245,41 @@ const V8: &str = "CREATE TABLE passkeys (
         last_used     INTEGER
      );
      CREATE INDEX passkeys_user ON passkeys (user_id);";
+
+/// One-time data migration for V14: the old `site_access` JSON blob (a `Vec<access::Grant>`,
+/// `{user_id, site, permission}` with `permission` one of "read"/"write"/"none") moves into the
+/// new `site_access` table row by row, then the old settings row is removed. Deliberately does
+/// not depend on `crate::access::Grant` (store stays underneath the modules built on it) — the
+/// shape is duplicated here, just for this one read.
+fn migrate_site_access_from_settings_blob(tx: &rusqlite::Transaction) -> Result<()> {
+    #[derive(serde::Deserialize)]
+    struct OldGrant {
+        user_id: i64,
+        site: String,
+        permission: String,
+    }
+    let blob: Option<Vec<u8>> = tx.query_row("SELECT value FROM settings WHERE key = 'site_access'", [], |r| r.get(0)).optional()?;
+    let Some(bytes) = blob else { return Ok(()) };
+    let grants: Vec<OldGrant> = serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+        // Never seen in practice (we wrote this blob ourselves), but a corrupted or hand-edited
+        // settings row must not fail the whole migration: everyone simply keeps full access
+        // (exactly today's "no grant = full access" default) until re-granted from the console.
+        tracing::warn!("site_access setting could not be parsed while moving it to its own table, discarding it: {e}");
+        Vec::new()
+    });
+    for g in &grants {
+        if !matches!(g.permission.as_str(), "read" | "write" | "none") {
+            continue; // likewise: never our own output, but never trusted blindly either
+        }
+        tx.execute(
+            "INSERT INTO site_access (user_id, site, permission) VALUES (?1, ?2, ?3)
+             ON CONFLICT (user_id, site) DO UPDATE SET permission = excluded.permission",
+            params![g.user_id, g.site, g.permission],
+        )?;
+    }
+    tx.execute("DELETE FROM settings WHERE key = 'site_access'", [])?;
+    Ok(())
+}
 
 pub struct SqliteStore {
     conn: Mutex<Connection>,
@@ -269,10 +317,13 @@ impl SqliteStore {
         }
         // Each step runs in its own transaction and bumps user_version, so a
         // crash mid-migration leaves the database at a consistent older version.
-        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13)] {
+        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13), (14, V14)] {
             if version < target {
                 let tx = conn.unchecked_transaction()?;
                 tx.execute_batch(sql)?;
+                if target == 14 {
+                    migrate_site_access_from_settings_blob(&tx)?;
+                }
                 tx.pragma_update(None, "user_version", target)?;
                 tx.commit()?;
             }
@@ -888,21 +939,8 @@ impl AuthStore for SqliteStore {
         tx.execute("DELETE FROM passkeys WHERE user_id = ?1", params![id])?;
         tx.execute("DELETE FROM totp WHERE user_id = ?1", params![id])?;
         tx.execute("DELETE FROM totp_recovery WHERE user_id = ?1", params![id])?;
-        // `site_access` (crate::access) lives as one JSON list under a `settings` key, not a
-        // table `id` can reference, so no FK ever catches it. Filtering it here, inline, is the
-        // only way to keep it in the same transaction as the user itself: going through
-        // `access::set_for_user` would call back into this store and re-lock `self.conn`, which
-        // deadlocks (the lock this method holds is not reentrant).
-        let grants: Option<Vec<u8>> = tx.query_row("SELECT value FROM settings WHERE key = 'site_access'", [], |r| r.get(0)).optional()?;
-        if let Some(bytes) = grants {
-            if let Ok(mut list) = serde_json::from_slice::<Vec<crate::access::Grant>>(&bytes) {
-                let before = list.len();
-                list.retain(|g| g.user_id != id);
-                if list.len() != before {
-                    tx.execute("UPDATE settings SET value = ?1 WHERE key = 'site_access'", params![serde_json::to_vec(&list)?])?;
-                }
-            }
-        }
+        // site_access rows are ON DELETE CASCADE from users (see the V14 migration): removing the
+        // user row below takes their grants with it, no special case needed here any more.
         let n = tx.execute("DELETE FROM users WHERE id = ?1", params![id])?;
         tx.commit()?;
         Ok(n == 1)
@@ -1074,6 +1112,22 @@ impl AuthStore for SqliteStore {
         Ok(())
     }
 
+    fn site_access_all(&self) -> Result<Vec<(i64, String, String)>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT user_id, site, permission FROM site_access")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+    fn site_access_set_for_user(&self, user_id: i64, rows: &[(String, String)]) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM site_access WHERE user_id = ?1", params![user_id])?;
+        for (site, permission) in rows {
+            tx.execute("INSERT INTO site_access (user_id, site, permission) VALUES (?1, ?2, ?3)", params![user_id, site, permission])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 impl AdminStore for SqliteStore {
@@ -1518,6 +1572,29 @@ mod tests {
         // reopening at v2 is a no-op
         drop(s);
         SqliteStore::open(&path).unwrap();
+    }
+
+    #[test]
+    fn site_access_grants_migrate_from_the_old_settings_blob_into_their_own_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v13.db");
+        {
+            // Exactly what a pre-V14 build left on disk: a user, and the old JSON list of grants
+            // under the `site_access` settings key.
+            let c = Connection::open(&path).unwrap();
+            for sql in [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13] {
+                c.execute_batch(sql).unwrap();
+            }
+            c.pragma_update(None, "user_version", 13).unwrap();
+            c.execute("INSERT INTO users (id, username, password_hash, role, created_at) VALUES (1, 'eda', 'x', 'editor', 0)", []).unwrap();
+            let blob = serde_json::json!([{"user_id": 1, "site": "site-a", "permission": "read"}]).to_string();
+            c.execute("INSERT INTO settings (key, value, updated_at) VALUES ('site_access', ?1, 0)", params![blob.as_bytes()]).unwrap();
+        }
+        let s = SqliteStore::open(&path).unwrap();
+        assert_eq!(s.site_access_all().unwrap(), vec![(1, "site-a".to_string(), "read".to_string())]);
+        assert!(s.get_setting("site_access").unwrap().is_none(), "the old blob is removed once migrated");
+        // and the grant is actually enforced, end to end, through crate::access
+        assert_eq!(crate::access::effective(&crate::access::load_all(&s).unwrap(), 1, "editor", "site-a"), crate::access::Permission::Read);
     }
 
     #[test]

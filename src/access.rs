@@ -1,18 +1,21 @@
 //! Per-site access: an admin may restrict which sites (the local collector, or a remote
 //! agent) a user can see or change, on top of their ordinary role (viewer/editor/admin).
 //!
-//! Grants are opt-in and stored as one small JSON list under the `site_access` setting (see
-//! `store::get_setting`/`set_setting`) — the same lightweight pattern already used for rules'
-//! watches and branding, since the whole list is tiny (users × sites) and changed rarely.
-//! **No grant for a (user, site) pair means full access to it** — installations that never open
-//! this page see no change in behaviour, and an admin always sees every site regardless of
-//! grants (they already manage the whole install from Settings/Users/Audit).
+//! Grants live in their own `site_access` table (`user_id, site, permission`), one row per
+//! (user, site) pair a grant was ever set for, `ON DELETE CASCADE` from `users` — deleting a user
+//! now removes their grants as a plain consequence of a foreign key, not a special case
+//! `SqliteStore::delete_user` has to filter for by hand. **No grant for a (user, site) pair means
+//! full access to it** — installations that never open this page see no change in behaviour, and
+//! an admin always sees every site regardless of grants (they already manage the whole install
+//! from Settings/Users/Audit).
+//!
+//! A real failure to read the grants table is **not** treated as "no grants" (which used to mean
+//! full access for everyone — the wrong direction to fail open in). `readable`/`writable` deny by
+//! default when the store itself cannot answer; only an *absence* of a matching row grants access.
 
 use serde::{Deserialize, Serialize};
 
-use crate::store::{Store};
-
-pub const SETTING_KEY: &str = "site_access";
+use crate::store::Store;
 
 /// `""` stands for the local site (no agent) throughout this module, matching how `Asset.agent_id
 /// == None` is already shown as `tr('local')` in the console.
@@ -53,17 +56,13 @@ pub struct Grant {
     pub permission: Permission,
 }
 
-/// Every grant on record (every user, every site). Corrupted or unreadable settings fail open
-/// (empty list = nobody is restricted) rather than locking an admin out over a bad upgrade.
-pub fn load_all(store: &dyn Store) -> Vec<Grant> {
-    match store.get_setting(SETTING_KEY) {
-        Ok(Some(bytes)) => serde_json::from_slice(&bytes).unwrap_or_default(),
-        _ => Vec::new(),
-    }
-}
-
-pub fn save_all(store: &dyn Store, grants: &[Grant], now: i64) -> anyhow::Result<()> {
-    store.set_setting(SETTING_KEY, &serde_json::to_vec(grants)?, now)
+/// Every grant on record (every user, every site).
+pub fn load_all(store: &dyn Store) -> anyhow::Result<Vec<Grant>> {
+    Ok(store
+        .site_access_all()?
+        .into_iter()
+        .filter_map(|(user_id, site, permission)| Permission::parse(&permission).map(|permission| Grant { user_id, site, permission }))
+        .collect())
 }
 
 /// What `user_id` may do with `site` right now. Admins are never restricted; anyone else with
@@ -81,74 +80,93 @@ pub fn site_of(agent_id: &Option<String>) -> &str {
 }
 
 /// Convenience wrappers over `load_all` + `effective`, for call sites that only have a `Store`
-/// (e.g. inside a `blocking` closure) rather than the web layer's `AppState`.
+/// (e.g. inside a `blocking` closure) rather than the web layer's `AppState`. A store error here
+/// denies access rather than granting it — the opposite of what `load_all` returning "no grants"
+/// on a read failure used to mean.
 pub fn readable(store: &dyn Store, user_id: i64, role: &str, agent_id: &Option<String>) -> bool {
-    effective(&load_all(store), user_id, role, site_of(agent_id)).can_read()
+    if role == "admin" {
+        return true;
+    }
+    match load_all(store) {
+        Ok(grants) => effective(&grants, user_id, role, site_of(agent_id)).can_read(),
+        Err(e) => {
+            tracing::error!("could not check site access, denying by default: {e:#}");
+            false
+        }
+    }
 }
 
 pub fn writable(store: &dyn Store, user_id: i64, role: &str, agent_id: &Option<String>) -> bool {
-    effective(&load_all(store), user_id, role, site_of(agent_id)).can_write()
+    if role == "admin" {
+        return true;
+    }
+    match load_all(store) {
+        Ok(grants) => effective(&grants, user_id, role, site_of(agent_id)).can_write(),
+        Err(e) => {
+            tracing::error!("could not check site access, denying by default: {e:#}");
+            false
+        }
+    }
 }
 
 /// Replace every grant for one user (a full set from the admin UI). Unrecognised permission
 /// strings are rejected; `LOCAL_SITE`/agent ids are not validated against `list_agents` here —
 /// the UI only offers ids it knows about, and a grant for a site that later disappears is simply
 /// never consulted again.
-pub fn set_for_user(store: &dyn Store, user_id: i64, rows: &[(String, String)], now: i64) -> Result<(), String> {
-    let mut parsed = Vec::with_capacity(rows.len());
-    for (site, perm) in rows {
-        let permission = Permission::parse(perm).ok_or_else(|| format!("unknown permission '{perm}'"))?;
-        parsed.push(Grant { user_id, site: site.clone(), permission });
+pub fn set_for_user(store: &dyn Store, user_id: i64, rows: &[(String, String)], _now: i64) -> Result<(), String> {
+    for (_, perm) in rows {
+        Permission::parse(perm).ok_or_else(|| format!("unknown permission '{perm}'"))?;
     }
-    let mut all = load_all(store);
-    all.retain(|g| g.user_id != user_id);
-    all.extend(parsed);
-    save_all(store, &all, now).map_err(|e| e.to_string())
+    store.site_access_set_for_user(user_id, rows).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::AuthStore;
     use crate::store::sqlite::SqliteStore;
+    use crate::store::AuthStore;
 
     #[test]
     fn no_grant_is_full_access_and_admins_are_never_restricted() {
         let store = SqliteStore::open_in_memory().unwrap();
-        let grants = load_all(&store);
-        assert_eq!(effective(&grants, 1, "viewer", LOCAL_SITE), Permission::Write);
-        assert_eq!(effective(&grants, 1, "admin", "site-a"), Permission::Write); // even with a grant, below
-        set_for_user(&store, 1, &[("site-a".into(), "none".into())], 100).unwrap();
-        let grants = load_all(&store);
-        assert_eq!(effective(&grants, 1, "admin", "site-a"), Permission::Write);
+        let id = store.create_user("u", "x", "viewer", true, 100).unwrap().id;
+        let grants = load_all(&store).unwrap();
+        assert_eq!(effective(&grants, id, "viewer", LOCAL_SITE), Permission::Write);
+        assert_eq!(effective(&grants, id, "admin", "site-a"), Permission::Write); // even with a grant, below
+        set_for_user(&store, id, &[("site-a".into(), "none".into())], 100).unwrap();
+        let grants = load_all(&store).unwrap();
+        assert_eq!(effective(&grants, id, "admin", "site-a"), Permission::Write);
     }
 
     #[test]
     fn a_grant_restricts_only_that_user_and_that_site() {
         let store = SqliteStore::open_in_memory().unwrap();
-        set_for_user(&store, 5, &[("site-a".into(), "none".into()), ("site-b".into(), "read".into())], 100).unwrap();
-        let grants = load_all(&store);
-        assert_eq!(effective(&grants, 5, "viewer", "site-a"), Permission::None);
-        assert_eq!(effective(&grants, 5, "viewer", "site-b"), Permission::Read);
-        assert_eq!(effective(&grants, 5, "viewer", "site-c"), Permission::Write); // no grant: full access
-        assert_eq!(effective(&grants, 6, "viewer", "site-a"), Permission::Write); // a different user: unaffected
+        let a = store.create_user("a", "x", "viewer", true, 100).unwrap().id;
+        let b = store.create_user("b", "x", "viewer", true, 100).unwrap().id;
+        set_for_user(&store, a, &[("site-a".into(), "none".into()), ("site-b".into(), "read".into())], 100).unwrap();
+        let grants = load_all(&store).unwrap();
+        assert_eq!(effective(&grants, a, "viewer", "site-a"), Permission::None);
+        assert_eq!(effective(&grants, a, "viewer", "site-b"), Permission::Read);
+        assert_eq!(effective(&grants, a, "viewer", "site-c"), Permission::Write); // no grant: full access
+        assert_eq!(effective(&grants, b, "viewer", "site-a"), Permission::Write); // a different user: unaffected
     }
 
     #[test]
     fn setting_for_a_user_replaces_their_whole_previous_set() {
         let store = SqliteStore::open_in_memory().unwrap();
-        set_for_user(&store, 1, &[("site-a".into(), "read".into())], 100).unwrap();
-        set_for_user(&store, 1, &[("site-b".into(), "write".into())], 200).unwrap();
-        let grants = load_all(&store);
-        assert_eq!(effective(&grants, 1, "viewer", "site-a"), Permission::Write); // cleared
-        assert_eq!(effective(&grants, 1, "viewer", "site-b"), Permission::Write);
+        let id = store.create_user("u", "x", "viewer", true, 100).unwrap().id;
+        set_for_user(&store, id, &[("site-a".into(), "read".into())], 100).unwrap();
+        set_for_user(&store, id, &[("site-b".into(), "write".into())], 200).unwrap();
+        let grants = load_all(&store).unwrap();
+        assert_eq!(effective(&grants, id, "viewer", "site-a"), Permission::Write); // cleared
+        assert_eq!(effective(&grants, id, "viewer", "site-b"), Permission::Write);
     }
 
     #[test]
     fn an_unknown_permission_string_is_rejected_and_nothing_is_saved() {
         let store = SqliteStore::open_in_memory().unwrap();
         assert!(set_for_user(&store, 1, &[("site-a".into(), "delete-everything".into())], 100).is_err());
-        assert!(load_all(&store).is_empty());
+        assert!(load_all(&store).unwrap().is_empty());
     }
 
     #[test]
@@ -169,7 +187,7 @@ mod tests {
 
         assert!(store.delete_user(disabled.id).unwrap());
 
-        let grants = load_all(&store);
+        let grants = load_all(&store).unwrap();
         assert!(grants.iter().all(|g| g.user_id != disabled.id), "{grants:?}");
         assert_eq!(effective(&grants, other.id, "viewer", "site-a"), Permission::Read, "unrelated user's grant survives");
     }
