@@ -102,6 +102,8 @@ impl Ingest {
         let tmp = site_dir.join(format!(".{name}.part"));
         std::fs::write(&tmp, bytes)?;
         std::fs::rename(&tmp, site_dir.join(&name))?;
+        let keep = crate::backups::load_agent_keep(&*self.store);
+        crate::backups::prune_agent_dir(&site_dir, keep as usize);
         Ok(name)
     }
 
@@ -701,6 +703,18 @@ mod tests {
         assert_eq!(st, StatusCode::CREATED);
         assert!(backups_dir.join("site-c").exists());
         assert!(!backups_dir.join("site-c").join("does-not-leak-into-site-b").exists());
+
+        // uploads beyond the configured per-agent retention are pruned, newest kept: seed a few
+        // older files by hand (upload's own filename has only second resolution, too coarse to
+        // race reliably in a test) and confirm one more upload triggers pruning down to `keep`
+        crate::backups::save_agent_keep(&*_store, 2, 1).unwrap();
+        for i in 0..3 {
+            std::fs::write(backups_dir.join("site-b").join(format!("denis-auto-old-{i}.db")), b"old").unwrap();
+        }
+        assert_eq!(std::fs::read_dir(backups_dir.join("site-b")).unwrap().count(), 4);
+        let (st, _) = call(&app, post(&token, Box::leak(sqlite_bytes.clone().into_boxed_slice()))).await;
+        assert_eq!(st, StatusCode::CREATED);
+        assert_eq!(std::fs::read_dir(backups_dir.join("site-b")).unwrap().count(), 2, "kept only the newest 2");
     }
 
     #[tokio::test]

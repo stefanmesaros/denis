@@ -227,10 +227,16 @@ On the customer's own install:
 DENIS_BACKUP_TOKEN=dat_… denis run --backup-upstream https://YOUR-MSP:8081
 ```
 
-* Their local scheduled backups (Settings → Health → Backups) are unaffected — this only *also*
-  sends each one to you, outbound, right after it is made.
+* Their local scheduled backups (Settings → Health → Backups) are unaffected. **How often the
+  newest one is also pushed to you** is a separate schedule the customer sets themselves, right
+  below it (Settings → Health → "Uploading to your MSP"): manually only, every 8/12/24 hours, or
+  every 7 days — independent of their own local backup schedule, and only shown once
+  `--backup-upstream` is configured. It never triggers a new backup by itself; it just pushes
+  whatever the newest one already is when it is due.
 * On your side they land under `backups/from-agents/customer-a/` next to your own database's
-  backups; they are named and pruned the same way local ones are.
+  backups, named the same way, but with their own retention: **how many of a given customer's
+  uploads you keep** is your own setting (Settings → Health → "Customers' uploaded backups",
+  default 10), unrelated to that customer's local `keep`.
 * A customer with `--backup-upstream` set but no reachable MSP just logs a warning and keeps its
   local backup; nothing about their own install depends on you being reachable.
 * This is independent of whether that customer also reports live as an agent (`denis agent`) —

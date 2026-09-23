@@ -2,7 +2,8 @@
 // The Health page: is DENIS itself in good shape (packet drops, database, disk, sweeps), and the backups of its
 // database (administrators). Loaded after reports.js.
 
-const BACKUP_SCHEDULE = () => [['off', tr('Never')], ['daily', tr('Every day')], ['weekly', tr('Every week')]];
+const BACKUP_SCHEDULE = () => [['off', tr('Never')], ['every8h', tr('Every 8 hours')], ['every12h', tr('Every 12 hours')], ['daily', tr('Every day')], ['weekly', tr('Every week')]];
+const UPLOAD_SCHEDULE = () => [['manual', tr('Manually only')], ['every8h', tr('Every 8 hours')], ['every12h', tr('Every 12 hours')], ['daily', tr('Every day')], ['weekly', tr('Every week')]];
 const BACKUP_KIND = () => ({ auto: tr('On schedule'), manual: tr('By hand'), update: tr('Before an update') });
 
 /** The number of problems, in the menu (light request: no table counts). */
@@ -78,6 +79,31 @@ async function loadBackups() {
         status.textContent = r2.ok ? tr('Saved.') : apiError(r2);
         if (r2.ok) loadHealth();
       } }), status));
+
+  $('backup-upload-box').hidden = !data.upload_configured;
+  if (data.upload_configured) {
+    const us = data.upload_settings;
+    const usel = el('select', { id: 'backup-upload-schedule' }, ...UPLOAD_SCHEDULE().map(([v, t]) => el('option', { value: v, text: t })));
+    usel.value = us.schedule;
+    const ustatus = el('span', { class: 'muted', id: 'backup-upload-status' });
+    $('backup-upload-form').replaceChildren(
+      el('div', { class: 'form-grid' }, field(tr('Push the newest backup to your MSP'), usel)),
+      el('div', { class: 'row' },
+        el('button', { type: 'button', class: 'primary', text: tr('Save schedule'), onclick: async () => {
+          const r2 = await api('PUT', '/api/backups/upload-schedule', { schedule: usel.value });
+          ustatus.textContent = r2.ok ? tr('Saved.') : apiError(r2);
+        } }), ustatus));
+  }
+
+  const agentKeep = el('input', { id: 'backup-agent-keep', type: 'number', min: 1, max: 60, value: String(data.agent_keep) });
+  const akStatus = el('span', { class: 'muted', id: 'backup-agent-keep-status' });
+  $('backup-agent-keep-form').replaceChildren(
+    el('div', { class: 'form-grid' }, field(tr('Keep the newest'), agentKeep)),
+    el('div', { class: 'row' },
+      el('button', { type: 'button', class: 'primary', text: tr('Save'), onclick: async () => {
+        const r2 = await api('PUT', '/api/backups/agent-keep', { keep: Number(agentKeep.value) });
+        akStatus.textContent = r2.ok ? tr('Saved.') : apiError(r2);
+      } }), akStatus));
 }
 
 async function backupNow() {

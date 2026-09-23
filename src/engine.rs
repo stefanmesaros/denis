@@ -182,6 +182,9 @@ pub struct StatusInfo {
     pub frames_matched: u64,
     /// Health of each configured export (OpenObserve, syslog).
     pub exports: Vec<crate::sink::ExportStatus>,
+    /// Whether `--backup-upstream` is configured on this install (so the console can show the
+    /// upload-to-MSP schedule only when it would actually do anything).
+    pub backup_upstream_configured: bool,
 }
 
 /// A request to scan these devices again right now (to confirm that a finding was fixed).
@@ -365,6 +368,7 @@ impl Collector {
                 notes,
                 frames_matched: 0,
                 exports: Vec::new(),
+                backup_upstream_configured: false, // set right after Collector::start in `run()`, which knows it
             }),
             frames: frames.clone(),
             exports: Mutex::new(Vec::new()),
@@ -593,6 +597,7 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
             notes: vec![NOTE_VIEWER.into()],
             frames_matched: 0,
             exports: Vec::new(),
+            backup_upstream_configured: false,
         }),
         frames: Arc::new(AtomicU64::new(0)),
         exports: Mutex::new(Vec::new()),
@@ -680,6 +685,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
 
     let mode = if cfg.ingest_listen.is_some() { "master" } else { "standalone" };
     let mut coll = Collector::start(&cfg.collector, store.clone(), mode).await?;
+    coll.shared.update(|s| s.backup_upstream_configured = cfg.backup_upstream.is_some());
 
     // --- detection
     let now = now_ts();
@@ -1222,6 +1228,7 @@ pub fn test_shared_at(db_path: std::path::PathBuf) -> Arc<Shared> {
             notes: vec![],
             frames_matched: 0,
             exports: Vec::new(),
+            backup_upstream_configured: false,
         }),
         frames: Arc::new(AtomicU64::new(0)),
         exports: Mutex::new(Vec::new()),

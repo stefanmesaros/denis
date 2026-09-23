@@ -141,6 +141,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/setup", get(setup_page::get).put(setup_page::put))
         .route("/api/backups", get(health_page::list).post(health_page::make))
         .route("/api/backups/settings", put(health_page::settings_put))
+        .route("/api/backups/upload-schedule", put(health_page::upload_settings_put))
+        .route("/api/backups/agent-keep", put(health_page::agent_keep_put))
         .route("/api/backups/{name}", get(health_page::download).delete(health_page::remove))
         .route("/api/reports", get(reports_page::list).post(reports_page::make))
         .route("/api/reports/settings", get(reports_page::settings_get).put(reports_page::settings_put))
@@ -2616,6 +2618,35 @@ mod tests {
         assert_eq!(send(&app, req("DELETE", &format!("/api/backups/{name}"), Some(&admin), None)).await.0, StatusCode::NOT_FOUND);
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
         assert!(audit.contains("backup.create") && audit.contains("backup.download") && audit.contains("backup.schedule") && audit.contains("backup.delete"));
+    }
+
+    #[tokio::test]
+    async fn the_upload_schedule_is_hidden_without_an_upstream_and_agent_retention_is_independent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (app, store, [viewer, _editor, admin]) = secured_with(crate::engine::test_shared_at(tmp.path().join("denis.db"))).await;
+
+        // no --backup-upstream configured on this test install: nothing to show or set
+        let (_, _, list) = send(&app, req("GET", "/api/backups", Some(&admin), None)).await;
+        assert_eq!(list["upload_configured"], false);
+        assert_eq!(list["upload_settings"]["schedule"], "daily");
+        assert_eq!(list["agent_keep"], crate::backups::DEFAULT_AGENT_KEEP);
+
+        // the upload schedule is validated and saved regardless (a console viewing it before
+        // --backup-upstream is added later is not an error)
+        assert_eq!(send(&app, req("PUT", "/api/backups/upload-schedule", Some(&viewer), Some(serde_json::json!({"schedule": "every8h"})))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("PUT", "/api/backups/upload-schedule", Some(&admin), Some(serde_json::json!({"schedule": "hourly"})))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, req("PUT", "/api/backups/upload-schedule", Some(&admin), Some(serde_json::json!({"schedule": "every8h"})))).await.0, StatusCode::OK);
+        assert_eq!(send(&app, req("GET", "/api/backups", Some(&admin), None)).await.2["upload_settings"]["schedule"], "every8h");
+
+        // the per-agent retention is a separate, always-available local setting
+        assert_eq!(send(&app, req("PUT", "/api/backups/agent-keep", Some(&viewer), Some(serde_json::json!({"keep": 5})))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("PUT", "/api/backups/agent-keep", Some(&admin), Some(serde_json::json!({"keep": 0})))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, req("PUT", "/api/backups/agent-keep", Some(&admin), Some(serde_json::json!({"keep": 5})))).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, req("GET", "/api/backups", Some(&admin), None)).await.2["agent_keep"], 5);
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("backup.upload_schedule") && audit.contains("backup.agent_keep"), "{audit}");
+        let _ = store;
     }
 
     #[tokio::test]

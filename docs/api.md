@@ -71,7 +71,8 @@ Role = the lowest role allowed.
 | `GET/PUT /api/reports/settings` | viewer / admin | the schedule: `{"schedule": "off\|weekly\|monthly", "keep": 12, "days": 7}` |
 | `DELETE /api/reports/{id}` | admin | delete a saved report |
 | `GET /api/system` | viewer | health of DENIS itself: database size, disk, capture drops, sweep lag, backups, `warnings[]` (`?rows=0` skips the row counts) |
-| `GET/POST /api/backups` · `GET/DELETE /api/backups/{name}` · `PUT /api/backups/settings` | admin | backups of the database: list (with the schedule) · make one now · download / delete · `{"schedule": "off\|daily\|weekly", "keep": 7}` |
+| `GET/POST /api/backups` · `GET/DELETE /api/backups/{name}` · `PUT /api/backups/settings` | admin | backups of the database: list (with the schedule, the upload-to-MSP schedule and its own retention) · make one now · download / delete · `{"schedule": "off\|every8h\|every12h\|daily\|weekly", "keep": 7}` |
+| `PUT /api/backups/upload-schedule` · `PUT /api/backups/agent-keep` | admin | how often the newest backup is also pushed to `--backup-upstream` (`{"schedule": "manual\|every8h\|every12h\|daily\|weekly"}`), independent of the schedule above · how many of each customer's uploaded backups this MSP keeps (`{"keep": 10}`) |
 | `POST /api/alerts/{id}/ack` · `/unack` | editor | acknowledge / undo |
 | `POST /api/scan` | editor | run a sweep + port scan now |
 | `POST /api/assets` | editor | create a manual asset: `{"mac"?, "display_name", …}` |

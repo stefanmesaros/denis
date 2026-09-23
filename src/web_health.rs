@@ -37,7 +37,47 @@ pub(crate) async fn health(State(st): State<AppState>, Query(q): Query<HealthQue
 pub(crate) async fn list(State(st): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     let path = st.shared.db_path.clone();
     let settings = blocking(&st.store, |s| backups::load(s)).await?;
-    Ok(Json(json!({ "backups": backups::list(&path), "settings": settings })))
+    let upload_settings = blocking(&st.store, |s| backups::load_upload_settings(s)).await?;
+    let agent_keep = blocking(&st.store, |s| Ok(backups::load_agent_keep(s))).await?;
+    Ok(Json(json!({
+        "backups": backups::list(&path),
+        "settings": settings,
+        // shown only when --backup-upstream is actually configured: the schedule otherwise
+        // decides nothing
+        "upload_configured": st.shared.snapshot().backup_upstream_configured,
+        "upload_settings": upload_settings,
+        // an MSP's own setting: how many of each customer's uploaded backups to keep
+        "agent_keep": agent_keep,
+    })))
+}
+
+#[derive(serde::Deserialize)]
+pub struct AgentKeepReq {
+    keep: u32,
+}
+
+/// How many of a given customer's uploaded backups this MSP keeps under
+/// `backups/from-agents/<agent-id>/` (see `backups::AGENT_KEEP_KEY`) — purely local to this
+/// install, never reaches back to any customer.
+pub(crate) async fn agent_keep_put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<AgentKeepReq>) -> Result<Response, ApiError> {
+    if !(1..=backups::MAX_KEEP).contains(&b.keep) {
+        return Ok(err(StatusCode::BAD_REQUEST, "keep must be between 1 and 60"));
+    }
+    blocking(&st.store, move |s| backups::save_agent_keep(s, b.keep, now_ts())).await?;
+    audit(&st, &me.username, "backup.agent_keep", None, json!({ "keep": b.keep }));
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// How often this install's own scheduled backups are also pushed to its configured
+/// `--backup-upstream` (independent of the local schedule above; see `backups::UploadSettings`).
+pub(crate) async fn upload_settings_put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<backups::UploadSettings>) -> Result<Response, ApiError> {
+    if let Err(e) = b.validate() {
+        return Ok(err(StatusCode::BAD_REQUEST, e));
+    }
+    let b2 = b.clone();
+    blocking(&st.store, move |s| backups::save_upload_settings(s, &b2, now_ts())).await?;
+    audit(&st, &me.username, "backup.upload_schedule", None, json!({ "schedule": b.schedule }));
+    Ok(Json(b).into_response())
 }
 
 pub(crate) async fn make(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Response, ApiError> {

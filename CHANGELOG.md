@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.8.0: independent backup upload schedule; retention for customers' backups at the MSP
+
+* **Settings → Health → "Uploading to your MSP"**: how often the newest local backup is pushed to
+  a configured `--backup-upstream` is now its own schedule (manually only / every 8 hours / every
+  12 hours / every day / every week), independent of the local backup schedule above it. It never
+  makes a new backup by itself — it just pushes whatever the newest one already is, when due.
+  Shown only once `--backup-upstream` is actually configured. Upgrading changes nothing for a
+  default install (daily local backups still upload daily, as before).
+* **Local backup schedule** gains **every 8 hours** and **every 12 hours**, alongside the existing
+  daily/weekly/off.
+* **Settings → Health → "Customers' uploaded backups"**: an MSP's own setting for how many of each
+  customer's uploaded backups to keep under `backups/from-agents/<id>/` (default 10; older ones
+  are pruned automatically). Previously unbounded. This is purely local to the MSP's install — it
+  never reaches back to the customer, who keeps full control of their own schedule and retention.
+
 ## 1.7.0: license expiry warnings and a grace period; a separate license-issuing tool
 
 * **License expiry is no longer a cliff.** Settings → License always shows when the current

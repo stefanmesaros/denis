@@ -18,7 +18,7 @@ pub const MAX_KEEP: u32 = 60;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
-    /// `off`, `daily` or `weekly`.
+    /// `off`, `every8h`, `every12h`, `daily` or `weekly`.
     pub schedule: String,
     /// How many scheduled backups to keep (older ones are removed; manual and update backups are not).
     pub keep: u32,
@@ -32,8 +32,8 @@ impl Default for Settings {
 
 impl Settings {
     pub fn validate(&self) -> Result<(), &'static str> {
-        if !matches!(self.schedule.as_str(), "off" | "daily" | "weekly") {
-            return Err("schedule must be off, daily or weekly");
+        if !matches!(self.schedule.as_str(), "off" | "every8h" | "every12h" | "daily" | "weekly") {
+            return Err("schedule must be off, every8h, every12h, daily or weekly");
         }
         if !(1..=MAX_KEEP).contains(&self.keep) {
             return Err("keep must be between 1 and 60");
@@ -42,11 +42,7 @@ impl Settings {
     }
 
     pub fn interval(&self) -> Option<i64> {
-        match self.schedule.as_str() {
-            "daily" => Some(86_400),
-            "weekly" => Some(7 * 86_400),
-            _ => None,
-        }
+        schedule_interval(&self.schedule)
     }
 }
 
@@ -155,7 +151,112 @@ pub fn latest(db_path: &Path) -> Option<i64> {
 }
 
 pub fn is_due(s: &Settings, last_scheduled: Option<i64>, now: i64) -> bool {
-    s.interval().is_some_and(|every| last_scheduled.is_none_or(|t| now - t >= every))
+    due_by(s.interval(), last_scheduled, now)
+}
+
+/// The same rule `is_due` applies, generalised to any interval — used for the independent
+/// upload-to-MSP schedule below, and for the "off"/"manual" case (`interval = None`, never due).
+fn due_by(interval: Option<i64>, last: Option<i64>, now: i64) -> bool {
+    interval.is_some_and(|every| last.is_none_or(|t| now - t >= every))
+}
+
+fn schedule_interval(schedule: &str) -> Option<i64> {
+    match schedule {
+        "every8h" => Some(8 * 3600),
+        "every12h" => Some(12 * 3600),
+        "daily" => Some(86_400),
+        "weekly" => Some(7 * 86_400),
+        _ => None, // "off" / "manual"
+    }
+}
+
+/// How often an install's own scheduled backups are also pushed to an MSP (`--backup-upstream`),
+/// independent of how often a local backup is made above: a customer might make local backups
+/// daily but only push a subset upstream, say. Whatever the newest local backup is at the moment
+/// this is due, that is what gets sent — this never triggers a new backup by itself.
+pub const UPLOAD_SETTINGS_KEY: &str = "backups.upload_schedule";
+const UPLOAD_LAST_KEY: &str = "backups.upload_last";
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UploadSettings {
+    /// `manual`, `every8h`, `every12h`, `daily` or `weekly`. "manual" never auto-uploads — use
+    /// the "Upload now" button instead (or none at all, if `--backup-upstream` is not set).
+    pub schedule: String,
+}
+
+impl Default for UploadSettings {
+    fn default() -> Self {
+        // Matches the *previous* behaviour for anyone still on the (also daily-by-default) local
+        // schedule: upgrading changes nothing for a default install.
+        UploadSettings { schedule: "daily".into() }
+    }
+}
+
+impl UploadSettings {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if !matches!(self.schedule.as_str(), "manual" | "every8h" | "every12h" | "daily" | "weekly") {
+            return Err("schedule must be manual, every8h, every12h, daily or weekly");
+        }
+        Ok(())
+    }
+
+    pub fn interval(&self) -> Option<i64> {
+        schedule_interval(&self.schedule)
+    }
+}
+
+pub fn load_upload_settings(store: &dyn Store) -> Result<UploadSettings> {
+    Ok(match store.get_setting(UPLOAD_SETTINGS_KEY)? {
+        Some(b) => serde_json::from_slice(&b).ok().filter(|s: &UploadSettings| s.validate().is_ok()).unwrap_or_default(),
+        None => UploadSettings::default(),
+    })
+}
+
+pub fn save_upload_settings(store: &dyn Store, s: &UploadSettings, now: i64) -> Result<()> {
+    store.set_setting(UPLOAD_SETTINGS_KEY, &serde_json::to_vec(s)?, now)
+}
+
+fn last_upload(store: &dyn Store) -> Option<i64> {
+    store.get_setting(UPLOAD_LAST_KEY).ok().flatten().and_then(|b| std::str::from_utf8(&b).ok()?.parse().ok())
+}
+
+fn set_last_upload(store: &dyn Store, now: i64) {
+    let _ = store.set_setting(UPLOAD_LAST_KEY, now.to_string().as_bytes(), now);
+}
+
+/// How many of a given customer's uploaded backups an MSP keeps under
+/// `backups/from-agents/<agent-id>/` (the oldest are pruned after each new one arrives). This is
+/// the MSP's own, purely local setting — it does not reach back to the customer in any way.
+pub const AGENT_KEEP_KEY: &str = "backups.keep_per_agent";
+pub const DEFAULT_AGENT_KEEP: u32 = 10;
+
+pub fn load_agent_keep(store: &dyn Store) -> u32 {
+    store
+        .get_setting(AGENT_KEEP_KEY)
+        .ok()
+        .flatten()
+        .and_then(|b| std::str::from_utf8(&b).ok()?.parse::<u32>().ok())
+        .filter(|n| (1..=MAX_KEEP).contains(n))
+        .unwrap_or(DEFAULT_AGENT_KEEP)
+}
+
+pub fn save_agent_keep(store: &dyn Store, keep: u32, now: i64) -> Result<()> {
+    anyhow::ensure!((1..=MAX_KEEP).contains(&keep), "keep must be between 1 and {MAX_KEEP}");
+    store.set_setting(AGENT_KEEP_KEY, keep.to_string().as_bytes(), now)
+}
+
+/// Prune a single customer's uploaded-backups folder down to `keep`, newest first.
+pub fn prune_agent_dir(dir: &Path, keep: usize) -> usize {
+    let Ok(rd) = std::fs::read_dir(dir) else { return 0 };
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = rd
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let meta = e.metadata().ok().filter(|m| m.is_file())?;
+            Some((meta.modified().ok()?, e.path()))
+        })
+        .collect();
+    files.sort_by_key(|(m, _)| std::cmp::Reverse(*m));
+    files.into_iter().skip(keep).filter(|(_, p)| std::fs::remove_file(p).is_ok()).count()
 }
 
 /// Where an MSP receives this install's own scheduled backups (`--backup-upstream`): outbound
@@ -197,7 +298,7 @@ pub async fn run(store: std::sync::Arc<dyn Store>, shared: std::sync::Arc<Shared
     loop {
         tick.tick().await;
         let (s, sh) = (store.clone(), shared.clone());
-        let done = tokio::task::spawn_blocking(move || -> Result<Option<(BackupFile, PathBuf)>> {
+        let done = tokio::task::spawn_blocking(move || -> Result<Option<BackupFile>> {
             let settings = load(&*s)?;
             let last = list(&sh.db_path).iter().filter(|b| b.kind == "auto").map(|b| b.modified).max();
             let now = crate::model::now_ts();
@@ -206,24 +307,43 @@ pub async fn run(store: std::sync::Arc<dyn Store>, shared: std::sync::Arc<Shared
             }
             let made = create(&*s, &sh.db_path, "auto", now)?;
             prune_auto(&sh.db_path, settings.keep as usize);
-            let path = dir(&sh.db_path).join(&made.name);
-            Ok(Some((made, path)))
+            Ok(Some(made))
         })
         .await;
         match done {
-            Ok(Ok(Some((b, path)))) => {
-                tracing::info!("scheduled backup written: {} ({})", b.name, crate::health::human_bytes(b.size));
-                if let Some(up) = upstream.clone() {
-                    match tokio::task::spawn_blocking(move || upload(&up, &path)).await {
-                        Ok(Ok(())) => tracing::info!("backup {} sent to the MSP", b.name),
-                        Ok(Err(e)) => tracing::warn!("could not send backup {} to the MSP: {e:#}", b.name),
-                        Err(e) => tracing::warn!("backup upload task failed: {e}"),
-                    }
-                }
-            }
+            Ok(Ok(Some(b))) => tracing::info!("scheduled backup written: {} ({})", b.name, crate::health::human_bytes(b.size)),
             Ok(Ok(None)) => {}
             Ok(Err(e)) => tracing::warn!("scheduled backup failed: {e:#}"),
             Err(e) => tracing::warn!("scheduled backup task failed: {e}"),
+        }
+
+        // Independent of whether a *new* local backup was just made above: on its own schedule,
+        // push whatever the newest local backup happens to be right now.
+        let Some(up) = upstream.clone() else { continue };
+        let (s, sh) = (store.clone(), shared.clone());
+        let due = tokio::task::spawn_blocking(move || -> Result<Option<PathBuf>> {
+            let up_settings = load_upload_settings(&*s)?;
+            let now = crate::model::now_ts();
+            if !due_by(up_settings.interval(), last_upload(&*s), now) {
+                return Ok(None);
+            }
+            let Some(newest) = list(&sh.db_path).into_iter().next() else { return Ok(None) };
+            set_last_upload(&*s, now);
+            Ok(Some(dir(&sh.db_path).join(newest.name)))
+        })
+        .await;
+        match due {
+            Ok(Ok(Some(path))) => {
+                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                match tokio::task::spawn_blocking(move || upload(&up, &path)).await {
+                    Ok(Ok(())) => tracing::info!("backup {name} sent to the MSP"),
+                    Ok(Err(e)) => tracing::warn!("could not send backup {name} to the MSP: {e:#}"),
+                    Err(e) => tracing::warn!("backup upload task failed: {e}"),
+                }
+            }
+            Ok(Ok(None)) => {}
+            Ok(Err(e)) => tracing::warn!("checking the backup upload schedule failed: {e:#}"),
+            Err(e) => tracing::warn!("backup upload check task failed: {e}"),
         }
     }
 }
@@ -273,5 +393,45 @@ mod tests {
         assert!(Settings { schedule: "hourly".into(), keep: 3 }.validate().is_err());
         assert!(Settings { schedule: "daily".into(), keep: 0 }.validate().is_err());
         assert!(Settings { schedule: "daily".into(), keep: 61 }.validate().is_err());
+        assert!(Settings { schedule: "every8h".into(), keep: 3 }.validate().is_ok());
+        assert!(Settings { schedule: "every12h".into(), keep: 3 }.validate().is_ok());
+    }
+
+    #[test]
+    fn upload_settings_round_trip_and_are_independent_of_the_local_schedule() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        assert_eq!(load_upload_settings(&store).unwrap(), UploadSettings::default());
+        let s = UploadSettings { schedule: "every8h".into() };
+        save_upload_settings(&store, &s, 1).unwrap();
+        assert_eq!(load_upload_settings(&store).unwrap(), s);
+        assert_eq!(s.interval(), Some(8 * 3600));
+
+        assert!(UploadSettings { schedule: "hourly".into() }.validate().is_err());
+        assert!(UploadSettings { schedule: "manual".into() }.validate().is_ok());
+        assert_eq!(UploadSettings { schedule: "manual".into() }.interval(), None);
+
+        // a garbled/invalid stored value falls back to the default rather than erroring
+        store.set_setting(UPLOAD_SETTINGS_KEY, b"not json", 2).unwrap();
+        assert_eq!(load_upload_settings(&store).unwrap(), UploadSettings::default());
+    }
+
+    #[test]
+    fn a_customers_uploaded_backups_are_pruned_to_the_configured_keep_count() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        assert_eq!(load_agent_keep(&store), DEFAULT_AGENT_KEEP);
+        save_agent_keep(&store, 2, 1).unwrap();
+        assert_eq!(load_agent_keep(&store), 2);
+        assert!(save_agent_keep(&store, 0, 1).is_err());
+        assert!(save_agent_keep(&store, MAX_KEEP + 1, 1).is_err());
+
+        let tmp = tempfile::tempdir().unwrap();
+        for i in 0..5u32 {
+            std::fs::write(tmp.path().join(format!("denis-auto-{i}.db")), b"x").unwrap();
+            // distinct mtimes, oldest first, so pruning keeps a predictable "newest 2"
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let removed = prune_agent_dir(tmp.path(), 2);
+        assert_eq!(removed, 3);
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 2);
     }
 }
