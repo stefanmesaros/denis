@@ -601,12 +601,19 @@ async fn merged_into_this(State(st): State<AppState>, Extension(AuthUser(me)): E
     if scoped_asset(&st, &me, id).await?.is_none() {
         return Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "not found"}))).into_response());
     }
+    let (user_id, role) = (me.id, me.role.clone());
     let siblings = blocking(&st.store, move |s| {
         let metas = s.load_all_meta()?;
         let ids: Vec<i64> = metas.iter().filter(|(_, m)| m.merged_into == Some(id)).map(|(id, _)| *id).collect();
         let mut out = Vec::new();
         for sid in ids {
             if let Some(a) = s.get_asset(sid)? {
+                // A sibling merged in from a different site than the canonical device's own must
+                // stay invisible to someone who can only see the canonical device's site — the
+                // same rule scoped_asset already enforces for the canonical device itself.
+                if !crate::access::readable(s, user_id, &role, &a.agent_id) {
+                    continue;
+                }
                 out.push(serde_json::json!({ "id": a.id, "mac": a.mac.to_string(), "first_seen": a.first_seen, "last_seen": a.last_seen }));
             }
         }
@@ -928,6 +935,36 @@ mod tests {
         let ids: Vec<i64> = list.as_array().unwrap().iter().map(|a| a["id"].as_i64().unwrap()).collect();
         assert!(ids.contains(&sid), "{ids:?}");
         assert_eq!(send(&app, req("GET", &format!("/api/assets/{cid}/merged"), Some(&admin), None)).await.2.as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_sibling_merged_from_another_site_stays_invisible_to_someone_who_cannot_see_that_site() {
+        // Same-site is enforced when a merge is *created* (see patch_meta), but a device's own
+        // agent_id is not immutable afterwards (it can be re-observed on a different site later),
+        // so /merged must re-check site access itself rather than trust the merge was safe.
+        let (app, store, [_viewer, editor, admin]) = secured().await;
+        let mut canonical = Asset::new(Mac([0x02, 0, 0, 0, 0, 1]), 10);
+        store.save_asset(&mut canonical).unwrap();
+        let mut sibling = Asset::new(Mac([0x02, 0, 0, 0, 0, 2]), 10);
+        store.save_asset(&mut sibling).unwrap();
+        let (cid, sid) = (canonical.id, sibling.id);
+        let (st, _, _) = send(&app, req("PATCH", &format!("/api/assets/{sid}/meta"), Some(&editor), Some(serde_json::json!({"merged_into": cid})))).await;
+        assert_eq!(st, StatusCode::OK);
+
+        // the sibling drifts to "site-a", which eda is explicitly denied (no grant at all would
+        // mean full access by default: see access.rs's "opt-in" doc comment)
+        sibling.agent_id = Some("site-a".into());
+        store.save_asset(&mut sibling).unwrap();
+        let eda_id = store.find_user("eda").unwrap().unwrap().user.id;
+        send(&app, req("PUT", &format!("/api/users/{eda_id}/site-access"), Some(&admin), Some(serde_json::json!({"grants": [["site-a", "none"]]})))).await;
+
+        // an admin still sees it (not site-restricted)...
+        let (_, _, v) = send(&app, req("GET", &format!("/api/assets/{cid}/merged"), Some(&admin), None)).await;
+        assert_eq!(v.as_array().unwrap().len(), 1);
+        // ...but eda, who has no grant for site-a, gets nothing back for the same canonical device
+        let (st, _, v) = send(&app, req("GET", &format!("/api/assets/{cid}/merged"), Some(&editor), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v.as_array().unwrap().len(), 0, "the site-a sibling must not leak its MAC/timestamps to a caller restricted to other sites");
     }
 
     #[tokio::test]
