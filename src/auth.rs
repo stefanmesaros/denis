@@ -216,7 +216,7 @@ impl Auth {
 
     /// Count a failed sign-in against the address (memory is bounded).
     pub fn ip_failure(&self, ip: std::net::IpAddr, now: i64) {
-        let mut m = self.ip_failures.lock().unwrap();
+        let mut m = self.ip_failures.lock().unwrap_or_else(|e| e.into_inner());
         if m.len() > 10_000 {
             m.retain(|_, (_, start)| now - *start < IP_WINDOW_SECS);
         }
@@ -228,11 +228,11 @@ impl Auth {
     }
 
     fn lock_remaining(&self, key: &str, now: i64) -> i64 {
-        self.attempts.lock().unwrap().get(key).map_or(0, |a| (a.locked_until - now).max(0))
+        self.attempts.lock().unwrap_or_else(|e| e.into_inner()).get(key).map_or(0, |a| (a.locked_until - now).max(0))
     }
 
     fn record_failure(&self, key: &str, now: i64) {
-        let mut m = self.attempts.lock().unwrap();
+        let mut m = self.attempts.lock().unwrap_or_else(|e| e.into_inner());
         if m.len() > 10_000 {
             m.retain(|_, a| a.locked_until > now);
         }
@@ -287,7 +287,7 @@ impl Auth {
             // the failure counter stays as it is: a right password must not wipe out the wrong codes tried so far
             return Err(AuthError::MfaRequired(self.new_ticket(r.user.id, &key, now)?));
         }
-        self.attempts.lock().unwrap().remove(&key);
+        self.attempts.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
         self.open_session(r.user, now)
     }
 
@@ -301,7 +301,7 @@ impl Auth {
 
     fn new_ticket(&self, user_id: i64, key: &str, now: i64) -> Result<String, AuthError> {
         let ticket = random_token()?;
-        let mut m = self.mfa_tickets.lock().unwrap();
+        let mut m = self.mfa_tickets.lock().unwrap_or_else(|e| e.into_inner());
         m.retain(|_, t| t.expires > now);
         if m.len() >= 1000 {
             // a flood of right passwords cannot grow this without bound: the oldest go first
@@ -320,7 +320,7 @@ impl Auth {
     pub fn complete_mfa(&self, ticket: &str, typed: &str, now: i64) -> Result<(String, User, &'static str), AuthError> {
         let th = sha256_hex(ticket);
         let (user_id, key) = {
-            let mut m = self.mfa_tickets.lock().unwrap();
+            let mut m = self.mfa_tickets.lock().unwrap_or_else(|e| e.into_inner());
             match m.get(&th) {
                 Some(t) if t.expires > now => (t.user_id, t.key.clone()),
                 Some(_) => {
@@ -347,7 +347,7 @@ impl Auth {
         };
         if !ok {
             self.record_failure(&key, now);
-            let mut m = self.mfa_tickets.lock().unwrap();
+            let mut m = self.mfa_tickets.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(t) = m.get_mut(&th) {
                 t.fails += 1;
                 if t.fails >= MFA_TICKET_MAX_FAILS {
@@ -356,8 +356,8 @@ impl Auth {
             }
             return Err(AuthError::Invalid);
         }
-        self.mfa_tickets.lock().unwrap().remove(&th);
-        self.attempts.lock().unwrap().remove(&key);
+        self.mfa_tickets.lock().unwrap_or_else(|e| e.into_inner()).remove(&th);
+        self.attempts.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
         let (token, user) = self.open_session(rec.user, now)?;
         Ok((token, user, method))
     }
@@ -393,7 +393,7 @@ impl Auth {
 
     /// `off`, `admins` or `all`. Read from the database at most every few seconds.
     pub fn mfa_policy(&self, now: i64) -> String {
-        let mut c = self.mfa_policy.lock().unwrap();
+        let mut c = self.mfa_policy.lock().unwrap_or_else(|e| e.into_inner());
         if let Some((p, at)) = c.as_ref() {
             if now - at < 10 {
                 return p.clone();
@@ -417,7 +417,7 @@ impl Auth {
             return Err(AuthError::Rejected("the policy must be off, admins or all".into()));
         }
         self.store.set_setting(SECURITY_KEY, &serde_json::to_vec(&serde_json::json!({ "mfa_required": policy }))?, now)?;
-        *self.mfa_policy.lock().unwrap() = Some((policy.to_string(), now));
+        *self.mfa_policy.lock().unwrap_or_else(|e| e.into_inner()) = Some((policy.to_string(), now));
         Ok(())
     }
 
@@ -576,7 +576,7 @@ impl Auth {
         if t.revoked {
             return None;
         }
-        let mut touched = self.last_agent_touch.lock().unwrap();
+        let mut touched = self.last_agent_touch.lock().unwrap_or_else(|e| e.into_inner());
         if now - touched.get(&hash).copied().unwrap_or(0) >= 60 {
             touched.insert(hash.clone(), now);
             let _ = self.store.touch_api_token(&hash, now);
@@ -594,7 +594,7 @@ impl Auth {
         if t.revoked {
             return None;
         }
-        let mut touched = self.last_agent_touch.lock().unwrap();
+        let mut touched = self.last_agent_touch.lock().unwrap_or_else(|e| e.into_inner());
         if now - touched.get(&hash).copied().unwrap_or(0) >= 60 {
             touched.insert(hash.clone(), now);
             let _ = self.store.touch_agent_token(&hash, now);
@@ -710,7 +710,7 @@ mod tests {
         for _ in 0..10 {
             let _ = a.login("admin", "bad", 5000);
             // wait out any lock so every attempt counts
-            let _ = a.attempts.lock().unwrap().get_mut("admin").map(|x| x.locked_until = 0);
+            let _ = a.attempts.lock().unwrap_or_else(|e| e.into_inner()).get_mut("admin").map(|x| x.locked_until = 0);
         }
         let _ = a.login("admin", "bad", 6000);
         match a.login("admin", "x", 6001) {

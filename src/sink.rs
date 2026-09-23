@@ -178,7 +178,7 @@ impl Sink {
     /// Returns how many documents were accepted.
     pub fn sync_once(&self, store: &dyn Store, now: i64) -> Result<u64> {
         let r = self.sync_inner(store, now);
-        let mut st = self.status.lock().unwrap();
+        let mut st = self.status.lock().unwrap_or_else(|e| e.into_inner());
         match &r {
             Ok(n) => {
                 st.sent += n;
@@ -249,28 +249,28 @@ impl Sink {
 
         // ---- asset inventory: what changed, plus a full snapshot now and then
         let stream = self.stream("assets");
-        let full = now - *self.last_full_snapshot.lock().unwrap() >= FULL_SNAPSHOT_EVERY;
+        let full = now - *self.last_full_snapshot.lock().unwrap_or_else(|e| e.into_inner()) >= FULL_SNAPSHOT_EVERY;
         let mut docs = Vec::new();
         let mut hashes = Vec::new();
         for a in &names.assets {
             let meta = names.metas.get(&a.id);
             let doc = asset_doc(a, meta, now);
             let h = fingerprint_of(&doc);
-            if full || self.asset_hashes.lock().unwrap().get(&a.id) != Some(&h) {
+            if full || self.asset_hashes.lock().unwrap_or_else(|e| e.into_inner()).get(&a.id) != Some(&h) {
                 docs.push(doc);
                 hashes.push((a.id, h));
             }
         }
         for (chunk, hs) in docs.chunks(BATCH).zip(hashes.chunks(BATCH)) {
             self.post(&stream, chunk)?;
-            let mut map = self.asset_hashes.lock().unwrap();
+            let mut map = self.asset_hashes.lock().unwrap_or_else(|e| e.into_inner());
             for (id, h) in hs {
                 map.insert(*id, *h);
             }
             sent += chunk.len() as u64;
         }
         if full && !docs.is_empty() {
-            *self.last_full_snapshot.lock().unwrap() = now;
+            *self.last_full_snapshot.lock().unwrap_or_else(|e| e.into_inner()) = now;
         }
         Ok(sent)
     }
@@ -436,7 +436,7 @@ mod tests {
                 let body: Value = serde_json::from_slice(&buf[head_end..]).unwrap_or(Value::Null);
                 let code = st2.load(Ordering::SeqCst);
                 if code == 200 {
-                    s2.lock().unwrap().push((path, auth, body));
+                    s2.lock().unwrap_or_else(|e| e.into_inner()).push((path, auth, body));
                 }
                 let payload = if code == 200 { r#"{"code":200,"status":[{"name":"x","successful":1,"failed":0}]}"# } else { "{}" };
                 let _ = write!(c, "HTTP/1.1 {code} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}", payload.len());
@@ -468,7 +468,7 @@ mod tests {
         let (s, _) = store_with_event();
         let n = sink.sync_once(&s, 5_000).unwrap();
         assert!(n >= 2, "the event and the asset inventory");
-        let seen = f.seen.lock().unwrap();
+        let seen = f.seen.lock().unwrap_or_else(|e| e.into_inner());
         let (path, auth, body) = seen.iter().find(|(p, ..)| p.ends_with("denis_events/_json")).expect("events posted");
         assert_eq!(path, "/api/default/denis_events/_json");
         assert_eq!(auth, &format!("Basic {}", crate::report::base64(b"root@example.com:s3cret-pw")));
@@ -487,13 +487,13 @@ mod tests {
         let (s, _) = store_with_event();
         f.status.store(500, Ordering::SeqCst);
         assert!(sink.sync_once(&s, 5_000).is_err());
-        assert!(sink.status.lock().unwrap().last_error.is_some());
-        assert!(f.seen.lock().unwrap().is_empty());
+        assert!(sink.status.lock().unwrap_or_else(|e| e.into_inner()).last_error.is_some());
+        assert!(f.seen.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
         f.status.store(200, Ordering::SeqCst);
         sink.sync_once(&s, 5_010).unwrap();
-        let count = |f: &Fake| f.seen.lock().unwrap().iter().filter(|(p, ..)| p.contains("denis_events")).count();
+        let count = |f: &Fake| f.seen.lock().unwrap_or_else(|e| e.into_inner()).iter().filter(|(p, ..)| p.contains("denis_events")).count();
         assert_eq!(count(&f), 1, "the event arrived after the outage");
-        assert!(sink.status.lock().unwrap().last_error.is_none());
+        assert!(sink.status.lock().unwrap_or_else(|e| e.into_inner()).last_error.is_none());
         sink.sync_once(&s, 5_020).unwrap();
         assert_eq!(count(&f), 1, "nothing new -> nothing resent");
         // a new event is the only thing that goes out next
@@ -501,7 +501,7 @@ mod tests {
         s.insert_event(&mut e).unwrap();
         sink.sync_once(&s, 5_030).unwrap();
         assert_eq!(count(&f), 2);
-        let seen = f.seen.lock().unwrap();
+        let seen = f.seen.lock().unwrap_or_else(|e| e.into_inner());
         let last = seen.iter().rev().find(|(p, ..)| p.contains("denis_events")).unwrap();
         assert_eq!(last.2.as_array().unwrap().len(), 1);
         assert_eq!(last.2[0]["kind"], "volume");
@@ -512,9 +512,9 @@ mod tests {
         let f = fake();
         let (s, _) = store_with_event();
         Sink::new(cfg(&f.url)).unwrap().sync_once(&s, 5_000).unwrap();
-        let before = f.seen.lock().unwrap().iter().filter(|(p, ..)| p.contains("denis_events")).count();
+        let before = f.seen.lock().unwrap_or_else(|e| e.into_inner()).iter().filter(|(p, ..)| p.contains("denis_events")).count();
         Sink::new(cfg(&f.url)).unwrap().sync_once(&s, 5_010).unwrap(); // a fresh process
-        let after = f.seen.lock().unwrap().iter().filter(|(p, ..)| p.contains("denis_events")).count();
+        let after = f.seen.lock().unwrap_or_else(|e| e.into_inner()).iter().filter(|(p, ..)| p.contains("denis_events")).count();
         assert_eq!(before, after, "events are not sent again after a restart");
     }
 
@@ -523,7 +523,7 @@ mod tests {
         let f = fake();
         let sink = Sink::new(cfg(&f.url)).unwrap();
         let (s, _) = store_with_event();
-        let assets = |f: &Fake| f.seen.lock().unwrap().iter().filter(|(p, ..)| p.contains("denis_assets")).count();
+        let assets = |f: &Fake| f.seen.lock().unwrap_or_else(|e| e.into_inner()).iter().filter(|(p, ..)| p.contains("denis_assets")).count();
         sink.sync_once(&s, 5_000).unwrap();
         assert_eq!(assets(&f), 1);
         sink.sync_once(&s, 5_060).unwrap();

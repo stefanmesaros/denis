@@ -777,13 +777,13 @@ impl Dispatcher {
         let maintenance = load_maintenance(store).unwrap_or_default();
         let (assets, metas) = (store.load_assets().unwrap_or_default(), store.load_all_meta().unwrap_or_default());
         for ch in channels.iter().filter(|c| c.enabled) {
-            if self.backoff.lock().unwrap().get(&ch.id).is_some_and(|(_, until)| now < *until) {
+            if self.backoff.lock().unwrap_or_else(|e| e.into_inner()).get(&ch.id).is_some_and(|(_, until)| now < *until) {
                 continue;
             }
             match self.deliver(ch, store, &assets, &metas, maintenance.active(now), now) {
                 Ok(sent) => {
-                    self.backoff.lock().unwrap().remove(&ch.id);
-                    let mut st = self.status.lock().unwrap();
+                    self.backoff.lock().unwrap_or_else(|e| e.into_inner()).remove(&ch.id);
+                    let mut st = self.status.lock().unwrap_or_else(|e| e.into_inner());
                     let s = st.entry(ch.id.clone()).or_default();
                     s.sent += sent;
                     s.last_error = None;
@@ -792,10 +792,10 @@ impl Dispatcher {
                     }
                 }
                 Err(e) => {
-                    let mut b = self.backoff.lock().unwrap();
+                    let mut b = self.backoff.lock().unwrap_or_else(|e| e.into_inner());
                     let fails = b.get(&ch.id).map_or(0, |(f, _)| *f) + 1;
                     b.insert(ch.id.clone(), (fails, now + (15i64 << fails.min(6)).min(900)));
-                    self.status.lock().unwrap().entry(ch.id.clone()).or_default().last_error = Some(format!("{e:#}"));
+                    self.status.lock().unwrap_or_else(|e| e.into_inner()).entry(ch.id.clone()).or_default().last_error = Some(format!("{e:#}"));
                 }
             }
         }
@@ -919,7 +919,7 @@ mod tests {
                 let body: Value = serde_json::from_slice(&buf[head_end..]).unwrap_or(Value::Null);
                 let code = c2.load(Ordering::SeqCst);
                 if code == 200 {
-                    s2.lock().unwrap().push((path, headers, body));
+                    s2.lock().unwrap_or_else(|e| e.into_inner()).push((path, headers, body));
                 }
                 let _ = write!(c, "HTTP/1.1 {code} X\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}");
             }
@@ -1033,19 +1033,19 @@ mod tests {
         save(&s, std::slice::from_ref(&ch), 1).unwrap();
         let d = Dispatcher::new(Arc::default(), "denis".into(), Duration::ZERO);
         d.cycle(&s, 200);
-        assert!(f.seen.lock().unwrap().is_empty(), "history is not replayed");
+        assert!(f.seen.lock().unwrap_or_else(|e| e.into_inner()).is_empty(), "history is not replayed");
         event(&s, id, "new_port", 80, 190);
         event(&s, id, "volume_anomaly", 20, 195); // below the channel's minimum
         d.cycle(&s, 200);
         {
-            let seen = f.seen.lock().unwrap();
+            let seen = f.seen.lock().unwrap_or_else(|e| e.into_inner());
             assert_eq!(seen.len(), 1);
             assert_eq!(seen[0].0, "/services/T/B/X");
             assert!(seen[0].2["blocks"][0]["text"]["text"].as_str().unwrap().contains("new_port"));
         }
         d.cycle(&s, 210);
-        assert_eq!(f.seen.lock().unwrap().len(), 1, "nothing is sent twice");
-        assert_eq!(d.status.lock().unwrap()[&ch.id].sent, 1);
+        assert_eq!(f.seen.lock().unwrap_or_else(|e| e.into_inner()).len(), 1, "nothing is sent twice");
+        assert_eq!(d.status.lock().unwrap_or_else(|e| e.into_inner())[&ch.id].sent, 1);
     }
 
     #[test]
@@ -1059,13 +1059,13 @@ mod tests {
         f.code.store(500, Ordering::SeqCst);
         event(&s, id, "arp_conflict", 85, 150);
         d.cycle(&s, 160);
-        let err = d.status.lock().unwrap()[&ch.id].last_error.clone().unwrap();
+        let err = d.status.lock().unwrap_or_else(|e| e.into_inner())[&ch.id].last_error.clone().unwrap();
         assert!(err.contains("500") && !err.contains(&f.url), "{err}");
         f.code.store(200, Ordering::SeqCst);
         d.cycle(&s, 161);
-        assert!(f.seen.lock().unwrap().is_empty(), "still backing off");
+        assert!(f.seen.lock().unwrap_or_else(|e| e.into_inner()).is_empty(), "still backing off");
         d.cycle(&s, 400);
-        let seen = f.seen.lock().unwrap();
+        let seen = f.seen.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(seen.len(), 1, "delivered after the outage");
         assert_eq!(seen[0].2["type"], "message");
     }
@@ -1083,7 +1083,7 @@ mod tests {
         }
         d.cycle(&s, 200);
         {
-            let seen = f.seen.lock().unwrap();
+            let seen = f.seen.lock().unwrap_or_else(|e| e.into_inner());
             assert_eq!(seen.len(), 1, "one digest, not eight messages");
             assert!(seen[0].2["embeds"][0]["description"].as_str().unwrap().contains("8 alerts"));
         }
@@ -1092,11 +1092,11 @@ mod tests {
         event(&s, id, "arp_conflict", 90, 250);
         d.cycle(&s, 260);
         d.cycle(&s, 2000);
-        assert_eq!(f.seen.lock().unwrap().len(), 1);
+        assert_eq!(f.seen.lock().unwrap_or_else(|e| e.into_inner()).len(), 1);
         // yesterday's news is not sent
         event(&s, id, "new_port", 80, 10);
         d.cycle(&s, 10 + MAX_AGE_SECS + 5000);
-        assert_eq!(f.seen.lock().unwrap().len(), 1);
+        assert_eq!(f.seen.lock().unwrap_or_else(|e| e.into_inner()).len(), 1);
     }
 
     #[test]
@@ -1112,10 +1112,10 @@ mod tests {
         s.save_meta(id, &AssetMeta { muted_until: Some(date), ..Default::default() }, "t", 1).unwrap();
         event(&s, id, "new_port", 80, day + 100);
         d.cycle(&s, day + 20 * 3600); // still that day
-        assert!(f.seen.lock().unwrap().is_empty());
+        assert!(f.seen.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
         event(&s, id, "new_port", 80, day + 90_000);
         d.cycle(&s, day + 90_100); // next day: unmuted
-        assert_eq!(f.seen.lock().unwrap().len(), 1);
+        assert_eq!(f.seen.lock().unwrap_or_else(|e| e.into_inner()).len(), 1);
     }
 
     #[test]
@@ -1132,7 +1132,7 @@ mod tests {
         d.cycle(&s, 100);
         event(&s, id, "new_port", 95, 150);
         d.cycle(&s, 160);
-        let seen = f.seen.lock().unwrap();
+        let seen = f.seen.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(seen.len(), 2);
         let w = seen.iter().find(|x| x.0 == "/in").unwrap();
         let sig = w.1.iter().find(|(k, _)| k == "x-denis-signature").map(|(_, v)| v.clone()).unwrap();
@@ -1260,7 +1260,7 @@ mod tests {
         d.cycle(&s, 100);
         event(&s, id, "new_port", 95, 150);
         d.cycle(&s, 160);
-        let seen = f.seen.lock().unwrap();
+        let seen = f.seen.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(seen.len(), 3, "{:?}", seen.iter().map(|x| &x.0).collect::<Vec<_>>());
         let p = seen.iter().find(|x| x.0 == "/1/messages.json").unwrap();
         assert_eq!((p.2["priority"].as_i64(), p.2["user"].as_str().map(str::len)), (Some(1), Some(30)));

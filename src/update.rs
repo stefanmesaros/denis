@@ -306,7 +306,7 @@ impl Updater {
         let u = Updater { cfg, store, state: Mutex::new(State::default()), busy: AtomicBool::new(false), shutdown: Arc::new(tokio::sync::Notify::new()) };
         // an update that had to be rolled back leaves a note; show it once
         if let Some(note) = take_rollback_note(&u.cfg.db_path) {
-            u.state.lock().unwrap().result = Some(note);
+            u.state.lock().unwrap_or_else(|e| e.into_inner()).result = Some(note);
         }
         Arc::new(u)
     }
@@ -329,7 +329,7 @@ impl Updater {
             let v: Value = serde_json::from_slice(&body).context("GitHub's answer was not understood")?;
             Ok(parse_release(&v).filter(|r| Version::parse(&r.version).is_some_and(|v| v > current_version())))
         })();
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         st.checked_at = Some(now);
         match &r {
             Ok(rel) => {
@@ -343,7 +343,7 @@ impl Updater {
 
     /// Everything the console shows about updates.
     pub fn snapshot(&self, now: i64) -> Value {
-        let st = self.state.lock().unwrap();
+        let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let c = load_choices(&*self.store);
         let latest = st.latest.as_ref();
         let newest = latest.map(|r| r.version.clone());
@@ -378,7 +378,7 @@ impl Updater {
 
     pub fn skip(&self, now: i64) -> Result<()> {
         let mut c = load_choices(&*self.store);
-        c.skipped = self.state.lock().unwrap().latest.as_ref().map(|r| r.version.clone());
+        c.skipped = self.state.lock().unwrap_or_else(|e| e.into_inner()).latest.as_ref().map(|r| r.version.clone());
         c.scheduled_at = None;
         save_choices(&*self.store, &c, now)
     }
@@ -390,7 +390,7 @@ impl Updater {
             if t < now - 60 || t > now + 30 * 86_400 {
                 bail!("choose a time within the next 30 days");
             }
-            let v = self.state.lock().unwrap().latest.as_ref().map(|r| r.version.clone()).ok_or_else(|| anyhow!("there is no update to schedule"))?;
+            let v = self.state.lock().unwrap_or_else(|e| e.into_inner()).latest.as_ref().map(|r| r.version.clone()).ok_or_else(|| anyhow!("there is no update to schedule"))?;
             c.scheduled_version = Some(v);
         } else {
             c.scheduled_version = None;
@@ -401,7 +401,7 @@ impl Updater {
 
     /// Start installing the latest release in the background. Returns at once.
     pub fn install_in_background(self: &Arc<Self>) -> Result<()> {
-        let release = self.state.lock().unwrap().latest.clone().ok_or_else(|| anyhow!("there is no update to install"))?;
+        let release = self.state.lock().unwrap_or_else(|e| e.into_inner()).latest.clone().ok_or_else(|| anyhow!("there is no update to install"))?;
         if self.busy.swap(true, Ordering::SeqCst) {
             bail!("an update is already being installed");
         }
@@ -409,7 +409,7 @@ impl Updater {
         std::thread::spawn(move || {
             let res = me.install(&release);
             me.busy.store(false, Ordering::SeqCst);
-            let mut st = me.state.lock().unwrap();
+            let mut st = me.state.lock().unwrap_or_else(|e| e.into_inner());
             st.stage = None;
             match res {
                 Ok(()) => st.result = Some(format!("Updated to {}. DENIS is restarting.", release.version)),
@@ -423,7 +423,7 @@ impl Updater {
     }
 
     fn stage(&self, s: &'static str) {
-        self.state.lock().unwrap().stage = Some(s);
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).stage = Some(s);
         tracing::info!("update: {s}");
     }
 
@@ -544,7 +544,7 @@ impl Updater {
                 }
             }
             let c = load_choices(&*self.store);
-            let latest = self.state.lock().unwrap().latest.as_ref().map(|r| r.version.clone());
+            let latest = self.state.lock().unwrap_or_else(|e| e.into_inner()).latest.as_ref().map(|r| r.version.clone());
             if let (Some(at), Some(v)) = (c.scheduled_at, latest) {
                 if now >= at && c.scheduled_version.as_deref() == Some(v.as_str()) {
                     let mut cleared = c.clone();
@@ -838,7 +838,7 @@ mod tests {
                 let mut buf = [0u8; 4096];
                 let n = c.read(&mut buf).unwrap_or(0);
                 let path = String::from_utf8_lossy(&buf[..n]).split_whitespace().nth(1).unwrap_or("").to_string();
-                let body = r2.lock().unwrap().get(&path).cloned();
+                let body = r2.lock().unwrap_or_else(|e| e.into_inner()).get(&path).cloned();
                 match body {
                     Some(body) => {
                         let _ = write!(c, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
@@ -870,7 +870,7 @@ mod tests {
     fn publish(fake: &Fake, seed: &str, bin: &[u8]) {
         let t = target().unwrap_or("x86_64-unknown-linux-gnu");
         let sums = format!("{}  denis-{t}\n", sha256_hex(bin)).into_bytes();
-        let mut r = fake.routes.lock().unwrap();
+        let mut r = fake.routes.lock().unwrap_or_else(|e| e.into_inner());
         r.insert("/dl/SHA256SUMS".into(), sums.clone());
         r.insert("/dl/SHA256SUMS.sig".into(), sign(seed, &sums).unwrap().into_bytes());
         r.insert(format!("/dl/denis-{t}"), bin.to_vec());
@@ -915,7 +915,7 @@ mod tests {
         w.updater.skip(2000).unwrap();
         assert_eq!(w.updater.snapshot(1000 + 90 * 86_400)["notify"], false);
         // a release that is not newer is not offered
-        w.fake.routes.lock().unwrap().insert("/repos/o/r/releases/latest".into(), json!({"tag_name": format!("v{}", env!("CARGO_PKG_VERSION")), "assets": []}).to_string().into_bytes());
+        w.fake.routes.lock().unwrap_or_else(|e| e.into_inner()).insert("/repos/o/r/releases/latest".into(), json!({"tag_name": format!("v{}", env!("CARGO_PKG_VERSION")), "assets": []}).to_string().into_bytes());
         assert_eq!(w.updater.check(3000).unwrap(), None);
         assert_eq!(w.updater.snapshot(3000)["available"], false);
         // a server that is down is an error message, not a crash
@@ -981,12 +981,12 @@ mod tests {
         let cases: Vec<(&str, Break)> = vec![
             ("a signature from another key", Box::new(|f, _| {
                 let (other, _) = generate_keypair().unwrap();
-                let sums = f.routes.lock().unwrap()["/dl/SHA256SUMS"].clone();
-                f.routes.lock().unwrap().insert("/dl/SHA256SUMS.sig".into(), sign(&other, &sums).unwrap().into_bytes());
+                let sums = f.routes.lock().unwrap_or_else(|e| e.into_inner())["/dl/SHA256SUMS"].clone();
+                f.routes.lock().unwrap_or_else(|e| e.into_inner()).insert("/dl/SHA256SUMS.sig".into(), sign(&other, &sums).unwrap().into_bytes());
             })),
-            ("a garbled signature", Box::new(|f, _| { f.routes.lock().unwrap().insert("/dl/SHA256SUMS.sig".into(), b"not a signature".to_vec()); })),
-            ("a tampered checksum list", Box::new(move |f, _| { f.routes.lock().unwrap().insert("/dl/SHA256SUMS".into(), format!("{}  denis-{t}\n", "0".repeat(64)).into_bytes()); })),
-            ("a swapped program", Box::new(move |f, _| { f.routes.lock().unwrap().insert(format!("/dl/denis-{t}"), script("9.9.9 evil")); })),
+            ("a garbled signature", Box::new(|f, _| { f.routes.lock().unwrap_or_else(|e| e.into_inner()).insert("/dl/SHA256SUMS.sig".into(), b"not a signature".to_vec()); })),
+            ("a tampered checksum list", Box::new(move |f, _| { f.routes.lock().unwrap_or_else(|e| e.into_inner()).insert("/dl/SHA256SUMS".into(), format!("{}  denis-{t}\n", "0".repeat(64)).into_bytes()); })),
+            ("a swapped program", Box::new(move |f, _| { f.routes.lock().unwrap_or_else(|e| e.into_inner()).insert(format!("/dl/denis-{t}"), script("9.9.9 evil")); })),
             ("a program that does not run (correctly signed, but not a program)", Box::new(move |f, seed| { publish(f, seed, b"this is not a program"); })),
             ("a program that runs but is the wrong version", Box::new(move |f, seed| { publish(f, seed, &script("1.0.0")); })),
         ];

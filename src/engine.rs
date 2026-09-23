@@ -234,37 +234,37 @@ pub struct Shared {
 
 impl Shared {
     pub fn snapshot(&self) -> StatusInfo {
-        let mut s = self.info.lock().unwrap().clone();
+        let mut s = self.info.lock().unwrap_or_else(|e| e.into_inner()).clone();
         s.frames_matched = self.frames.load(Ordering::Relaxed);
-        s.exports = self.exports.lock().unwrap().iter().map(|e| e.lock().unwrap().clone()).collect();
+        s.exports = self.exports.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|e| e.lock().unwrap_or_else(|e| e.into_inner()).clone()).collect();
         s
     }
 
     /// The command-line detection settings, once the detector exists.
     pub fn detect_base(&self) -> Option<DetectConfig> {
-        self.detect_base.lock().unwrap().clone()
+        self.detect_base.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// The console's TLS certificate handle, when it is served over TLS.
     pub fn tls(&self) -> Option<Arc<crate::tls::TlsHandle>> {
-        self.tls.lock().unwrap().clone()
+        self.tls.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     #[cfg(test)]
     pub fn set_tls_for_test(&self, h: Arc<crate::tls::TlsHandle>) {
-        *self.tls.lock().unwrap() = Some(h);
+        *self.tls.lock().unwrap_or_else(|e| e.into_inner()) = Some(h);
     }
 
     /// The updater, when this process runs one.
     pub fn updater(&self) -> Option<Arc<crate::update::Updater>> {
-        self.updater.lock().unwrap().clone()
+        self.updater.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Erase all inventory data. When a collector is running it does the work (so its memory is
     /// reset together with the database, and nothing is written back); otherwise (`denis serve`)
     /// `None` is returned and the caller erases the database itself.
     pub async fn erase_via_engine(&self) -> Option<Result<(), String>> {
-        let tx = self.erase_tx.lock().unwrap().clone()?;
+        let tx = self.erase_tx.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
         let (reply, answer) = tokio::sync::oneshot::channel();
         tx.send(reply).await.ok()?;
         Some(answer.await.unwrap_or_else(|_| Err("the engine did not answer".into())))
@@ -273,20 +273,20 @@ impl Shared {
     /// Tests: stand in for the collector's rescanner.
     #[cfg(test)]
     pub fn set_rescanner_for_test(&self, tx: mpsc::Sender<RescanRequest>) {
-        *self.rescan_tx.lock().unwrap() = Some(tx);
+        *self.rescan_tx.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
     }
 
     /// Scan these addresses again now and report what each one shows. `None` when this program cannot probe
     /// (viewer mode, or `--passive-only`) or the collector did not answer in time.
     pub async fn rescan(&self, ips: Vec<Ipv4Addr>) -> Option<Vec<(Ipv4Addr, RescanOutcome)>> {
-        let tx = self.rescan_tx.lock().unwrap().clone()?;
+        let tx = self.rescan_tx.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
         let (reply, answer) = tokio::sync::oneshot::channel();
         tx.send(RescanRequest { ips, reply }).await.ok()?;
         tokio::time::timeout(Duration::from_secs(60), answer).await.ok()?.ok()
     }
 
     fn update(&self, f: impl FnOnce(&mut StatusInfo)) {
-        f(&mut self.info.lock().unwrap());
+        f(&mut self.info.lock().unwrap_or_else(|e| e.into_inner()));
     }
 }
 
@@ -458,7 +458,7 @@ impl Collector {
             // confirming a fix: scan chosen devices again on request (never industrial devices: the caller filters
             // them, and excluded ranges are refused here)
             let (rescan_tx, rescan_rx) = mpsc::channel::<RescanRequest>(4);
-            *shared.rescan_tx.lock().unwrap() = Some(rescan_tx);
+            *shared.rescan_tx.lock().unwrap_or_else(|e| e.into_inner()) = Some(rescan_tx);
             tokio::spawn(rescanner(cfg.exclude.clone(), cfg.scan_timeout, cfg.scan_concurrency, rescan_rx, tx.clone()));
         }
 
@@ -619,7 +619,7 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
         db_path: cfg.db.clone(),
     });
     let auth = Arc::new(Auth::new(store.clone()));
-    *auth.passkey_cfg.lock().unwrap() = crate::passkey::Config::from_settings(cfg.public_url.as_deref(), cfg.listen, false).map_err(|e| anyhow::anyhow!(e))?;
+    *auth.passkey_cfg.lock().unwrap_or_else(|e| e.into_inner()) = crate::passkey::Config::from_settings(cfg.public_url.as_deref(), cfg.listen, false).map_err(|e| anyhow::anyhow!(e))?;
     if cfg.no_auth {
         tracing::warn!("authentication is DISABLED (--insecure-no-auth): anyone who can reach the UI has full control");
     } else if let Some(pw) = auth.bootstrap(now_ts())? {
@@ -700,7 +700,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     // "Silent" needs the collector to keep last_seen fresh; a purely passive
     // collector can't tell "quiet" from "gone".
     detect_cfg.presence_enabled &= !cfg.collector.passive_only;
-    coll.shared.detect_base.lock().unwrap().replace(detect_cfg.clone());
+    coll.shared.detect_base.lock().unwrap_or_else(|e| e.into_inner()).replace(detect_cfg.clone());
     let base_detect = detect_cfg.clone();
     // settings saved in the portal apply from the very first event
     let saved_rules = store.get_setting(crate::rules::KEY)?;
@@ -737,11 +737,15 @@ pub async fn run(mut cfg: Config) -> Result<()> {
             human(learning_ends - now)
         );
     }
+    // `inv`/`detector`'s locks stay plain `.lock().unwrap()` (unlike the simple status/config
+    // locks above, now poison-tolerant): a panic mid-mutation here could leave the in-memory
+    // device register or baselines genuinely inconsistent, not just a stale status field, so
+    // failing loudly and letting the process restart is safer than serving corrupted state.
     let detector = Arc::new(Mutex::new(det));
     // "Erase all data" from the console: database, collector memory and detector memory together.
     {
         let (tx, mut rx) = mpsc::channel::<EraseReply>(2);
-        *coll.shared.erase_tx.lock().unwrap() = Some(tx);
+        *coll.shared.erase_tx.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
         let (s, d, inv, shared) = (store.clone(), detector.clone(), coll.inv.clone(), coll.shared.clone());
         let learning = cfg.detect.learning_secs;
         tokio::spawn(async move {
@@ -775,7 +779,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     if let Some(uc) = cfg.update.clone() {
         let up = crate::update::Updater::new(uc, store.clone());
         restart_signal = Some(up.shutdown.clone());
-        *coll.shared.updater.lock().unwrap() = Some(up.clone());
+        *coll.shared.updater.lock().unwrap_or_else(|e| e.into_inner()) = Some(up.clone());
         tasks.push(tokio::spawn(up.run()));
         tasks.push(tokio::spawn(crate::update::mark_healthy_later(cfg.collector.db.clone())));
     }
@@ -810,8 +814,8 @@ pub async fn run(mut cfg: Config) -> Result<()> {
 
     if let Some(sc) = cfg.syslog.clone() {
         let sl = Arc::new(crate::syslog::Syslog::new(sc));
-        tracing::info!("sending alerts as syslog/CEF to {}", sl.status.lock().unwrap().target);
-        coll.shared.exports.lock().unwrap().push(sl.status.clone());
+        tracing::info!("sending alerts as syslog/CEF to {}", sl.status.lock().unwrap_or_else(|e| e.into_inner()).target);
+        coll.shared.exports.lock().unwrap_or_else(|e| e.into_inner()).push(sl.status.clone());
         tasks.push(tokio::spawn(crate::syslog::run(sl, store.clone())));
     }
 
@@ -821,8 +825,8 @@ pub async fn run(mut cfg: Config) -> Result<()> {
         if cleartext {
             tracing::warn!("OpenObserve export uses plain http:// to another host: the credentials and data are not encrypted in transit");
         }
-        tracing::info!("exporting events, audit log, trends and inventory to OpenObserve at {}", sink.status.lock().unwrap().target);
-        coll.shared.exports.lock().unwrap().push(sink.status.clone());
+        tracing::info!("exporting events, audit log, trends and inventory to OpenObserve at {}", sink.status.lock().unwrap_or_else(|e| e.into_inner()).target);
+        coll.shared.exports.lock().unwrap_or_else(|e| e.into_inner()).push(sink.status.clone());
         tasks.push(tokio::spawn(crate::sink::run(sink, store.clone())));
     }
 
@@ -930,7 +934,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
         Some(p) => tracing::info!("passkeys enabled for {}", p.origins.join(", ")),
         None => tracing::info!("passkeys are off (set --public-url https://your-address to enable them)"),
     }
-    *auth.passkey_cfg.lock().unwrap() = passkeys;
+    *auth.passkey_cfg.lock().unwrap_or_else(|e| e.into_inner()) = passkeys;
     if !cfg.no_auth {
         if let Some(pw) = auth.bootstrap(now_ts())? {
             print_first_start(&pw);
@@ -938,7 +942,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     } else {
         tracing::warn!("authentication is DISABLED (--insecure-no-auth): anyone who can reach the UI has full control");
     }
-    *coll.shared.tls.lock().unwrap() = tls.clone();
+    *coll.shared.tls.lock().unwrap_or_else(|e| e.into_inner()) = tls.clone();
     let web_state = web::AppState {
         store: store.clone(),
         shared: coll.shared.clone(),
