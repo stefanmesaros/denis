@@ -298,6 +298,33 @@ impl Shared {
     }
 }
 
+impl crate::health::StatusSource for Shared {
+    fn snapshot(&self) -> StatusInfo {
+        Shared::snapshot(self)
+    }
+    fn db_path(&self) -> &std::path::Path {
+        &self.db_path
+    }
+    fn capture_stats(&self) -> &capture::CaptureStats {
+        &self.capture_stats
+    }
+}
+
+impl crate::reverify::Rescanner for Shared {
+    async fn rescan(&self, ips: Vec<Ipv4Addr>) -> Option<Vec<(Ipv4Addr, RescanOutcome)>> {
+        Shared::rescan(self, ips).await
+    }
+}
+
+impl crate::reports::ReportStatus for Shared {
+    fn snapshot(&self) -> StatusInfo {
+        Shared::snapshot(self)
+    }
+    fn detect_base(&self) -> Option<DetectConfig> {
+        Shared::detect_base(self)
+    }
+}
+
 /// A running collector and the streams it produces.
 struct Collector {
     iface: Iface,
@@ -810,9 +837,9 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     // support dates and known-exploited vulnerabilities (bundled data, optionally refreshed)
     tasks.push(tokio::spawn(crate::vulndata::run(store.clone())));
     // switches read over SNMP (ports, neighbours, what is plugged in where)
-    tasks.push(tokio::spawn(crate::switches::run(store.clone(), coll.shared.clone())));
+    tasks.push(tokio::spawn(crate::switches::run(store.clone())));
     // scheduled backups of the database
-    tasks.push(tokio::spawn(crate::backups::run(store.clone(), coll.shared.clone(), cfg.backup_upstream.clone())));
+    tasks.push(tokio::spawn(crate::backups::run(store.clone(), cfg.collector.db.clone(), cfg.backup_upstream.clone())));
     // a low-severity alert 30 days before a commercial license expires, a higher-severity one
     // during its 7-day grace period after that (see `license::stage`)
     tasks.push(tokio::spawn(crate::license_alerts::run(store.clone(), cfg.license_file.clone(), coll.iface.mac, alerts.clone())));

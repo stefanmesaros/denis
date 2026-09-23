@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::engine::Shared;
 use crate::store::Store;
 
 pub const SETTINGS_KEY: &str = "backups";
@@ -339,21 +338,21 @@ fn upload(upstream: &Upstream, file: &Path) -> Result<()> {
 }
 
 /// Background task: take the scheduled backup when it is due, and push it upstream if configured.
-pub async fn run(store: std::sync::Arc<dyn Store>, shared: std::sync::Arc<Shared>, upstream: Option<Upstream>) {
+pub async fn run(store: std::sync::Arc<dyn Store>, db_path: PathBuf, upstream: Option<Upstream>) {
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(900));
     tokio::time::sleep(std::time::Duration::from_secs(120)).await;
     loop {
         tick.tick().await;
-        let (s, sh) = (store.clone(), shared.clone());
+        let (s, sh) = (store.clone(), db_path.clone());
         let done = tokio::task::spawn_blocking(move || -> Result<Option<BackupFile>> {
             let settings = load(&*s)?;
-            let last = list(&sh.db_path).iter().filter(|b| b.kind == "auto").map(|b| b.modified).max();
+            let last = list(&sh).iter().filter(|b| b.kind == "auto").map(|b| b.modified).max();
             let now = crate::model::now_ts();
             if !is_due(&settings, last, now) {
                 return Ok(None);
             }
-            let made = create(&*s, &sh.db_path, "auto", now)?;
-            prune_auto(&sh.db_path, settings.keep as usize);
+            let made = create(&*s, &sh, "auto", now)?;
+            prune_auto(&sh, settings.keep as usize);
             Ok(Some(made))
         })
         .await;
@@ -367,16 +366,16 @@ pub async fn run(store: std::sync::Arc<dyn Store>, shared: std::sync::Arc<Shared
         // Independent of whether a *new* local backup was just made above: on its own schedule,
         // push whatever the newest local backup happens to be right now.
         let Some(up) = upstream.clone() else { continue };
-        let (s, sh) = (store.clone(), shared.clone());
+        let (s, sh) = (store.clone(), db_path.clone());
         let due = tokio::task::spawn_blocking(move || -> Result<Option<PathBuf>> {
             let up_settings = load_upload_settings(&*s)?;
             let now = crate::model::now_ts();
             if !due_by(up_settings.interval(), last_upload(&*s), now) {
                 return Ok(None);
             }
-            let Some(newest) = list(&sh.db_path).into_iter().next() else { return Ok(None) };
+            let Some(newest) = list(&sh).into_iter().next() else { return Ok(None) };
             set_last_upload(&*s, now);
-            Ok(Some(dir(&sh.db_path).join(newest.name)))
+            Ok(Some(dir(&sh).join(newest.name)))
         })
         .await;
         match due {

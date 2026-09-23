@@ -9,7 +9,6 @@ use std::time::Duration;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::engine::Shared;
 use crate::store::Store;
 use crate::topology::{self, Polled, Snapshot};
 
@@ -155,7 +154,7 @@ pub fn polled(store: &dyn Store, cfg: &Config) -> Result<Vec<Polled>> {
 }
 
 /// Background task: poll each enabled switch when it is due.
-pub async fn run(store: Arc<dyn Store>, _shared: Arc<Shared>) {
+pub async fn run(store: Arc<dyn Store>) {
     let mut tick = tokio::time::interval(Duration::from_secs(30));
     tokio::time::sleep(Duration::from_secs(45)).await;
     loop {
