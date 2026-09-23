@@ -88,9 +88,8 @@ fn kind_of(name: &str) -> Option<&'static str> {
     }
 }
 
-/// Newest first.
-pub fn list(db_path: &Path) -> Vec<BackupFile> {
-    let Ok(rd) = std::fs::read_dir(dir(db_path)) else { return Vec::new() };
+fn list_in(folder: &Path) -> Vec<BackupFile> {
+    let Ok(rd) = std::fs::read_dir(folder) else { return Vec::new() };
     let mut out: Vec<BackupFile> = rd
         .filter_map(|e| e.ok())
         .filter_map(|e| {
@@ -105,10 +104,58 @@ pub fn list(db_path: &Path) -> Vec<BackupFile> {
     out
 }
 
+/// Newest first.
+pub fn list(db_path: &Path) -> Vec<BackupFile> {
+    list_in(&dir(db_path))
+}
+
 /// The path of one of our backup files, or `None` if the name is not one (this is what stops `../` tricks).
 pub fn path_of(db_path: &Path, name: &str) -> Option<PathBuf> {
     kind_of(name)?;
     let p = dir(db_path).join(name);
+    p.is_file().then_some(p)
+}
+
+/// Where an MSP keeps every customer's uploaded backups (`--backup-upstream` on their side), one
+/// subfolder per agent id, next to this install's own `backups` folder.
+pub fn agents_dir(db_path: &Path) -> PathBuf {
+    dir(db_path).join("from-agents")
+}
+
+fn agent_id_ok(agent_id: &str) -> bool {
+    !agent_id.is_empty() && agent_id.len() <= 64 && agent_id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// One customer's uploaded backups, newest first (empty if that id has never uploaded one, or the
+/// id itself is not a valid one — this is what stops `../` tricks in the id).
+pub fn list_agent_backups(db_path: &Path, agent_id: &str) -> Vec<BackupFile> {
+    if !agent_id_ok(agent_id) {
+        return Vec::new();
+    }
+    list_in(&agents_dir(db_path).join(agent_id))
+}
+
+/// Every customer id that has ever uploaded a backup here.
+pub fn agent_ids_with_backups(db_path: &Path) -> Vec<String> {
+    let Ok(rd) = std::fs::read_dir(agents_dir(db_path)) else { return Vec::new() };
+    let mut ids: Vec<String> = rd
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|id| agent_id_ok(id))
+        .collect();
+    ids.sort();
+    ids
+}
+
+/// The path of one customer's backup file, or `None` if the id or name is not one of ours (this
+/// is what stops `../` tricks in either component).
+pub fn path_of_agent(db_path: &Path, agent_id: &str, name: &str) -> Option<PathBuf> {
+    if !agent_id_ok(agent_id) {
+        return None;
+    }
+    kind_of(name)?;
+    let p = agents_dir(db_path).join(agent_id).join(name);
     p.is_file().then_some(p)
 }
 
@@ -433,5 +480,29 @@ mod tests {
         let removed = prune_agent_dir(tmp.path(), 2);
         assert_eq!(removed, 3);
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn a_customers_backups_are_listed_and_found_by_agent_id_and_name_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("denis.db");
+        assert_eq!(agent_ids_with_backups(&db), Vec::<String>::new());
+
+        let site = agents_dir(&db).join("customer-a");
+        std::fs::create_dir_all(&site).unwrap();
+        std::fs::write(site.join("denis-auto-x.db"), b"x").unwrap();
+        std::fs::write(site.join("not-ours.txt"), b"x").unwrap(); // ignored: not one of our names
+
+        assert_eq!(agent_ids_with_backups(&db), vec!["customer-a".to_string()]);
+        let files = list_agent_backups(&db, "customer-a");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].name, "denis-auto-x.db");
+        assert!(list_agent_backups(&db, "does-not-exist").is_empty());
+        assert!(list_agent_backups(&db, "../escape").is_empty(), "a bad id is simply empty, not a panic");
+
+        assert!(path_of_agent(&db, "customer-a", "denis-auto-x.db").is_some());
+        assert!(path_of_agent(&db, "customer-a", "not-ours.txt").is_none());
+        assert!(path_of_agent(&db, "../escape", "denis-auto-x.db").is_none());
+        assert!(path_of_agent(&db, "customer-a", "../../denis.db").is_none());
     }
 }

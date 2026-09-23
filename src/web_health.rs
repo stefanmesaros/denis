@@ -115,6 +115,54 @@ pub(crate) async fn remove(State(st): State<AppState>, Extension(AuthUser(me)): 
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
+/// Every customer's uploaded backups (`--backup-upstream` on their side), grouped by site — so an
+/// MSP can find and download one without SSH access to this server, e.g. right after a customer
+/// reports being hit by ransomware. Admin-only, like the local backups above: these files hold
+/// other people's password hashes too.
+pub(crate) async fn msp_backups_list(State(st): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+    let path = st.shared.db_path.clone();
+    let out = blocking(&st.store, move |s| {
+        let names: std::collections::HashMap<String, String> = s.list_agents()?.into_iter().map(|a| (a.id, a.name)).collect();
+        let sites: Vec<serde_json::Value> = backups::agent_ids_with_backups(&path)
+            .into_iter()
+            .map(|id| {
+                let files = backups::list_agent_backups(&path, &id);
+                json!({ "agent_id": id, "name": names.get(&id).cloned().unwrap_or_else(|| id.clone()), "backups": files })
+            })
+            .collect();
+        Ok(sites)
+    })
+    .await?;
+    Ok(Json(json!(out)))
+}
+
+/// One customer's backup file, streamed the same way a local one is.
+pub(crate) async fn msp_backup_download(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path((agent_id, name)): Path<(String, String)>) -> Result<Response, ApiError> {
+    let Some(p) = backups::path_of_agent(&st.shared.db_path, &agent_id, &name) else { return Ok(err(StatusCode::NOT_FOUND, E_NO_BACKUP)) };
+    let file = tokio::fs::File::open(&p).await.map_err(|e| ApiError::from(anyhow::Error::new(e)))?;
+    let len = file.metadata().await.map(|m| m.len()).unwrap_or(0);
+    audit(&st, &me.username, "msp_backup.download", None, json!({ "agent_id": agent_id, "name": name }));
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/vnd.sqlite3".to_string()),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{agent_id}-{name}\"")),
+            (header::CONTENT_LENGTH, len.to_string()),
+            (header::CACHE_CONTROL, "private, no-store".to_string()),
+        ],
+        Body::from_stream(tokio_util::io::ReaderStream::new(file)),
+    )
+        .into_response())
+}
+
+/// Removing one by hand — the automatic retention (`--backups/agent-keep`) usually does this, but
+/// an administrator may want space back sooner.
+pub(crate) async fn msp_backup_remove(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path((agent_id, name)): Path<(String, String)>) -> Result<Response, ApiError> {
+    let Some(p) = backups::path_of_agent(&st.shared.db_path, &agent_id, &name) else { return Ok(err(StatusCode::NOT_FOUND, E_NO_BACKUP)) };
+    tokio::fs::remove_file(&p).await.map_err(|e| ApiError::from(anyhow::Error::new(e)))?;
+    audit(&st, &me.username, "msp_backup.delete", None, json!({ "agent_id": agent_id, "name": name }));
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
 pub(crate) async fn settings_put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<Settings>) -> Result<Response, ApiError> {
     if let Err(e) = b.validate() {
         return Ok(err(StatusCode::BAD_REQUEST, e));

@@ -287,6 +287,8 @@
           <h3 class="section">Customers' uploaded backups</h3>
           <p class="muted">How many of each customer's uploaded backups this install keeps (older ones are removed automatically). Only relevant once customers push backups here.</p>
           <div id="backup-agent-keep-form"></div>
+          <p id="no-msp-backups" class="muted" hidden>No customer has uploaded a backup here yet.</p>
+          <div id="msp-backups-list"></div>
         </div>
       </section>
 
@@ -386,14 +388,14 @@
         </div>
         <div id="interfaces-box" hidden>
           <h3 class="section">Network interfaces</h3>
-          <p class="muted">The discovery interface does ARP sweeps, port scans and everything else DENIS does today. The
-            mirror interface (optional) is capture-only — never probed, never used for discovery — for a switch
-            mirror/SPAN port: it sees traffic between other devices that a normal port never would. Changing either
-            needs a restart to take effect.</p>
+          <p class="muted">The discovery interface does ARP sweeps, port scans and everything else DENIS does today. Mirror
+            interfaces (optional, any number) are capture-only — never probed, never used for discovery — for a switch
+            mirror/SPAN port: each sees traffic between other devices that a normal port never would. One per VLAN, say,
+            all on the same box, no separate agent needed. Changing either needs a restart to take effect.</p>
           <div id="interfaces-status" class="muted"></div>
           <div class="row">
             <label>Discovery interface<select id="iface-select"><option value="">(auto)</option></select></label>
-            <label>Mirror interface (optional)<select id="mirror-iface-select"><option value="">(none)</option></select></label>
+            <label>Mirror interfaces (optional; ctrl/cmd-click for more than one)<select id="mirror-iface-select" multiple size="4"></select></label>
           </div>
           <div class="row"><button id="interfaces-save" type="button">Save</button><span id="interfaces-msg" class="muted"></span></div>
         </div>

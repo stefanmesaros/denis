@@ -277,32 +277,38 @@ large, constant stream of traffic:
 * This does **not** replace `--backup-upstream` above — run both if you want live visibility *and*
   a backup copy; they are independent and one does not require the other.
 
-## A second, mirror-port interface for whole-network flow visibility
+## One or more mirror-port interfaces for whole-network flow visibility
 
 `--flows` only sees traffic that crosses the interface DENIS listens on (see
 [Concepts](concepts.md#visibility-what-can-be-seen-from-where)). Normally that means a separate
 `denis` instance on the router itself, or on a mirror/SPAN port. `--mirror-iface` lets one
-instance do both jobs at once, on one machine:
+instance do that too, on one machine, alongside its usual discovery:
 
 ```bash
 denis run --iface eth0 --mirror-iface eth1
 ```
 
 * `--iface` (`eth0` above) is unchanged from today: ARP sweeps, port scans, everything discovery
-  does.
+  does. There is always exactly one of these — it is where "the subnet" comes from.
 * `--mirror-iface` (`eth1` above) is capture-only — never probed, never used for discovery, never
   needs an IPv4 address of its own (a mirror/SPAN destination port usually has none; `denis
   interfaces` lists it separately for that reason). It is decoded into the same flow accounting as
   `--iface`, correlated to already-known devices by MAC address; traffic from a device DENIS has
   not discovered yet is dropped until discovery (on `--iface`) finds it. Implies `--flows`.
+* **Repeatable**: pass `--mirror-iface` more than once for more than one mirror interface — one
+  per VLAN, say, each on its own switch mirror/SPAN port fed into its own NIC on the same server.
+  All of them feed the same flow accounting and the same device register; no separate agent
+  process is needed just to see several VLANs from one box. (What this does **not** do is run
+  independent discovery per VLAN — that still needs `denis agent`, one per network, if each VLAN
+  needs its own ARP sweep and subnet of known devices.)
 
 Typical wiring: the switch's uplink to the router/firewall is mirrored to a spare switch port, fed
 into a second NIC (or a USB-Ethernet adapter) on the same server that already runs DENIS.
 
-**Settings → Network interfaces** lets an administrator pick both from a dropdown instead of
-editing the command line; a GUI-set choice takes priority over `--iface`/`--mirror-iface`, but
-(unlike most console settings) needs a restart to take effect, since capture is opened once, at
-start-up.
+**Settings → Network interfaces** lets an administrator pick the discovery interface and any
+number of mirror interfaces from a list instead of editing the command line; a GUI-set choice
+takes priority over `--iface`/`--mirror-iface`, but (unlike most console settings) needs a restart
+to take effect, since capture is opened once, at start-up.
 
 ## Alert notifications
 

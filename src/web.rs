@@ -143,6 +143,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/backups/settings", put(health_page::settings_put))
         .route("/api/backups/upload-schedule", put(health_page::upload_settings_put))
         .route("/api/backups/agent-keep", put(health_page::agent_keep_put))
+        .route("/api/msp-backups", get(health_page::msp_backups_list))
+        .route("/api/msp-backups/{agent_id}/{name}", get(health_page::msp_backup_download).delete(health_page::msp_backup_remove))
         .route("/api/backups/{name}", get(health_page::download).delete(health_page::remove))
         .route("/api/reports", get(reports_page::list).post(reports_page::make))
         .route("/api/reports/settings", get(reports_page::settings_get).put(reports_page::settings_put))
@@ -203,7 +205,7 @@ fn is_public(method: &axum::http::Method, path: &str) -> bool {
 /// anything needs `editor`; managing users, tokens and the audit log, or
 /// deleting assets, needs `admin`.
 pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static str {
-    if path.starts_with("/api/users") || path.starts_with("/api/tls") || path.starts_with("/api/data") || path.starts_with("/api/channels") || path.starts_with("/api/agent-tokens") || path.starts_with("/api/api-tokens") || path.starts_with("/api/audit") || path.starts_with("/api/backups") || path.starts_with("/api/setup") || path.starts_with("/api/security") {
+    if path.starts_with("/api/users") || path.starts_with("/api/tls") || path.starts_with("/api/data") || path.starts_with("/api/channels") || path.starts_with("/api/agent-tokens") || path.starts_with("/api/api-tokens") || path.starts_with("/api/audit") || path.starts_with("/api/backups") || path.starts_with("/api/msp-backups") || path.starts_with("/api/setup") || path.starts_with("/api/security") {
         return "admin";
     }
     if path.starts_with("/api/auth/") {
@@ -1035,36 +1037,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_mirror_interface_can_be_configured_from_settings_by_an_admin_only_and_cleared_again() {
+    async fn several_mirror_interfaces_can_be_configured_from_settings_by_an_admin_only_and_cleared_again() {
         let (app, store, [viewer, editor, admin]) = secured().await;
 
         // any signed-in role can see the candidates and the (empty) configuration
         let (st, _, v) = send(&app, req("GET", "/api/interfaces", Some(&viewer), None)).await;
         assert_eq!(st, StatusCode::OK);
         assert_eq!(v["configured_iface"], serde_json::Value::Null);
-        assert_eq!(v["configured_mirror_iface"], serde_json::Value::Null);
+        assert_eq!(v["configured_mirror_ifaces"], serde_json::Value::Null);
         assert!(v["mains"].is_array() && v["all"].is_array());
 
-        // only an admin may set it
-        let body = serde_json::json!({"iface": "eth0", "mirror_iface": "eth1"});
+        // only an admin may set it; more than one mirror interface is fine (one per VLAN, say)
+        let body = serde_json::json!({"iface": "eth0", "mirror_ifaces": ["eth1", "eth2"]});
         assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&viewer), Some(body.clone()))).await.0, StatusCode::FORBIDDEN);
         assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&editor), Some(body.clone()))).await.0, StatusCode::FORBIDDEN);
         assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&admin), Some(body))).await.0, StatusCode::NO_CONTENT);
 
         // the choice is now reflected, for everyone, and it is persisted (not just cached)
         let (_, _, v) = send(&app, req("GET", "/api/interfaces", Some(&viewer), None)).await;
-        assert_eq!((v["configured_iface"].as_str(), v["configured_mirror_iface"].as_str()), (Some("eth0"), Some("eth1")));
+        assert_eq!(v["configured_iface"].as_str(), Some("eth0"));
+        assert_eq!(v["configured_mirror_ifaces"].as_array().unwrap(), &["eth1", "eth2"]);
         assert_eq!(crate::capture_config::load(&*store).iface.as_deref(), Some("eth0"));
 
-        // the two must differ
-        let same = serde_json::json!({"iface": "eth0", "mirror_iface": "eth0"});
+        // a mirror interface cannot be the same as the discovery one
+        let same = serde_json::json!({"iface": "eth0", "mirror_ifaces": ["eth0"]});
         assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&admin), Some(same))).await.0, StatusCode::BAD_REQUEST);
 
-        // clearing the mirror interface (omitting it, i.e. null) leaves the main one alone
-        let clear_mirror = serde_json::json!({"iface": "eth0"});
-        assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&admin), Some(clear_mirror))).await.0, StatusCode::NO_CONTENT);
+        // clearing the mirror interfaces (an explicit empty list) leaves the main one alone
+        let clear_mirrors = serde_json::json!({"iface": "eth0", "mirror_ifaces": []});
+        assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&admin), Some(clear_mirrors))).await.0, StatusCode::NO_CONTENT);
         let (_, _, v) = send(&app, req("GET", "/api/interfaces", Some(&viewer), None)).await;
-        assert_eq!((v["configured_iface"].as_str(), v["configured_mirror_iface"].as_str()), (Some("eth0"), None));
+        assert_eq!(v["configured_iface"].as_str(), Some("eth0"));
+        assert_eq!(v["configured_mirror_ifaces"].as_array().unwrap().len(), 0);
 
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
         assert!(audit.contains("interfaces.set"), "{audit}");
@@ -2647,6 +2651,51 @@ mod tests {
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
         assert!(audit.contains("backup.upload_schedule") && audit.contains("backup.agent_keep"), "{audit}");
         let _ = store;
+    }
+
+    #[tokio::test]
+    async fn an_admin_can_browse_download_and_delete_customers_uploaded_backups() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("denis.db");
+        let (app, store, [viewer, editor, admin]) = secured_with(crate::engine::test_shared_at(db_path.clone())).await;
+        store.upsert_agent(&crate::model::AgentInfo { id: "customer-a".into(), name: "Customer A".into(), site: None, version: "1.0".into(), subnet: "10.0.0.0/24".into(), first_seen: 1, last_report_at: 1, last_run_id: String::new(), last_seq: 0 }).unwrap();
+
+        // nothing uploaded yet
+        let (_, _, list) = send(&app, req("GET", "/api/msp-backups", Some(&admin), None)).await;
+        assert_eq!(list.as_array().unwrap().len(), 0);
+
+        // seed an uploaded backup by hand (the HTTP upload path itself is covered in ingest.rs)
+        let dir = crate::backups::agents_dir(&db_path).join("customer-a");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("denis-auto-20260101T000000Z.db"), b"SQLite format 3\0fake").unwrap();
+
+        // viewer/editor cannot see it at all: these hold other customers' secrets too
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("GET", "/api/msp-backups", Some(c), None)).await.0, StatusCode::FORBIDDEN);
+        }
+        let (st, _, list) = send(&app, req("GET", "/api/msp-backups", Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!((list[0]["agent_id"].as_str(), list[0]["name"].as_str(), list[0]["backups"].as_array().unwrap().len()), (Some("customer-a"), Some("Customer A"), 1));
+
+        // path traversal in either the agent id or the file name is refused, not just ignored
+        for bad in ["../customer-a", "customer-a/../../etc"] {
+            assert_eq!(send(&app, req("GET", &format!("/api/msp-backups/{}/denis-auto-20260101T000000Z.db", bad.replace('/', "%2F")), Some(&admin), None)).await.0, StatusCode::NOT_FOUND, "{bad}");
+        }
+        assert_eq!(send(&app, req("GET", "/api/msp-backups/customer-a/..%2F..%2Fdenis.db", Some(&admin), None)).await.0, StatusCode::NOT_FOUND);
+
+        // the real file downloads
+        let resp = app.clone().oneshot(req("GET", "/api/msp-backups/customer-a/denis-auto-20260101T000000Z.db", Some(&admin), None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        assert!(bytes.starts_with(b"SQLite format 3"));
+
+        // only an admin may delete it
+        assert_eq!(send(&app, req("DELETE", "/api/msp-backups/customer-a/denis-auto-20260101T000000Z.db", Some(&viewer), None)).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("DELETE", "/api/msp-backups/customer-a/denis-auto-20260101T000000Z.db", Some(&admin), None)).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, req("GET", "/api/msp-backups", Some(&admin), None)).await.2[0]["backups"].as_array().unwrap().len(), 0);
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("msp_backup.download") && audit.contains("msp_backup.delete"), "{audit}");
     }
 
     #[tokio::test]

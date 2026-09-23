@@ -1207,23 +1207,28 @@ async function loadInterfacesBox() {
   const r = await api('GET', '/api/interfaces');
   if (!r.ok) return;
   const d = r.json;
-  const fill = (select, options, current) => {
-    select.querySelectorAll('option:not(:first-child)').forEach((o) => o.remove());
-    for (const name of options) select.append(el('option', { value: name, text: name }));
-    select.value = current || '';
-  };
-  fill($('iface-select'), d.mains.map((m) => m.name), d.configured_iface);
-  fill($('mirror-iface-select'), d.all, d.configured_mirror_iface);
-  const lines = [tr('Running now: {iface}', { iface: d.running_iface + (d.running_mirror_iface ? ' + ' + d.running_mirror_iface : '') })];
-  if ((d.configured_iface || '') !== (d.running_iface || '') || (d.configured_mirror_iface || '') !== (d.running_mirror_iface || '')) {
-    lines.push(tr('Configured for next start: {iface} — restart DENIS to apply.', { iface: (d.configured_iface || tr('(auto)')) + (d.configured_mirror_iface ? ' + ' + d.configured_mirror_iface : '') }));
+  const iface = $('iface-select');
+  iface.querySelectorAll('option:not(:first-child)').forEach((o) => o.remove());
+  for (const m of d.mains) iface.append(el('option', { value: m.name, text: m.name }));
+  iface.value = d.configured_iface || '';
+
+  const mirrorSel = $('mirror-iface-select');
+  const configuredMirrors = d.configured_mirror_ifaces || [];
+  mirrorSel.replaceChildren(...d.all.map((name) => el('option', { value: name, text: name, selected: configuredMirrors.includes(name) })));
+
+  const runningMirrors = d.running_mirror_ifaces || [];
+  const fmt = (main, mirrors) => main + (mirrors.length ? ' + ' + mirrors.join(', ') : '');
+  const lines = [tr('Running now: {iface}', { iface: fmt(d.running_iface, runningMirrors) })];
+  const configuredChanged = (d.configured_iface || '') !== (d.running_iface || '') || JSON.stringify([...configuredMirrors].sort()) !== JSON.stringify([...runningMirrors].sort());
+  if (configuredChanged) {
+    lines.push(tr('Configured for next start: {iface} — restart DENIS to apply.', { iface: fmt(d.configured_iface || tr('(auto)'), configuredMirrors) }));
   }
   $('interfaces-status').replaceChildren(...lines.flatMap((t, i) => [i ? el('div', {}) : null, el('div', { text: t })]).filter(Boolean));
 }
 $('interfaces-save').onclick = async () => {
   const iface = $('iface-select').value || null;
-  const mirror_iface = $('mirror-iface-select').value || null;
-  const r = await api('PUT', '/api/interfaces', { iface, mirror_iface });
+  const mirror_ifaces = Array.from($('mirror-iface-select').selectedOptions).map((o) => o.value);
+  const r = await api('PUT', '/api/interfaces', { iface, mirror_ifaces });
   $('interfaces-msg').textContent = r.ok ? tr('Saved. Restart DENIS to apply.') : apiError(r);
   if (r.ok) loadInterfacesBox();
 };

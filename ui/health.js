@@ -44,7 +44,32 @@ async function loadHealth() {
   $('health-rows').hidden = !h.db.rows.length;
   $('health-rows-table').tBodies[0].replaceChildren(...h.db.rows.map(([name, n]) => el('tr', {}, el('td', { text: name }), el('td', { class: 'num', text: n.toLocaleString(locale()) }))));
   $('backups-box').hidden = !can('admin');
-  if (can('admin')) loadBackups();
+  if (can('admin')) { loadBackups(); loadMspBackups(); }
+}
+
+/** Every customer's uploaded backups (--backup-upstream on their side), so an MSP can find and
+ * download one without SSH access to this server. */
+async function loadMspBackups() {
+  const r = await api('GET', '/api/msp-backups');
+  if (!r.ok) return;
+  const sites = r.json;
+  $('no-msp-backups').hidden = sites.length > 0;
+  $('msp-backups-list').replaceChildren(...sites.map((site) => {
+    const rows = site.backups.map((b) => el('tr', {},
+      el('td', { text: fmtTime(b.modified) }),
+      el('td', { text: fmtBytes(b.size) }),
+      el('td', { class: 'row-actions' },
+        el('a', { class: 'button', href: '/api/msp-backups/' + encodeURIComponent(site.agent_id) + '/' + encodeURIComponent(b.name), text: tr('Download') }),
+        el('button', { type: 'button', text: tr('Delete'), onclick: async () => {
+          if (!confirm(tr('Delete the backup from {date}? It cannot be recovered.', { date: fmtTime(b.modified) }))) return;
+          const d = await api('DELETE', '/api/msp-backups/' + encodeURIComponent(site.agent_id) + '/' + encodeURIComponent(b.name));
+          if (!d.ok) showMessage(tr('Could not delete'), el('p', { text: apiError(d) }));
+          loadMspBackups();
+        } }))));
+    return el('div', { class: 'msp-backup-site' },
+      el('h4', { text: site.name }),
+      el('div', { class: 'table-wrap' }, el('table', {}, el('tbody', {}, ...rows))));
+  }));
 }
 
 async function loadBackups() {

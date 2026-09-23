@@ -423,9 +423,9 @@ pub(crate) async fn interfaces_get(State(st): State<AppState>) -> Result<Json<Va
         "mains": mains,
         "all": all,
         "configured_iface": configured.iface,
-        "configured_mirror_iface": configured.mirror_iface,
+        "configured_mirror_ifaces": configured.mirror_ifaces,
         "running_iface": running.interface,
-        "running_mirror_iface": running.mirror_interface,
+        "running_mirror_ifaces": running.mirror_interfaces,
     })))
 }
 
@@ -434,24 +434,36 @@ pub struct InterfacesPut {
     /// `None`/omitted clears the override (falls back to `--iface`/auto-detect).
     #[serde(default)]
     iface: Option<String>,
+    /// `None`/omitted clears the override (falls back to `--mirror-iface`); `Some(vec![])` is a
+    /// deliberate override to "no mirror interfaces".
     #[serde(default)]
-    mirror_iface: Option<String>,
+    mirror_ifaces: Option<Vec<String>>,
 }
 
 pub(crate) async fn interfaces_put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<InterfacesPut>) -> Result<Response, ApiError> {
-    if b.iface.as_deref() == Some("") || b.mirror_iface.as_deref() == Some("") {
-        return Ok(err(StatusCode::BAD_REQUEST, "pass null, not an empty string, to clear an interface"));
+    if b.iface.as_deref() == Some("") {
+        return Ok(err(StatusCode::BAD_REQUEST, "pass null, not an empty string, to clear the discovery interface"));
     }
-    if b.iface.is_some() && b.iface == b.mirror_iface {
-        return Ok(err(StatusCode::BAD_REQUEST, "the discovery and mirror interfaces must be different"));
+    if let Some(mirrors) = &b.mirror_ifaces {
+        if mirrors.iter().any(|m| m.is_empty()) {
+            return Ok(err(StatusCode::BAD_REQUEST, "a mirror interface name cannot be empty"));
+        }
+        if let Some(iface) = &b.iface {
+            if mirrors.contains(iface) {
+                return Ok(err(StatusCode::BAD_REQUEST, "the discovery and mirror interfaces must be different"));
+            }
+        }
+        if mirrors.len() > 16 {
+            return Ok(err(StatusCode::BAD_REQUEST, "too many mirror interfaces"));
+        }
     }
     let now = now_ts();
     let store = st.store.clone();
-    let (iface, mirror) = (b.iface.clone(), b.mirror_iface.clone());
-    tokio::task::spawn_blocking(move || crate::capture_config::save(&*store, iface.as_deref(), mirror.as_deref(), now))
+    let (iface, mirrors) = (b.iface.clone(), b.mirror_ifaces.clone());
+    tokio::task::spawn_blocking(move || crate::capture_config::save(&*store, iface.as_deref(), mirrors.as_deref(), now))
         .await
         .map_err(|e| anyhow::anyhow!(e))??;
-    audit(&st, &me.username, "interfaces.set", None, json!({ "iface": b.iface, "mirror_iface": b.mirror_iface }));
+    audit(&st, &me.username, "interfaces.set", None, json!({ "iface": b.iface, "mirror_ifaces": b.mirror_ifaces }));
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 

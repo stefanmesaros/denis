@@ -25,12 +25,13 @@ struct Collect {
     /// Interface to monitor (default: the one holding the default route).
     #[arg(short, long)]
     iface: Option<String>,
-    /// A second, capture-only interface: a switch mirror/SPAN destination
+    /// An extra, capture-only interface: a switch mirror/SPAN destination
     /// port. Never probed, never used for discovery — only decoded into
     /// flows, on the same footing as --iface. Implies --flows. Typically has
-    /// no IPv4 address of its own (see `denis interfaces`).
-    #[arg(long)]
-    mirror_iface: Option<String>,
+    /// no IPv4 address of its own (see `denis interfaces`). Repeatable: pass
+    /// it more than once for more than one mirror port (one per VLAN, say).
+    #[arg(long = "mirror-iface")]
+    mirror_ifaces: Vec<String>,
     /// Seconds between ARP sweeps.
     #[arg(long, default_value_t = 300)]
     sweep_interval: u64,
@@ -65,14 +66,14 @@ impl Collect {
         let ot = self.profile == "ot";
         engine::CollectorConfig {
             iface: self.iface,
-            mirror_iface: self.mirror_iface.clone(),
+            mirror_ifaces: self.mirror_ifaces.clone(),
             db,
             sweep_interval: Duration::from_secs(self.sweep_interval.max(30)),
             rescan_interval: Duration::from_secs(self.rescan_interval),
             // OT: listen only, unless the operator explicitly allows gentle probing.
             passive_only: self.passive_only || (ot && !self.active),
             // A mirror interface exists for no reason other than flow accounting.
-            flows: self.flows || ot || self.mirror_iface.is_some(),
+            flows: self.flows || ot || !self.mirror_ifaces.is_empty(),
             exclude: self.exclude,
             arp_pace: Duration::from_millis(if ot { 50 } else { 2 }),
             ..Default::default()

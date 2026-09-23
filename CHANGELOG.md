@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.9.0: browse customers' uploaded backups from the console; several mirror interfaces at once
+
+* **Settings → Health → "Customers' uploaded backups"**: an MSP can now find and download a given
+  customer's uploaded backups right from the console (with a delete button for freeing space by
+  hand) — no SSH access to this server needed, e.g. right after a customer reports being hit by
+  ransomware. Admin-only, like local backups: these files hold other people's password hashes too.
+* **`--mirror-iface` is now repeatable**: pass it more than once for more than one mirror/SPAN
+  interface — one per VLAN, say, each fed from its own switch mirror port into its own NIC on the
+  same server, all decoded into the same flow accounting and device register. Settings → Network
+  interfaces gained a multi-select for it. This still does not run independent ARP discovery per
+  VLAN (that remains `denis agent`, one per network) — it is for flow/traffic visibility across
+  several networks from one box, not for separate device registers per network.
+  See [Deployment](docs/deployment.md#one-or-more-mirror-port-interfaces-for-whole-network-flow-visibility).
+
 ## 1.8.0: independent backup upload schedule; retention for customers' backups at the MSP
 
 * **Settings → Health → "Uploading to your MSP"**: how often the newest local backup is pushed to
