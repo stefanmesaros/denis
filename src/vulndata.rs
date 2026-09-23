@@ -4,8 +4,8 @@
 //! **Where the data comes from.** `data/vulndata.json` is built by `tools/build-vulndata.py` from three public sources:
 //! endoflife.date (support dates per release), the CISA Known Exploited Vulnerabilities catalog, and NVD (the version
 //! ranges of those CVEs, kept only when they are clean single-product ranges). It ships inside the program. Only the
-//! support dates can additionally be refreshed from endoflife.date by the console (off by default; nothing about your
-//! network is sent). The KEV list arrives with new DENIS releases.
+//! support dates can additionally be refreshed from endoflife.date by the console (on by default,
+//! weekly; nothing about your network is sent). The KEV list arrives with new DENIS releases.
 //!
 //! **What is claimed.** Only what a banner's own version number supports: "this version's support ended on …" and
 //! "this version is in the range affected by a vulnerability that is being exploited". A distribution can patch a
@@ -325,10 +325,19 @@ pub struct Overlay {
     pub eol: BTreeMap<String, Vec<Cycle>>,
 }
 
-/// Whether the console fetches fresh support dates by itself (every week). Off unless an administrator switches it on.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+/// Whether the console fetches fresh support dates by itself (every week). On by default — it
+/// contacts one public site (endoflife.date) and sends nothing about your network, and a fresh
+/// install has no reason to wait for someone to find this switch — an administrator can still
+/// turn it off.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
     pub refresh_eol: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings { refresh_eol: true }
+    }
 }
 
 pub fn settings(store: &dyn Store) -> Settings {
@@ -637,6 +646,14 @@ mod tests {
         let ev = evidence_for(7, &[sw("apache-http-server", "2.4.49", true), sw("exim", "4.94.2", false)], &i, day("2026-09-21"));
         assert_eq!(ev.len(), 1);
         assert_eq!((ev[0].kind, ev[0].cve.as_deref(), ev[0].backport, ev[0].asset_id, ev[0].product), ("kev", Some("CVE-2021-41773"), true, 7, "Apache HTTP Server"));
+    }
+
+    #[test]
+    fn support_dates_refresh_is_on_by_default_but_can_be_turned_off() {
+        let store = crate::store::sqlite::SqliteStore::open_in_memory().unwrap();
+        assert!(settings(&store).refresh_eol, "a fresh install refreshes support dates on its own");
+        save_settings(&store, &Settings { refresh_eol: false }, 1).unwrap();
+        assert!(!settings(&store).refresh_eol);
     }
 
     #[test]

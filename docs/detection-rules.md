@@ -215,8 +215,9 @@ says whether it still announces that version; *Accept risk* works as for any fin
 **Where the data comes from and how it is kept.** `data/vulndata.json` ships inside DENIS (its date is shown under *Settings* →
 **Software data**). It is built by `tools/build-vulndata.py` (needs `curl`), which you can run yourself: it fetches the three
 sources, keeps a CVE only when its version ranges are unambiguous, and writes the file for you to read and commit. The support
-dates can also be **refreshed by the console** from endoflife.date, weekly (an option, off by default) or on demand: that
-contacts one public site and sends nothing about your network. The known-exploited list arrives with new DENIS releases.
+dates can also be **refreshed by the console** from endoflife.date, weekly (on by default; an administrator can turn it
+off) or on demand: that contacts one public site and sends nothing about your network. The known-exploited list arrives
+with new DENIS releases.
 DENIS never sends a version or a device name anywhere to look it up.
 
 ## Making the rules fit your network

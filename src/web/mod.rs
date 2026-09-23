@@ -2065,13 +2065,13 @@ mod tests {
         let (app, store, [viewer, editor, admin]) = secured().await;
         let (st, _, v) = send(&app, req("GET", "/api/vulndata", Some(&viewer), None)).await;
         assert_eq!(st, StatusCode::OK);
-        assert!(v["kev_entries"].as_u64().unwrap() >= 5 && v["products"].as_array().unwrap().iter().any(|p| p == "nginx") && v["refresh_eol"] == false && v["refreshed_at"].is_null(), "{v}");
+        assert!(v["kev_entries"].as_u64().unwrap() >= 5 && v["products"].as_array().unwrap().iter().any(|p| p == "nginx") && v["refresh_eol"] == true && v["refreshed_at"].is_null(), "on by default; {v}");
         for c in [&viewer, &editor] {
-            assert_eq!(send(&app, req("PUT", "/api/vulndata", Some(c), Some(serde_json::json!({"refresh_eol": true})))).await.0, StatusCode::FORBIDDEN);
+            assert_eq!(send(&app, req("PUT", "/api/vulndata", Some(c), Some(serde_json::json!({"refresh_eol": false})))).await.0, StatusCode::FORBIDDEN);
             assert_eq!(send(&app, req("POST", "/api/vulndata/refresh", Some(c), None)).await.0, StatusCode::FORBIDDEN);
         }
-        assert_eq!(send(&app, req("PUT", "/api/vulndata", Some(&admin), Some(serde_json::json!({"refresh_eol": true})))).await.0, StatusCode::NO_CONTENT);
-        assert_eq!(send(&app, req("GET", "/api/vulndata", Some(&viewer), None)).await.2["refresh_eol"], true);
+        assert_eq!(send(&app, req("PUT", "/api/vulndata", Some(&admin), Some(serde_json::json!({"refresh_eol": false})))).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, req("GET", "/api/vulndata", Some(&viewer), None)).await.2["refresh_eol"], false);
         // a web server announcing a version in a known-exploited range shows up in the findings, with what was read
         let mut web = Asset::new(Mac([2, 0, 0, 0, 0, 5]), 10);
         web.device_type = "server".into();
