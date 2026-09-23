@@ -375,7 +375,15 @@ function renderAlerts() {
       el('td', {}, el('button', {
         type: 'button', text: e.acked ? tr('Undo') : tr('Acknowledge'),
         onclick: (ev) => { ev.stopPropagation(); ack(e.id, !e.acked); },
-      })));
+      }), can('admin') ? el('button', {
+        type: 'button', text: tr('Except'), title: exceptionLabel(e),
+        onclick: async (ev) => {
+          ev.stopPropagation();
+          ev.target.disabled = true;
+          const err = await exceptFromAlert(e);
+          if (err) { ev.target.disabled = false; showMessage(tr('Alert'), el('p', { text: err })); } else { ev.target.textContent = tr('Excepted'); }
+        },
+      }) : null));
   }));
   $('no-alerts').hidden = rows.length > 0;
   const n = state.status ? state.status.alerts_unacked : 0;
@@ -400,6 +408,56 @@ async function ack(id, acked) {
   refresh();
 }
 
+/** What clicking "Create exception" on this alert would do, in one line — shown as the button's
+ * label so an administrator knows what they are about to change before they click it. */
+function exceptionLabel(e) {
+  if (e.type === 'it_watch') return tr('Never alert for this device on this watch');
+  if (e.type === 'ot_command_watch') return tr('Allow this sender on this watch');
+  return tr('Except this device from this rule');
+}
+
+/**
+ * One click, from an alert, to stop it happening again for this exact device: adds a device-scope
+ * exception to the rule that raised it (the same thing the Rules page's own Exceptions section
+ * does), or — for the administrator's own watches, which have no generic "exceptions" list of
+ * their own — adds it to that one watch's except_sources/allowed_senders. Returns an error string,
+ * or null on success.
+ */
+async function exceptFromAlert(e) {
+  const r = await api('GET', '/api/rules');
+  if (!r.ok) return apiError(r);
+  const d = r.json;
+  const scope = (id) => ({ kind: 'device', value: String(id) });
+  const alreadyExcepted = (list, id) => (list || []).some((s) => s.kind === 'device' && Number(s.value) === id);
+
+  if (e.type === 'it_watch' || e.type === 'ot_command_watch') {
+    const key = e.type === 'it_watch' ? 'it_watches' : 'ot_watches';
+    const field = e.type === 'it_watch' ? 'except_sources' : 'allowed_senders';
+    const watchId = e.raw_details && e.raw_details.watch && e.raw_details.watch.id;
+    const list = d[key] || [];
+    const idx = list.findIndex((w) => w.id === watchId);
+    if (idx < 0) return tr('That watch no longer exists.');
+    let targetId = e.asset_id; // it_watch: the alerting device is the one to except
+    if (e.type === 'ot_command_watch') {
+      // the sender (who sent the command) is who to allow, found by MAC: the event only carries
+      // its MAC/IP/name, not its id (it may not even be the same device the alert is filed under)
+      const senderMac = e.raw_details && e.raw_details.client && e.raw_details.client.mac;
+      const sender = senderMac && state.assets.find((a) => a.mac === senderMac);
+      if (!sender) return tr('The sending device is no longer known; add it by hand from the Rules page.');
+      targetId = sender.id;
+    }
+    if (alreadyExcepted(list[idx][field], targetId)) return tr('Already excepted.');
+    const nextWatch = { ...list[idx], [field]: [...(list[idx][field] || []), scope(targetId)] };
+    const res = await api('PUT', '/api/rules', { [key]: list.map((w, i) => (i === idx ? nextWatch : w)) });
+    return res.ok ? null : apiError(res);
+  }
+
+  const current = (d.exceptions || {})[e.type] || [];
+  if (alreadyExcepted(current, e.asset_id)) return tr('Already excepted.');
+  const res = await api('PUT', '/api/rules', { exceptions: { [e.type]: [...current, scope(e.asset_id)] } });
+  return res.ok ? null : apiError(res);
+}
+
 /** An alert in full: what happened, why it scored what it did, and what to do about it. */
 function showAlert(e, a) {
   const d = e.raw_details || {};
@@ -410,7 +468,17 @@ function showAlert(e, a) {
     a ? el('p', { class: 'muted', text: tr('Device: {name}', { name: deviceLabel(a, '#' + e.asset_id) + ' (' + a.mac + ')' }) }) : null,
     (d.reasons || []).length ? el('div', {}, el('b', { text: tr('Why this score') }), el('ul', {}, ...d.reasons.map((r) => el('li', { text: translateFactor(r) })))) : null,
     advice ? el('div', {}, el('b', { text: tr('What to do') }), el('p', { text: tr(advice) })) : null,
-    a ? el('button', { type: 'button', text: tr('Open device'), onclick: () => { $('msg-dialog').close(); showDetail(a.id); } }) : null,
+    el('div', { class: 'row' },
+      a ? el('button', { type: 'button', text: tr('Open device'), onclick: () => { $('msg-dialog').close(); showDetail(a.id); } }) : null,
+      can('admin') ? el('button', {
+        type: 'button', text: exceptionLabel(e),
+        onclick: async (ev) => {
+          ev.target.disabled = true;
+          const err = await exceptFromAlert(e);
+          $('msg-dialog').close();
+          showMessage(tr('Alert'), el('p', { text: err || tr('Done. It will not alert like this again.') }));
+        },
+      }) : null),
   ];
   showMessage(tr('Alert'), ...nodes);
 }

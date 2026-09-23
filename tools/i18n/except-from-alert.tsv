@@ -1,0 +1,10 @@
+# One-click "create an exception" from an alert (Alerts table and the alert detail dialog; app.js).
+Except || Ausnehmen || Exception || Excepción || Vynímka
+Excepted || Ausgenommen || Exclu || Exceptuado || Vyňaté
+Never alert for this device on this watch || Für dieses Gerät bei dieser Wache nie alarmieren || Ne jamais alerter pour cet appareil sur cette surveillance || Nunca alertar para este dispositivo en esta vigilancia || Pre toto zariadenie na tomto watchi už nikdy nealertovať
+Allow this sender on this watch || Diesen Absender bei dieser Wache zulassen || Autoriser cet expéditeur sur cette surveillance || Permitir este remitente en esta vigilancia || Povoliť tohto odosielateľa na tomto watchi
+Except this device from this rule || Dieses Gerät von dieser Regel ausnehmen || Exclure cet appareil de cette règle || Exceptuar este dispositivo de esta regla || Vynímiť toto zariadenie z tohto pravidla
+That watch no longer exists. || Diese Wache gibt es nicht mehr. || Cette surveillance n'existe plus. || Esa vigilancia ya no existe. || Tento watch už neexistuje.
+The sending device is no longer known; add it by hand from the Rules page. || Das sendende Gerät ist nicht mehr bekannt; fügen Sie es manuell auf der Regelseite hinzu. || L'appareil expéditeur n'est plus connu ; ajoutez-le manuellement depuis la page Règles. || El dispositivo remitente ya no se conoce; agréguelo manualmente desde la página Reglas. || Odosielajúce zariadenie už nie je známe; pridaj ho ručne na stránke Rules.
+Already excepted. || Bereits ausgenommen. || Déjà exclu. || Ya exceptuado. || Už vynímené.
+Done. It will not alert like this again. || Erledigt. Es wird so nicht mehr alarmieren. || Fait. Cela n'alertera plus de cette façon. || Listo. No volverá a alertar así. || Hotovo. Takto už alertovať nebude.
