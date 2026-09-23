@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.13.2: one-click "create an exception" from an alert
+
+* **Alerts now have an "Except" action** (next to Acknowledge, and in the alert's own detail
+  dialog), for administrators: one click stops that exact situation alerting again, without a
+  trip to the Rules page.
+  * An ordinary rule (`new_destination`, `volume_anomaly`, `arp_conflict`, ...): adds a
+    device-scope exception on that rule for the alerting device — the same list the Rules page's
+    own per-rule *Exceptions* section shows.
+  * A network watch (`it_watch`): adds the alerting device to that watch's own exceptions.
+  * An OT command watch (`ot_command_watch`): adds the *sender* (who sent the command) to that
+    watch's allowed senders — looked up by MAC, since the alert only ever carried the sender's
+    MAC/IP/name, not its id; an unrecognised sender says so plainly instead of doing nothing.
+
 ## 1.13.1: clearer watch forms, five worked rule examples, support dates refresh on by default
 
 * **Rules page: clearer OT command watch / network watch forms.**
