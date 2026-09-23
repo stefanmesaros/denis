@@ -15,3 +15,7 @@ Not currently running: traffic analysis (--flows) is off. Watches are saved but 
 Traffic analysis (--flows) is not currently running: this watch is saved but will not fire until it is (see Health). || Verkehrsanalyse (--flows) ist derzeit nicht aktiv: Diese Wache wird gespeichert, löst aber erst aus, wenn sie aktiv ist (siehe Health). || L'analyse du trafic (--flows) n'est pas active actuellement : cette surveillance est enregistrée mais ne se déclenchera pas tant qu'elle ne l'est pas (voir Santé). || El análisis de tráfico (--flows) no está activo actualmente: esta vigilancia se guarda pero no se activará hasta que lo esté (ver Salud). || Analýza prevádzky (--flows) momentálne nebeží: tento watch sa uloží, ale nespustí sa, kým nebude bežať (pozri Health).
 Never for these devices ({n}) || Nie für diese Geräte ({n}) || Jamais pour ces appareils ({n}) || Nunca para estos dispositivos ({n}) || Nikdy pre tieto zariadenia ({n})
 Optional: excludes devices that would otherwise match. || Optional: schließt Geräte aus, die sonst zutreffen würden. || Facultatif : exclut les appareils qui correspondraient sinon. || Opcional: excluye dispositivos que de otro modo coincidirían. || Voliteľné: vylúči zariadenia, ktoré by inak vyhoveli.
+New Rule || Neue Regel || Nouvelle règle || Nueva regla || Nové pravidlo
+Choose one… || Auswählen… || Choisir… || Elegir… || Vyber…
+e.g. server-room || z. B. Serverraum || p. ex. salle serveur || p. ej. sala de servidores || napr. serverovňa
+Match by || Zuordnen nach || Correspond par || Coincidir por || Priraď podľa

@@ -18,23 +18,26 @@ function scopeText(s) {
   return kind + ': ' + (s.kind === 'type' ? tr(s.value) : s.value);
 }
 
-/** The "add one" mini-form shared by scopeEditor and exceptionsEditor: a kind selector, a
- * matching value input, and an Add button. */
+/** The "add one" mini-form shared by scopeEditor and exceptionsEditor: a labelled kind selector,
+ * a labelled matching-value input (empty/unselected until you choose one — never a value picked
+ * for you), and an Add button. Visually set apart (`scope-add-form`) from whatever list it is
+ * adding to, so it reads as "add a new one", not as one more row in that list. */
 function scopeAddForm(list, onChange) {
-  const kind = el('select', { 'aria-label': tr('What to match') }, ...SCOPE_KINDS().map(([v, t]) => el('option', { value: v, text: t })));
+  const kind = el('select', {}, ...SCOPE_KINDS().map(([v, t]) => el('option', { value: v, text: t })));
   const holder = el('span', {});
   let input;
   const draw = () => {
+    const valueLabel = SCOPE_KINDS().find(([v]) => v === kind.value)[1];
     if (kind.value === 'device') {
       const devices = state.assets.slice().sort((x, y) => (name(x) || x.ip || x.mac).localeCompare(name(y) || y.ip || y.mac));
-      input = el('select', {}, ...devices.map((a) => el('option', { value: String(a.id), text: (name(a) || a.mac) + (a.ip ? ' · ' + a.ip : '') })));
+      input = el('select', {}, el('option', { value: '', text: tr('Choose one…') }), ...devices.map((a) => el('option', { value: String(a.id), text: (name(a) || a.mac) + (a.ip ? ' · ' + a.ip : '') })));
     } else if (kind.value === 'type') {
       const types = ((state.options && state.options.device_types) || []).slice().sort((x, y) => nameOf(x).localeCompare(nameOf(y), locale()));
-      input = el('select', {}, ...types.map((t) => el('option', { value: t, text: nameOf(t) })));
+      input = el('select', {}, el('option', { value: '', text: tr('Choose one…') }), ...types.map((t) => el('option', { value: t, text: nameOf(t) })));
     } else {
-      input = el('input', { placeholder: kind.value === 'cidr' ? '10.0.5.0/24' : tr('tag'), maxLength: 60 });
+      input = el('input', { placeholder: kind.value === 'cidr' ? '10.0.5.0/24' : tr('e.g. server-room'), maxLength: 60 });
     }
-    holder.replaceChildren(input);
+    holder.replaceChildren(field(valueLabel, input));
   };
   kind.onchange = draw;
   draw();
@@ -44,7 +47,7 @@ function scopeAddForm(list, onChange) {
     if (list.some((s) => s.kind === kind.value && s.value === value)) return;
     onChange([...list, { kind: kind.value, value }]);
   } });
-  return el('div', { class: 'row scope-add' }, kind, holder, add);
+  return el('div', { class: 'row scope-add-form' }, field(tr('Match by'), kind), holder, add);
 }
 
 /**
@@ -63,20 +66,23 @@ function scopeEditor(list, onChange, editable) {
  * IP) and, when the console added it for you ("Add exception" on an alert), why — instead of
  * scopeEditor's plain "Device: <name>" chip, since an exception usually needs to be *recognised*
  * at a glance, not just named. Non-device kinds (type/tag/network) still render as chips: there is
- * no one device to describe. Same `onChange`/`editable` contract as scopeEditor.
+ * no one device to describe. The remove button is a small square at the *start* of the row (a
+ * consistent left-hand column to scan and click, instead of hunting for it after text of very
+ * different lengths). Same `onChange`/`editable` contract as scopeEditor.
  */
 function exceptionsEditor(list, onChange, editable) {
   const remove = (i) => onChange(list.filter((_, j) => j !== i));
-  const removeBtn = (i) => (editable ? el('button', { type: 'button', class: 'chip-x', title: tr('Remove'), text: '×', onclick: () => remove(i) }) : null);
   const rows = list.map((s, i) => {
-    if (s.kind !== 'device') return el('span', { class: 'chip' }, scopeText(s), removeBtn(i));
+    const removeBtn = editable ? el('button', { type: 'button', class: 'exception-remove', title: tr('Remove'), text: '×', onclick: () => remove(i) }) : null;
+    if (s.kind !== 'device') return el('span', { class: 'chip' }, scopeText(s), editable ? el('button', { type: 'button', class: 'chip-x', title: tr('Remove'), text: '×', onclick: () => remove(i) }) : null);
     const a = assetById(Number(s.value));
     return el('div', { class: 'exception-row' },
-      el('div', {},
-        el('b', { text: a ? deviceLabel(a, '#' + s.value) : tr('device #{id} (no longer known)', { id: s.value }) }),
-        a ? el('span', { class: 'muted small', text: ' · ' + a.mac + (a.ip ? ' · ' + a.ip : '') }) : null),
-      s.note ? el('div', { class: 'muted small', text: s.note }) : null,
-      removeBtn(i));
+      removeBtn,
+      el('div', { class: 'exception-row-body' },
+        el('div', {},
+          el('b', { text: a ? deviceLabel(a, '#' + s.value) : tr('device #{id} (no longer known)', { id: s.value }) }),
+          a ? el('span', { class: 'muted small', text: ' · ' + a.mac + (a.ip ? ' · ' + a.ip : '') }) : null),
+        s.note ? el('div', { class: 'muted small', text: s.note }) : null));
   });
   const body = rows.length ? el('div', { class: 'exception-rows' }, ...rows) : el('span', { class: 'muted small', text: tr('none') });
   return editable ? el('div', {}, body, scopeAddForm(list, onChange)) : body;
@@ -249,7 +255,7 @@ function watchesSection(edit, saveNow) {
     state.status && !state.status.flows_enabled ? el('p', { class: 'form-error', text: '⚠ ' + tr('Not currently running: traffic analysis on a mirror port (--flows) is off. Watches are saved but will not fire until it is on.') }) : null,
     ...rows,
     list.length ? null : el('p', { class: 'muted', text: tr('No watches yet.') }),
-    edit ? el('div', { class: 'row' }, el('button', { type: 'button', class: 'primary', text: tr('Add a watch'), onclick: () => openWatchForm(null, (nw) => put([...list, nw])) })) : null);
+    edit ? el('div', { class: 'row watch-add' }, el('button', { type: 'button', class: 'primary', text: tr('New Rule'), onclick: () => openWatchForm(null, (nw) => put([...list, nw])) })) : null);
 }
 
 /**
@@ -386,7 +392,7 @@ function itWatchesSection(edit, saveNow) {
     state.status && !state.status.flows_enabled ? el('p', { class: 'form-error', text: '⚠ ' + tr('Not currently running: traffic analysis (--flows) is off. Watches are saved but will not fire until it is on.') }) : null,
     ...rows,
     list.length ? null : el('p', { class: 'muted', text: tr('No watches yet.') }),
-    edit ? el('div', { class: 'row' }, el('button', { type: 'button', class: 'primary', id: 'add-it-watch', text: tr('Add a watch'), onclick: () => openItWatchForm(null, (nw) => put([...list, nw])) })) : null);
+    edit ? el('div', { class: 'row watch-add' }, el('button', { type: 'button', class: 'primary', id: 'add-it-watch', text: tr('New Rule'), onclick: () => openItWatchForm(null, (nw) => put([...list, nw])) })) : null);
 }
 
 /** The network watch form. `prefill` may be a saved watch (edit) or the beginnings of one. */

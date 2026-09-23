@@ -277,16 +277,22 @@ input[type=color] { padding: 0; width: 44px; height: 30px; }
 button.chip, .chip.clickable { cursor: pointer; }
 .chip.clickable:hover, button.chip:hover { border-color: var(--accent); color: var(--accent); }
 .chip-x { border: 0; background: none; padding: 0 2px; font-size: 14px; line-height: 1; cursor: pointer; color: inherit; }
-.scope-add { align-items: center; margin-top: 4px; }
+.scope-add-form { align-items: flex-end; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
 .exceptions { margin-top: 8px; }
 .exceptions summary { cursor: pointer; font-size: 13px; color: var(--muted); }
-.exception-rows { margin: 4px 0; }
-.exception-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 4px 0; border-top: 1px solid var(--line); }
+.exception-rows { margin: 6px 0; }
+/* Fixed-size remove button first, then a body that takes the rest of the row: the body's own
+   width is never squeezed to nothing by a long note next to it (see exception-row-body). */
+.exception-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
 .exception-row:first-child { border-top: 0; }
-.exception-row > div:first-child { flex: 1; min-width: 0; }
+.exception-row-body { flex: 1; min-width: 0; }
+.exception-remove { flex: none; width: 20px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 4px; background: none; font-size: 13px; line-height: 1; cursor: pointer; color: inherit; }
+.exception-remove:hover { border-color: var(--accent); color: var(--accent); }
 .watch { border-top: 1px solid var(--line); padding: 8px 0; }
 .watch.off { opacity: .55; }
 .watch-actions { margin-left: auto; display: flex; gap: 6px; }
+/* Set apart from the last watch above it, so "New Rule" doesn't read as part of that row. */
+.watch-add { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .help-link { color: var(--accent); text-decoration: none; padding: 3px 9px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
 .help-link:hover { border-color: var(--accent); }
 
