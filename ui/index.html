@@ -243,7 +243,7 @@
         <h3 class="section">How complete is your register?</h3>
         <div id="compliance-measures" class="measures"></div>
         <h3 class="section">Standards mapping</h3>
-        <div class="table-wrap"><table id="compliance-table"><thead><tr><th>Requirement</th><th>What DENIS provides</th><th>Status</th></tr></thead><tbody></tbody></table></div>
+        <div id="compliance-groups"></div>
         <p class="muted small">Print this page (Ctrl/Cmd+P) to keep it as evidence.</p>
       </section>
 
@@ -349,7 +349,7 @@
       <section id="view-settings" hidden>
         <p class="muted">Settings for the whole installation. Only administrators see this page; every change is written to the <a href="#audit">audit log</a>.</p>
         <nav class="subnav" aria-label="Settings sections">
-          <a href="#settings/branding">Branding (white label)</a><a href="#settings/overview">MSP view</a><a href="#settings/license">License</a><a href="#settings/interfaces">Network interfaces</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/vulndata">Software data</a><a href="#settings/switches">Switches (SNMP)</a><a href="#settings/security">Sign-in security</a><a href="#settings/siem">SIEM / Log export</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
+          <a href="#settings/branding">Branding (white label)</a><a href="#settings/overview">MSP view</a><a href="#settings/license">License</a><a href="#settings/interfaces">Network interfaces</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/vulndata">Software data</a><a href="#settings/switches">Switches (SNMP)</a><a href="#settings/security">Sign-in security</a><a href="#settings/siem">SIEM / Log export</a><a href="#settings/retention">Data retention</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
         </nav>
         <div id="branding-box" hidden>
           <h3 class="section">Branding (white label)</h3>
@@ -393,16 +393,15 @@
             mirror/SPAN port: each sees traffic between other devices that a normal port never would. One per VLAN, say,
             all on the same box, no separate agent needed. Changing either needs a restart to take effect.</p>
           <div id="interfaces-status" class="muted"></div>
-          <div class="row">
-            <label>Discovery interface<select id="iface-select"><option value="">(auto)</option></select></label>
-            <label>Mirror interfaces (optional; ctrl/cmd-click for more than one)<select id="mirror-iface-select" multiple size="4"></select></label>
-          </div>
+          <label class="field-narrow">Discovery interface<select id="iface-select"><option value="">(auto)</option></select></label>
+          <label class="field-narrow">Mirror interfaces (optional; ctrl/cmd-click for more than one)<select id="mirror-iface-select" multiple size="4"></select></label>
           <div class="row"><button id="interfaces-save" type="button">Save</button><span id="interfaces-msg" class="muted"></span></div>
         </div>
         <div id="tls-box" hidden>
           <h3 class="section">HTTPS certificate</h3>
           <div id="tls-status" class="muted"></div>
-          <div class="row"><a id="tls-ca" href="/tls/ca.pem" download="denis-local-ca.pem" hidden>Download the CA certificate</a><button id="tls-replace" type="button">Use my own certificate…</button><button id="tls-reset" type="button" hidden>Go back to the generated certificate</button><span id="tls-msg" class="muted"></span></div>
+          <div class="row"><a id="tls-ca" href="/tls/ca.pem" download="denis-local-ca.pem" hidden>Download the CA certificate</a><button id="tls-ca-copy" type="button" hidden>Copy for --master-ca-pem</button><button id="tls-replace" type="button">Use my own certificate…</button><button id="tls-reset" type="button" hidden>Go back to the generated certificate</button><span id="tls-msg" class="muted"></span></div>
+          <p id="tls-ca-copy-hint" class="muted small" hidden>For more than a couple of agents, this is usually simpler than copying the CA file to every machine: paste it as one value, e.g. DENIS_MASTER_CA_PEM, wherever you already push each agent's token.</p>
         </div>
         <div id="update-box" hidden>
           <h3 class="section">Updates</h3>
@@ -439,6 +438,16 @@
           <label class="check"><input id="siem-audit" type="checkbox"> Audit log (who changed what in the console)</label>
           <div class="row"><button id="siem-save" type="button" class="primary">Save</button><button id="siem-test" type="button">Send a test message</button><span id="siem-msg" class="muted"></span></div>
           <div id="siem-status" class="muted"></div>
+        </div>
+        <div id="retention-box" hidden>
+          <h3 class="section">Data retention</h3>
+          <p class="muted">How long events, alerts and trend samples are kept before DENIS deletes them on its own. The
+            asset register itself is never affected. Applies within the hour, no restart.</p>
+          <label>Keep data for<span class="row"><input id="retention-days" type="number" min="1" max="1095" value="180"> days</span></label>
+          <p class="muted small">1 to 1095 days (3 years). 180 days (6 months) is a reasonable default; a busy network
+            with flow accounting on can generate a large database over long periods, so keep this as short as your
+            reporting needs allow.</p>
+          <div class="row"><button id="retention-save" type="button" class="primary">Save</button><span id="retention-msg" class="muted"></span></div>
         </div>
         <div id="setup-box" hidden>
           <h3 class="section">Setup guide</h3>

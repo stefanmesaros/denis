@@ -137,7 +137,14 @@ so a renewed certificate needs no restart), and the console's upload is then dis
 `tls/` beside the database (`--tls-dir` to move it); keys are readable by the DENIS user only.
 
 Agents on other machines trust the master's certificate with `--master-ca`: give them the CA file
-(`tls/ca.pem`, downloadable from the console).
+(`tls/ca.pem`, downloadable from the console). For more than a couple of agents, copying a file to
+every machine is the tedious part — not renewal: the CA itself is long-lived and does not change
+when the master's own certificate renews, so an agent set up once keeps working across every later
+renewal without touching it again. To skip the file copy itself, use `--master-ca-pem`
+(or `DENIS_MASTER_CA_PEM`) with the certificate's *text* instead of a path — *Settings → HTTPS
+certificate → Copy for --master-ca-pem* puts it on the clipboard, ready to push through whatever
+already deploys each agent's token (a secrets manager, Ansible, cloud-init), with nothing extra to
+transfer per machine. Give either `--master-ca` or `--master-ca-pem`, never both.
 
 Because a listener that is not on loopback accepts any `Host` name, put a firewall in front of it if it is reachable
 from a network you do not fully trust.

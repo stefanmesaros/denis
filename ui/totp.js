@@ -177,7 +177,7 @@ async function loadSecurityBox() {
   drawNote();
   $('security-body').replaceChildren(
     el('p', { class: 'muted', text: tr('A second sign-in step is an authenticator app or a passkey. Signing in with a passkey already counts. Whoever is required to have one is asked to set it up at their next request.') }),
-    el('div', { class: 'form-grid' }, field(tr('Required for'), sel)),
+    el('label', { class: 'field-narrow' }, tr('Required for'), sel),
     note,
     el('div', { class: 'row' }, el('button', { type: 'button', class: 'primary', id: 'mfa-save', text: tr('Save'), onclick: async () => {
       const s = await api('PUT', '/api/security', { mfa_required: sel.value });

@@ -6,6 +6,11 @@ let rulesData = null;
 
 // --------------------------------------------------------------- scopes (exceptions, targets, senders)
 
+/** What to actually do about traffic analysis being off: restart with --flows (a CLI flag, not
+ * something the console can switch on), and make sure the traffic in question crosses the
+ * interface DENIS captures on — add it as a mirror interface under Settings otherwise. */
+const FLOWS_FIX = () => tr('Start DENIS with --flows, and if this traffic does not cross {iface}, add its interface as a mirror interface under Settings → Network interfaces.', { iface: (state.status && state.status.interface) || tr('the discovery interface') });
+
 const SCOPE_KINDS = () => [['device', tr('Device')], ['type', tr('Device type')], ['tag', tr('Tag')], ['cidr', tr('Network')]];
 
 /** Human words for one scope: "Device: Reception printer", "Type: printer", "Network: 10.0.5.0/24". */
@@ -116,7 +121,7 @@ async function loadRules() {
     el('div', { class: 'rule-controls' }, el('label', {}, tr('Score'), minIn)));
 
   const cards = [];
-  cards.push(el('p', { class: 'muted small', text: '* ' + tr('needs traffic analysis (--flows), on the main interface or a mirror port') + (state.status && !state.status.flows_enabled ? ' — ' + tr('not currently running (see Health)') : '') }));
+  cards.push(el('p', { class: 'muted small', text: '* ' + tr('needs traffic analysis (--flows), on the main interface or a mirror port') + (state.status && !state.status.flows_enabled ? ' — ' + tr('not currently running: {fix}', { fix: FLOWS_FIX() }) : '') }));
   for (const [group, title] of [['network', tr('Network rules')], ['ot', tr('Industrial (OT) rules')]]) {
     cards.push(el('div', { class: 'group-title', text: title }));
     if (group === 'ot') cards.push(watchesSection(edit, saveNow));
@@ -138,7 +143,7 @@ async function loadRules() {
           needsFlows ? el('span', { class: 'muted small', title: tr('Needs traffic analysis (--flows).') }, ' *') : null,
           rule.overridden ? el('span', { class: 'changed', text: tr('changed') }) : null),
         el('p', { text: tr(rule.summary) }),
-        el('p', { class: flowsMissing ? 'form-error' : 'muted', text: (flowsMissing ? '⚠ ' : '') + tr('Needs: {needs}', { needs: tr(rule.needs) }) + (flowsMissing ? ' — ' + tr('not currently running') : '') }),
+        el('p', { class: flowsMissing ? 'form-error' : 'muted', text: (flowsMissing ? '⚠ ' : '') + tr('Needs: {needs}', { needs: tr(rule.needs) }) + (flowsMissing ? ' — ' + tr('not currently running: {fix}', { fix: FLOWS_FIX() }) : '') }),
         el('div', { class: 'rule-controls' },
           el('label', { title: tr('1 = as designed, 0.5 = half as loud, 2 = twice as loud (scores are capped at 100)') }, tr('Weight (default {value})', { value: rule.default_weight }), w),
           el('label', { title: tr('Below this score this rule is only logged. Empty: use the minimum score above.') }, tr('Alert only from score'), own), ...params),
@@ -252,7 +257,7 @@ function watchesSection(edit, saveNow) {
   return el('div', { class: 'rule-card', id: 'watches' },
     el('div', { class: 'rule-head' }, el('b', { text: tr('Your OT command watches') }), el('code', { text: 'ot_command_watch' }), el('span', { class: 'muted small', title: tr('Needs traffic analysis on a mirror port (--flows).') }, ' *')),
     el('p', { class: 'muted', text: tr('Be told when a specific command reaches a specific industrial device: a CPU stop, a program download, any write to a pump station. Exclude your own engineering station with "allowed senders". Watches also fire during the learning period.') }),
-    state.status && !state.status.flows_enabled ? el('p', { class: 'form-error', text: '⚠ ' + tr('Not currently running: traffic analysis on a mirror port (--flows) is off. Watches are saved but will not fire until it is on.') }) : null,
+    state.status && !state.status.flows_enabled ? el('p', { class: 'form-error', text: '⚠ ' + tr('Not currently running: traffic analysis on a mirror port (--flows) is off. Watches are saved but will not fire until it is on.') + ' ' + FLOWS_FIX() }) : null,
     ...rows,
     list.length ? null : el('p', { class: 'muted', text: tr('No watches yet.') }),
     edit ? el('div', { class: 'row watch-add' }, el('button', { type: 'button', class: 'primary', text: tr('New Rule'), onclick: () => openWatchForm(null, (nw) => put([...list, nw])) })) : null);
@@ -307,7 +312,7 @@ async function openWatchForm(prefill, done) {
   };
   drawScopes();
   const flowsWarning = state.status && !state.status.flows_enabled
-    ? el('div', { class: 'field-wide form-error', text: '⚠ ' + tr('Traffic analysis on a mirror port is not currently running: this watch is saved but will not fire until it is (see Health).') })
+    ? el('div', { class: 'field-wide form-error', text: '⚠ ' + tr('Traffic analysis on a mirror port is not currently running: this watch is saved but will not fire until it is.') + ' ' + FLOWS_FIX() })
     : null;
   openForm(isNew ? tr('Add an OT command watch') : tr('Edit the OT command watch'), [el('div', { class: 'form-grid' },
     el('label', { class: 'check field-wide' }, enabled, ' ' + tr('Watch enabled')),
@@ -389,7 +394,7 @@ function itWatchesSection(edit, saveNow) {
   return el('div', { class: 'rule-card', id: 'it-watches' },
     el('div', { class: 'rule-head' }, el('b', { text: tr('Your network watches') }), el('code', { text: 'it_watch' }), el('span', { class: 'muted small', title: tr('Needs traffic analysis (--flows).') }, ' *')),
     el('p', { class: 'muted', text: tr('Be told when devices you choose talk to addresses or ports you did not allow: cameras reaching the internet, a server using an unusual port, the guest network reaching the office. Needs traffic analysis (--flows). Watches also fire during the learning period.') }),
-    state.status && !state.status.flows_enabled ? el('p', { class: 'form-error', text: '⚠ ' + tr('Not currently running: traffic analysis (--flows) is off. Watches are saved but will not fire until it is on.') }) : null,
+    state.status && !state.status.flows_enabled ? el('p', { class: 'form-error', text: '⚠ ' + tr('Not currently running: traffic analysis (--flows) is off. Watches are saved but will not fire until it is on.') + ' ' + FLOWS_FIX() }) : null,
     ...rows,
     list.length ? null : el('p', { class: 'muted', text: tr('No watches yet.') }),
     edit ? el('div', { class: 'row watch-add' }, el('button', { type: 'button', class: 'primary', id: 'add-it-watch', text: tr('New Rule'), onclick: () => openItWatchForm(null, (nw) => put([...list, nw])) })) : null);
@@ -438,7 +443,7 @@ function openItWatchForm(prefill, done) {
   };
   drawScopes();
   const flowsWarning = state.status && !state.status.flows_enabled
-    ? el('div', { class: 'field-wide form-error', text: '⚠ ' + tr('Traffic analysis (--flows) is not currently running: this watch is saved but will not fire until it is (see Health).') })
+    ? el('div', { class: 'field-wide form-error', text: '⚠ ' + tr('Traffic analysis (--flows) is not currently running: this watch is saved but will not fire until it is.') + ' ' + FLOWS_FIX() })
     : null;
   openForm(isNew ? tr('Add a network watch') : tr('Edit the network watch'), [el('div', { class: 'form-grid' },
     el('label', { class: 'check field-wide' }, enabled, ' ' + tr('Watch enabled')),

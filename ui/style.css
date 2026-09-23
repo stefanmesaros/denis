@@ -60,9 +60,10 @@ body.side-collapsed .tab .badge { position: absolute; top: 2px; right: 6px; min-
 }
 #search { flex: 1; min-width: 200px; max-width: 420px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); font: inherit; }
 .check { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; user-select: none; }
-label.check { display: flex; align-items: center; gap: 7px; }
+label.check { display: flex; align-items: center; gap: 7px; margin: 7px 0; }
 label.check input { width: auto; }
-.form-grid label.check.field-wide { display: flex; }
+.form-grid label.check.field-wide { display: flex; margin: 0; }
+.toolbar label.check { margin: 0; }
 /* A checkbox that looks the same on every OS/browser, matching the rest of the controls. */
 input[type="checkbox"] {
   appearance: none; -webkit-appearance: none; margin: 0; flex: none;
@@ -187,6 +188,7 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 .login-card .brand-name { font-size: 22px; }
 .login-card p { margin: 0; text-align: center; font-size: 13px; }
 label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.field-narrow { max-width: 320px; }
 input, textarea { font: inherit; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); }
 input:focus, textarea:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
@@ -247,6 +249,12 @@ tr.row-warn td { background: color-mix(in srgb, var(--warn) 10%, transparent); }
 .brand-form { display: grid; gap: 10px; max-width: 460px; margin-bottom: 14px; }
 .brand-logo-box { display: grid; gap: 8px; max-width: 460px; margin-bottom: 14px; }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* Settings and Health list several unrelated controls, hints and tables one under another;
+   give them consistent breathing room instead of relying on each box remembering its own margins.
+   Two levels deep because several of these boxes fill an inner container (e.g. #backup-schedule-form)
+   with a .form-grid followed by a .row of buttons. */
+#view-settings > div > * + *, #view-health > div > * + *,
+#view-settings > div > div > * + *, #view-health > div > div > * + * { margin-top: 10px; }
 input[type=color] { padding: 0; width: 44px; height: 30px; }
 #br-preview img { max-height: 40px; max-width: 160px; display: block; background: var(--bg); }
 .login-message { text-align: center; }
@@ -329,6 +337,15 @@ button.chip, .chip.clickable { cursor: pointer; }
 .bar { height: 6px; background: var(--line); border-radius: 3px; margin: 6px 0; overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); }
 #compliance-table td { white-space: normal; vertical-align: top; }
+#compliance-table td:last-child { white-space: nowrap; width: 1%; }
+.compliance-group { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.compliance-group + .compliance-group { margin-top: 10px; }
+.compliance-group summary { cursor: pointer; padding: 10px 14px; font-weight: 600; list-style: none; display: flex; align-items: center; gap: 8px; }
+.compliance-group summary::-webkit-details-marker { display: none; }
+.compliance-group summary::before { content: '▸'; color: var(--muted); transition: transform .1s; }
+.compliance-group[open] summary::before { transform: rotate(90deg); }
+.compliance-group summary .muted { font-weight: 400; }
+.compliance-group .table-wrap { border: 0; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; }
 .pill.warn { color: var(--warn); border-color: var(--warn); }
 
 .banner-info { background: color-mix(in srgb, var(--accent) 14%, transparent); border-bottom: 1px solid var(--accent); padding: 8px 16px; font-size: 13px; }

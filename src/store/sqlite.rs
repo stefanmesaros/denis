@@ -709,6 +709,10 @@ impl EventStore for SqliteStore {
         let conn = self.conn();
         Ok(conn.execute("UPDATE events SET acked = ?2 WHERE id = ?1", params![id, acked])? == 1)
     }
+    fn prune_events(&self, before: i64) -> Result<usize> {
+        let conn = self.conn();
+        Ok(conn.execute("DELETE FROM events WHERE timestamp < ?1", [before])?)
+    }
 
 }
 
@@ -1041,6 +1045,10 @@ impl AuthStore for SqliteStore {
         conn.execute("UPDATE agent_tokens SET last_used = ?2 WHERE token_hash = ?1", params![token_hash, ts])?;
         Ok(())
     }
+    fn delete_agent_token(&self, agent_id: &str) -> Result<bool> {
+        let conn = self.conn();
+        Ok(conn.execute("DELETE FROM agent_tokens WHERE agent_id = ?1 AND revoked = 1", [agent_id])? > 0)
+    }
     fn add_passkey(&self, user_id: i64, credential_id: &[u8], public_key: &[u8], sign_count: u32, name: &str, ts: i64) -> Result<i64> {
         let conn = self.conn();
         conn.execute(
@@ -1110,6 +1118,10 @@ impl AuthStore for SqliteStore {
         let conn = self.conn();
         conn.execute("UPDATE api_tokens SET last_used = ?2 WHERE token_hash = ?1", params![token_hash, ts])?;
         Ok(())
+    }
+    fn delete_api_token(&self, id: i64) -> Result<bool> {
+        let conn = self.conn();
+        Ok(conn.execute("DELETE FROM api_tokens WHERE id = ?1 AND revoked = 1", [id])? > 0)
     }
 
     fn site_access_all(&self) -> Result<Vec<(i64, String, String)>> {
@@ -1446,6 +1458,37 @@ mod tests {
         assert!(s.list_events(&EventQuery { alerts_only: true, unacked_only: true, ..q.clone() }).unwrap().is_empty());
         assert!(s.list_events(&EventQuery { alerts_only: true, ..q }).unwrap()[0].acked);
         assert!(!s.set_event_acked(9999, true).unwrap());
+    }
+
+    #[test]
+    fn events_older_than_the_retention_cutoff_are_pruned() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let mut a = sample();
+        s.save_asset(&mut a).unwrap();
+        for ts in [10, 30, 20] {
+            let mut e = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_device".into(), timestamp: ts, severity: "info".into(), score: 0, acked: false, raw_details: serde_json::json!({}) };
+            s.insert_event(&mut e).unwrap();
+        }
+        assert_eq!(s.prune_events(20).unwrap(), 1, "only the one before the cutoff");
+        let left = s.list_events(&EventQuery { limit: 10, ..Default::default() }).unwrap();
+        assert_eq!(left.iter().map(|e| e.timestamp).collect::<Vec<_>>(), [30, 20]);
+    }
+
+    #[test]
+    fn a_revoked_agent_or_api_token_can_be_deleted_but_an_active_one_is_refused() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.set_agent_token("branch-1", "hash1", "Branch office", 1).unwrap();
+        assert!(!s.delete_agent_token("branch-1").unwrap(), "still active");
+        assert!(s.revoke_agent_token("branch-1").unwrap());
+        assert!(s.delete_agent_token("branch-1").unwrap());
+        assert!(s.list_agent_tokens().unwrap().is_empty());
+        assert!(!s.delete_agent_token("branch-1").unwrap(), "nothing left to delete");
+
+        let id = s.create_api_token("hash2", "CI script", "viewer", "admin", 1).unwrap();
+        assert!(!s.delete_api_token(id).unwrap(), "still active");
+        assert!(s.revoke_api_token(id).unwrap());
+        assert!(s.delete_api_token(id).unwrap());
+        assert!(s.list_api_tokens().unwrap().is_empty());
     }
 
     #[test]

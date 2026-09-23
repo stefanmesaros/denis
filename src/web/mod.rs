@@ -35,6 +35,7 @@ use crate::web_reports as reports_page;
 use crate::web_setup as setup_page;
 use crate::web_topology as topology_page;
 use crate::web_totp as totp_page;
+use crate::web_retention as retention_page;
 use crate::web_siem as siem_page;
 use crate::web_vuln as vuln_page;
 use crate::web_passkey as passkey;
@@ -108,8 +109,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/findings/{id}/verify", post(admin::finding_verify))
         .route("/api/siem", get(siem_page::get).put(siem_page::put))
         .route("/api/siem/test", post(siem_page::test))
+        .route("/api/retention", get(retention_page::get).put(retention_page::put))
         .route("/api/vulndata", get(vuln_page::status).put(vuln_page::put))
         .route("/api/vulndata/refresh", post(vuln_page::refresh))
+        .route("/api/vulndata/custom", put(vuln_page::custom_put))
         .route("/api/topology", get(topology_page::topology))
         .route("/api/switches", get(topology_page::list).put(topology_page::put))
         .route("/api/switches/{id}/poll", post(topology_page::poll_now))
@@ -154,8 +157,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/users/{id}/site-access", get(admin::site_access_get).put(admin::site_access_put))
         .route("/api/api-tokens", get(admin::api_tokens_list).post(admin::api_tokens_create))
         .route("/api/api-tokens/{id}", delete(admin::api_tokens_revoke))
+        .route("/api/api-tokens/{id}/purge", delete(admin::api_tokens_delete))
         .route("/api/agent-tokens", get(admin::tokens_list).post(admin::tokens_issue))
         .route("/api/agent-tokens/{agent_id}", delete(admin::tokens_revoke))
+        .route("/api/agent-tokens/{agent_id}/purge", delete(admin::tokens_delete))
         .route("/api/audit", get(admin::audit_list))
         .route("/api/branding", get(admin::branding_get).put(admin::branding_put))
         .route("/api/license", get(admin::license_get).put(admin::license_put).delete(admin::license_delete))
@@ -182,7 +187,7 @@ fn is_public(method: &axum::http::Method, path: &str) -> bool {
 /// anything needs `editor`; managing users, tokens and the audit log, or
 /// deleting assets, needs `admin`.
 pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static str {
-    if path.starts_with("/api/users") || path.starts_with("/api/tls") || path.starts_with("/api/data") || path.starts_with("/api/channels") || path.starts_with("/api/agent-tokens") || path.starts_with("/api/api-tokens") || path.starts_with("/api/audit") || path.starts_with("/api/backups") || path.starts_with("/api/msp-backups") || path.starts_with("/api/setup") || path.starts_with("/api/security") {
+    if path.starts_with("/api/users") || path.starts_with("/api/tls") || path.starts_with("/api/data") || path.starts_with("/api/channels") || path.starts_with("/api/agent-tokens") || path.starts_with("/api/api-tokens") || path.starts_with("/api/audit") || path.starts_with("/api/backups") || path.starts_with("/api/msp-backups") || path.starts_with("/api/setup") || path.starts_with("/api/security") || path.starts_with("/api/retention") {
         return "admin";
     }
     if path.starts_with("/api/auth/") {
@@ -1135,6 +1140,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn data_retention_is_admin_only_defaults_sensibly_and_is_validated() {
+        let (app, _store, [viewer, editor, admin]) = secured().await;
+        for u in [&viewer, &editor] {
+            assert_eq!(send(&app, req("GET", "/api/retention", Some(u), None)).await.0, StatusCode::FORBIDDEN);
+        }
+        let (st, _, v) = send(&app, req("GET", "/api/retention", Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(v["days"].as_i64().unwrap() > 0, "a sensible default before anything is saved");
+
+        assert_eq!(send(&app, req("PUT", "/api/retention", Some(&editor), Some(serde_json::json!({"days": 30})))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("PUT", "/api/retention", Some(&admin), Some(serde_json::json!({"days": 0})))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, req("PUT", "/api/retention", Some(&admin), Some(serde_json::json!({"days": 4000})))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, req("PUT", "/api/retention", Some(&admin), Some(serde_json::json!({"days": 30})))).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, req("GET", "/api/retention", Some(&admin), None)).await.2["days"], 30);
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("retention.settings"), "{audit}");
+    }
+
+    #[tokio::test]
     async fn the_community_edition_caps_the_devices_list_and_its_csv_but_not_alerts() {
         let (app, store) = app(true);
         for i in 0..105u8 {
@@ -1363,6 +1388,7 @@ mod tests {
             (M::PUT, "/api/branding", "admin"), (M::PUT, "/api/branding/logo", "admin"), (M::DELETE, "/api/branding/logo", "admin"),
             (M::GET, "/api/branding", "viewer"), (M::GET, "/api/backups", "admin"), (M::GET, "/api/backups/denis-auto-x.db", "admin"), (M::POST, "/api/backups", "admin"), (M::GET, "/api/system", "viewer"), (M::POST, "/api/reports", "editor"), (M::GET, "/api/reports/3", "viewer"), (M::PUT, "/api/reports/settings", "admin"), (M::DELETE, "/api/reports/3", "admin"), (M::GET, "/api/rules", "viewer"), (M::PUT, "/api/rules", "admin"), (M::DELETE, "/api/rules", "admin"),
             (M::POST, "/api/auth/password", "viewer"), (M::POST, "/api/auth/logout", "viewer"),
+            (M::GET, "/api/retention", "admin"), (M::PUT, "/api/retention", "admin"),
         ] {
             assert_eq!(required_role(&m, p), want, "{m} {p}");
         }
@@ -1519,10 +1545,16 @@ mod tests {
         assert_eq!(send(&app, req("DELETE", "/api/agent-tokens/branch-1", Some(&admin), None)).await.0, StatusCode::NO_CONTENT);
         assert_eq!(send(&app, req("DELETE", "/api/agent-tokens/branch-1", Some(&admin), None)).await.0, StatusCode::NOT_FOUND);
         assert_eq!(send(&app, req("POST", "/api/agent-tokens", Some(&admin), Some(serde_json::json!({"agent_id": "../x"})))).await.0, StatusCode::BAD_REQUEST);
+        // a revoked token can be purged from the list; an active one cannot
+        assert_eq!(send(&app, req("POST", "/api/agent-tokens", Some(&admin), Some(serde_json::json!({"agent_id": "branch-2", "label": "HQ"})))).await.0, StatusCode::CREATED);
+        assert_eq!(send(&app, req("DELETE", "/api/agent-tokens/branch-2/purge", Some(&admin), None)).await.0, StatusCode::NOT_FOUND, "still active");
+        assert_eq!(send(&app, req("DELETE", "/api/agent-tokens/branch-2", Some(&admin), None)).await.0, StatusCode::NO_CONTENT, "revoke");
+        assert_eq!(send(&app, req("DELETE", "/api/agent-tokens/branch-2/purge", Some(&admin), None)).await.0, StatusCode::NO_CONTENT);
+        assert!(!send(&app, req("GET", "/api/agent-tokens", Some(&admin), None)).await.2.to_string().contains("branch-2"));
         // all of it is in the audit trail, attributed
         let audit = store.list_audit(None, 50).unwrap();
         let actions: Vec<&str> = audit.iter().map(|a| a.action.as_str()).collect();
-        assert!(actions.contains(&"agent_token.issue") && actions.contains(&"agent_token.revoke") && actions.contains(&"auth.login"), "{actions:?}");
+        assert!(actions.contains(&"agent_token.issue") && actions.contains(&"agent_token.revoke") && actions.contains(&"agent_token.delete") && actions.contains(&"auth.login"), "{actions:?}");
         assert!(audit.iter().any(|a| a.action == "agent_token.issue" && a.user == "adam"));
     }
 
@@ -1774,6 +1806,10 @@ mod tests {
         assert_eq!(send(&app, req("DELETE", &format!("/api/api-tokens/{ro_id}"), Some(&admin), None)).await.0, StatusCode::NO_CONTENT);
         assert_eq!(send(&app, bearer("GET", "/api/assets", &ro, None)).await.0, StatusCode::UNAUTHORIZED);
         assert_eq!(send(&app, req("DELETE", &format!("/api/api-tokens/{ro_id}"), Some(&admin), None)).await.0, StatusCode::NOT_FOUND);
+        // a revoked API token can be purged from the list
+        assert_eq!(send(&app, req("DELETE", &format!("/api/api-tokens/{ro_id}/purge"), Some(&admin), None)).await.0, StatusCode::NO_CONTENT);
+        let list = send(&app, req("GET", "/api/api-tokens", Some(&admin), None)).await.2;
+        assert!(!list.as_array().unwrap().iter().any(|t| t["id"].as_i64() == Some(ro_id)));
         // and a cookie session still needs the CSRF header
         let mut no_csrf = req("POST", "/api/scan", Some(&editor), None);
         no_csrf.headers_mut().remove("x-denis");
@@ -2084,6 +2120,33 @@ mod tests {
         assert!(kev["evidence"][0]["cve"].as_str().unwrap().starts_with("CVE-2021-"), "{kev}");
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
         assert!(audit.contains("vulndata.settings"));
+    }
+
+    #[tokio::test]
+    async fn custom_cves_are_admin_only_validated_and_matched_like_bundled_ones() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let good = serde_json::json!([{"cve": "CVE-2026-9999", "name": "made up for the test", "added": "2026-01-01", "product": "vsftpd", "ranges": [{"exact": "3.0.5"}]}]);
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("PUT", "/api/vulndata/custom", Some(c), Some(good.clone()))).await.0, StatusCode::FORBIDDEN);
+        }
+        let bad = serde_json::json!([{"cve": "not-a-cve", "name": "x", "added": "2026-01-01", "product": "vsftpd", "ranges": [{"exact": "3.0.5"}]}]);
+        assert_eq!(send(&app, req("PUT", "/api/vulndata/custom", Some(&admin), Some(bad))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, req("PUT", "/api/vulndata/custom", Some(&admin), Some(good))).await.0, StatusCode::NO_CONTENT);
+        let (_, _, v) = send(&app, req("GET", "/api/vulndata", Some(&viewer), None)).await;
+        assert_eq!(v["custom_kev"].as_array().unwrap().len(), 1);
+        assert!(v["known_products"].as_array().unwrap().iter().any(|p| p == "vsftpd"));
+
+        let mut ftp = Asset::new(Mac([2, 0, 0, 0, 0, 6]), 10);
+        ftp.last_seen = now_ts();
+        ftp.fingerprint.identity.insert("banner.ftp".into(), "220 (vsFTPd 3.0.5)".into());
+        store.save_asset(&mut ftp).unwrap();
+        let (_, _, f) = send(&app, req("GET", "/api/findings", Some(&viewer), None)).await;
+        let kev = f.as_array().unwrap().iter().find(|x| x["id"] == "kev_software" && x["evidence"][0]["cve"] == "CVE-2026-9999");
+        assert!(kev.is_some(), "{f}");
+
+        assert_eq!(send(&app, req("PUT", "/api/vulndata/custom", Some(&admin), Some(serde_json::json!([])))).await.0, StatusCode::NO_CONTENT, "an empty list clears it");
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("vulndata.custom"));
     }
 
     #[tokio::test]

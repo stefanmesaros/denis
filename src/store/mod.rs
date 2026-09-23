@@ -162,6 +162,9 @@ pub trait EventStore: Send + Sync {
     fn events_after(&self, after: i64, limit: usize) -> Result<Vec<Event>>;
     /// Returns false if no such event.
     fn set_event_acked(&self, id: i64, acked: bool) -> Result<bool>;
+    /// Delete events older than `before`; returns how many. Part of the general data-retention
+    /// setting (Settings → Data retention), independent of trend metrics (`prune_metrics`).
+    fn prune_events(&self, before: i64) -> Result<usize>;
 }
 
 /// Time-series trend samples (asset counts, alert rates, ...) kept for the Trends page.
@@ -238,6 +241,9 @@ pub trait AuthStore: Send + Sync {
     fn list_agent_tokens(&self) -> Result<Vec<AgentToken>>;
     fn revoke_agent_token(&self, agent_id: &str) -> Result<bool>;
     fn touch_agent_token(&self, token_hash: &str, ts: i64) -> Result<()>;
+    /// Remove a revoked (or never-issued) agent's token record entirely; refuses a token that is
+    /// still active (revoke it first). The agent's own data (assets, events) is untouched.
+    fn delete_agent_token(&self, agent_id: &str) -> Result<bool>;
 
     // ----- passkeys
     fn add_passkey(&self, user_id: i64, credential_id: &[u8], public_key: &[u8], sign_count: u32, name: &str, ts: i64) -> Result<i64>;
@@ -254,6 +260,8 @@ pub trait AuthStore: Send + Sync {
     fn list_api_tokens(&self) -> Result<Vec<ApiToken>>;
     fn revoke_api_token(&self, id: i64) -> Result<bool>;
     fn touch_api_token(&self, token_hash: &str, ts: i64) -> Result<()>;
+    /// Remove a revoked API token's record entirely; refuses one that is still active.
+    fn delete_api_token(&self, id: i64) -> Result<bool>;
 
     // ----- per-site access grants (crate::access)
     /// Every grant on record, as `(user_id, site, permission)`; `permission` is `"read"`,

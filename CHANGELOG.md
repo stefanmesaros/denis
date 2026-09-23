@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.14.0: custom CVEs, simpler agent certificates, data retention, and a round of UX fixes
+
+A larger release across several areas raised in feedback: vulnerability data, certificate
+distribution for a fleet of agents, general housekeeping, and a pass of visual/UX polish on
+Settings, Compliance, Topology, Trends, Sites and Users.
+
+* **Custom CVEs** (Settings → Software data → Custom CVEs): add a known-exploited vulnerability of
+  your own — for software DENIS does not ship data for yet, or one you want flagged sooner — with a
+  CVE id, product, name, date and an exact version or a range. Matched against service banners
+  exactly like the bundled/refreshed list, takes effect immediately, and is removable with one
+  click. Validated on save (a bad entry never gets stored), capped at 200 entries.
+* **Simpler certificate distribution for a fleet of agents**: `--master-ca-pem` (or
+  `DENIS_MASTER_CA_PEM`) trusts the master's CA from its *text* instead of a file — nothing to copy
+  to each agent's machine. *Settings → HTTPS certificate → Copy for --master-ca-pem* puts it on the
+  clipboard, ready to push alongside each agent's token through a secrets manager, Ansible or
+  cloud-init. The CA itself does not change when the master's own certificate renews, so an agent
+  set up once (either way) keeps working across every later renewal without being touched again.
+* **General data retention** (Settings → Data retention): one setting for how long events, alerts
+  and trend samples are kept — 1 to 1095 days (3 years), 180 days by default — applied within the
+  hour, no restart. The asset register itself is never affected.
+* **A revoked agent key or API token can now be deleted**, not just revoked, from Sites and Users
+  respectively — the row no longer lingers once you are done with it.
+* **Compliance**: requirements are now grouped by standard (CIS Controls, NIST CSF, IEC 62443,
+  ISO/IEC 27001, NIS2, NIST SP 800-82, DORA, PCI DSS, HIPAA Security Rule, SOC 2, CMMC), each
+  collapsible with an "N of M in place" summary, instead of one long flat list; the status column no
+  longer wraps its text ("in place" breaking across two lines).
+* **Trends**: two more charts — "New devices" (derived from how the register grew between samples)
+  and "Received" (inbound traffic, which was already recorded but never charted) — alongside the
+  existing devices-online, sent-outside and alerts-raised charts.
+* **Topology**: a site with many devices no longer draws a name label next to every node (which
+  guaranteed overlapping text) — past 24 devices it relies on the tooltip and a click instead, with
+  a note saying so. The physical (switches and cables) view explains plainly when a switch's ports
+  read fine but it gave back no forwarding table or LLDP neighbours, and lays out switches with
+  nothing plugged in more compactly instead of stranding them far apart on an empty canvas.
+* **A round of spacing and layout fixes**: stacked checkboxes and rows in Settings and Health no
+  longer touch each other or the control below (the "Back up now" button touching the backups
+  table, SIEM's checkboxes crowding each other and the Save button); the network-interfaces form's
+  mirror interfaces now sit below the discovery interface instead of squeezed beside it.
+
 ## 1.13.5: documentation refresh (SIEM export, Add exception, README)
 
 * **`docs/export.md`'s SIEM section rewritten** for what ships since 1.13.0 — CEF/LEEF/JSON,

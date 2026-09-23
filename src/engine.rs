@@ -244,6 +244,9 @@ pub struct Shared {
     pub capture_stats: Arc<capture::CaptureStats>,
     /// The database file (its folder holds the backups).
     pub db_path: std::path::PathBuf,
+    /// The `--retention-days` command-line default, used until an administrator saves a value
+    /// on the Settings → Data retention page (see `retention.rs`).
+    pub cli_retention_days: i64,
 }
 
 impl Shared {
@@ -348,7 +351,7 @@ struct Collector {
 }
 
 impl Collector {
-    async fn start(cfg: &CollectorConfig, store: Arc<dyn Store>, mode: &'static str) -> Result<Collector> {
+    async fn start(cfg: &CollectorConfig, store: Arc<dyn Store>, mode: &'static str, cli_retention_days: i64) -> Result<Collector> {
         let iface = net::select(cfg.iface.as_deref())?;
         let gateway = net::default_gateway().filter(|g| iface.net.contains(g));
         tracing::info!(
@@ -461,6 +464,7 @@ impl Collector {
             scan_now: Notify::new(),
             capture_stats: Default::default(),
             db_path: cfg.db.clone(),
+            cli_retention_days,
         });
 
         let (tx, mut rx) = mpsc::channel::<Observation>(4096);
@@ -694,6 +698,7 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
         scan_now: Notify::new(),
         capture_stats: Default::default(),
         db_path: cfg.db.clone(),
+        cli_retention_days: crate::retention::DEFAULT_DAYS,
     });
     let auth = Arc::new(Auth::new(store.clone()));
     *auth.passkey_cfg.lock().unwrap_or_else(|e| e.into_inner()) = crate::passkey::Config::from_settings(cfg.public_url.as_deref(), cfg.listen, false).map_err(|e| anyhow::anyhow!(e))?;
@@ -769,7 +774,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     };
 
     let mode = if cfg.ingest_listen.is_some() { "master" } else { "standalone" };
-    let mut coll = Collector::start(&cfg.collector, store.clone(), mode).await?;
+    let mut coll = Collector::start(&cfg.collector, store.clone(), mode, cfg.retention_days).await?;
     coll.shared.update(|s| s.backup_upstream_configured = cfg.backup_upstream.is_some());
 
     // --- detection
@@ -971,7 +976,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
 
     // "went silent" checks, trend samples and retention, every few minutes
     let online_window = cfg.collector.sweep_interval.as_secs() as i64 * 2 + 60;
-    let retention = cfg.retention_days.max(1) * 86_400;
+    let cli_retention_days = cfg.retention_days;
     let (d, s, al) = (detector.clone(), store.clone(), alerts.clone());
     tasks.push(tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(30));
@@ -999,7 +1004,9 @@ pub async fn run(mut cfg: Config) -> Result<()> {
                 let fresh: Vec<_> = alerts.into_iter().filter(|e| e.timestamp > last_sample).collect();
                 s.insert_metrics(&trends::build_metrics(&assets, &traffic, &fresh, online_window, now))?;
                 if now - last_prune >= 3600 {
+                    let retention = crate::retention::effective_days(&*s, cli_retention_days).max(1) * 86_400;
                     s.prune_metrics(now - retention)?;
+                    s.prune_events(now - retention)?;
                     last_prune = now;
                 }
                 Ok(())
@@ -1108,12 +1115,13 @@ pub struct AgentRunConfig {
 /// Remote agent mode: collect locally, push to the master.
 pub async fn run_agent(cfg: AgentRunConfig) -> Result<()> {
     let (base, token) = (cfg.agent.master_url.clone(), cfg.agent.token.clone());
-    let client = agent::http_client(cfg.agent.ca_cert.as_deref())?;
+    let ca_pem = agent::resolve_ca_pem(cfg.agent.ca_cert.as_deref(), cfg.agent.ca_pem.as_deref())?;
+    let client = agent::http_client(ca_pem.as_deref())?;
     tokio::task::spawn_blocking(move || agent::check_master(&client, &base, &token)).await??;
     tracing::info!("master reachable at {}", cfg.agent.master_url);
 
     let store: Arc<dyn Store> = Arc::new(SqliteStore::open(&cfg.collector.db)?);
-    let mut coll = Collector::start(&cfg.collector, store, "agent").await?;
+    let mut coll = Collector::start(&cfg.collector, store, "agent", crate::retention::DEFAULT_DAYS).await?;
     let mut agent_cfg = cfg.agent;
     agent_cfg.meta.subnet = coll.iface.net.to_string();
 
@@ -1336,6 +1344,7 @@ pub fn test_shared_at(db_path: std::path::PathBuf) -> Arc<Shared> {
         scan_now: Notify::new(),
         capture_stats: Default::default(),
         db_path,
+        cli_retention_days: crate::retention::DEFAULT_DAYS,
     })
 }
 

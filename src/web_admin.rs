@@ -891,6 +891,18 @@ pub(crate) async fn api_tokens_revoke(State(st): State<AppState>, Extension(Auth
     }
 }
 
+/// Remove a revoked API token from the list entirely. Refuses one that is still active
+/// (revoke it first) so nobody deletes a live credential by mistake.
+pub(crate) async fn api_tokens_delete(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    let found = blocking(&st.store, move |s| s.delete_api_token(id)).await?;
+    if found {
+        audit(&st, &me.username, "api_token.delete", None, json!({ "id": id }));
+        Ok(StatusCode::NO_CONTENT.into_response())
+    } else {
+        Ok(err(StatusCode::NOT_FOUND, "no revoked API token with that id"))
+    }
+}
+
 // ------------------------------------------------------------- agent tokens
 
 pub(crate) async fn tokens_list(State(st): State<AppState>) -> Result<Json<Value>, ApiError> {
@@ -930,6 +942,19 @@ pub(crate) async fn tokens_revoke(State(st): State<AppState>, Extension(AuthUser
         Ok(StatusCode::NO_CONTENT.into_response())
     } else {
         Ok(err(StatusCode::NOT_FOUND, "no active token for that agent"))
+    }
+}
+
+/// Remove a revoked agent's token record entirely (the agent's assets and events are untouched).
+/// Refuses one that is still active.
+pub(crate) async fn tokens_delete(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(agent_id): Path<String>) -> Result<Response, ApiError> {
+    let id = agent_id.clone();
+    let found = blocking(&st.store, move |s| s.delete_agent_token(&id)).await?;
+    if found {
+        audit(&st, &me.username, "agent_token.delete", None, json!({ "agent_id": agent_id }));
+        Ok(StatusCode::NO_CONTENT.into_response())
+    } else {
+        Ok(err(StatusCode::NOT_FOUND, "no revoked token for that agent"))
     }
 }
 

@@ -226,6 +226,7 @@ async function start() {
   $('switches-box').hidden = !can('admin');
   $('vuln-box').hidden = !can('admin');
   $('siem-box').hidden = !can('admin');
+  $('retention-box').hidden = !can('admin');
   for (const b of document.querySelectorAll('#topo-mode button')) b.onclick = () => setTopoMode(b.dataset.mode);
   $('setup-open').onclick = openSetupGuide;
   if (can('admin')) initBrandingForm();
@@ -685,7 +686,12 @@ async function renderTokens() {
   $('tokens-table').tBodies[0].replaceChildren(...r.json.map((t) => el('tr', {},
     el('td', { class: 'mono', text: t.agent_id }), el('td', { text: t.revoked ? tr('revoked') : tr('active') }), el('td', { text: t.label }),
     el('td', { text: fmtTime(t.created_at) }), el('td', { text: t.last_used ? ago(t.last_used) : tr('never') }),
-    el('td', {}, t.revoked ? null : el('button', { type: 'button', text: tr('Revoke'), onclick: async () => {
+    el('td', {}, t.revoked ? el('button', { type: 'button', text: tr('Delete'), onclick: async () => {
+      if (!confirm(tr('Delete the revoked key of {agent}? This cannot be undone.', { agent: t.agent_id }))) return;
+      const rr = await api('DELETE', '/api/agent-tokens/' + encodeURIComponent(t.agent_id) + '/purge');
+      if (!rr.ok) showMessage(tr('Could not delete'), el('p', { text: apiError(rr) }));
+      renderTokens();
+    } }) : el('button', { type: 'button', text: tr('Revoke'), onclick: async () => {
       if (!confirm(tr('Revoke the token of {agent}? The agent will be disconnected.', { agent: t.agent_id }))) return;
       const rr = await api('DELETE', '/api/agent-tokens/' + encodeURIComponent(t.agent_id));
       if (!rr.ok) showMessage(tr('Could not revoke'), el('p', { text: apiError(rr) }));
@@ -713,7 +719,12 @@ async function renderApiTokens() {
   $('apitokens-table').tBodies[0].replaceChildren(...r.json.map((t) => el('tr', {},
     el('td', { text: t.label }), el('td', { text: tr(t.role) }), el('td', { text: t.revoked ? tr('revoked') : tr('active') }),
     el('td', { text: t.created_by }), el('td', { text: fmtTime(t.created_at) }), el('td', { text: t.last_used ? ago(t.last_used) : tr('never') }),
-    el('td', {}, t.revoked ? null : el('button', { type: 'button', text: tr('Revoke'), onclick: async () => {
+    el('td', {}, t.revoked ? el('button', { type: 'button', text: tr('Delete'), onclick: async () => {
+      if (!confirm(tr('Delete the revoked token "{label}"? This cannot be undone.', { label: t.label }))) return;
+      const rr = await api('DELETE', '/api/api-tokens/' + t.id + '/purge');
+      if (!rr.ok) showMessage(tr('Could not delete'), el('p', { text: apiError(rr) }));
+      renderApiTokens();
+    } }) : el('button', { type: 'button', text: tr('Revoke'), onclick: async () => {
       if (!confirm(tr('Revoke the token "{label}"? Whatever uses it will stop working.', { label: t.label }))) return;
       const rr = await api('DELETE', '/api/api-tokens/' + t.id);
       if (!rr.ok) showMessage(tr('Could not revoke'), el('p', { text: apiError(rr) }));
@@ -976,7 +987,7 @@ function applyHash() {
   if (what === 'rules' && arg === 'watches') setTimeout(() => $('watches')?.scrollIntoView({ block: 'start' }), 700);
   // #settings/tls, #settings/updates ...: scroll to that section
   if (what === 'settings' && arg && !$('tab-settings').hidden) {
-    const box = { branding: 'branding-box', overview: 'overview-box', license: 'license-box', interfaces: 'interfaces-box', tls: 'tls-box', updates: 'update-box', data: 'data-box', setup: 'setup-box', security: 'security-box', switches: 'switches-box', vulndata: 'vuln-box', siem: 'siem-box' }[arg];
+    const box = { branding: 'branding-box', overview: 'overview-box', license: 'license-box', interfaces: 'interfaces-box', tls: 'tls-box', updates: 'update-box', data: 'data-box', setup: 'setup-box', security: 'security-box', switches: 'switches-box', vulndata: 'vuln-box', siem: 'siem-box', retention: 'retention-box' }[arg];
     if (box) setTimeout(() => $(box).scrollIntoView({ block: 'start' }), 50);
   }
   if (what === 'passkeys') { location.hash = '#account'; return; }
@@ -1296,6 +1307,19 @@ $('siem-test').onclick = async () => {
   $('siem-msg').textContent = r.json.ok ? tr('Test message sent.') : tr('Could not send it: {error}', { error: r.json.error || '?' });
 };
 
+// ---------------------------------------------------------------- data retention
+
+async function loadRetentionBox() {
+  if (!can('admin')) return;
+  const r = await api('GET', '/api/retention');
+  if (r.ok) $('retention-days').value = r.json.days;
+}
+$('retention-save').onclick = async () => {
+  const r = await api('PUT', '/api/retention', { days: Number($('retention-days').value) || 0 });
+  $('retention-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
+  if (r.ok) loadRetentionBox();
+};
+
 async function loadTlsBox() {
   if (!can('admin')) return;
   const r = await api('GET', '/api/tls');
@@ -1321,10 +1345,20 @@ async function loadTlsBox() {
     i ? el('div', { text: tr('Valid until {date} ({days} days)', { date: new Date(i.not_after * 1000).toLocaleDateString(locale()), days }) + (i.source === 'generated' ? tr('; renewed automatically.') : '.') }) : null,
     i ? el('div', { class: 'mono small', text: 'SHA-256 ' + i.fingerprint }) : null,
     i && i.source === 'generated' ? el('div', { class: 'muted', text: tr('Browsers warn about a certificate they do not know. Download the CA certificate and add it to your browser or operating system once, or give it to agents (--master-ca); or use your own certificate.') }) : null);
-  $('tls-ca').hidden = !(t.has_ca && i && i.source === 'generated');
+  const showCa = t.has_ca && i && i.source === 'generated';
+  $('tls-ca').hidden = !showCa;
+  $('tls-ca-copy').hidden = !showCa;
+  $('tls-ca-copy-hint').hidden = !showCa;
   $('tls-replace').hidden = false;
   $('tls-reset').hidden = !(i && i.source === 'custom');
 }
+$('tls-ca-copy').onclick = async () => {
+  const r = await fetch('/tls/ca.pem');
+  if (!r.ok) { $('tls-msg').textContent = tr('Could not read the CA certificate.'); return; }
+  const pem = await r.text();
+  try { await navigator.clipboard.writeText(pem); $('tls-msg').textContent = tr('Copied. Use it as --master-ca-pem or DENIS_MASTER_CA_PEM on each agent.'); }
+  catch (e) { showMessage(tr('CA certificate'), el('p', { text: tr('Copy this for --master-ca-pem / DENIS_MASTER_CA_PEM:') }), el('textarea', { rows: 10, readOnly: true, text: pem, class: 'mono' })); }
+};
 
 $('tls-replace').onclick = () => {
   const cert = el('textarea', { rows: 6, placeholder: tr('-----BEGIN CERTIFICATE-----') });

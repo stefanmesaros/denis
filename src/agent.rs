@@ -33,6 +33,24 @@ pub struct AgentConfig {
     /// PEM file with the CA (or the self-signed certificate) that signed the
     /// master's HTTPS certificate. When given it is the *only* trust anchor.
     pub ca_cert: Option<std::path::PathBuf>,
+    /// The same CA, as PEM text instead of a file (`--master-ca-pem` / `DENIS_MASTER_CA_PEM`):
+    /// nothing to copy to the agent's machine, one value to put beside the token in whatever
+    /// pushes configuration to a fleet of agents (a secrets manager, Ansible, cloud-init). Wins
+    /// over `ca_cert` if both are somehow set; `resolve_ca_pem` is where that is decided.
+    pub ca_pem: Option<String>,
+}
+
+/// The CA text `http_client` should trust: `ca_pem` as given, or `ca_cert` read from disk.
+/// Refuses when both are set, so a stale file and a fresher inline value can never disagree
+/// silently. The CA itself is long-lived and unaffected by the master's own certificate
+/// renewing (see `certs.rs`), so whichever an agent is given keeps working across those.
+pub fn resolve_ca_pem(ca_cert: Option<&std::path::Path>, ca_pem: Option<&str>) -> Result<Option<String>> {
+    match (ca_cert, ca_pem) {
+        (Some(_), Some(_)) => bail!("--master-ca and --master-ca-pem cannot both be given"),
+        (None, Some(pem)) => Ok(Some(pem.to_string())),
+        (Some(path), None) => Ok(Some(std::fs::read_to_string(path).with_context(|| format!("reading the CA certificate {}", path.display()))?)),
+        (None, None) => Ok(None),
+    }
 }
 
 struct Pending {
@@ -193,18 +211,19 @@ pub fn check_master_url(url: &str, allow_plain_http: bool) -> Result<()> {
     bail!("the master address {url} is plain http: the agent's token and data would cross the network unencrypted. Use https:// (the master serves HTTPS by default; give the agent its CA with --master-ca), or add --allow-plain-http if a VPN or tunnel you trust carries it")
 }
 
-pub fn http_client(ca_cert: Option<&std::path::Path>) -> Result<ureq::Agent> {
+/// `ca_pem`: PEM text (one or more certificates) to use as the *only* trust anchor, from
+/// `resolve_ca_pem`. `None` uses the usual public web roots.
+pub fn http_client(ca_pem: Option<&str>) -> Result<ureq::Agent> {
     let mut cfg = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(30)));
-    if let Some(path) = ca_cert {
-        let pem = std::fs::read_to_string(path).with_context(|| format!("reading the CA certificate {}", path.display()))?;
+    if let Some(pem) = ca_pem {
         let mut certs = Vec::new();
         for block in pem.split_inclusive("-----END CERTIFICATE-----") {
             if block.contains("-----BEGIN CERTIFICATE-----") {
-                certs.push(ureq::tls::Certificate::from_pem(block.trim().as_bytes()).with_context(|| format!("parsing a certificate in {}", path.display()))?);
+                certs.push(ureq::tls::Certificate::from_pem(block.trim().as_bytes()).context("parsing the CA certificate")?);
             }
         }
         if certs.is_empty() {
-            bail!("{} contains no PEM certificate", path.display());
+            bail!("the CA certificate contains no PEM certificate");
         }
         cfg = cfg.tls_config(ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::new_with_certs(&certs)).build());
     }
@@ -245,7 +264,7 @@ pub async fn run(
     mut flow_rx: mpsc::Receiver<FlowBatch>,
     mut signal_rx: mpsc::UnboundedReceiver<Vec<Signal>>,
 ) {
-    let client = match http_client(cfg.ca_cert.as_deref()) {
+    let client = match resolve_ca_pem(cfg.ca_cert.as_deref(), cfg.ca_pem.as_deref()).and_then(|pem| http_client(pem.as_deref())) {
         Ok(c) => c,
         Err(e) => {
             tracing::error!("{e:#}");
@@ -301,6 +320,17 @@ mod tests {
 
     fn meta() -> AgentMeta {
         AgentMeta { id: "a1".into(), name: "A".into(), site: None, version: "t".into(), subnet: "10.0.0.0/24".into() }
+    }
+
+    #[test]
+    fn the_ca_can_be_given_as_a_file_or_inline_pem_but_not_both() {
+        assert_eq!(resolve_ca_pem(None, None).unwrap(), None);
+        assert_eq!(resolve_ca_pem(None, Some("-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n")).unwrap().as_deref(), Some("-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n"));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ca.pem");
+        std::fs::write(&path, "-----BEGIN CERTIFICATE-----\ny\n-----END CERTIFICATE-----\n").unwrap();
+        assert!(resolve_ca_pem(Some(&path), None).unwrap().unwrap().contains('y'));
+        assert!(resolve_ca_pem(Some(&path), Some("z")).is_err(), "giving both is refused rather than silently picking one");
     }
 
     fn flow(i: u8) -> FlowRecord {

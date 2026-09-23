@@ -4,7 +4,7 @@
     {
       "name": "denis-dev",
       "runtimeExecutable": "cargo",
-      "runtimeArgs": ["run", "--", "run", "--insecure-no-auth", "--no-tls", "--listen", "127.0.0.1:8099", "--db", "/tmp/denis-dev-preview.db"],
+      "runtimeArgs": ["run", "--bin", "denis", "--", "run", "--insecure-no-auth", "--no-tls", "--listen", "127.0.0.1:8099", "--db", "/tmp/denis-dev-preview.db"],
       "port": 8099
     }
   ]

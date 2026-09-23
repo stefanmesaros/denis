@@ -107,7 +107,7 @@ mod tests {
         let ok = tokio::task::spawn_blocking({
             let (ca, url) = (ca.clone(), url.clone());
             move || {
-                let c = crate::agent::http_client(Some(&ca)).unwrap();
+                let c = crate::agent::http_client(crate::agent::resolve_ca_pem(Some(&ca), None).unwrap().as_deref()).unwrap();
                 (c.get(&url).call().map(|r| r.status().as_u16()).map_err(|e| e.to_string()), c.get(url.replace("localhost", "127.0.0.1")).call().map(|r| r.status().as_u16()).map_err(|e| e.to_string()))
             }
         })
@@ -137,9 +137,9 @@ mod tests {
         let (custom_ca, url) = (dir.path().join("custom-root.pem"), format!("https://localhost:{port}/api/health"));
         std::fs::write(&custom_ca, cert.pem()).unwrap();
         let (u1, u2) = (url.clone(), url.clone());
-        let new_ok = tokio::task::spawn_blocking(move || crate::agent::http_client(Some(&custom_ca)).unwrap().get(&u1).call().map(|r| r.status().as_u16()).map_err(|e| e.to_string())).await.unwrap();
+        let new_ok = tokio::task::spawn_blocking(move || crate::agent::http_client(crate::agent::resolve_ca_pem(Some(&custom_ca), None).unwrap().as_deref()).unwrap().get(&u1).call().map(|r| r.status().as_u16()).map_err(|e| e.to_string())).await.unwrap();
         let ca = dir.path().join(crate::certs::CA_CERT);
-        let old_refused = tokio::task::spawn_blocking(move || crate::agent::http_client(Some(&ca)).unwrap().get(&u2).call().is_err()).await.unwrap();
+        let old_refused = tokio::task::spawn_blocking(move || crate::agent::http_client(crate::agent::resolve_ca_pem(Some(&ca), None).unwrap().as_deref()).unwrap().get(&u2).call().is_err()).await.unwrap();
         assert_eq!(new_ok, Ok(200), "the uploaded certificate is live");
         assert!(old_refused, "the generated one is no longer served");
     }

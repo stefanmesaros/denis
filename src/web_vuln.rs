@@ -8,12 +8,12 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::model::now_ts;
-use crate::vulndata::{self, Settings};
+use crate::vulndata::{self, Kev, Settings};
 use crate::web::common::{blocking, ApiError, AppState, AuthUser};
-use crate::web_admin::audit;
+use crate::web_admin::{audit, err};
 
 pub(crate) async fn status(State(st): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
-    let s = blocking(&st.store, |s| Ok(vulndata::settings(s))).await?;
+    let (s, custom) = blocking(&st.store, |s| Ok((vulndata::settings(s), vulndata::custom_kev(s)))).await?;
     let i = vulndata::current();
     Ok(Json(json!({
         "generated": i.data.generated,
@@ -22,6 +22,8 @@ pub(crate) async fn status(State(st): State<AppState>) -> Result<Json<serde_json
         "products": i.products(),
         "refreshed_at": i.refreshed_at,
         "refresh_eol": s.refresh_eol,
+        "custom_kev": custom,
+        "known_products": vulndata::KNOWN_PRODUCTS,
     })))
 }
 
@@ -46,4 +48,17 @@ pub(crate) async fn refresh(State(st): State<AppState>, Extension(AuthUser(me)):
         Err(e) => Json(json!({ "ok": false, "error": e })).into_response(),
     })
 
+}
+
+/// Replace the whole list of administrator-entered CVEs (Settings → Software data → Custom
+/// CVEs). Matched against service banners exactly like the bundled/refreshed data.
+pub(crate) async fn custom_put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(list): Json<Vec<Kev>>) -> Result<Response, ApiError> {
+    let n = list.len();
+    match blocking(&st.store, move |s| Ok(vulndata::save_custom_kev(s, &list, now_ts()).map_err(|e| format!("{e:#}")))).await? {
+        Ok(()) => {
+            audit(&st, &me.username, "vulndata.custom", None, json!({ "count": n }));
+            Ok(StatusCode::NO_CONTENT.into_response())
+        }
+        Err(e) => Ok(err(StatusCode::BAD_REQUEST, e)),
+    }
 }

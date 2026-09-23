@@ -48,7 +48,11 @@ async function renderPhysical() {
   }
   const colors = { none: 'var(--off)', low: 'var(--accent)', medium: 'var(--warn)', high: '#dc2626' };
   const cols = Math.max(1, Math.ceil(Math.sqrt(topo.switches.length)));
-  const CELL = 380;
+  // a switch with nothing plugged in (or not yet read) needs far less room than one ringed with
+  // devices — without this, two mostly-empty switches end up looking lost, far apart on a mostly
+  // blank canvas (exactly what a switch that gives back no forwarding table looks like today)
+  const maxAttached = Math.max(0, ...topo.switches.map((s) => topo.attachments.filter((a) => a.switch === s.id).length));
+  const CELL = maxAttached > 10 ? 380 : maxAttached > 0 ? 260 : 170;
   const rows = Math.ceil(topo.switches.length / cols);
   const kids = [];
   const centre = new Map();
@@ -105,6 +109,9 @@ async function renderPhysical() {
       s.error ? el('span', { class: 'changed', text: tr('cannot be read') }) : null),
     s.error ? el('p', { class: 'form-error', text: s.error }) : null,
     el('p', { class: 'muted small', text: s.last_ok ? tr('{ports} ports ({up} up), {macs} MACs learned; read {ago}.', { ports: s.ports_total, up: s.ports_up, macs: s.macs, ago: ago(s.last_ok) }) : tr('Not read yet.') }),
+    s.last_ok && !s.error && s.macs === 0 && s.neighbors === 0
+      ? el('p', { class: 'muted small', text: tr('The ports read fine, but this switch gave back no forwarding table (MAC-to-port) and no LLDP neighbours, so nothing can be drawn on it yet. Some inexpensive "smart" switches do not implement this over SNMP at all; others need a different SNMP community for it, or LLDP switched on in their own settings. The port list below (up/down, name) is still whatever this switch offers.') })
+      : null,
     portTable(s)));
   $('topo-legend-physical').replaceChildren(...['none', 'low', 'medium', 'high'].map((l) => el('span', {}, el('i', { style: 'background:' + colors[l] }), l === 'none' ? tr('no risk') : tr(l))));
   box.replaceChildren(

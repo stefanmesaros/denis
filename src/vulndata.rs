@@ -25,8 +25,17 @@ use crate::store::{Store};
 const BUNDLED: &str = include_str!("../data/vulndata.json");
 pub const OVERLAY_KEY: &str = "vulndata.eol";
 pub const SETTINGS_KEY: &str = "vulndata";
+/// Administrator-entered known-exploited vulnerabilities (Settings → Software data → Custom
+/// CVEs), kept separately from the bundled/refreshed data so a data update or a refresh never
+/// touches what somebody typed in.
+pub const CUSTOM_KEV_KEY: &str = "vulndata.custom_kev";
+pub const MAX_CUSTOM_KEV: usize = 200;
 /// A release whose support ends within this many days is announced.
 pub const SOON_DAYS: i64 = 90;
+
+/// The products a service banner can actually name (see `banners.rs`): the only ones a custom
+/// CVE entry can be matched against.
+pub const KNOWN_PRODUCTS: &[&str] = &["openssh", "dropbear", "nginx", "apache-http-server", "php", "openssl", "lighttpd", "iis", "exim", "proftpd", "vsftpd"];
 
 // ------------------------------------------------------------------------------------------ versions
 
@@ -241,7 +250,8 @@ impl Intel {
         Intel { data: bundled().clone(), refreshed_at: None }
     }
 
-    /// The bundled data, with support dates refreshed from endoflife.date laid over it when there are newer ones.
+    /// The bundled data, with support dates refreshed from endoflife.date laid over it when there
+    /// are newer ones, plus whatever custom CVEs an administrator has added.
     pub fn load(store: &dyn Store) -> Intel {
         let mut i = Intel::bundled();
         if let Some(o) = store.get_setting(OVERLAY_KEY).ok().flatten().and_then(|b| serde_json::from_slice::<Overlay>(&b).ok()) {
@@ -255,6 +265,7 @@ impl Intel {
                 i.refreshed_at = Some(o.fetched_at);
             }
         }
+        i.data.kev.extend(custom_kev(store));
         i
     }
 
@@ -346,6 +357,58 @@ pub fn settings(store: &dyn Store) -> Settings {
 
 pub fn save_settings(store: &dyn Store, s: &Settings, now: i64) -> Result<()> {
     store.set_setting(SETTINGS_KEY, &serde_json::to_vec(s)?, now)
+}
+
+// --------------------------------------------------------------------------------- custom CVEs
+
+/// One entry is well-formed on its own terms: a real-looking CVE id, a product a banner can
+/// actually name, and at least one range whose bounds parse as versions.
+fn validate_custom_kev(k: &Kev) -> Result<()> {
+    if !k.cve.starts_with("CVE-") || k.cve.len() > 40 {
+        bail!("{:?} does not look like a CVE id (expected CVE-YYYY-NNNN)", k.cve);
+    }
+    if !KNOWN_PRODUCTS.contains(&k.product.as_str()) {
+        bail!("{:?} is not a product a service banner can name ({})", k.product, KNOWN_PRODUCTS.join(", "));
+    }
+    if k.name.trim().is_empty() || k.name.len() > 200 {
+        bail!("give the vulnerability a short name (1-200 characters)");
+    }
+    if days_of(&k.added).is_none() {
+        bail!("{:?} is not a date (expected YYYY-MM-DD)", k.added);
+    }
+    if k.ranges.is_empty() || k.ranges.len() > 20 {
+        bail!("give {} between 1 and 20 affected-version ranges", k.cve);
+    }
+    for r in &k.ranges {
+        let bounds: Vec<&str> = [&r.exact, &r.from, &r.to].into_iter().flatten().map(String::as_str).collect();
+        if bounds.is_empty() {
+            bail!("{}: a range needs an exact version, or a from/to bound", k.cve);
+        }
+        for b in bounds {
+            if Ver::parse(b).is_none() {
+                bail!("{}: {:?} is not a version DENIS can compare", k.cve, b);
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn custom_kev(store: &dyn Store) -> Vec<Kev> {
+    store.get_setting(CUSTOM_KEV_KEY).ok().flatten().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+/// Replaces the whole custom list (the console always sends the full, edited list). Every entry
+/// is validated; a bad one refuses the entire save so nothing partial is ever stored.
+pub fn save_custom_kev(store: &dyn Store, list: &[Kev], now: i64) -> Result<()> {
+    if list.len() > MAX_CUSTOM_KEV {
+        bail!("at most {MAX_CUSTOM_KEV} custom CVEs");
+    }
+    for k in list {
+        validate_custom_kev(k)?;
+    }
+    store.set_setting(CUSTOM_KEV_KEY, &serde_json::to_vec(list)?, now)?;
+    reload(store);
+    Ok(())
 }
 
 /// Parse and validate one product's answer from endoflife.date (`[{"cycle": "1.28", "eol": "2026-04-14", ...}, ...]`).
@@ -654,6 +717,37 @@ mod tests {
         assert!(settings(&store).refresh_eol, "a fresh install refreshes support dates on its own");
         save_settings(&store, &Settings { refresh_eol: false }, 1).unwrap();
         assert!(!settings(&store).refresh_eol);
+    }
+
+    fn custom(cve: &str, product: &str, added: &str, ranges: Vec<Range>) -> Kev {
+        Kev { cve: cve.into(), name: format!("{cve} custom entry"), added: added.into(), product: product.into(), ranges, ransomware: false }
+    }
+
+    #[test]
+    fn a_custom_cve_is_validated_persists_and_is_matched_like_a_bundled_one() {
+        let store = crate::store::sqlite::SqliteStore::open_in_memory().unwrap();
+        assert!(custom_kev(&store).is_empty());
+        let exact = |v: &str| Range { exact: Some(v.into()), from: None, from_incl: false, to: None, to_incl: false };
+        let good = custom("CVE-2026-9999", "vsftpd", "2026-01-01", vec![exact("3.0.5")]);
+
+        // rejected: unknown product, bad CVE id, bad date, empty range, unparsable version
+        assert!(save_custom_kev(&store, &[Kev { product: "made-up".into(), ..good.clone() }], 1).is_err());
+        assert!(save_custom_kev(&store, &[Kev { cve: "not-a-cve".into(), ..good.clone() }], 1).is_err());
+        assert!(save_custom_kev(&store, &[Kev { added: "yesterday".into(), ..good.clone() }], 1).is_err());
+        assert!(save_custom_kev(&store, &[Kev { ranges: vec![], ..good.clone() }], 1).is_err());
+        assert!(save_custom_kev(&store, &[Kev { ranges: vec![exact("not a version")], ..good.clone() }], 1).is_err());
+        assert!(custom_kev(&store).is_empty(), "a bad entry never gets saved, even alongside a good one");
+
+        save_custom_kev(&store, std::slice::from_ref(&good), 2).unwrap();
+        assert_eq!(custom_kev(&store), vec![good]);
+        let i = Intel::load(&store);
+        assert_eq!(i.kev("vsftpd", "3.0.5").len(), 1, "matched exactly like a bundled entry");
+        assert!(i.kev("vsftpd", "3.0.6").is_empty());
+
+        // replacing with an empty list clears it
+        save_custom_kev(&store, &[], 3).unwrap();
+        assert!(custom_kev(&store).is_empty());
+        assert!(Intel::load(&store).kev("vsftpd", "3.0.5").is_empty());
     }
 
     #[test]

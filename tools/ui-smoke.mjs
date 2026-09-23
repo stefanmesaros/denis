@@ -131,7 +131,7 @@ for (const tab of TABS) {
 }
 
 // ------------------------------------------------------------------ what each list must contain
-const counts = { assets: ['#assets-table tbody tr', 30], alerts: ['#alerts-table tbody tr', 5], ot: ['#ot-matrix tbody tr', 5], rules: ['#rules-list .rule-card', 15], compliance: ['#compliance-table tbody tr', 8], audit: ['#audit-table tbody tr', 0], users: ['#users-table tbody tr', 0] };
+const counts = { assets: ['#assets-table tbody tr', 30], alerts: ['#alerts-table tbody tr', 5], ot: ['#ot-matrix tbody tr', 5], rules: ['#rules-list .rule-card', 15], compliance: ['#compliance-groups tbody tr', 8], audit: ['#audit-table tbody tr', 0], users: ['#users-table tbody tr', 0] };
 for (const [tab, [sel, min]] of Object.entries(counts)) {
   await check(`"${tab}" lists at least ${min} rows`, async () => {
     await evaluate(`setTab('${tab}'); 0`);

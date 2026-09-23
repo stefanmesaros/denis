@@ -797,6 +797,10 @@ function renderTopology() {
     if (centre) hub.addEventListener('click', () => showDetail(centre.id));
     kids.push(hub);
     kids.push(svg('text', { x: C, y: C + 30 }, document.createTextNode(centre ? (centre.ip || tr('gateway')) : tr('network'))));
+    // a name label next to every node reads fine for a handful of devices, but on a busy site it
+    // guarantees overlapping text (labels are far wider than the spacing the rings pack nodes at);
+    // past this many, rely on the tooltip and a click instead of a permanently garbled label
+    const showLabels = rest.length <= 24;
     rest.forEach((a, i) => {
       const [x, y] = positions[i];
       const c = svg('circle', { cx: x, cy: y, r: 10, class: 'node r-' + a.risk.level, opacity: isOnline(a) ? 1 : 0.4 },
@@ -804,9 +808,10 @@ function renderTopology() {
       c.addEventListener('click', () => showDetail(a.id));
       kids.push(c);
       if (openAlerts.has(a.id)) kids.push(svg('circle', { cx: x + 8, cy: y - 8, r: 3.5, fill: '#dc2626' }));
-      kids.push(svg('text', { x, y: y + 21 }, document.createTextNode((name(a) || (a.ip || '').split('.').pop() || '?').slice(0, 12))));
+      if (showLabels) kids.push(svg('text', { x, y: y + 21 }, document.createTextNode((name(a) || (a.ip || '').split('.').pop() || '?').slice(0, 12))));
     });
     return el('div', { class: 'topo-site' }, el('h3', { text: siteLabel + ' · ' + tr('{n} devices', { n: devices.length }) }),
+      showLabels ? null : el('p', { class: 'muted small', text: tr('Too many devices to label here without overlapping text: point at one for its name, or click it to open it.') }),
       svg('svg', { viewBox: `0 0 ${S} ${S}`, role: 'img', 'aria-label': tr('Topology of {site}', { site: siteLabel }) }, ...kids));
   });
   $('topo').replaceChildren(...panels);
@@ -928,9 +933,14 @@ async function loadTrends() {
   const pts = data.points;
   const last = pts[pts.length - 1];
   const sum = (k) => pts.reduce((n, p) => n + p[k], 0);
+  // "new devices" is not stored on its own: derive it from how the total grew between samples
+  // (never negative — a device leaving the register does not count as a negative arrival).
+  const withNew = pts.map((p, i) => ({ ...p, new_devices: i === 0 ? 0 : Math.max(0, p.devices_total - pts[i - 1].devices_total) }));
   $('trends').replaceChildren(
     chart(tr('Devices online'), last ? tr('{n} of {total}', { n: last.devices_online, total: last.devices_total }) : '–', pts, 'devices_online', 'line', String),
+    chart(tr('New devices'), String(withNew.reduce((n, p) => n + p.new_devices, 0)), withNew, 'new_devices', 'bars', String),
     chart(tr('Sent outside the network'), fmtBytes(sum('bytes_out')), pts, 'bytes_out', 'bars', fmtBytes),
+    chart(tr('Received'), fmtBytes(sum('bytes_in')), pts, 'bytes_in', 'bars', fmtBytes),
     chart(tr('Alerts raised'), String(sum('alerts')), pts, 'alerts', 'bars', String));
   $('trends-note').textContent = pts.length ? tr('{n} points, {step} each.', { n: pts.length, step: span(data.step_secs) }) + (state.status && !state.status.flows_enabled ? ' ' + tr('Traffic is only counted with --flows.') : '') : '';
 }
@@ -949,10 +959,25 @@ async function loadCompliance() {
     el('div', { class: 'bar' }, el('i', { style: 'width:' + m.percent + '%' })),
     el('div', { class: 'muted small', text: tr(m.detail, m.vars) }))));
   const label = { in_place: [tr('in place'), 'ok'], partial: [tr('partly'), 'warn'], not_in_place: [tr('not in place'), 'bad'] };
-  $('compliance-table').tBodies[0].replaceChildren(...c.controls.map((k) => el('tr', {},
-    el('td', {}, el('b', { text: k.reference }), el('div', { text: tr(k.title) })),
-    el('td', {}, el('div', { text: tr(k.evidence) }), el('div', { class: 'muted small', text: tr(k.note, k.vars) })),
-    el('td', {}, el('span', { class: 'pill ' + label[k.status][1], text: label[k.status][0] })))));
+  // group by the standard named before " · " in the reference (e.g. "NIS2 · Article 21(2)(b)"),
+  // in the order the API already lists them, so related requirements read together
+  const groups = new Map();
+  for (const k of c.controls) {
+    const g = k.reference.includes(' · ') ? k.reference.slice(0, k.reference.indexOf(' · ')) : k.reference;
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(k);
+  }
+  $('compliance-groups').replaceChildren(...[...groups.entries()].map(([g, rows], i) => {
+    const inPlace = rows.filter((k) => k.status === 'in_place').length;
+    return el('details', { class: 'compliance-group', open: i === 0 },
+      el('summary', {}, g, el('span', { class: 'muted', text: tr('{n} of {total} in place', { n: inPlace, total: rows.length }) })),
+      el('div', { class: 'table-wrap' }, el('table', {},
+        el('thead', {}, el('tr', {}, el('th', { text: tr('Requirement') }), el('th', { text: tr('What DENIS provides') }), el('th', { text: tr('Status') }))),
+        el('tbody', {}, ...rows.map((k) => el('tr', {},
+          el('td', {}, el('b', { text: k.reference }), el('div', { text: tr(k.title) })),
+          el('td', {}, el('div', { text: tr(k.evidence) }), el('div', { class: 'muted small', text: tr(k.note, k.vars) })),
+          el('td', {}, el('span', { class: 'pill ' + label[k.status][1], text: label[k.status][0] }))))))));
+  }));
 }
 
 function setTab(t) {
@@ -979,7 +1004,7 @@ function setTab(t) {
   if (t === 'health') loadHealth();
   if (t === 'alerting') loadAlerting();
   if (t === 'users') { renderUsers(); renderApiTokens(); }
-  if (t === 'settings') { initBrandingForm(); initOverviewBox(); loadLicenseBox(); loadInterfacesBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); loadSiemBox(); }
+  if (t === 'settings') { initBrandingForm(); initOverviewBox(); loadLicenseBox(); loadInterfacesBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); loadSiemBox(); loadRetentionBox(); }
   if (t === 'audit') renderAudit();
   if (t === 'account') renderAccount();
   if (t === 'agents') renderTokens();

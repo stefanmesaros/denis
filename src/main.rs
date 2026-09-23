@@ -279,6 +279,12 @@ enum Cmd {
         /// master's HTTPS certificate; trusted instead of the public web roots.
         #[arg(long, env = "DENIS_MASTER_CA")]
         master_ca: Option<PathBuf>,
+        /// The same CA, as PEM text instead of a file — for a fleet of agents, one value to push
+        /// alongside the token from a secrets manager or config-management tool, no file to copy
+        /// to each machine. Settings → HTTPS certificate shows it ready to copy. Give either this
+        /// or --master-ca, never both.
+        #[arg(long, env = "DENIS_MASTER_CA_PEM", hide_env_values = true)]
+        master_ca_pem: Option<String>,
         /// Stable identifier for this agent ([A-Za-z0-9._-], default: hostname).
         #[arg(long)]
         id: Option<String>,
@@ -608,6 +614,7 @@ async fn main() -> Result<()> {
             allow_plain_http,
             token,
             master_ca,
+            master_ca_pem,
             id,
             name,
             site,
@@ -615,6 +622,9 @@ async fn main() -> Result<()> {
             report_interval,
         } => {
             denis::agent::check_master_url(&master, allow_plain_http)?;
+            if master_ca.is_some() && master_ca_pem.is_some() {
+                anyhow::bail!("--master-ca and --master-ca-pem cannot both be given");
+            }
             let id = id.unwrap_or_else(|| slug(&net::local_hostname().unwrap_or_else(|| "agent".into())));
             engine::run_agent(engine::AgentRunConfig {
                 collector: collect.into_config(resolve_db(db, "denis-agent.db", "netscope-agent.db")),
@@ -622,6 +632,7 @@ async fn main() -> Result<()> {
                     master_url: master,
                     token,
                     ca_cert: master_ca,
+                    ca_pem: master_ca_pem,
                     meta: AgentMeta {
                         name: name.unwrap_or_else(|| id.clone()),
                         id,
