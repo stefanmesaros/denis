@@ -14,7 +14,7 @@ use anyhow::{bail, Result};
 use serde_json::{json, Value};
 
 use crate::model::{AgentInfo, Asset, AssetMeta, Baseline, Conversation, DestStat, Event, IpRecord, Mac, Metric, OpenPort, OtRole};
-use crate::store::{Store, DEMO_SITE_PREFIX};
+use crate::store::{DEMO_SITE_PREFIX, Store};
 use crate::tracking::apply_patch;
 
 const HQ: &str = "demo-hq";
@@ -352,6 +352,12 @@ pub fn load(store: &dyn Store, now: i64) -> Result<Loaded> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::AdminStore;
+    use crate::store::AssetStore;
+    use crate::store::AuthStore;
+    use crate::store::EventStore;
+    use crate::store::MetricStore;
+    use crate::store::SettingsStore;
     use crate::store::sqlite::SqliteStore;
 
     #[test]

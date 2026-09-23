@@ -8,7 +8,7 @@ use denis::agent::AgentConfig;
 use denis::detect::{DetectConfig, RULES};
 use denis::model::{now_ts, AgentMeta};
 use denis::store::sqlite::SqliteStore;
-use denis::store::{EventQuery, Store};
+use denis::store::{AdminStore, AssetStore, AuthStore, EventQuery, EventStore};
 use denis::{engine, net};
 use tracing_subscriber::EnvFilter;
 
@@ -32,6 +32,14 @@ struct Collect {
     /// it more than once for more than one mirror port (one per VLAN, say).
     #[arg(long = "mirror-iface")]
     mirror_ifaces: Vec<String>,
+    /// An extra subnet to treat as local, for a --mirror-iface that carries a different
+    /// subnet/VLAN than the main interface (a SPAN/mirror port almost never has an IPv4 address
+    /// of its own to detect this from automatically). Repeatable: one per VLAN a mirror port
+    /// trunks, on top of --iface's own subnet. Without this, traffic on a mirror interface whose
+    /// devices are not in --iface's subnet is not recognised as local at all: no flows, no
+    /// industrial-protocol decoding, and no warning beyond the one DENIS logs at start-up.
+    #[arg(long = "mirror-subnet", value_name = "CIDR")]
+    mirror_subnets: Vec<ipnet::Ipv4Net>,
     /// Seconds between ARP sweeps.
     #[arg(long, default_value_t = 300)]
     sweep_interval: u64,
@@ -67,6 +75,7 @@ impl Collect {
         engine::CollectorConfig {
             iface: self.iface,
             mirror_ifaces: self.mirror_ifaces.clone(),
+            mirror_subnets: self.mirror_subnets,
             db,
             sweep_interval: Duration::from_secs(self.sweep_interval.max(30)),
             rescan_interval: Duration::from_secs(self.rescan_interval),

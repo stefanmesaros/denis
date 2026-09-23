@@ -19,10 +19,22 @@ use std::time::Duration;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::engine::Shared;
 use crate::model::{now_ts, Asset, AssetMeta, Event, RiskAcceptance};
 use crate::notify::Alerts;
 use crate::store::Store;
+
+/// The one thing this module needs from the running collector — defined here, not in `engine`,
+/// so this module names what it actually uses instead of depending on the whole of
+/// `engine::Shared`. `engine::Shared` implements it.
+pub trait Rescanner {
+    fn rescan(&self, ips: Vec<Ipv4Addr>) -> impl std::future::Future<Output = Option<Vec<(Ipv4Addr, crate::engine::RescanOutcome)>>> + Send;
+}
+
+impl<T: Rescanner + Send + Sync> Rescanner for Arc<T> {
+    async fn rescan(&self, ips: Vec<Ipv4Addr>) -> Option<Vec<(Ipv4Addr, crate::engine::RescanOutcome)>> {
+        (**self).rescan(ips).await
+    }
+}
 
 pub const KIND_EXPIRING: &str = "risk_expiring";
 pub const KIND_EXPIRED: &str = "risk_expired";
@@ -178,7 +190,7 @@ fn finish(store: &dyn Store, alerts: &Alerts, out: Outcome, now: i64) -> Result<
 }
 
 /// Background task: look at the accepted risks once an hour.
-pub async fn run(store: Arc<dyn Store>, shared: Arc<Shared>, alerts: Arc<Alerts>) {
+pub async fn run<S: Rescanner + Send + Sync + 'static>(store: Arc<dyn Store>, shared: Arc<S>, alerts: Arc<Alerts>) {
     tokio::time::sleep(Duration::from_secs(180)).await;
     let mut tick = tokio::time::interval(Duration::from_secs(3600));
     loop {

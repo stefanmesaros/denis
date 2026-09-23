@@ -10,7 +10,7 @@ use anyhow::Result;
 
 use crate::fingerprint::{guess, vendor_for};
 use crate::model::{Asset, IpRecord, LinkInfo, Mac, Observation, OtRole, OtSample, Signal};
-use crate::store::Store;
+use crate::store::{Store};
 
 const MAX_IP_HISTORY: usize = 20;
 const MAX_HOSTNAMES: usize = 8;
@@ -468,6 +468,7 @@ fn push_all(dst: &mut Vec<String>, src: Vec<String>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::AssetStore;
     use crate::model::{OpenPort, TcpSig};
     use crate::store::sqlite::SqliteStore;
 

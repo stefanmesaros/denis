@@ -10,8 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::engine::Shared;
-use crate::store::Store;
+use crate::store::{Store};
 
 pub const SETTINGS_KEY: &str = "backups";
 pub const MAX_KEEP: u32 = 60;
@@ -271,6 +270,20 @@ fn set_last_upload(store: &dyn Store, now: i64) {
     let _ = store.set_setting(UPLOAD_LAST_KEY, now.to_string().as_bytes(), now);
 }
 
+/// Which local backup was last successfully sent (its name, which already encodes its creation
+/// moment — see `kind_of`/`create` — so two backups never share one). Kept apart from
+/// `UPLOAD_LAST_KEY`'s timestamp: that one paces the schedule; this one is what says whether the
+/// *content* due to be sent next has actually changed since.
+const UPLOAD_LAST_NAME_KEY: &str = "backups.upload_last_name";
+
+fn last_uploaded_name(store: &dyn Store) -> Option<String> {
+    store.get_setting(UPLOAD_LAST_NAME_KEY).ok().flatten().and_then(|b| String::from_utf8(b).ok())
+}
+
+fn set_last_uploaded_name(store: &dyn Store, name: &str, now: i64) {
+    let _ = store.set_setting(UPLOAD_LAST_NAME_KEY, name.as_bytes(), now);
+}
+
 /// How many of a given customer's uploaded backups an MSP keeps under
 /// `backups/from-agents/<agent-id>/` (the oldest are pruned after each new one arrives). This is
 /// the MSP's own, purely local setting — it does not reach back to the customer in any way.
@@ -338,22 +351,52 @@ fn upload(upstream: &Upstream, file: &Path) -> Result<()> {
     Ok(())
 }
 
+/// One upload-schedule check: sends the newest local backup if the upload schedule is due.
+/// Returns the file's name and the send's own result, or `None` when nothing was due. The
+/// schedule slot (`UPLOAD_LAST_KEY`) is only consumed on a *successful* send — an MSP that is
+/// down, or a bad token, must not silently cost a whole schedule interval; the next tick (the
+/// loop calling this checks every 15 minutes, regardless of the schedule itself) tries again.
+fn upload_if_due(store: &dyn Store, db_path: &Path, upstream: &Upstream, now: i64) -> Result<Option<(String, Result<()>)>> {
+    let up_settings = load_upload_settings(store)?;
+    if !due_by(up_settings.interval(), last_upload(store), now) {
+        return Ok(None);
+    }
+    let Some(newest) = list(db_path).into_iter().next() else { return Ok(None) };
+    // A local schedule slower than the upload one (weekly backups, daily uploads — the upload
+    // default, independent of the local one) would otherwise resend the same bytes on every due
+    // check: the loop only ever looks at "whatever the newest local backup happens to be right
+    // now" (see the module doc comment), and nothing else marks it as already sent. Skip a send
+    // whose content has not changed since the last one that actually went out, but do not touch
+    // either marker: an unmodified skip must stay cheap and retried every tick (a name comparison,
+    // no network call), not paced by the schedule interval like a real send is.
+    if last_uploaded_name(store).as_deref() == Some(newest.name.as_str()) {
+        return Ok(None);
+    }
+    let path = dir(db_path).join(&newest.name);
+    let result = upload(upstream, &path);
+    if result.is_ok() {
+        set_last_upload(store, now);
+        set_last_uploaded_name(store, &newest.name, now);
+    }
+    Ok(Some((newest.name, result)))
+}
+
 /// Background task: take the scheduled backup when it is due, and push it upstream if configured.
-pub async fn run(store: std::sync::Arc<dyn Store>, shared: std::sync::Arc<Shared>, upstream: Option<Upstream>) {
+pub async fn run(store: std::sync::Arc<dyn Store>, db_path: PathBuf, upstream: Option<Upstream>) {
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(900));
     tokio::time::sleep(std::time::Duration::from_secs(120)).await;
     loop {
         tick.tick().await;
-        let (s, sh) = (store.clone(), shared.clone());
+        let (s, sh) = (store.clone(), db_path.clone());
         let done = tokio::task::spawn_blocking(move || -> Result<Option<BackupFile>> {
             let settings = load(&*s)?;
-            let last = list(&sh.db_path).iter().filter(|b| b.kind == "auto").map(|b| b.modified).max();
+            let last = list(&sh).iter().filter(|b| b.kind == "auto").map(|b| b.modified).max();
             let now = crate::model::now_ts();
             if !is_due(&settings, last, now) {
                 return Ok(None);
             }
-            let made = create(&*s, &sh.db_path, "auto", now)?;
-            prune_auto(&sh.db_path, settings.keep as usize);
+            let made = create(&*s, &sh, "auto", now)?;
+            prune_auto(&sh, settings.keep as usize);
             Ok(Some(made))
         })
         .await;
@@ -367,30 +410,14 @@ pub async fn run(store: std::sync::Arc<dyn Store>, shared: std::sync::Arc<Shared
         // Independent of whether a *new* local backup was just made above: on its own schedule,
         // push whatever the newest local backup happens to be right now.
         let Some(up) = upstream.clone() else { continue };
-        let (s, sh) = (store.clone(), shared.clone());
-        let due = tokio::task::spawn_blocking(move || -> Result<Option<PathBuf>> {
-            let up_settings = load_upload_settings(&*s)?;
-            let now = crate::model::now_ts();
-            if !due_by(up_settings.interval(), last_upload(&*s), now) {
-                return Ok(None);
-            }
-            let Some(newest) = list(&sh.db_path).into_iter().next() else { return Ok(None) };
-            set_last_upload(&*s, now);
-            Ok(Some(dir(&sh.db_path).join(newest.name)))
-        })
-        .await;
-        match due {
-            Ok(Ok(Some(path))) => {
-                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                match tokio::task::spawn_blocking(move || upload(&up, &path)).await {
-                    Ok(Ok(())) => tracing::info!("backup {name} sent to the MSP"),
-                    Ok(Err(e)) => tracing::warn!("could not send backup {name} to the MSP: {e:#}"),
-                    Err(e) => tracing::warn!("backup upload task failed: {e}"),
-                }
-            }
+        let (s, sh) = (store.clone(), db_path.clone());
+        let now = crate::model::now_ts();
+        match tokio::task::spawn_blocking(move || upload_if_due(&*s, &sh, &up, now)).await {
+            Ok(Ok(Some((name, Ok(()))))) => tracing::info!("backup {name} sent to the MSP"),
+            Ok(Ok(Some((name, Err(e))))) => tracing::warn!("could not send backup {name} to the MSP: {e:#}"),
             Ok(Ok(None)) => {}
             Ok(Err(e)) => tracing::warn!("checking the backup upload schedule failed: {e:#}"),
-            Err(e) => tracing::warn!("backup upload check task failed: {e}"),
+            Err(e) => tracing::warn!("backup upload task failed: {e}"),
         }
     }
 }
@@ -398,7 +425,9 @@ pub async fn run(store: std::sync::Arc<dyn Store>, shared: std::sync::Arc<Shared
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::SettingsStore;
     use crate::store::sqlite::SqliteStore;
+    use std::sync::Arc;
 
     #[test]
     fn only_our_own_backup_names_are_accepted() {
@@ -460,6 +489,112 @@ mod tests {
         // a garbled/invalid stored value falls back to the default rather than erroring
         store.set_setting(UPLOAD_SETTINGS_KEY, b"not json", 2).unwrap();
         assert_eq!(load_upload_settings(&store).unwrap(), UploadSettings::default());
+    }
+
+    /// A tiny fake MSP: answers every request with whatever status `code` currently holds, and
+    /// counts how many requests actually arrived (so a test can tell a real send from a skip).
+    struct Fake {
+        url: String,
+        code: Arc<std::sync::atomic::AtomicU16>,
+        requests: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    fn fake() -> Fake {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", l.local_addr().unwrap());
+        let code = Arc::new(AtomicU16::new(200));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let (c2, r2) = (code.clone(), requests.clone());
+        std::thread::spawn(move || {
+            for conn in l.incoming() {
+                let Ok(mut c) = conn else { return };
+                r2.fetch_add(1, Ordering::SeqCst);
+                // Drain the whole request (headers, then exactly `content-length` body bytes)
+                // before answering: an early reply while the client is still writing the backup
+                // file's body would abort the connection instead of exercising the real
+                // success/failure path this test cares about.
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 8192];
+                let (head_end, len) = loop {
+                    let n = c.read(&mut chunk).unwrap_or(0);
+                    if n == 0 {
+                        break (0, 0);
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                    if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&buf[..p]).to_lowercase();
+                        let len = head.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse().ok()).unwrap_or(0usize);
+                        break (p + 4, len);
+                    }
+                };
+                while buf.len() < head_end + len {
+                    let n = c.read(&mut chunk).unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                }
+                let code = c2.load(Ordering::SeqCst);
+                let _ = write!(c, "HTTP/1.1 {code} X\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}");
+            }
+        });
+        Fake { url, code, requests }
+    }
+
+    #[test]
+    fn a_failed_upload_does_not_consume_the_schedule_slot_so_the_next_tick_retries() {
+        use std::sync::atomic::Ordering;
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("denis.db");
+        let store = SqliteStore::open(&db).unwrap();
+        create(&store, &db, "auto", 1_000).unwrap();
+        let f = fake();
+        let up = Upstream { url: f.url.clone(), token: "t".into() };
+        save_upload_settings(&store, &UploadSettings { schedule: "daily".into() }, 1_000).unwrap();
+
+        // the MSP is down: nothing is marked, so the very next check is still due
+        f.code.store(500, Ordering::SeqCst);
+        let (name, result) = upload_if_due(&store, &db, &up, 2_000).unwrap().expect("a backup exists and the schedule is due");
+        assert!(result.is_err());
+        assert_eq!(last_upload(&store), None, "a failed send must not consume the schedule slot");
+        assert!(upload_if_due(&store, &db, &up, 2_001).unwrap().is_some(), "the next tick retries immediately, not after a full interval");
+
+        // the MSP comes back: the same due check now succeeds and the slot is consumed
+        f.code.store(200, Ordering::SeqCst);
+        let (name2, result2) = upload_if_due(&store, &db, &up, 2_002).unwrap().unwrap();
+        assert_eq!(name2, name);
+        assert!(result2.is_ok());
+        assert_eq!(last_upload(&store), Some(2_002));
+        // and now it is not due again until the next interval
+        assert!(upload_if_due(&store, &db, &up, 2_003).unwrap().is_none());
+    }
+
+    #[test]
+    fn an_unchanged_local_backup_is_not_resent_every_time_the_upload_schedule_comes_due() {
+        use std::sync::atomic::Ordering;
+        // a slower local schedule (weekly) than the upload one (daily, the default): for most of
+        // the week the "newest local backup" the upload loop looks at is the very same file
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("denis.db");
+        let store = SqliteStore::open(&db).unwrap();
+        create(&store, &db, "auto", 1_000).unwrap();
+        let f = fake();
+        let up = Upstream { url: f.url.clone(), token: "t".into() };
+        assert_eq!(load_upload_settings(&store).unwrap().schedule, "daily", "the default this test relies on");
+
+        let day = 86_400;
+        for tick in 0..7 {
+            upload_if_due(&store, &db, &up, 1_000 + tick * day).unwrap();
+        }
+        assert_eq!(f.requests.load(Ordering::SeqCst), 1, "six of the seven daily checks found the same content already sent and must not resend it");
+
+        // the local (weekly) backup finally rotates: the new content is sent on the next due check
+        create(&store, &db, "auto", 1_000 + 7 * day).unwrap();
+        upload_if_due(&store, &db, &up, 1_000 + 7 * day).unwrap();
+        assert_eq!(f.requests.load(Ordering::SeqCst), 2);
     }
 
     #[test]

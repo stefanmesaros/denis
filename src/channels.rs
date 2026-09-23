@@ -40,7 +40,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use crate::model::{Asset, AssetMeta, Event};
-use crate::store::Store;
+use crate::store::{Store};
 
 pub const KEY: &str = "channels";
 pub const MAINTENANCE_KEY: &str = "maintenance";
@@ -868,6 +868,9 @@ pub async fn run(d: Arc<Dispatcher>, store: Arc<dyn Store>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::AssetStore;
+    use crate::store::EventStore;
+    use crate::store::SettingsStore;
     use crate::model::Mac;
     use crate::store::sqlite::SqliteStore;
     use std::io::{Read, Write};

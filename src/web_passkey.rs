@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 
 use crate::model::now_ts;
 use crate::passkey::{self, Kind};
-use crate::web::{blocking, ApiError, AppState, AuthUser};
+use crate::web::common::{blocking, ApiError, AppState, AuthUser};
 use crate::web_admin::{audit, client_ip, cookie, err};
 
 /// Passkeys one person may register.

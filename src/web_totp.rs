@@ -15,7 +15,7 @@ use serde_json::json;
 
 use crate::auth::AuthError;
 use crate::model::now_ts;
-use crate::web::{blocking, ApiError, AppState, AuthUser};
+use crate::web::common::{blocking, ApiError, AppState, AuthUser};
 use crate::web_admin::{audit, client_ip, cookie, err};
 
 const E_CODE: &str = "the code was not accepted";

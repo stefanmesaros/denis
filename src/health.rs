@@ -10,8 +10,28 @@ use anyhow::Result;
 use serde::Serialize;
 
 use crate::backups;
-use crate::engine::Shared;
 use crate::store::Store;
+
+/// The little slice of the running collector's status this page needs — defined here, not in
+/// `engine`, so this module names what it actually uses instead of depending on the whole of
+/// `engine::Shared`. `engine::Shared` implements it.
+pub trait StatusSource {
+    fn snapshot(&self) -> crate::engine::StatusInfo;
+    fn db_path(&self) -> &Path;
+    fn capture_stats(&self) -> &crate::capture::CaptureStats;
+}
+
+impl<T: StatusSource> StatusSource for std::sync::Arc<T> {
+    fn snapshot(&self) -> crate::engine::StatusInfo {
+        (**self).snapshot()
+    }
+    fn db_path(&self) -> &Path {
+        (**self).db_path()
+    }
+    fn capture_stats(&self) -> &crate::capture::CaptureStats {
+        (**self).capture_stats()
+    }
+}
 
 /// Fixed sentences with `{name}` placeholders (translated in the console).
 pub const W_CAPTURE_DOWN: &str = "The packet capture is not running, so no new devices or traffic are seen. Look at the service log.";
@@ -120,15 +140,15 @@ fn warn(text: &'static str, vars: &[(&'static str, String)]) -> Warning {
     Warning { text, vars: vars.iter().cloned().collect() }
 }
 
-pub fn gather(store: &dyn Store, shared: &Shared, now: i64, with_rows: bool) -> Result<Health> {
+pub fn gather(store: &dyn Store, shared: &impl StatusSource, now: i64, with_rows: bool) -> Result<Health> {
     let info = shared.snapshot();
     let db = store.stats(with_rows)?;
-    let disk = disk_space(&shared.db_path);
+    let disk = disk_space(shared.db_path());
     let viewer = info.mode == "viewer";
     let mut warnings = Vec::new();
 
     let capture = (!viewer).then(|| {
-        let c = &shared.capture_stats;
+        let c = shared.capture_stats();
         let (received, dropped, if_dropped) = (c.received.load(Ordering::Relaxed), c.dropped.load(Ordering::Relaxed), c.if_dropped.load(Ordering::Relaxed));
         let total = received + dropped;
         let drop_percent = if total == 0 { 0.0 } else { dropped as f64 * 100.0 / total as f64 };
@@ -167,7 +187,7 @@ pub fn gather(store: &dyn Store, shared: &Shared, now: i64, with_rows: bool) -> 
     }
 
     let settings = backups::load(store)?;
-    let files = backups::list(&shared.db_path);
+    let files = backups::list(shared.db_path());
     let latest_at = files.first().map(|b| b.modified);
     let backups = BackupHealth {
         schedule: settings.schedule.clone(),

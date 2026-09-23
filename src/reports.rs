@@ -8,9 +8,25 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::engine::Shared;
 use crate::model::{ReportMeta, User};
 use crate::store::Store;
+
+/// The little slice of the running collector's status a compliance report needs — defined here,
+/// not in `engine`, so this module names what it actually uses instead of depending on the whole
+/// of `engine::Shared`. `engine::Shared` implements it.
+pub trait ReportStatus {
+    fn snapshot(&self) -> crate::engine::StatusInfo;
+    fn detect_base(&self) -> Option<crate::detect::DetectConfig>;
+}
+
+impl<T: ReportStatus> ReportStatus for std::sync::Arc<T> {
+    fn snapshot(&self) -> crate::engine::StatusInfo {
+        (**self).snapshot()
+    }
+    fn detect_base(&self) -> Option<crate::detect::DetectConfig> {
+        (**self).detect_base()
+    }
+}
 
 pub const SETTINGS_KEY: &str = "reports";
 /// Never keep more than this many scheduled reports, whatever is asked for.
@@ -68,7 +84,7 @@ pub fn save(store: &dyn Store, s: &Settings, now: i64) -> Result<()> {
 }
 
 /// The compliance overview as of now (what the Compliance page shows).
-pub fn compliance_now(store: &dyn Store, shared: &Shared, now: i64) -> Result<crate::compliance::Report> {
+pub fn compliance_now(store: &dyn Store, shared: &impl ReportStatus, now: i64) -> Result<crate::compliance::Report> {
     let info = shared.snapshot();
     let base = shared.detect_base().unwrap_or_default();
     let mut assets = store.load_assets()?;
@@ -111,7 +127,7 @@ pub fn compliance_now(store: &dyn Store, shared: &Shared, now: i64) -> Result<cr
 }
 
 /// Make a report and keep it. `kind` is `manual` or `scheduled`.
-pub fn generate(store: &dyn Store, shared: &Shared, kind: &str, days: i64, by: &str, now: i64) -> Result<ReportMeta> {
+pub fn generate(store: &dyn Store, shared: &impl ReportStatus, kind: &str, days: i64, by: &str, now: i64) -> Result<ReportMeta> {
     let days = days.clamp(1, 365);
     let mut data = crate::report::gather(store, days, now)?;
     data.compliance = Some(compliance_now(store, shared, now)?);
@@ -142,7 +158,7 @@ pub fn is_due(s: &Settings, last_scheduled: Option<i64>, now: i64) -> bool {
 }
 
 /// Background task: once a while, make the scheduled report if one is due.
-pub async fn run(store: std::sync::Arc<dyn Store>, shared: std::sync::Arc<Shared>) {
+pub async fn run<S: ReportStatus + Send + Sync + 'static>(store: std::sync::Arc<dyn Store>, shared: std::sync::Arc<S>) {
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(600));
     // do not start before the collector has had a moment to look around
     tokio::time::sleep(std::time::Duration::from_secs(90)).await;

@@ -9,7 +9,7 @@ use serde_json::json;
 
 use crate::model::now_ts;
 use crate::switches::{self, Target};
-use crate::web::{blocking, ApiError, AppState, AuthUser};
+use crate::web::common::{blocking, ApiError, AppState, AuthUser};
 use crate::web_admin::{audit, err};
 
 const E_NO_SWITCH: &str = "no such switch";

@@ -18,7 +18,7 @@ use crate::model::{
     PROTO_ICMP, PROTO_TCP, PROTO_UDP,
 };
 use crate::ot::ot_proto_for_port;
-use crate::store::Store;
+use crate::store::{Store};
 
 pub const RULE_NEW_DEVICE: &str = "new_device";
 pub const RULE_NEW_DESTINATION: &str = "new_destination";
@@ -1573,6 +1573,8 @@ fn make_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::AdminStore;
+    use crate::store::AssetStore;
     use crate::store::sqlite::SqliteStore;
 
     const MAC: Mac = Mac([0x3c, 0x22, 0xfb, 1, 2, 3]);

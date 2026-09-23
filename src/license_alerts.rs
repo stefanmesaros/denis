@@ -13,7 +13,7 @@ use std::time::Duration;
 use crate::license::{self, Stage};
 use crate::model::{Event, Mac};
 use crate::notify::Alerts;
-use crate::store::Store;
+use crate::store::{Store};
 
 pub const RULE_LICENSE_EXPIRING: &str = "license_expiring";
 pub const RULE_LICENSE_GRACE: &str = "license_grace_period";
@@ -26,6 +26,10 @@ const LAST_STAGE_KEY: &str = "license_alerts.last_stage";
 
 pub async fn run(store: Arc<dyn Store>, license_file: Option<PathBuf>, own_mac: Mac, alerts: Arc<Alerts>) {
     let mut tick = tokio::time::interval(CHECK_EVERY);
+    // Give the aggregator a moment to write the self-host asset before the first check: without
+    // this, an ExpiringSoon/Grace stage right at start-up would find no asset yet and (correctly,
+    // see check_once) just retry next tick anyway, but there is no reason to race it every time.
+    tokio::time::sleep(std::time::Duration::from_secs(90)).await;
     loop {
         tick.tick().await;
         check_once(&store, license_file.as_deref(), own_mac, &alerts);
@@ -36,14 +40,32 @@ fn check_once(store: &Arc<dyn Store>, license_file: Option<&std::path::Path>, ow
     let now = crate::model::now_ts();
     let eff = license::effective(&**store, license_file);
     let stage = license::stage(&eff, now);
-    let key = stage_key(&stage);
+    apply(store, &stage, own_mac, now, alerts);
+}
+
+/// The part of `check_once` that acts on an already-known stage: split out so a test can drive
+/// it with `Stage::ExpiringSoon`/`Stage::Grace` directly, without needing a real license text
+/// that decodes to that exact stage.
+fn apply(store: &Arc<dyn Store>, stage: &Stage, own_mac: Mac, now: i64, alerts: &Alerts) {
+    let key = stage_key(stage);
     let last = store.get_setting(LAST_STAGE_KEY).ok().flatten().map(|b| String::from_utf8_lossy(&b).to_string());
     if last.as_deref() == Some(key) {
         return; // already alerted for this stage; nothing changed
     }
-    let _ = store.set_setting(LAST_STAGE_KEY, key.as_bytes(), now);
-    if let Some(event) = event_for(store, &stage, own_mac, now) {
+    // Fine/Expired never alert at all (see event_for's doc comment): mark them right away, or
+    // event_for would be recomputed every tick forever for a stage that never "succeeds".
+    if matches!(stage, Stage::Fine | Stage::Expired) {
+        let _ = store.set_setting(LAST_STAGE_KEY, key.as_bytes(), now);
+        return;
+    }
+    // A stage that does raise an alert only counts as "done" once the alert actually went out.
+    // The self-host asset may not exist yet on the very first tick (the aggregator has not
+    // written it); leaving the marker alone in that case means the next tick tries again,
+    // instead of silently losing the warning for this stage forever (marking first, alerting
+    // second, would do exactly that if the process died in between, or on this very race).
+    if let Some(event) = event_for(store, stage, own_mac, now) {
         alerts.emit(vec![event]);
+        let _ = store.set_setting(LAST_STAGE_KEY, key.as_bytes(), now);
     }
 }
 
@@ -94,6 +116,7 @@ fn event_for(store: &Arc<dyn Store>, stage: &Stage, own_mac: Mac, now: i64) -> O
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::AssetStore;
     use crate::model::Asset;
     use crate::store::sqlite::SqliteStore;
 
@@ -136,6 +159,26 @@ mod tests {
         let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
         let mac = Mac([0x02, 0, 0, 0, 0, 9]); // never saved
         assert!(event_for(&store, &Stage::ExpiringSoon { days_left: 1 }, mac, crate::model::now_ts()).is_none());
+    }
+
+    #[test]
+    fn the_marker_is_not_written_until_the_alert_actually_goes_out() {
+        // no self-host asset yet (the aggregator has not run): the very race `apply` must survive
+        let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
+        let alerts = Alerts::new(store.clone(), None);
+        let mac = Mac([0x02, 0, 0, 0, 0, 9]);
+        let now = crate::model::now_ts();
+        let stage = Stage::ExpiringSoon { days_left: 5 };
+        apply(&store, &stage, mac, now, &alerts);
+        assert!(store.get_setting(LAST_STAGE_KEY).unwrap().is_none(), "no marker without a delivered alert, or the warning is lost for this stage forever");
+        assert!(store.list_events(&crate::store::EventQuery { limit: 10, ..Default::default() }).unwrap().is_empty());
+
+        // once the asset shows up, the same stage is tried again and now succeeds
+        let mut a = Asset::new(mac, now);
+        store.save_asset(&mut a).unwrap();
+        apply(&store, &stage, mac, now, &alerts);
+        assert_eq!(store.get_setting(LAST_STAGE_KEY).unwrap().unwrap(), b"expiring_soon");
+        assert_eq!(store.list_events(&crate::store::EventQuery { limit: 10, ..Default::default() }).unwrap().len(), 1);
     }
 
     #[test]

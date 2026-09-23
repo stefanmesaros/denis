@@ -40,6 +40,11 @@ pub struct CollectorConfig {
     /// per VLAN say): never probed, never used for discovery, just decoded into flows on the
     /// same footing as the main interface. A non-empty list implies `flows`.
     pub mirror_ifaces: Vec<String>,
+    /// Extra subnets to treat as local, for a mirror port that is not on the main interface's own
+    /// subnet (a different VLAN, most often — see `--mirror-subnet`'s help). A SPAN/mirror port
+    /// itself rarely has an IPv4 address to auto-detect this from; when one of the ports above
+    /// does have one, `Collector::start` adds it automatically, on top of whatever is given here.
+    pub mirror_subnets: Vec<Ipv4Net>,
     pub db: PathBuf,
     /// How often to re-run the ARP sweep.
     pub sweep_interval: Duration,
@@ -81,6 +86,7 @@ impl Default for CollectorConfig {
         CollectorConfig {
             iface: None,
             mirror_ifaces: Vec::new(),
+            mirror_subnets: Vec::new(),
             db: PathBuf::from("denis.db"),
             sweep_interval: Duration::from_secs(300),
             rescan_interval: Duration::from_secs(1800),
@@ -298,6 +304,33 @@ impl Shared {
     }
 }
 
+impl crate::health::StatusSource for Shared {
+    fn snapshot(&self) -> StatusInfo {
+        Shared::snapshot(self)
+    }
+    fn db_path(&self) -> &std::path::Path {
+        &self.db_path
+    }
+    fn capture_stats(&self) -> &capture::CaptureStats {
+        &self.capture_stats
+    }
+}
+
+impl crate::reverify::Rescanner for Shared {
+    async fn rescan(&self, ips: Vec<Ipv4Addr>) -> Option<Vec<(Ipv4Addr, RescanOutcome)>> {
+        Shared::rescan(self, ips).await
+    }
+}
+
+impl crate::reports::ReportStatus for Shared {
+    fn snapshot(&self) -> StatusInfo {
+        Shared::snapshot(self)
+    }
+    fn detect_base(&self) -> Option<DetectConfig> {
+        Shared::detect_base(self)
+    }
+}
+
 /// A running collector and the streams it produces.
 struct Collector {
     iface: Iface,
@@ -346,6 +379,42 @@ impl Collector {
                 anyhow::bail!("mirror interface {name:?} not found or not up (try `denis interfaces`)");
             }
             mirror_caps.push((name.clone(), capture::open_named(name, true)?));
+        }
+
+        // Every subnet this install should treat as local, shared by the main capture and every
+        // mirror one (see `parse::Ctx::is_local`): the main interface's own, plus one auto-added
+        // for any mirror interface that happens to have its own IPv4 address, plus whatever
+        // `--mirror-subnet` was given explicitly. A mirror/SPAN port on a *different* subnet or
+        // VLAN than the main interface (exactly what "one per VLAN" in `--mirror-iface`'s help
+        // promises) used to silently see nothing at all: neither traffic within that VLAN nor
+        // between it and the internet matched `ctx.subnet`, which was always the main interface's.
+        let known = net::list_interfaces().unwrap_or_default();
+        let mut subnets = vec![iface.net];
+        let mut unaccounted = Vec::new();
+        for (name, _) in &mirror_caps {
+            match known.iter().find(|i| &i.name == name) {
+                Some(mi) if !subnets.contains(&mi.net) => {
+                    tracing::info!("mirror interface {name} has its own address {} ({}): added as a known local subnet", mi.ip, mi.net);
+                    subnets.push(mi.net);
+                }
+                Some(_) => {}
+                None => unaccounted.push(name.clone()),
+            }
+        }
+        for s in &cfg.mirror_subnets {
+            if !subnets.contains(s) {
+                subnets.push(*s);
+            }
+        }
+        if !unaccounted.is_empty() && cfg.mirror_subnets.is_empty() {
+            tracing::warn!(
+                "mirror interface(s) {} have no IPv4 address of their own and no --mirror-subnet was given: if any \
+                 carries a different subnet/VLAN than {} (the usual reason to mirror a separate port), its traffic \
+                 will not be recognised as local and its flows/industrial-protocol decoding will produce nothing \
+                 until --mirror-subnet names that VLAN's range",
+                unaccounted.join(", "),
+                iface.net,
+            );
         }
 
         let frames = Arc::new(AtomicU64::new(0));
@@ -398,7 +467,7 @@ impl Collector {
         let (flow_tx, flow_rx) = mpsc::channel::<FlowBatch>(256);
         let (new_tx, new_rx) = mpsc::unbounded_channel::<Flushed>();
         let ctx = Ctx {
-            subnet: iface.net,
+            subnets: subnets.clone(),
             own_mac: iface.mac,
             own_ip: iface.ip,
             flows: cfg.flows,
@@ -406,15 +475,15 @@ impl Collector {
             ot: cfg.flows,
         };
         let capture = capture::spawn(cap, ctx, tx.clone(), frames.clone(), shared.capture_stats.clone());
-        // Same subnet/own-address context as the main interface (it is the
-        // same LAN, or at least the same server); each always decodes the
-        // wide filter, regardless of `--flows`, since a mirror port exists
-        // for no other reason. All feed the same aggregator as the main one.
+        // Same known-local subnets and own-address context as the main interface (see `subnets`
+        // above: this is what makes a mirror on a different VLAN work at all); each always
+        // decodes the wide filter, regardless of `--flows`, since a mirror port exists for no
+        // other reason. All feed the same aggregator as the main one.
         let mirror_captures: Vec<CaptureThread> = mirror_caps
             .into_iter()
             .map(|(_, cap2)| {
                 let ctx2 = Ctx {
-                    subnet: iface.net,
+                    subnets: subnets.clone(),
                     own_mac: iface.mac,
                     own_ip: iface.ip,
                     flows: true,
@@ -810,9 +879,9 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     // support dates and known-exploited vulnerabilities (bundled data, optionally refreshed)
     tasks.push(tokio::spawn(crate::vulndata::run(store.clone())));
     // switches read over SNMP (ports, neighbours, what is plugged in where)
-    tasks.push(tokio::spawn(crate::switches::run(store.clone(), coll.shared.clone())));
+    tasks.push(tokio::spawn(crate::switches::run(store.clone())));
     // scheduled backups of the database
-    tasks.push(tokio::spawn(crate::backups::run(store.clone(), coll.shared.clone(), cfg.backup_upstream.clone())));
+    tasks.push(tokio::spawn(crate::backups::run(store.clone(), cfg.collector.db.clone(), cfg.backup_upstream.clone())));
     // a low-severity alert 30 days before a commercial license expires, a higher-severity one
     // during its 7-day grace period after that (see `license::stage`)
     tasks.push(tokio::spawn(crate::license_alerts::run(store.clone(), cfg.license_file.clone(), coll.iface.mac, alerts.clone())));

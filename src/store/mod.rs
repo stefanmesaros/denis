@@ -119,7 +119,9 @@ pub struct TotpRecord {
     pub created_at: i64,
 }
 
-pub trait Store: Send + Sync {
+/// Devices, their edit history, and everything else keyed by asset id: baselines,
+/// presence, and the industrial (OT) conversations captured between them.
+pub trait AssetStore: Send + Sync {
     /// Every known asset (used to warm the in-memory inventory at startup).
     fn load_assets(&self) -> Result<Vec<Asset>>;
     /// Insert (id == 0) or update; assigns `asset.id` on insert.
@@ -127,16 +129,8 @@ pub trait Store: Send + Sync {
     fn get_asset(&self, id: i64) -> Result<Option<Asset>>;
     /// Lookup by the unique key `(agent_id, mac)`; `None` = the local collector.
     fn find_asset(&self, agent_id: Option<&str>, mac: &Mac) -> Result<Option<Asset>>;
-
-    /// Assigns `event.id`.
-    fn insert_event(&self, event: &mut Event) -> Result<()>;
-    /// Newest first.
-    fn list_events(&self, q: &EventQuery) -> Result<Vec<Event>>;
-    fn get_event(&self, id: i64) -> Result<Option<Event>>;
-    /// Returns false if no such event.
-    /// Events with `id > after`, oldest first: the export cursor's view.
-    fn events_after(&self, after: i64, limit: usize) -> Result<Vec<Event>>;
-    fn set_event_acked(&self, id: i64, acked: bool) -> Result<bool>;
+    /// Remove an asset and everything hanging off it (meta, baseline, presence, events).
+    fn delete_asset(&self, id: i64) -> Result<()>;
 
     fn load_baselines(&self) -> Result<Vec<Baseline>>;
     fn get_baseline(&self, asset_id: i64) -> Result<Option<Baseline>>;
@@ -145,46 +139,62 @@ pub trait Store: Send + Sync {
     fn load_presence(&self) -> Result<Vec<Presence>>;
     fn save_presence(&self, p: &Presence) -> Result<()>;
 
+    // ------------------------------------------------ industrial conversations
+    /// Insert or replace (by client, server, protocol, port).
+    fn save_conversations(&self, c: &[Conversation]) -> Result<()>;
+    fn list_conversations(&self) -> Result<Vec<Conversation>>;
+
+    // ------------------------------------------------ asset tracking (manual edits)
+    fn load_all_meta(&self) -> Result<HashMap<i64, AssetMeta>>;
+    fn get_meta(&self, asset_id: i64) -> Result<Option<AssetMeta>>;
+    fn save_meta(&self, asset_id: i64, meta: &AssetMeta, by: &str, ts: i64) -> Result<()>;
+}
+
+/// The event/alert stream: every observation the detector recorded, and which alerts a
+/// person has acknowledged.
+pub trait EventStore: Send + Sync {
+    /// Assigns `event.id`.
+    fn insert_event(&self, event: &mut Event) -> Result<()>;
+    /// Newest first.
+    fn list_events(&self, q: &EventQuery) -> Result<Vec<Event>>;
+    fn get_event(&self, id: i64) -> Result<Option<Event>>;
+    /// Events with `id > after`, oldest first: the export cursor's view.
+    fn events_after(&self, after: i64, limit: usize) -> Result<Vec<Event>>;
+    /// Returns false if no such event.
+    fn set_event_acked(&self, id: i64, acked: bool) -> Result<bool>;
+}
+
+/// Time-series trend samples (asset counts, alert rates, ...) kept for the Trends page.
+pub trait MetricStore: Send + Sync {
     fn insert_metrics(&self, m: &[Metric]) -> Result<()>;
     /// Samples with `since <= ts < until`, oldest first. `agent_id`: `None` = all
     /// collectors, `Some("")` = the local one.
     fn list_metrics(&self, since: i64, until: i64, agent_id: Option<&str>) -> Result<Vec<Metric>>;
     /// Delete samples older than `before`; returns how many.
     fn prune_metrics(&self, before: i64) -> Result<usize>;
+}
 
-    fn upsert_agent(&self, a: &AgentInfo) -> Result<()>;
-    fn get_agent(&self, id: &str) -> Result<Option<AgentInfo>>;
-    fn list_agents(&self) -> Result<Vec<AgentInfo>>;
-
-    // ------------------------------------------------ settings (branding, integrations)
-    /// Small key/value store for administrator settings and the logo image.
+/// Small key/value store for administrator settings (branding, integrations, the logo image).
+pub trait SettingsStore: Send + Sync {
     fn get_setting(&self, key: &str) -> Result<Option<Vec<u8>>>;
     fn set_setting(&self, key: &str, value: &[u8], ts: i64) -> Result<()>;
     fn delete_setting(&self, key: &str) -> Result<bool>;
+}
 
-    // ------------------------------------------------ industrial conversations
-    /// Insert or replace (by client, server, protocol, port).
-    fn save_conversations(&self, c: &[Conversation]) -> Result<()>;
-    fn list_conversations(&self) -> Result<Vec<Conversation>>;
+/// Saved compliance/inventory reports, made by hand or on a schedule.
+pub trait ReportStore: Send + Sync {
+    fn add_report(&self, meta: &ReportMeta, content: &[u8]) -> Result<i64>;
+    /// Without the content, newest first.
+    fn list_reports(&self) -> Result<Vec<ReportMeta>>;
+    fn get_report(&self, id: i64) -> Result<Option<(ReportMeta, Vec<u8>)>>;
+    fn delete_report(&self, id: i64) -> Result<bool>;
+    /// Keep only the newest `keep` reports of this kind; returns how many were removed.
+    fn prune_reports(&self, kind: &str, keep: usize) -> Result<usize>;
+}
 
-    // ------------------------------------------------ asset tracking
-    fn load_all_meta(&self) -> Result<HashMap<i64, AssetMeta>>;
-    fn get_meta(&self, asset_id: i64) -> Result<Option<AssetMeta>>;
-    fn save_meta(&self, asset_id: i64, meta: &AssetMeta, by: &str, ts: i64) -> Result<()>;
-    /// Remove an asset and everything hanging off it (meta, baseline, presence, events).
-    fn delete_asset(&self, id: i64) -> Result<()>;
-    /// A verified, owner-only copy of the whole database at `dest` (which must not exist).
-    fn backup_to(&self, dest: &std::path::Path) -> Result<()>;
-    /// Remove one remote site (or demo site) with all of its trend samples.
-    fn delete_agent_data(&self, agent_id: &str) -> Result<()>;
-    /// Empty the inventory and everything derived from it (devices, edits, alerts, baselines,
-    /// communications, presence, trends, remote sites). Users, sessions, the audit log,
-    /// channels, branding, rule settings and tokens are kept.
-    fn erase_inventory(&self) -> Result<()>;
-    /// Size and row counts, for the Health page.
-    /// `rows = false` skips counting the tables (counting a big table takes a moment).
-    fn stats(&self, rows: bool) -> Result<StoreStats>;
-
+/// Who may sign in and how: passwords, sessions, the authenticator app (TOTP), passkeys,
+/// and the long-lived tokens issued to scripts and remote agents.
+pub trait AuthStore: Send + Sync {
     // ------------------------------------------------ users and sessions
     /// Fails if the username (case-insensitive) exists.
     fn create_user(&self, username: &str, password_hash: &str, role: &str, must_change: bool, ts: i64) -> Result<User>;
@@ -204,27 +214,6 @@ pub trait Store: Send + Sync {
     fn delete_user_sessions(&self, user_id: i64, except: Option<&str>) -> Result<()>;
     fn prune_sessions(&self, now: i64) -> Result<usize>;
 
-    // ------------------------------------------------ audit trail
-    fn add_audit(&self, ts: i64, user: &str, action: &str, asset_id: Option<i64>, detail: &serde_json::Value) -> Result<()>;
-    /// Newest first.
-    /// Audit entries with `id > after`, oldest first (export cursor).
-    fn audit_after(&self, after: i64, limit: usize) -> Result<Vec<AuditEntry>>;
-    fn list_audit(&self, asset_id: Option<i64>, limit: usize) -> Result<Vec<AuditEntry>>;
-
-    // ------------------------------------------------ accepted risks
-    /// Record a decision. An earlier one for the same finding and device is withdrawn (replaced by this one).
-    fn add_risk_acceptance(&self, a: &RiskAcceptance) -> Result<i64>;
-    /// Every decision that has not been withdrawn (expired ones included: the caller checks `is_active`), newest first.
-    fn list_risk_acceptances(&self) -> Result<Vec<RiskAcceptance>>;
-    /// Withdraw a decision. `false` if there was none (or it was already withdrawn).
-    fn revoke_risk_acceptance(&self, id: i64, by: &str, ts: i64) -> Result<bool>;
-
-    // ------------------------------------------------ switches (SNMP topology)
-    /// Keep what a switch said (`Ok(json)`), or why polling it failed (`Err`): a failure keeps the older snapshot.
-    fn save_topo(&self, id: &str, now: i64, snapshot: Result<&str, &str>) -> Result<()>;
-    fn list_topo(&self) -> Result<Vec<TopoRow>>;
-    fn delete_topo(&self, id: &str) -> Result<()>;
-
     // ------------------------------------------------ authenticator app (TOTP)
     fn get_totp(&self, user_id: i64) -> Result<Option<TotpRecord>>;
     /// Keep a new secret until its first code is confirmed. `false` if a working one exists (switch it off first).
@@ -241,15 +230,6 @@ pub trait Store: Send + Sync {
     fn delete_totp(&self, user_id: i64) -> Result<bool>;
     /// Who has a working authenticator app.
     fn totp_enabled_users(&self) -> Result<std::collections::HashSet<i64>>;
-
-    // ------------------------------------------------ reports
-    fn add_report(&self, meta: &ReportMeta, content: &[u8]) -> Result<i64>;
-    /// Without the content, newest first.
-    fn list_reports(&self) -> Result<Vec<ReportMeta>>;
-    fn get_report(&self, id: i64) -> Result<Option<(ReportMeta, Vec<u8>)>>;
-    fn delete_report(&self, id: i64) -> Result<bool>;
-    /// Keep only the newest `keep` reports of this kind; returns how many were removed.
-    fn prune_reports(&self, kind: &str, keep: usize) -> Result<usize>;
 
     // ------------------------------------------------ per-agent tokens
     /// Replaces (revokes) any earlier token for the same agent.
@@ -274,4 +254,60 @@ pub trait Store: Send + Sync {
     fn list_api_tokens(&self) -> Result<Vec<ApiToken>>;
     fn revoke_api_token(&self, id: i64) -> Result<bool>;
     fn touch_api_token(&self, token_hash: &str, ts: i64) -> Result<()>;
+
+    // ----- per-site access grants (crate::access)
+    /// Every grant on record, as `(user_id, site, permission)`; `permission` is `"read"`,
+    /// `"write"` or `"none"`.
+    fn site_access_all(&self) -> Result<Vec<(i64, String, String)>>;
+    /// Replace every grant for one user with `rows` (site, permission).
+    fn site_access_set_for_user(&self, user_id: i64, rows: &[(String, String)]) -> Result<()>;
 }
+
+/// Everything else an administrator manages: remote agents, backups, the audit trail,
+/// accepted risks, and polled switch (SNMP) topology.
+pub trait AdminStore: Send + Sync {
+    fn upsert_agent(&self, a: &AgentInfo) -> Result<()>;
+    fn get_agent(&self, id: &str) -> Result<Option<AgentInfo>>;
+    fn list_agents(&self) -> Result<Vec<AgentInfo>>;
+
+    /// A verified, owner-only copy of the whole database at `dest` (which must not exist).
+    fn backup_to(&self, dest: &std::path::Path) -> Result<()>;
+    /// Remove one remote site (or demo site) with all of its trend samples.
+    fn delete_agent_data(&self, agent_id: &str) -> Result<()>;
+    /// Empty the inventory and everything derived from it (devices, edits, alerts, baselines,
+    /// communications, presence, trends, remote sites). Users, sessions, the audit log,
+    /// channels, branding, rule settings and tokens are kept.
+    fn erase_inventory(&self) -> Result<()>;
+    /// Size and row counts, for the Health page.
+    /// `rows = false` skips counting the tables (counting a big table takes a moment).
+    fn stats(&self, rows: bool) -> Result<StoreStats>;
+
+    // ------------------------------------------------ audit trail
+    fn add_audit(&self, ts: i64, user: &str, action: &str, asset_id: Option<i64>, detail: &serde_json::Value) -> Result<()>;
+    /// Audit entries with `id > after`, oldest first (export cursor).
+    fn audit_after(&self, after: i64, limit: usize) -> Result<Vec<AuditEntry>>;
+    /// Newest first.
+    fn list_audit(&self, asset_id: Option<i64>, limit: usize) -> Result<Vec<AuditEntry>>;
+
+    // ------------------------------------------------ accepted risks
+    /// Record a decision. An earlier one for the same finding and device is withdrawn (replaced by this one).
+    fn add_risk_acceptance(&self, a: &RiskAcceptance) -> Result<i64>;
+    /// Every decision that has not been withdrawn (expired ones included: the caller checks `is_active`), newest first.
+    fn list_risk_acceptances(&self) -> Result<Vec<RiskAcceptance>>;
+    /// Withdraw a decision. `false` if there was none (or it was already withdrawn).
+    fn revoke_risk_acceptance(&self, id: i64, by: &str, ts: i64) -> Result<bool>;
+
+    // ------------------------------------------------ switches (SNMP topology)
+    /// Keep what a switch said (`Ok(json)`), or why polling it failed (`Err`): a failure keeps the older snapshot.
+    fn save_topo(&self, id: &str, now: i64, snapshot: Result<&str, &str>) -> Result<()>;
+    fn list_topo(&self) -> Result<Vec<TopoRow>>;
+    fn delete_topo(&self, id: &str) -> Result<()>;
+}
+
+/// The full storage interface: everything above, bundled so a single `Arc<dyn Store>` can
+/// still be passed around and used through any of these traits' methods. Split into the
+/// traits above so each one can be depended on (and mocked) by name for what it actually
+/// needs, rather than all ~85 methods at once — see the individual traits for what each
+/// area covers. A backend implements the sub-traits it needs, then this one with an empty
+/// body (all its methods already exist via the supertraits).
+pub trait Store: AssetStore + EventStore + MetricStore + SettingsStore + ReportStore + AuthStore + AdminStore {}

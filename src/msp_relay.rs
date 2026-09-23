@@ -35,7 +35,7 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Asset, AssetMeta, Event};
-use crate::store::Store;
+use crate::store::{Store};
 
 pub const DEFAULT_INTERVAL_SECS: u64 = 60;
 /// Devices are re-sent in full at least this often even if nothing changed, so the MSP's copy
@@ -215,6 +215,8 @@ pub async fn run(store: std::sync::Arc<dyn Store>, upstream: Upstream) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::AssetStore;
+    use crate::store::EventStore;
     use crate::model::{Mac, OpenPort};
     use crate::store::sqlite::SqliteStore;
     use std::io::{Read, Write};

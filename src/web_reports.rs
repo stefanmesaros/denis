@@ -9,7 +9,7 @@ use serde_json::json;
 
 use crate::model::now_ts;
 use crate::reports::{self, Settings};
-use crate::web::{blocking, ApiError, AppState, AuthUser};
+use crate::web::common::{blocking, ApiError, AppState, AuthUser};
 use crate::web_admin::{audit, err};
 
 const E_DAYS: &str = "a report covers 1 to 365 days";
