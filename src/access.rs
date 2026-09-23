@@ -156,4 +156,21 @@ mod tests {
         assert!(Permission::Write.can_read() && Permission::Write.can_write());
         assert!(!Permission::None.can_read() && !Permission::None.can_write());
     }
+
+    #[test]
+    fn deleting_a_user_removes_their_grants_but_leaves_everyone_elses_alone() {
+        use crate::store::Store;
+        let store = SqliteStore::open_in_memory().unwrap();
+        let disabled = store.create_user("temp", "x", "viewer", true, 100).unwrap();
+        let other = store.create_user("kept", "x", "viewer", true, 100).unwrap();
+        set_for_user(&store, disabled.id, &[("site-a".into(), "none".into())], 100).unwrap();
+        set_for_user(&store, other.id, &[("site-a".into(), "read".into())], 100).unwrap();
+        store.update_user(disabled.id, None, Some(true), None, None).unwrap();
+
+        assert!(store.delete_user(disabled.id).unwrap());
+
+        let grants = load_all(&store);
+        assert!(grants.iter().all(|g| g.user_id != disabled.id), "{grants:?}");
+        assert_eq!(effective(&grants, other.id, "viewer", "site-a"), Permission::Read, "unrelated user's grant survives");
+    }
 }

@@ -274,6 +274,24 @@ impl SqliteStore {
                 tx.commit()?;
             }
         }
+        // Declared FKs (`events`/`baselines`/`presence`.asset_id, `passkeys`.user_id) were never
+        // actually enforced before this: SQLite defaults foreign_keys to OFF. Turned on only
+        // *after* the migrations above, in case an older schema step would behave differently
+        // with it on. `delete_asset`/`erase_inventory` already delete children before the parent
+        // row, so this changes no existing behaviour — it only catches a *future* bug that tries
+        // to skip that ordering. A pre-existing database could in principle already have orphans
+        // from before this line existed; that is not fatal (SQLite does not retroactively
+        // validate existing rows when the pragma is turned on), so this only logs, never refuses
+        // to start.
+        conn.pragma_update(None, "foreign_keys", true)?;
+        let mut violations = Vec::new();
+        conn.pragma_query(None, "foreign_key_check", |r| {
+            violations.push(r.get::<_, String>(0)?);
+            Ok(())
+        })?;
+        if !violations.is_empty() {
+            tracing::warn!("{} pre-existing foreign key violation(s) found (harmless, not fixed automatically): {:?}", violations.len(), violations);
+        }
         Ok(SqliteStore {
             conn: Mutex::new(conn),
         })
@@ -1029,6 +1047,21 @@ impl Store for SqliteStore {
         tx.execute("DELETE FROM passkeys WHERE user_id = ?1", params![id])?;
         tx.execute("DELETE FROM totp WHERE user_id = ?1", params![id])?;
         tx.execute("DELETE FROM totp_recovery WHERE user_id = ?1", params![id])?;
+        // `site_access` (crate::access) lives as one JSON list under a `settings` key, not a
+        // table `id` can reference, so no FK ever catches it. Filtering it here, inline, is the
+        // only way to keep it in the same transaction as the user itself: going through
+        // `access::set_for_user` would call back into this store and re-lock `self.conn`, which
+        // deadlocks (the lock this method holds is not reentrant).
+        let grants: Option<Vec<u8>> = tx.query_row("SELECT value FROM settings WHERE key = 'site_access'", [], |r| r.get(0)).optional()?;
+        if let Some(bytes) = grants {
+            if let Ok(mut list) = serde_json::from_slice::<Vec<crate::access::Grant>>(&bytes) {
+                let before = list.len();
+                list.retain(|g| g.user_id != id);
+                if list.len() != before {
+                    tx.execute("UPDATE settings SET value = ?1 WHERE key = 'site_access'", params![serde_json::to_vec(&list)?])?;
+                }
+            }
+        }
         let n = tx.execute("DELETE FROM users WHERE id = ?1", params![id])?;
         tx.commit()?;
         Ok(n == 1)
