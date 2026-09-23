@@ -2306,8 +2306,8 @@ mod tests {
         let mut w = watch("allow", "Only the HMI may talk to PLC 1");
         w.proto = "any".into();
         w.any_traffic = true;
-        w.targets = vec![crate::rules::Scope { kind: "device".into(), value: plc.id.to_string() }];
-        w.allowed_senders = vec![crate::rules::Scope { kind: "device".into(), value: hmi_asset.id.to_string() }];
+        w.targets = vec![crate::rules::Scope { kind: "device".into(), value: plc.id.to_string(), note: None }];
+        w.allowed_senders = vec![crate::rules::Scope { kind: "device".into(), value: hmi_asset.id.to_string(), note: None }];
         let mut c = cfg();
         c.ot_watches = vec![w];
         let mut d = Detector::new(c, vec![], 0);
@@ -2371,8 +2371,8 @@ mod tests {
         let mut c = cfg();
         let mut w = watch("w1", "Setpoint changes");
         w.commands = vec!["write variable".into()];
-        w.targets = vec![crate::rules::Scope { kind: "device".into(), value: plc.id.to_string() }];
-        w.allowed_senders = vec![crate::rules::Scope { kind: "device".into(), value: ews_asset.id.to_string() }];
+        w.targets = vec![crate::rules::Scope { kind: "device".into(), value: plc.id.to_string(), note: None }];
+        w.allowed_senders = vec![crate::rules::Scope { kind: "device".into(), value: ews_asset.id.to_string(), note: None }];
         c.ot_watches = vec![w];
         let mut d = Detector::new(c, vec![], 0);
         // learn the paths first, so only the watch can speak
@@ -2652,7 +2652,7 @@ mod tests {
         let other = asset(&s, MAC2, 0);
         let mut c = cfg();
         let mut w = it_watch("w1");
-        w.sources = vec![crate::rules::Scope { kind: "device".into(), value: cam.id.to_string() }];
+        w.sources = vec![crate::rules::Scope { kind: "device".into(), value: cam.id.to_string(), note: None }];
         c.it_watches = vec![w];
         let mut d = Detector::new(c, vec![], 0);
         // watches fire during the learning period too
@@ -2694,7 +2694,7 @@ mod tests {
         };
         // both conditions must hold: not the recorder AND not port 53
         assert_eq!(run(&|_, _| {}), vec![("192.168.1.99".to_string(), 554)], "only the flow outside both allow-lists");
-        assert!(run(&|w, _| w.except_sources = vec![crate::rules::Scope { kind: "device".into(), value: cam.id.to_string() }]).is_empty());
+        assert!(run(&|w, _| w.except_sources = vec![crate::rules::Scope { kind: "device".into(), value: cam.id.to_string(), note: None }]).is_empty());
         assert!(run(&|w, _| w.enabled = false).is_empty());
         assert!(run(&|_, c| { c.weights.insert(RULE_IT_WATCH.into(), 0.0); }).is_empty(), "the rule as a whole can be switched off");
         // an amount of data, and a protocol

@@ -280,6 +280,10 @@ button.chip, .chip.clickable { cursor: pointer; }
 .scope-add { align-items: center; margin-top: 4px; }
 .exceptions { margin-top: 8px; }
 .exceptions summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.exception-rows { margin: 4px 0; }
+.exception-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 4px 0; border-top: 1px solid var(--line); }
+.exception-row:first-child { border-top: 0; }
+.exception-row > div:first-child { flex: 1; min-width: 0; }
 .watch { border-top: 1px solid var(--line); padding: 8px 0; }
 .watch.off { opacity: .55; }
 .watch-actions { margin-left: auto; display: flex; gap: 6px; }

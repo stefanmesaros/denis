@@ -376,12 +376,14 @@ function renderAlerts() {
         type: 'button', text: e.acked ? tr('Undo') : tr('Acknowledge'),
         onclick: (ev) => { ev.stopPropagation(); ack(e.id, !e.acked); },
       }), can('admin') ? el('button', {
-        type: 'button', text: tr('Except'), title: exceptionLabel(e),
+        type: 'button', text: tr('Add exception'), title: exceptionLabel(e),
         onclick: async (ev) => {
           ev.stopPropagation();
           ev.target.disabled = true;
           const err = await exceptFromAlert(e);
-          if (err) { ev.target.disabled = false; showMessage(tr('Alert'), el('p', { text: err })); } else { ev.target.textContent = tr('Excepted'); }
+          if (err) { ev.target.disabled = false; showMessage(tr('Alert'), el('p', { text: err })); }
+          // on success the alert is gone (acknowledged, an exception now covers it) -- refresh()
+          // already re-renders this table, so there is nothing left here to update by hand
         },
       }) : null));
   }));
@@ -416,20 +418,31 @@ function exceptionLabel(e) {
   return tr('Except this device from this rule');
 }
 
+/** What to connect this exception's origin back to: the alert's own summary (already says what it
+ * connected to, or what command it sent) plus when — so the Rules page shows *why* the exception
+ * exists, not just that it does. */
+function exceptionNote(e) {
+  const summary = (e.raw_details && e.raw_details.summary) || e.type;
+  return summary + ' — ' + fmtTime(e.timestamp);
+}
+
 /**
  * One click, from an alert, to stop it happening again for this exact device: adds a device-scope
- * exception to the rule that raised it (the same thing the Rules page's own Exceptions section
- * does), or — for the administrator's own watches, which have no generic "exceptions" list of
- * their own — adds it to that one watch's except_sources/allowed_senders. Returns an error string,
- * or null on success.
+ * exception (with a note saying why) to the rule that raised it (the same thing the Rules page's
+ * own Exceptions section does), or — for the administrator's own watches, which have no generic
+ * "exceptions" list of their own — adds it to that one watch's except_sources/allowed_senders.
+ * The alert itself is acknowledged too: an exception now covers it, so it drops out of the
+ * unacknowledged list exactly like clicking Acknowledge would, without a second click.
+ * Returns an error string, or null on success.
  */
 async function exceptFromAlert(e) {
   const r = await api('GET', '/api/rules');
   if (!r.ok) return apiError(r);
   const d = r.json;
-  const scope = (id) => ({ kind: 'device', value: String(id) });
+  const scope = (id) => ({ kind: 'device', value: String(id), note: exceptionNote(e) });
   const alreadyExcepted = (list, id) => (list || []).some((s) => s.kind === 'device' && Number(s.value) === id);
 
+  let result;
   if (e.type === 'it_watch' || e.type === 'ot_command_watch') {
     const key = e.type === 'it_watch' ? 'it_watches' : 'ot_watches';
     const field = e.type === 'it_watch' ? 'except_sources' : 'allowed_senders';
@@ -448,14 +461,15 @@ async function exceptFromAlert(e) {
     }
     if (alreadyExcepted(list[idx][field], targetId)) return tr('Already excepted.');
     const nextWatch = { ...list[idx], [field]: [...(list[idx][field] || []), scope(targetId)] };
-    const res = await api('PUT', '/api/rules', { [key]: list.map((w, i) => (i === idx ? nextWatch : w)) });
-    return res.ok ? null : apiError(res);
+    result = await api('PUT', '/api/rules', { [key]: list.map((w, i) => (i === idx ? nextWatch : w)) });
+  } else {
+    const current = (d.exceptions || {})[e.type] || [];
+    if (alreadyExcepted(current, e.asset_id)) return tr('Already excepted.');
+    result = await api('PUT', '/api/rules', { exceptions: { [e.type]: [...current, scope(e.asset_id)] } });
   }
-
-  const current = (d.exceptions || {})[e.type] || [];
-  if (alreadyExcepted(current, e.asset_id)) return tr('Already excepted.');
-  const res = await api('PUT', '/api/rules', { exceptions: { [e.type]: [...current, scope(e.asset_id)] } });
-  return res.ok ? null : apiError(res);
+  if (!result.ok) return apiError(result);
+  await ack(e.id, true); // also refreshes: the alert drops off the (default, unacknowledged) list
+  return null;
 }
 
 /** An alert in full: what happened, why it scored what it did, and what to do about it. */
@@ -471,7 +485,7 @@ function showAlert(e, a) {
     el('div', { class: 'row' },
       a ? el('button', { type: 'button', text: tr('Open device'), onclick: () => { $('msg-dialog').close(); showDetail(a.id); } }) : null,
       can('admin') ? el('button', {
-        type: 'button', text: exceptionLabel(e),
+        type: 'button', text: tr('Add exception'), title: exceptionLabel(e),
         onclick: async (ev) => {
           ev.target.disabled = true;
           const err = await exceptFromAlert(e);

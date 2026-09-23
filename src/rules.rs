@@ -185,6 +185,11 @@ pub struct Scope {
     /// `device` (an asset id), `type` (a device type), `tag` or `cidr` (an IPv4 range like `10.0.5.0/24`).
     pub kind: String,
     pub value: String,
+    /// Free-text context for why this exists: filled in when the console added it for you (the
+    /// alert's own summary, from "Add exception" on an alert), blank for one entered by hand on
+    /// the Rules page. Never used for matching, only shown back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// Limits: a rule setting is small, and a request must not be able to make it big.
@@ -194,6 +199,10 @@ pub const MAX_IT_WATCHES: usize = 30;
 /// How many ports or addresses one IT watch may list.
 pub const MAX_LIST: usize = 30;
 pub const WATCH_PROTOS: &[&str] = &["any", "modbus", "s7", "enip", "dnp3", "bacnet", "opcua", "iec104", "fins", "hart-ip", "knxnet-ip", "mqtt", "coap", "tls", "modbus-tls", "opcua-tls", "iec104-tls", "dnp3-tls", "mqtt-tls"];
+
+/// A note over this length is truncated, not rejected: it is display-only context, never worth
+/// failing a whole request over.
+const MAX_NOTE: usize = 200;
 
 impl Scope {
     /// Validate and normalise what came in.
@@ -212,7 +221,11 @@ impl Scope {
             }
             other => return Err(format!("unknown exception kind {other:?} (device, type, tag or cidr)")),
         }
-        Ok(Scope { kind: self.kind.clone(), value })
+        let note = self.note.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(|s| {
+            let cleaned: String = s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+            cleaned.chars().take(MAX_NOTE).collect()
+        });
+        Ok(Scope { kind: self.kind.clone(), value, note })
     }
 
     /// Does this device fall under the scope?
@@ -782,7 +795,7 @@ mod tests {
     fn scopes_match_by_device_type_tag_and_network_and_are_validated() {
         let a = asset_at(7, "plc", [10, 1, 2, 3]);
         let meta = crate::model::AssetMeta { tags: vec!["Line1".into()], type_override: Some("hmi".into()), ..Default::default() };
-        let s = |k: &str, v: &str| Scope { kind: k.into(), value: v.into() };
+        let s = |k: &str, v: &str| Scope { kind: k.into(), value: v.into(), note: None };
         assert!(s("device", "7").matches(&a, None) && !s("device", "8").matches(&a, None));
         assert!(s("type", "PLC").matches(&a, None), "case-insensitive");
         assert!(!s("type", "plc").matches(&a, Some(&meta)) && s("type", "hmi").matches(&a, Some(&meta)), "a type set by hand wins");
@@ -792,6 +805,18 @@ mod tests {
             assert!(bad.check().is_err(), "{bad:?}");
         }
         assert_eq!(s("tag", "  Lab ").check().unwrap().value, "Lab");
+    }
+
+    #[test]
+    fn a_note_is_trimmed_cleaned_and_capped_but_never_rejects_the_scope() {
+        let with_note = |note: &str| Scope { kind: "device".into(), value: "7".into(), note: Some(note.into()) };
+        assert_eq!(with_note("  contacted 1.2.3.4  ").check().unwrap().note.as_deref(), Some("contacted 1.2.3.4"));
+        assert_eq!(with_note("").check().unwrap().note, None, "blank collapses to none, not an empty string");
+        assert_eq!(with_note("   ").check().unwrap().note, None);
+        assert_eq!(with_note("a\nb\tc").check().unwrap().note.as_deref(), Some("a b c"), "control characters become spaces, same as a value");
+        let long = "x".repeat(500);
+        assert_eq!(with_note(&long).check().unwrap().note.unwrap().chars().count(), MAX_NOTE, "cut, not rejected: it is display-only");
+        assert_eq!(Scope { kind: "device".into(), value: "7".into(), note: None }.check().unwrap().note, None);
     }
 
     #[test]
@@ -839,7 +864,7 @@ mod tests {
 
     fn it_watch() -> ItWatch {
         ItWatch {
-            id: "w1".into(), name: " Guest VLAN to the office ".into(), enabled: true, sources: vec![Scope { kind: "cidr".into(), value: "10.9.0.0/24".into() }],
+            id: "w1".into(), name: " Guest VLAN to the office ".into(), enabled: true, sources: vec![Scope { kind: "cidr".into(), value: "10.9.0.0/24".into(), note: None }],
             except_sources: vec![], proto: "tcp".into(), ports_mode: "only".into(), ports: vec![3389, 22, 22], remotes_mode: "only".into(),
             remotes: vec![" PRIVATE ".into(), "10.0.5.7".into(), "10.1.0.0/16".into()], min_kb: 0, score: 60, cooldown_minutes: 15,
         }

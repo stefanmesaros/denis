@@ -18,14 +18,9 @@ function scopeText(s) {
   return kind + ': ' + (s.kind === 'type' ? tr(s.value) : s.value);
 }
 
-/**
- * A list of scopes with a small form to add one. `onChange(list)` is called with the new list;
- * read-only (`editable` false) it only shows the chips.
- */
-function scopeEditor(list, onChange, editable) {
-  const chips = el('div', { class: 'chips' }, ...list.map((s, i) => el('span', { class: 'chip' }, scopeText(s),
-    editable ? el('button', { type: 'button', class: 'chip-x', title: tr('Remove'), text: '×', onclick: () => onChange(list.filter((_, j) => j !== i)) }) : null)));
-  if (!editable) return list.length ? chips : el('span', { class: 'muted small', text: tr('none') });
+/** The "add one" mini-form shared by scopeEditor and exceptionsEditor: a kind selector, a
+ * matching value input, and an Add button. */
+function scopeAddForm(list, onChange) {
   const kind = el('select', { 'aria-label': tr('What to match') }, ...SCOPE_KINDS().map(([v, t]) => el('option', { value: v, text: t })));
   const holder = el('span', {});
   let input;
@@ -49,7 +44,42 @@ function scopeEditor(list, onChange, editable) {
     if (list.some((s) => s.kind === kind.value && s.value === value)) return;
     onChange([...list, { kind: kind.value, value }]);
   } });
-  return el('div', {}, chips, el('div', { class: 'row scope-add' }, kind, holder, add));
+  return el('div', { class: 'row scope-add' }, kind, holder, add);
+}
+
+/**
+ * A list of scopes with a small form to add one. `onChange(list)` is called with the new list;
+ * read-only (`editable` false) it only shows the chips.
+ */
+function scopeEditor(list, onChange, editable) {
+  const chips = el('div', { class: 'chips' }, ...list.map((s, i) => el('span', { class: 'chip' }, scopeText(s),
+    editable ? el('button', { type: 'button', class: 'chip-x', title: tr('Remove'), text: '×', onclick: () => onChange(list.filter((_, j) => j !== i)) }) : null)));
+  if (!editable) return list.length ? chips : el('span', { class: 'muted small', text: tr('none') });
+  return el('div', {}, chips, scopeAddForm(list, onChange));
+}
+
+/**
+ * Exceptions specifically: a device-kind entry is shown as a row — who it actually is (name, MAC,
+ * IP) and, when the console added it for you ("Add exception" on an alert), why — instead of
+ * scopeEditor's plain "Device: <name>" chip, since an exception usually needs to be *recognised*
+ * at a glance, not just named. Non-device kinds (type/tag/network) still render as chips: there is
+ * no one device to describe. Same `onChange`/`editable` contract as scopeEditor.
+ */
+function exceptionsEditor(list, onChange, editable) {
+  const remove = (i) => onChange(list.filter((_, j) => j !== i));
+  const removeBtn = (i) => (editable ? el('button', { type: 'button', class: 'chip-x', title: tr('Remove'), text: '×', onclick: () => remove(i) }) : null);
+  const rows = list.map((s, i) => {
+    if (s.kind !== 'device') return el('span', { class: 'chip' }, scopeText(s), removeBtn(i));
+    const a = assetById(Number(s.value));
+    return el('div', { class: 'exception-row' },
+      el('div', {},
+        el('b', { text: a ? deviceLabel(a, '#' + s.value) : tr('device #{id} (no longer known)', { id: s.value }) }),
+        a ? el('span', { class: 'muted small', text: ' · ' + a.mac + (a.ip ? ' · ' + a.ip : '') }) : null),
+      s.note ? el('div', { class: 'muted small', text: s.note }) : null,
+      removeBtn(i));
+  });
+  const body = rows.length ? el('div', { class: 'exception-rows' }, ...rows) : el('span', { class: 'muted small', text: tr('none') });
+  return editable ? el('div', {}, body, scopeAddForm(list, onChange)) : body;
 }
 
 // -------------------------------------------------------------------------------------- rules page
@@ -106,10 +136,10 @@ async function loadRules() {
         el('div', { class: 'rule-controls' },
           el('label', { title: tr('1 = as designed, 0.5 = half as loud, 2 = twice as loud (scores are capped at 100)') }, tr('Weight (default {value})', { value: rule.default_weight }), w),
           el('label', { title: tr('Below this score this rule is only logged. Empty: use the minimum score above.') }, tr('Alert only from score'), own), ...params),
-        rule.id === 'ot_command_watch' || rule.id === 'it_watch' ? null : el('details', { class: 'exceptions', open: exceptions.length > 0 },
+        rule.id === 'ot_command_watch' || rule.id === 'it_watch' ? null : el('details', { class: 'exceptions', id: 'exceptions-' + rule.id, open: exceptions.length > 0 },
           el('summary', { text: exceptions.length ? tr('Exceptions ({n})', { n: exceptions.length }) : tr('Exceptions') }),
           el('p', { class: 'muted small', text: tr('This rule stays quiet about these devices, device types, tags or networks. For industrial alerts the sending device counts too.') }),
-          scopeEditor(exceptions, (list) => saveNow({ exceptions: { [rule.id]: list } }), edit)));
+          exceptionsEditor(exceptions, (list) => saveNow({ exceptions: { [rule.id]: list } }), edit)));
       on.onchange = () => { card.classList.toggle('off', !on.checked); if (on.checked && Number(w.value) === 0) w.value = String(rule.default_weight || 1); };
       cards.push(card);
     }
@@ -267,7 +297,7 @@ async function openWatchForm(prefill, done) {
   const sendersBox = el('div', {});
   const drawScopes = () => {
     targetsBox.replaceChildren(scopeEditor(targets, (l) => { targets = l; drawScopes(); }, true));
-    sendersBox.replaceChildren(scopeEditor(senders, (l) => { senders = l; drawScopes(); }, true));
+    sendersBox.replaceChildren(exceptionsEditor(senders, (l) => { senders = l; drawScopes(); }, true));
   };
   drawScopes();
   const flowsWarning = state.status && !state.status.flows_enabled
@@ -398,7 +428,7 @@ function openItWatchForm(prefill, done) {
   const exceptBox = el('div', {});
   const drawScopes = () => {
     sourcesBox.replaceChildren(scopeEditor(sources, (l) => { sources = l; drawScopes(); }, true));
-    exceptBox.replaceChildren(scopeEditor(except, (l) => { except = l; drawScopes(); }, true));
+    exceptBox.replaceChildren(exceptionsEditor(except, (l) => { except = l; drawScopes(); }, true));
   };
   drawScopes();
   const flowsWarning = state.status && !state.status.flows_enabled
