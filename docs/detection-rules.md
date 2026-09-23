@@ -114,6 +114,33 @@ minutes). Like OT watches, network watches **also fire during the learning perio
 rule's **weight** scales or, at 0, switches off all of them. Only what leaves or enters through the monitored interface
 is seen, so place the collector where the traffic is. Up to 30 watches.
 
+#### Five worked examples
+
+Each of these is one watch, added from *Rules* → **Your network watches** → **Add a watch**. All of them need `--flows`
+(traffic analysis) actually running — the page tells you plainly when it is not.
+
+1. **"Does this device talk to other devices on the network when it shouldn't?"** — an IoT gadget, a smart TV, a badge
+   reader: give it a device or tag, set **Addresses** to *any except these* and list `private` (the local network).
+   Anything it says to the internet is ignored; any local device it reaches — a laptop, a server, another gadget it has
+   no business with — alerts. To also flag it reaching the internet, add a second watch with **Addresses** set to
+   *only these* → `public`.
+2. **A printer or NAS that should only ever talk to one thing** — set **Devices** to the printer, **Addresses** to
+   *any except these* and list the one server it legitimately talks to (`10.0.5.10`, say) plus `private` if it also
+   needs the local network for discovery. Anything else it reaches alerts: exactly the "allow-list" pattern, tightened
+   to a single address instead of the whole LAN.
+3. **Cameras must never reach the internet** — **Devices**: the `camera` type (or a tag if you use one instead).
+   **Addresses**: *only these* → `public`. This is one of the ready-made presets, unchanged.
+4. **The guest network must not reach internal servers** — **Devices**: the guest subnet as a network
+   (`10.30.0.0/24`). **Addresses**: *only these* → `private`. Pair it with a **Ports** *only these* of `139, 445, 3389`
+   (SMB/RDP) if "reaching the internal network at all" is too broad and you only care about specific services.
+5. **An admin workstation should not itself be doing remote administration outward** — **Devices**: that one
+   workstation (or a tag like `no-outbound-admin`). **Ports**: *only these* → `22, 3389, 5900`. **Addresses**: leave as
+   *any* (or restrict to `public` if internal RDP/SSH from it is expected and only outbound matters). Catches the
+   workstation itself being used to reach out somewhere it normally wouldn't, not just being reached.
+
+The **except**-style watches (1, 2) are the ones worth learning first: instead of listing every bad destination (which
+you cannot know in advance), you list the *few good ones* and let the watch catch everything else.
+
 ## Industrial (OT) rules
 Details and examples are in the [OT guide](ot-guide.md). In short:
 

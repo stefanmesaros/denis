@@ -80,6 +80,7 @@ async function loadRules() {
     el('div', { class: 'rule-controls' }, el('label', {}, tr('Score'), minIn)));
 
   const cards = [];
+  cards.push(el('p', { class: 'muted small', text: '* ' + tr('needs traffic analysis (--flows), on the main interface or a mirror port') + (state.status && !state.status.flows_enabled ? ' — ' + tr('not currently running (see Health)') : '') }));
   for (const [group, title] of [['network', tr('Network rules')], ['ot', tr('Industrial (OT) rules')]]) {
     cards.push(el('div', { class: 'group-title', text: title }));
     if (group === 'ot') cards.push(watchesSection(edit, saveNow));
@@ -94,11 +95,14 @@ async function loadRules() {
         tr(p.label) + ' (' + tr(p.unit) + ')' + (p.overridden ? ' • ' + tr('changed') : ''),
         numInput(p.value, p.min, p.max, p.step, !edit, { id: 'rule-p-' + p.key, 'data-key': p.key })));
       const exceptions = (rulesData.exceptions || {})[rule.id] || [];
+      const needsFlows = /--flows|mirror port/.test(rule.needs);
+      const flowsMissing = needsFlows && state.status && !state.status.flows_enabled;
       const card = el('div', { class: 'rule-card' + (rule.enabled ? '' : ' off'), id: 'rule-' + rule.id },
         el('div', { class: 'rule-head' }, on, el('b', { text: tr(rule.title) }), el('code', { text: rule.id }),
+          needsFlows ? el('span', { class: 'muted small', title: tr('Needs traffic analysis (--flows).') }, ' *') : null,
           rule.overridden ? el('span', { class: 'changed', text: tr('changed') }) : null),
         el('p', { text: tr(rule.summary) }),
-        el('p', { class: 'muted', text: tr('Needs: {needs}', { needs: tr(rule.needs) }) }),
+        el('p', { class: flowsMissing ? 'form-error' : 'muted', text: (flowsMissing ? '⚠ ' : '') + tr('Needs: {needs}', { needs: tr(rule.needs) }) + (flowsMissing ? ' — ' + tr('not currently running') : '') }),
         el('div', { class: 'rule-controls' },
           el('label', { title: tr('1 = as designed, 0.5 = half as loud, 2 = twice as loud (scores are capped at 100)') }, tr('Weight (default {value})', { value: rule.default_weight }), w),
           el('label', { title: tr('Below this score this rule is only logged. Empty: use the minimum score above.') }, tr('Alert only from score'), own), ...params),
@@ -210,8 +214,9 @@ function watchesSection(edit, saveNow) {
       tr('Allowed senders') + ': ' + (w.allowed_senders.length ? w.allowed_senders.map(scopeText).join(', ') : tr('none')) + ' · ' +
       tr('at most one alert per {n} min', { n: w.cooldown_minutes }))));
   return el('div', { class: 'rule-card', id: 'watches' },
-    el('div', { class: 'rule-head' }, el('b', { text: tr('Your OT command watches') }), el('code', { text: 'ot_command_watch' })),
+    el('div', { class: 'rule-head' }, el('b', { text: tr('Your OT command watches') }), el('code', { text: 'ot_command_watch' }), el('span', { class: 'muted small', title: tr('Needs traffic analysis on a mirror port (--flows).') }, ' *')),
     el('p', { class: 'muted', text: tr('Be told when a specific command reaches a specific industrial device: a CPU stop, a program download, any write to a pump station. Exclude your own engineering station with "allowed senders". Watches also fire during the learning period.') }),
+    state.status && !state.status.flows_enabled ? el('p', { class: 'form-error', text: '⚠ ' + tr('Not currently running: traffic analysis on a mirror port (--flows) is off. Watches are saved but will not fire until it is on.') }) : null,
     ...rows,
     list.length ? null : el('p', { class: 'muted', text: tr('No watches yet.') }),
     edit ? el('div', { class: 'row' }, el('button', { type: 'button', class: 'primary', text: tr('Add a watch'), onclick: () => openWatchForm(null, (nw) => put([...list, nw])) })) : null);
@@ -265,9 +270,14 @@ async function openWatchForm(prefill, done) {
     sendersBox.replaceChildren(scopeEditor(senders, (l) => { senders = l; drawScopes(); }, true));
   };
   drawScopes();
+  const flowsWarning = state.status && !state.status.flows_enabled
+    ? el('div', { class: 'field-wide form-error', text: '⚠ ' + tr('Traffic analysis on a mirror port is not currently running: this watch is saved but will not fire until it is (see Health).') })
+    : null;
   openForm(isNew ? tr('Add an OT command watch') : tr('Edit the OT command watch'), [el('div', { class: 'form-grid' },
+    el('label', { class: 'check field-wide' }, enabled, ' ' + tr('Watch enabled')),
+    flowsWarning,
     el('div', { class: 'field-wide' }, field(tr('Name'), nameIn)),
-    field(tr('Start from'), preset),
+    isNew ? field(tr('Start from a ready-made watch, then adjust it below (optional)'), preset) : null,
     field(tr('Protocol'), proto),
     el('div', { class: 'field-wide' }, el('span', { class: 'label', text: tr('Alert when the command is') }),
       el('label', { class: 'check' }, anyTraffic, ' ' + tr('any communication at all, encrypted or not (use it with the targets and allowed senders below)')),
@@ -276,10 +286,12 @@ async function openWatchForm(prefill, done) {
       el('label', {}, tr('or a function whose name contains (comma separated)'), words),
       seen.size ? el('div', { class: 'muted small' }, tr('Seen on your network (click to add):'), seenBox) : null),
     el('div', { class: 'field-wide' }, el('span', { class: 'label', text: tr('Only when the target is (empty: any device)') }), targetsBox),
-    el('div', { class: 'field-wide' }, el('span', { class: 'label', text: tr('Never for these senders (for example your engineering station)') }), sendersBox),
+    el('details', { class: 'field-wide exceptions', open: senders.length > 0 },
+      el('summary', { text: senders.length ? tr('Never for these senders ({n})', { n: senders.length }) : tr('Never for these senders') }),
+      el('p', { class: 'muted small', text: tr('Optional: excludes senders that would otherwise match, for example your own engineering station.') }),
+      sendersBox),
     field(tr('Score of the alert (1–100)'), score),
-    field(tr('At most one alert per sender and target in this many minutes'), gap),
-    el('label', { class: 'check field-wide' }, enabled, ' ' + tr('On')))], {
+    field(tr('At most one alert per sender and target in this many minutes'), gap))], {
     onSubmit: async () => {
       const commands = words.value.split(',').map((x) => x.trim()).filter(Boolean);
       const nw = {
@@ -339,8 +351,9 @@ function itWatchesSection(edit, saveNow) {
       tr('Never for') + ': ' + (w.except_sources.length ? w.except_sources.map(scopeText).join(', ') : tr('none')) + ' · ' +
       tr('at most one alert per {n} min', { n: w.cooldown_minutes }))));
   return el('div', { class: 'rule-card', id: 'it-watches' },
-    el('div', { class: 'rule-head' }, el('b', { text: tr('Your network watches') }), el('code', { text: 'it_watch' })),
+    el('div', { class: 'rule-head' }, el('b', { text: tr('Your network watches') }), el('code', { text: 'it_watch' }), el('span', { class: 'muted small', title: tr('Needs traffic analysis (--flows).') }, ' *')),
     el('p', { class: 'muted', text: tr('Be told when devices you choose talk to addresses or ports you did not allow: cameras reaching the internet, a server using an unusual port, the guest network reaching the office. Needs traffic analysis (--flows). Watches also fire during the learning period.') }),
+    state.status && !state.status.flows_enabled ? el('p', { class: 'form-error', text: '⚠ ' + tr('Not currently running: traffic analysis (--flows) is off. Watches are saved but will not fire until it is on.') }) : null,
     ...rows,
     list.length ? null : el('p', { class: 'muted', text: tr('No watches yet.') }),
     edit ? el('div', { class: 'row' }, el('button', { type: 'button', class: 'primary', id: 'add-it-watch', text: tr('Add a watch'), onclick: () => openItWatchForm(null, (nw) => put([...list, nw])) })) : null);
@@ -388,19 +401,26 @@ function openItWatchForm(prefill, done) {
     exceptBox.replaceChildren(scopeEditor(except, (l) => { except = l; drawScopes(); }, true));
   };
   drawScopes();
+  const flowsWarning = state.status && !state.status.flows_enabled
+    ? el('div', { class: 'field-wide form-error', text: '⚠ ' + tr('Traffic analysis (--flows) is not currently running: this watch is saved but will not fire until it is (see Health).') })
+    : null;
   openForm(isNew ? tr('Add a network watch') : tr('Edit the network watch'), [el('div', { class: 'form-grid' },
+    el('label', { class: 'check field-wide' }, enabled, ' ' + tr('Watch enabled')),
+    flowsWarning,
     el('div', { class: 'field-wide' }, field(tr('Name'), nameIn)),
-    field(tr('Start from'), preset),
+    isNew ? field(tr('Start from a ready-made watch, then adjust it below (optional)'), preset) : null,
     field(tr('Protocol'), proto),
     el('div', { class: 'field-wide' }, el('span', { class: 'label', text: tr('For these devices (empty: any device)') }), sourcesBox),
-    el('div', { class: 'field-wide' }, el('span', { class: 'label', text: tr('Never for these devices') }), exceptBox),
+    el('details', { class: 'field-wide exceptions', open: except.length > 0 },
+      el('summary', { text: except.length ? tr('Never for these devices ({n})', { n: except.length }) : tr('Never for these devices') }),
+      el('p', { class: 'muted small', text: tr('Optional: excludes devices that would otherwise match.') }),
+      exceptBox),
     field(tr('Talking on'), portsMode), field(tr('Ports (comma separated)'), ports),
     field(tr('Talking to'), remotesMode), field(tr('Addresses (comma separated)'), remotes),
     el('div', { class: 'field-wide muted small' }, tr('Use the words public (the internet) and private (the local network), single addresses, or networks like 10.0.5.0/24.'), chips),
     field(tr('Only when at least this many kB moved in 10 seconds (0: any amount)'), minKb),
     field(tr('Score of the alert (1–100)'), score),
-    field(tr('At most one alert per device, address and port in this many minutes'), gap),
-    el('label', { class: 'check field-wide' }, enabled, ' ' + tr('On')))], {
+    field(tr('At most one alert per device, address and port in this many minutes'), gap))], {
     onSubmit: async () => {
       const nw = {
         id: w.id || Math.random().toString(36).slice(2, 10).replace(/[^a-z0-9]/g, 'x'), name: nameIn.value.trim(), enabled: enabled.checked,
