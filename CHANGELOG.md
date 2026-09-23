@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.10.0: security and reliability fixes from an architectural audit
+
+* **Fixed: a device's own endpoints were not site-scoped** (IDOR). `/api/assets` already filtered
+  by site access, but `/api/assets/{id}`, its `/baseline` and `/history` did not — a viewer
+  restricted to "none" on a site could still read a device's full record, traffic baseline and
+  edit history directly by id (sequential integers, trivially enumerable). Only matters for
+  installs that use per-site access (MSP deployments). Also fixed the same gap in `POST
+  /api/findings/{id}/verify`. Every case now answers 404 for both "does not exist" and "exists but
+  you cannot see it", so existence itself is never leaked.
+* **Fixed: a single panic could wedge every request until restart.** The whole database sat behind
+  one lock; a panic anywhere while it was held "poisoned" it, and every request afterwards (from
+  any user) panicked too, forever. A poisoned lock now recovers instead (the data behind it is
+  still consistent either way), for the database connection and every simple status/cache lock.
+  Left deliberately as-is, with a comment, wherever recovering could paper over real inconsistency
+  (the in-memory device register and detector state).
+* **Fixed: declared foreign keys were never enforced**, and deleting a disabled user left their
+  per-site access grants behind forever (they live in a settings blob, not a table, so no FK ever
+  caught them). Foreign keys are now actually on; `delete_user` cleans up its grants in the same
+  transaction.
+
 ## 1.9.0: browse customers' uploaded backups from the console; several mirror interfaces at once
 
 * **Settings → Health → "Customers' uploaded backups"**: an MSP can now find and download a given
