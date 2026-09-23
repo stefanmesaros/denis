@@ -339,7 +339,7 @@
       <section id="view-settings" hidden>
         <p class="muted">Settings for the whole installation. Only administrators see this page; every change is written to the <a href="#audit">audit log</a>.</p>
         <nav class="subnav" aria-label="Settings sections">
-          <a href="#settings/branding">Branding (white label)</a><a href="#settings/overview">MSP view</a><a href="#settings/license">License</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/vulndata">Software data</a><a href="#settings/switches">Switches (SNMP)</a><a href="#settings/security">Sign-in security</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
+          <a href="#settings/branding">Branding (white label)</a><a href="#settings/overview">MSP view</a><a href="#settings/license">License</a><a href="#settings/interfaces">Network interfaces</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/vulndata">Software data</a><a href="#settings/switches">Switches (SNMP)</a><a href="#settings/security">Sign-in security</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
         </nav>
         <div id="branding-box" hidden>
           <h3 class="section">Branding (white label)</h3>
@@ -375,6 +375,19 @@
           <div id="license-status" class="muted"></div>
           <div class="row"><textarea id="license-text" rows="3" placeholder="Paste the two lines of a license file here…"></textarea></div>
           <div class="row"><button id="license-save" type="button">Save license</button><button id="license-remove" type="button" hidden>Remove license</button><span id="license-msg" class="muted"></span></div>
+        </div>
+        <div id="interfaces-box" hidden>
+          <h3 class="section">Network interfaces</h3>
+          <p class="muted">The discovery interface does ARP sweeps, port scans and everything else DENIS does today. The
+            mirror interface (optional) is capture-only — never probed, never used for discovery — for a switch
+            mirror/SPAN port: it sees traffic between other devices that a normal port never would. Changing either
+            needs a restart to take effect.</p>
+          <div id="interfaces-status" class="muted"></div>
+          <div class="row">
+            <label>Discovery interface<select id="iface-select"><option value="">(auto)</option></select></label>
+            <label>Mirror interface (optional)<select id="mirror-iface-select"><option value="">(none)</option></select></label>
+          </div>
+          <div class="row"><button id="interfaces-save" type="button">Save</button><span id="interfaces-msg" class="muted"></span></div>
         </div>
         <div id="tls-box" hidden>
           <h3 class="section">HTTPS certificate</h3>

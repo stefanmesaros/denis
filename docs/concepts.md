@@ -30,6 +30,10 @@ A network switch sends each machine only the traffic addressed to it, plus broad
   * on a **mirror/SPAN port** or network tap of a switch, or
   * one collector per segment.
 * On an ordinary server on an ordinary port, `--flows` sees only that server's own traffic.
+* **`--mirror-iface`** lets one instance do both at once: `--iface` keeps doing discovery exactly
+  as above, and a second, capture-only interface (plugged into a mirror/SPAN port) is decoded into
+  the same flow accounting — no second `denis` process needed. See
+  [Deployment](deployment.md#a-second-mirror-port-interface-for-whole-network-flow-visibility).
 
 Put **one collector per network segment**. Two collectors on the same segment report every device twice.
 

@@ -26,8 +26,15 @@ const THROTTLE: Duration = Duration::from_secs(5);
 /// Open the interface and install the kernel filter. Fails fast, with an
 /// actionable hint, when the process lacks capture privileges.
 pub fn open(iface: &Iface, flows: bool) -> Result<Capture<Active>> {
+    open_named(&iface.name, flows)
+}
+
+/// As `open`, but by interface name alone: no IPv4 address is required. A
+/// mirror/SPAN destination port never has (or needs) an address of its own,
+/// so this is what a second, capture-only interface uses.
+pub fn open_named(name: &str, flows: bool) -> Result<Capture<Active>> {
     let builder = || {
-        Capture::from_device(iface.name.as_str()).map(|c| {
+        Capture::from_device(name).map(|c| {
             c.snaplen(1600)
                 .timeout(500)
                 .immediate_mode(true)
@@ -41,13 +48,12 @@ pub fn open(iface: &Iface, flows: bool) -> Result<Capture<Active>> {
         // fine because we only need traffic addressed to or broadcast on the LAN.
         Err(e) if !is_permission_error(&e) => builder()
             .and_then(|c| c.promisc(false).open())
-            .with_context(|| format!("opening {} for capture ({e})", iface.name))?,
-        Err(e) => bail!("cannot open {} for capture: {e}\n{}", iface.name, permission_hint()),
+            .with_context(|| format!("opening {name} for capture ({e})"))?,
+        Err(e) => bail!("cannot open {name} for capture: {e}\n{}", permission_hint()),
     };
     if cap.get_datalink() != Linktype::ETHERNET {
         bail!(
-            "{} is not an Ethernet-framed interface (link type {:?}); pick another with --iface",
-            iface.name,
+            "{name} is not an Ethernet-framed interface (link type {:?}); pick another",
             cap.get_datalink()
         );
     }

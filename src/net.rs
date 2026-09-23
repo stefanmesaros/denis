@@ -69,6 +69,27 @@ pub fn list_interfaces() -> Result<Vec<Iface>> {
     Ok(out)
 }
 
+/// Every up, non-loopback, non-point-to-point interface, whether or not it has
+/// an IPv4 address. A mirror/SPAN destination port usually has none, so this
+/// (unlike `list_interfaces`) is what offers it as a candidate.
+pub fn list_all_up() -> Result<Vec<String>> {
+    let mut names: std::collections::BTreeSet<String> = Default::default();
+    for ifa in getifaddrs()? {
+        let usable = ifa.flags.contains(InterfaceFlags::IFF_UP | InterfaceFlags::IFF_RUNNING)
+            && !ifa.flags.intersects(InterfaceFlags::IFF_LOOPBACK | InterfaceFlags::IFF_POINTOPOINT);
+        if usable {
+            names.insert(ifa.interface_name.clone());
+        }
+    }
+    Ok(names.into_iter().collect())
+}
+
+/// True if `name` names an up, non-loopback interface, with or without an
+/// IPv4 address: used to validate a mirror/SPAN interface before capture.
+pub fn exists_up(name: &str) -> Result<bool> {
+    Ok(list_all_up()?.iter().any(|n| n == name))
+}
+
 /// Choose the interface to monitor: the one holding the default route if it can
 /// be determined, otherwise the first private-range candidate.
 pub fn select(name: Option<&str>) -> Result<Iface> {

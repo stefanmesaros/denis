@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.6.0: a second, mirror-port interface — for whole-network flow visibility from one box
+
+* **`denis run --mirror-iface eth1`**: a second, capture-only interface alongside the usual
+  `--iface`. The main interface keeps doing exactly what it does today (ARP sweeps, port scans,
+  discovery); the mirror interface is never probed and never used for discovery — it only decodes
+  traffic into the same flow accounting (`new_destination`, `new_port`, `volume_anomaly`,
+  `threat_list_match`), correlated to known devices by MAC. This is what a switch's mirror/SPAN
+  destination port is for: plugged in there, one DENIS instance sees traffic between *other*
+  devices that a normal switch port never forwards to it — no second `denis` process, no agent,
+  no separate database needed just to test it. Implies `--flows`. See `denis interfaces`, which
+  now also lists interfaces usable only as a mirror target (no IPv4 address needed for that role).
+* **Settings → Network interfaces**: pick both interfaces from a dropdown instead of editing
+  command-line flags or a systemd unit. A GUI-set choice takes priority over `--iface`/
+  `--mirror-iface`, same as a pasted license already takes priority over `--license-file` — but
+  unlike a license, a changed interface needs a restart to take effect (capture is opened once, at
+  start-up), which the console says plainly.
+
 ## 1.5.0: renamed to MSP view; live devices and alerts can reach an MSP
 
 * The tab and setting from 1.4.0 are renamed **Overview → MSP view**, to say plainly what it is for.

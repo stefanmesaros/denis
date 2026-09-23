@@ -36,6 +36,10 @@ use crate::{active, trends, web};
 /// Everything the collector needs; shared by `run` and `agent`.
 pub struct CollectorConfig {
     pub iface: Option<String>,
+    /// A second, capture-only interface (a mirror/SPAN destination port):
+    /// never probed, never used for discovery, just decoded into flows on the
+    /// same footing as the main interface. Implies `flows`.
+    pub mirror_iface: Option<String>,
     pub db: PathBuf,
     /// How often to re-run the ARP sweep.
     pub sweep_interval: Duration,
@@ -68,6 +72,7 @@ impl Default for CollectorConfig {
     fn default() -> Self {
         CollectorConfig {
             iface: None,
+            mirror_iface: None,
             db: PathBuf::from("denis.db"),
             sweep_interval: Duration::from_secs(300),
             rescan_interval: Duration::from_secs(1800),
@@ -156,6 +161,8 @@ pub struct StatusInfo {
     pub version: &'static str,
     pub mode: &'static str,
     pub interface: String,
+    /// A second, mirror/SPAN capture-only interface, if configured and open.
+    pub mirror_interface: Option<String>,
     pub ip: Ipv4Addr,
     pub mac: Mac,
     pub subnet: String,
@@ -286,6 +293,8 @@ struct Collector {
     inv: Arc<Mutex<Inventory>>,
     shared: Arc<Shared>,
     capture: CaptureThread,
+    /// A second, capture-only interface (mirror/SPAN port), if configured.
+    mirror_capture: Option<CaptureThread>,
     /// Closed flow / conversation windows.
     flow_rx: mpsc::Receiver<FlowBatch>,
     /// New assets and signals from each flush (assets already stored, with ids).
@@ -312,6 +321,19 @@ impl Collector {
         // clearest error rather than a half-started daemon.
         let cap = capture::open(&iface, cfg.flows)?;
 
+        // The mirror/SPAN interface, if any: capture-only, never probed, never
+        // used for discovery or as a sweep target. It rarely has an IPv4
+        // address of its own, so it is validated and opened by name alone.
+        let mirror_cap = match &cfg.mirror_iface {
+            Some(name) => {
+                if !net::exists_up(name)? {
+                    anyhow::bail!("mirror interface {name:?} not found or not up (try `denis interfaces`)");
+                }
+                Some(capture::open_named(name, true)?)
+            }
+            None => None,
+        };
+
         let frames = Arc::new(AtomicU64::new(0));
         let mut notes = Vec::new();
         if cfg.passive_only {
@@ -325,6 +347,7 @@ impl Collector {
                 version: env!("CARGO_PKG_VERSION"),
                 mode,
                 interface: iface.name.clone(),
+                mirror_interface: cfg.mirror_iface.clone(),
                 ip: iface.ip,
                 mac: iface.mac,
                 subnet: iface.net.to_string(),
@@ -367,7 +390,20 @@ impl Collector {
             // Industrial decoding needs the same wide capture as flow accounting.
             ot: cfg.flows,
         };
-        let capture = capture::spawn(cap, ctx, tx.clone(), frames, shared.capture_stats.clone());
+        let capture = capture::spawn(cap, ctx, tx.clone(), frames.clone(), shared.capture_stats.clone());
+        // Same subnet/own-address context as the main interface (it is the
+        // same LAN); it always decodes the wide filter, regardless of `--flows`,
+        // since a mirror port exists for no other reason.
+        let mirror_capture = mirror_cap.map(|cap2| {
+            let ctx2 = Ctx {
+                subnet: iface.net,
+                own_mac: iface.mac,
+                own_ip: iface.ip,
+                flows: true,
+                ot: true,
+            };
+            capture::spawn(cap2, ctx2, tx.clone(), frames.clone(), shared.capture_stats.clone())
+        });
 
         inv.lock().unwrap().apply(
             Observation::SelfHost {
@@ -436,6 +472,7 @@ impl Collector {
             inv,
             shared,
             capture,
+            mirror_capture,
             flow_rx,
             new_rx,
             scheduler,
@@ -447,6 +484,9 @@ impl Collector {
     async fn shutdown(self) {
         self.scheduler.abort();
         self.capture.stop(); // drops the capture's sender clone
+        if let Some(m) = self.mirror_capture {
+            m.stop();
+        }
         // The aborted scheduler held the last other sender, so the channel is
         // now closed and the aggregator performs its final flush.
         let _ = tokio::time::timeout(Duration::from_secs(5), self.aggregator).await;
@@ -535,6 +575,7 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
             version: env!("CARGO_PKG_VERSION"),
             mode: "viewer",
             interface: "-".into(),
+            mirror_interface: None,
             ip: Ipv4Addr::UNSPECIFIED,
             mac: Mac([0; 6]),
             subnet: "-".into(),
@@ -592,8 +633,13 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
 }
 
 /// Standalone / master mode.
-pub async fn run(cfg: Config) -> Result<()> {
+pub async fn run(mut cfg: Config) -> Result<()> {
     let store: Arc<dyn Store> = Arc::new(SqliteStore::open(&cfg.collector.db)?);
+    // A GUI-configured interface (Settings) takes priority over the CLI
+    // flags, same as a pasted license does over --license-file.
+    let (iface, mirror_iface) = crate::capture_config::effective(&*store, cfg.collector.iface.clone(), cfg.collector.mirror_iface.clone());
+    cfg.collector.iface = iface;
+    cfg.collector.mirror_iface = mirror_iface;
     if cfg.no_auth && !cfg.listen.ip().is_loopback() {
         anyhow::bail!("--insecure-no-auth is only allowed when the UI listens on a loopback address");
     }
@@ -1155,6 +1201,7 @@ pub fn test_shared_at(db_path: std::path::PathBuf) -> Arc<Shared> {
             version: "test",
             mode: "standalone",
             interface: "test0".into(),
+            mirror_interface: None,
             ip: Ipv4Addr::new(192, 168, 1, 2),
             mac: Mac([2, 0, 0, 0, 0, 1]),
             subnet: "192.168.1.0/24".into(),

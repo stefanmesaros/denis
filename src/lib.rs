@@ -12,6 +12,7 @@ pub mod banners;
 pub mod backups;
 pub mod branding;
 pub mod capture;
+pub mod capture_config;
 pub mod certs;
 pub mod channels;
 pub mod compliance;

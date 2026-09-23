@@ -271,6 +271,33 @@ large, constant stream of traffic:
 * This does **not** replace `--backup-upstream` above — run both if you want live visibility *and*
   a backup copy; they are independent and one does not require the other.
 
+## A second, mirror-port interface for whole-network flow visibility
+
+`--flows` only sees traffic that crosses the interface DENIS listens on (see
+[Concepts](concepts.md#visibility-what-can-be-seen-from-where)). Normally that means a separate
+`denis` instance on the router itself, or on a mirror/SPAN port. `--mirror-iface` lets one
+instance do both jobs at once, on one machine:
+
+```bash
+denis run --iface eth0 --mirror-iface eth1
+```
+
+* `--iface` (`eth0` above) is unchanged from today: ARP sweeps, port scans, everything discovery
+  does.
+* `--mirror-iface` (`eth1` above) is capture-only — never probed, never used for discovery, never
+  needs an IPv4 address of its own (a mirror/SPAN destination port usually has none; `denis
+  interfaces` lists it separately for that reason). It is decoded into the same flow accounting as
+  `--iface`, correlated to already-known devices by MAC address; traffic from a device DENIS has
+  not discovered yet is dropped until discovery (on `--iface`) finds it. Implies `--flows`.
+
+Typical wiring: the switch's uplink to the router/firewall is mirrored to a spare switch port, fed
+into a second NIC (or a USB-Ethernet adapter) on the same server that already runs DENIS.
+
+**Settings → Network interfaces** lets an administrator pick both from a dropdown instead of
+editing the command line; a GUI-set choice takes priority over `--iface`/`--mirror-iface`, but
+(unlike most console settings) needs a restart to take effect, since capture is opened once, at
+start-up.
+
 ## Alert notifications
 
 Configure **Slack, Teams, Discord, PagerDuty, Pushover, ntfy, e-mail and signed webhooks** in the console (*Alerting* tab, see [Alerting](alerting.md)); no restart, per-channel thresholds, a Test button. The simple command-line webhook below is the older way and still works:

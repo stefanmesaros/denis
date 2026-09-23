@@ -179,6 +179,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/branding", get(admin::branding_get).put(admin::branding_put))
         .route("/api/license", get(admin::license_get).put(admin::license_put).delete(admin::license_delete))
         .route("/api/msp-overview", put(admin::msp_overview_put))
+        .route("/api/interfaces", get(admin::interfaces_get).put(admin::interfaces_put))
         .route("/api/branding/logo", axum::routing::put(admin::logo_put).delete(admin::logo_delete).layer(DefaultBodyLimit::max(crate::branding::MAX_LOGO_BYTES + 1024)))
         .route("/branding/logo", get(admin::logo_get))
         .fallback(static_file)
@@ -206,7 +207,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path == "/api/reports/settings") && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path == "/api/reports/settings") && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -1019,6 +1020,42 @@ mod tests {
         let (st, _, v) = send(&app, req("DELETE", "/api/license", Some(&admin), None)).await;
         assert_eq!(st, StatusCode::OK);
         assert_eq!(v["installed"], false);
+    }
+
+    #[tokio::test]
+    async fn a_mirror_interface_can_be_configured_from_settings_by_an_admin_only_and_cleared_again() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+
+        // any signed-in role can see the candidates and the (empty) configuration
+        let (st, _, v) = send(&app, req("GET", "/api/interfaces", Some(&viewer), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["configured_iface"], serde_json::Value::Null);
+        assert_eq!(v["configured_mirror_iface"], serde_json::Value::Null);
+        assert!(v["mains"].is_array() && v["all"].is_array());
+
+        // only an admin may set it
+        let body = serde_json::json!({"iface": "eth0", "mirror_iface": "eth1"});
+        assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&viewer), Some(body.clone()))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&editor), Some(body.clone()))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&admin), Some(body))).await.0, StatusCode::NO_CONTENT);
+
+        // the choice is now reflected, for everyone, and it is persisted (not just cached)
+        let (_, _, v) = send(&app, req("GET", "/api/interfaces", Some(&viewer), None)).await;
+        assert_eq!((v["configured_iface"].as_str(), v["configured_mirror_iface"].as_str()), (Some("eth0"), Some("eth1")));
+        assert_eq!(crate::capture_config::load(&*store).iface.as_deref(), Some("eth0"));
+
+        // the two must differ
+        let same = serde_json::json!({"iface": "eth0", "mirror_iface": "eth0"});
+        assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&admin), Some(same))).await.0, StatusCode::BAD_REQUEST);
+
+        // clearing the mirror interface (omitting it, i.e. null) leaves the main one alone
+        let clear_mirror = serde_json::json!({"iface": "eth0"});
+        assert_eq!(send(&app, req("PUT", "/api/interfaces", Some(&admin), Some(clear_mirror))).await.0, StatusCode::NO_CONTENT);
+        let (_, _, v) = send(&app, req("GET", "/api/interfaces", Some(&viewer), None)).await;
+        assert_eq!((v["configured_iface"].as_str(), v["configured_mirror_iface"].as_str()), (Some("eth0"), None));
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("interfaces.set"), "{audit}");
     }
 
     #[tokio::test]

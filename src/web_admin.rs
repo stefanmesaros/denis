@@ -380,6 +380,59 @@ pub(crate) async fn license_delete(State(st): State<AppState>, Extension(AuthUse
     Ok(Json(license_json(&crate::web::effective_license(&st))).into_response())
 }
 
+// -------------------------------------------------------------------- capture interfaces
+
+/// Candidates for `--iface` (need an IPv4 address) and for `--mirror-iface`
+/// (any up interface: a mirror/SPAN port usually has none), plus the
+/// GUI-configured choice (if any) and what is actually running right now.
+/// Changing this needs a restart, since capture is opened once at start-up —
+/// the console says so; this only lets you queue the change.
+pub(crate) async fn interfaces_get(State(st): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let (mains, all) = tokio::task::spawn_blocking(|| {
+        let mains: Vec<Value> = crate::net::list_interfaces().unwrap_or_default().iter().map(|i| json!({ "name": i.name, "ip": i.ip.to_string() })).collect();
+        let all: Vec<String> = crate::net::list_all_up().unwrap_or_default();
+        (mains, all)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!(e))?;
+    let configured = crate::capture_config::load(&*st.store);
+    let running = st.shared.snapshot();
+    Ok(Json(json!({
+        "mains": mains,
+        "all": all,
+        "configured_iface": configured.iface,
+        "configured_mirror_iface": configured.mirror_iface,
+        "running_iface": running.interface,
+        "running_mirror_iface": running.mirror_interface,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct InterfacesPut {
+    /// `None`/omitted clears the override (falls back to `--iface`/auto-detect).
+    #[serde(default)]
+    iface: Option<String>,
+    #[serde(default)]
+    mirror_iface: Option<String>,
+}
+
+pub(crate) async fn interfaces_put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<InterfacesPut>) -> Result<Response, ApiError> {
+    if b.iface.as_deref() == Some("") || b.mirror_iface.as_deref() == Some("") {
+        return Ok(err(StatusCode::BAD_REQUEST, "pass null, not an empty string, to clear an interface"));
+    }
+    if b.iface.is_some() && b.iface == b.mirror_iface {
+        return Ok(err(StatusCode::BAD_REQUEST, "the discovery and mirror interfaces must be different"));
+    }
+    let now = now_ts();
+    let store = st.store.clone();
+    let (iface, mirror) = (b.iface.clone(), b.mirror_iface.clone());
+    tokio::task::spawn_blocking(move || crate::capture_config::save(&*store, iface.as_deref(), mirror.as_deref(), now))
+        .await
+        .map_err(|e| anyhow::anyhow!(e))??;
+    audit(&st, &me.username, "interfaces.set", None, json!({ "iface": b.iface, "mirror_iface": b.mirror_iface }));
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
 // -------------------------------------------------------------------- TLS
 
 /// The certificate the console is served with.
