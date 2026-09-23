@@ -337,6 +337,25 @@ fn upload(upstream: &Upstream, file: &Path) -> Result<()> {
     Ok(())
 }
 
+/// One upload-schedule check: sends the newest local backup if the upload schedule is due.
+/// Returns the file's name and the send's own result, or `None` when nothing was due. The
+/// schedule slot (`UPLOAD_LAST_KEY`) is only consumed on a *successful* send — an MSP that is
+/// down, or a bad token, must not silently cost a whole schedule interval; the next tick (the
+/// loop calling this checks every 15 minutes, regardless of the schedule itself) tries again.
+fn upload_if_due(store: &dyn Store, db_path: &Path, upstream: &Upstream, now: i64) -> Result<Option<(String, Result<()>)>> {
+    let up_settings = load_upload_settings(store)?;
+    if !due_by(up_settings.interval(), last_upload(store), now) {
+        return Ok(None);
+    }
+    let Some(newest) = list(db_path).into_iter().next() else { return Ok(None) };
+    let path = dir(db_path).join(&newest.name);
+    let result = upload(upstream, &path);
+    if result.is_ok() {
+        set_last_upload(store, now);
+    }
+    Ok(Some((newest.name, result)))
+}
+
 /// Background task: take the scheduled backup when it is due, and push it upstream if configured.
 pub async fn run(store: std::sync::Arc<dyn Store>, db_path: PathBuf, upstream: Option<Upstream>) {
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(900));
@@ -367,29 +386,13 @@ pub async fn run(store: std::sync::Arc<dyn Store>, db_path: PathBuf, upstream: O
         // push whatever the newest local backup happens to be right now.
         let Some(up) = upstream.clone() else { continue };
         let (s, sh) = (store.clone(), db_path.clone());
-        let due = tokio::task::spawn_blocking(move || -> Result<Option<PathBuf>> {
-            let up_settings = load_upload_settings(&*s)?;
-            let now = crate::model::now_ts();
-            if !due_by(up_settings.interval(), last_upload(&*s), now) {
-                return Ok(None);
-            }
-            let Some(newest) = list(&sh).into_iter().next() else { return Ok(None) };
-            set_last_upload(&*s, now);
-            Ok(Some(dir(&sh).join(newest.name)))
-        })
-        .await;
-        match due {
-            Ok(Ok(Some(path))) => {
-                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                match tokio::task::spawn_blocking(move || upload(&up, &path)).await {
-                    Ok(Ok(())) => tracing::info!("backup {name} sent to the MSP"),
-                    Ok(Err(e)) => tracing::warn!("could not send backup {name} to the MSP: {e:#}"),
-                    Err(e) => tracing::warn!("backup upload task failed: {e}"),
-                }
-            }
+        let now = crate::model::now_ts();
+        match tokio::task::spawn_blocking(move || upload_if_due(&*s, &sh, &up, now)).await {
+            Ok(Ok(Some((name, Ok(()))))) => tracing::info!("backup {name} sent to the MSP"),
+            Ok(Ok(Some((name, Err(e))))) => tracing::warn!("could not send backup {name} to the MSP: {e:#}"),
             Ok(Ok(None)) => {}
             Ok(Err(e)) => tracing::warn!("checking the backup upload schedule failed: {e:#}"),
-            Err(e) => tracing::warn!("backup upload check task failed: {e}"),
+            Err(e) => tracing::warn!("backup upload task failed: {e}"),
         }
     }
 }
@@ -399,6 +402,7 @@ mod tests {
     use super::*;
     use crate::store::SettingsStore;
     use crate::store::sqlite::SqliteStore;
+    use std::sync::Arc;
 
     #[test]
     fn only_our_own_backup_names_are_accepted() {
@@ -460,6 +464,83 @@ mod tests {
         // a garbled/invalid stored value falls back to the default rather than erroring
         store.set_setting(UPLOAD_SETTINGS_KEY, b"not json", 2).unwrap();
         assert_eq!(load_upload_settings(&store).unwrap(), UploadSettings::default());
+    }
+
+    /// A tiny fake MSP: answers every request with whatever status `code` currently holds.
+    struct Fake {
+        url: String,
+        code: Arc<std::sync::atomic::AtomicU16>,
+    }
+
+    fn fake() -> Fake {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::sync::atomic::{AtomicU16, Ordering};
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", l.local_addr().unwrap());
+        let code = Arc::new(AtomicU16::new(200));
+        let c2 = code.clone();
+        std::thread::spawn(move || {
+            for conn in l.incoming() {
+                let Ok(mut c) = conn else { return };
+                // Drain the whole request (headers, then exactly `content-length` body bytes)
+                // before answering: an early reply while the client is still writing the backup
+                // file's body would abort the connection instead of exercising the real
+                // success/failure path this test cares about.
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 8192];
+                let (head_end, len) = loop {
+                    let n = c.read(&mut chunk).unwrap_or(0);
+                    if n == 0 {
+                        break (0, 0);
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                    if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&buf[..p]).to_lowercase();
+                        let len = head.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse().ok()).unwrap_or(0usize);
+                        break (p + 4, len);
+                    }
+                };
+                while buf.len() < head_end + len {
+                    let n = c.read(&mut chunk).unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                }
+                let code = c2.load(Ordering::SeqCst);
+                let _ = write!(c, "HTTP/1.1 {code} X\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}");
+            }
+        });
+        Fake { url, code }
+    }
+
+    #[test]
+    fn a_failed_upload_does_not_consume_the_schedule_slot_so_the_next_tick_retries() {
+        use std::sync::atomic::Ordering;
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("denis.db");
+        let store = SqliteStore::open(&db).unwrap();
+        create(&store, &db, "auto", 1_000).unwrap();
+        let f = fake();
+        let up = Upstream { url: f.url.clone(), token: "t".into() };
+        save_upload_settings(&store, &UploadSettings { schedule: "daily".into() }, 1_000).unwrap();
+
+        // the MSP is down: nothing is marked, so the very next check is still due
+        f.code.store(500, Ordering::SeqCst);
+        let (name, result) = upload_if_due(&store, &db, &up, 2_000).unwrap().expect("a backup exists and the schedule is due");
+        assert!(result.is_err());
+        assert_eq!(last_upload(&store), None, "a failed send must not consume the schedule slot");
+        assert!(upload_if_due(&store, &db, &up, 2_001).unwrap().is_some(), "the next tick retries immediately, not after a full interval");
+
+        // the MSP comes back: the same due check now succeeds and the slot is consumed
+        f.code.store(200, Ordering::SeqCst);
+        let (name2, result2) = upload_if_due(&store, &db, &up, 2_002).unwrap().unwrap();
+        assert_eq!(name2, name);
+        assert!(result2.is_ok());
+        assert_eq!(last_upload(&store), Some(2_002));
+        // and now it is not due again until the next interval
+        assert!(upload_if_due(&store, &db, &up, 2_003).unwrap().is_none());
     }
 
     #[test]
