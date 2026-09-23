@@ -49,3 +49,18 @@ the cap and terms apply to the install as a whole, not per agent.
 
 A license's validity is counted **from the first time it verifies on that install**, not from the
 day it was issued — moving the same file to a different install starts its own count there.
+
+## Expiry, and a 7-day grace period
+
+Nothing changes suddenly. Settings → License always shows when the current license expires and,
+once it is getting close, how many days are left:
+
+* **30 days before expiry**: everything stays exactly as licensed. A banner appears at the top of
+  the console, and a low-severity alert is raised once (not repeated every day), so it does not
+  get missed even if nobody happens to open Settings.
+* **After it expires**: still nothing is hidden yet. A **7-day grace period** starts, during which
+  the license keeps working in full — this is deliberately generous, so a renewal in progress (an
+  invoice being processed, a file that has not been re-installed yet) never causes a surprise
+  during business hours. A higher-severity alert marks the start of the grace period.
+* **After the grace period also passes**, the install falls back to the Community edition (the
+  100-device cap and everything described above) until a valid license is installed again.

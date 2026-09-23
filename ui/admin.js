@@ -582,7 +582,13 @@ async function renderUsers() {
           if (rr.ok) showSecret(tr('New temporary password for {user}', { user: u.username }), tr('Give this to the user. It works once and must be changed at sign-in.'), rr.json.temporary_password);
           else showMessage(tr('Could not reset'), el('p', { text: apiError(rr) }));
         } }),
-        el('button', { type: 'button', text: tr('Sites'), title: tr('Which sites {user} may see or change', { user: u.username }), onclick: () => openSiteAccess(u) })))));
+        el('button', { type: 'button', text: tr('Sites'), title: tr('Which sites {user} may see or change', { user: u.username }), onclick: () => openSiteAccess(u) }),
+        u.disabled ? el('button', { type: 'button', class: 'danger', text: tr('Delete'), onclick: async () => {
+          if (!confirm(tr('Permanently delete {user}? This cannot be undone.', { user: u.username }))) return;
+          const rr = await api('DELETE', '/api/users/' + u.id);
+          if (!rr.ok) showMessage(tr('Could not delete'), el('p', { text: apiError(rr) }));
+          renderUsers();
+        } }) : null))));
   }
 }
 
@@ -1173,6 +1179,9 @@ async function loadLicenseBox() {
     const lines = [tr('Licensed to {customer} ({tier}).', { customer: l.customer, tier: l.tier })];
     lines.push(l.device_cap ? tr('Up to {cap} devices.', { cap: l.device_cap }) : tr('No device limit.'));
     if (l.activated_at) lines.push(tr('Activated {date}, valid {days} days from then.', { date: new Date(l.activated_at * 1000).toLocaleDateString(locale()), days: l.valid_days }));
+    if (l.expires_at) lines.push(tr('Expires {date}.', { date: new Date(l.expires_at * 1000).toLocaleDateString(locale()) }));
+    if (l.stage === 'expiring_soon') lines.push(tr('Expires in {days} day(s).', { days: l.days_left }));
+    if (l.stage === 'grace') lines.push(tr('Expired. {days} day(s) left in the grace period before this falls back to the Community edition.', { days: l.days_left }));
     if (l.problem) lines.push(tr('Problem: {reason} — the Community edition is in force until this is fixed.', { reason: l.problem }));
     status.replaceChildren(...lines.flatMap((t, i) => [i ? el('div', {}) : null, el('div', { text: t, class: l.problem && i === lines.length - 1 ? 'form-error' : '' })]).filter(Boolean));
   }

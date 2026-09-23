@@ -523,6 +523,20 @@ impl Auth {
         Ok(())
     }
 
+    /// Permanently remove a user — only once they are already disabled (an active account is
+    /// disabled first, as a reversible step; deleting is not). Their audit log entries keep their
+    /// username as plain text and are unaffected.
+    pub fn delete_user(&self, id: i64) -> Result<(), AuthError> {
+        let cur = self.store.get_user_record(id)?.ok_or_else(|| AuthError::Rejected("no such user".into()))?.user;
+        if !cur.disabled {
+            return Err(AuthError::Rejected("disable this user first, then delete them".into()));
+        }
+        if !self.store.delete_user(id)? {
+            return Err(AuthError::Rejected("no such user".into()));
+        }
+        Ok(())
+    }
+
     // ----------------------------------------------------- agent tokens
 
     /// Issue (or rotate) the token for `agent_id`. Shown once.

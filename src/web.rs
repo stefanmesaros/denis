@@ -168,7 +168,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/scan", post(scan))
         // administration
         .route("/api/users", get(admin::users_list).post(admin::users_create))
-        .route("/api/users/{id}", patch(admin::users_update))
+        .route("/api/users/{id}", patch(admin::users_update).delete(admin::users_delete))
         .route("/api/users/{id}/reset-password", post(admin::users_reset))
         .route("/api/users/{id}/site-access", get(admin::site_access_get).put(admin::site_access_put))
         .route("/api/api-tokens", get(admin::api_tokens_list).post(admin::api_tokens_create))
@@ -403,15 +403,22 @@ async fn status(State(st): State<AppState>, Extension(AuthUser(me)): Extension<A
         Ok((s.load_assets()?.len(), s.list_events(&q)?.len()))
     })
     .await?;
+    let now = crate::model::now_ts();
     let mut v = serde_json::to_value(st.shared.snapshot())?;
     v["asset_count"] = count.into();
     v["alerts_unacked"] = unacked.into();
     v["auth_required"] = (!st.no_auth).into();
-    v["now"] = crate::model::now_ts().into();
+    v["now"] = now.into();
     // whether the local site (no agent) shows in the site filter at all (see access.rs)
     v["local_readable"] = site_readable(&st, &me, &None).into();
     v["msp_overview"] = matches!(st.store.get_setting(crate::web_admin::MSP_OVERVIEW_KEY), Ok(Some(b)) if b == b"1").into();
     let lic = effective_license(&st);
+    let (stage, grace_days_left) = match crate::license::stage(&lic, now) {
+        crate::license::Stage::Fine => ("fine", None),
+        crate::license::Stage::ExpiringSoon { days_left } => ("expiring_soon", Some(days_left)),
+        crate::license::Stage::Grace { days_left } => ("grace", Some(days_left)),
+        crate::license::Stage::Expired => ("expired", None),
+    };
     v["license"] = serde_json::json!({
         "tier": lic.license.as_ref().map(|l| l.tier.as_str()),
         "customer": lic.license.as_ref().map(|l| l.customer.as_str()),
@@ -419,6 +426,9 @@ async fn status(State(st): State<AppState>, Extension(AuthUser(me)): Extension<A
         "commercial": lic.commercial,
         "problem": lic.problem,
         "over_cap": lic.over_cap(count as u32),
+        "expires_at": lic.expires_at,
+        "stage": stage,
+        "days_left": grace_days_left,
     });
     Ok(Json(v))
 }
@@ -1448,6 +1458,37 @@ mod tests {
         let actions: Vec<&str> = audit.iter().map(|a| a.action.as_str()).collect();
         assert!(actions.contains(&"agent_token.issue") && actions.contains(&"agent_token.revoke") && actions.contains(&"auth.login"), "{actions:?}");
         assert!(audit.iter().any(|a| a.action == "agent_token.issue" && a.user == "adam"));
+    }
+
+    #[tokio::test]
+    async fn a_user_can_only_be_deleted_once_already_disabled_and_it_is_permanent() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        // a separate user, so disabling them (which signs them out) does not affect the role
+        // cookies (vera/eda/adam themselves) used to check who may call delete
+        let (st, _, v) = send(&app, req("POST", "/api/users", Some(&admin), Some(serde_json::json!({"username": "temp-hire", "role": "viewer"})))).await;
+        assert_eq!(st, StatusCode::CREATED);
+        let id = v["user"]["id"].as_i64().unwrap();
+
+        // refused while still active
+        let (st, _, v) = send(&app, req("DELETE", &format!("/api/users/{id}"), Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST);
+        assert!(v["error"].as_str().unwrap().contains("disable"));
+        assert!(store.get_user_record(id).unwrap().is_some());
+
+        // only an admin may delete, even once disabled
+        assert_eq!(send(&app, req("PATCH", &format!("/api/users/{id}"), Some(&admin), Some(serde_json::json!({"disabled": true})))).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, req("DELETE", &format!("/api/users/{id}"), Some(&viewer), None)).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("DELETE", &format!("/api/users/{id}"), Some(&editor), None)).await.0, StatusCode::FORBIDDEN);
+
+        let (st, _, _) = send(&app, req("DELETE", &format!("/api/users/{id}"), Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+        assert!(store.get_user_record(id).unwrap().is_none(), "gone for good");
+
+        // deleting again (already gone) is a clean rejection, not a crash
+        assert_eq!(send(&app, req("DELETE", &format!("/api/users/{id}"), Some(&admin), None)).await.0, StatusCode::BAD_REQUEST);
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("user.delete"), "{audit}");
     }
 
     #[tokio::test]

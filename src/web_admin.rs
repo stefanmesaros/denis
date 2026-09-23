@@ -258,6 +258,19 @@ pub(crate) async fn users_update(State(st): State<AppState>, Extension(AuthUser(
     }
 }
 
+/// Permanently remove a user — only once they are already disabled (see `Auth::delete_user`).
+pub(crate) async fn users_delete(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Response {
+    let auth = st.auth.clone();
+    match tokio::task::spawn_blocking(move || auth.delete_user(id)).await {
+        Ok(Ok(())) => {
+            audit(&st, &me.username, "user.delete", None, json!({ "user_id": id }));
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Ok(Err(e)) => map_auth_err(e),
+        Err(_) => err(StatusCode::INTERNAL_SERVER_ERROR, "internal error"),
+    }
+}
+
 pub(crate) async fn users_reset(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Response {
     let auth = st.auth.clone();
     match tokio::task::spawn_blocking(move || auth.reset_password(id)).await {
@@ -336,6 +349,12 @@ pub(crate) async fn msp_overview_put(State(st): State<AppState>, Extension(AuthU
 // -------------------------------------------------------------------- license
 
 fn license_json(eff: &crate::license::Effective) -> Value {
+    let (stage, days_left) = match crate::license::stage(eff, now_ts()) {
+        crate::license::Stage::Fine => ("fine", None),
+        crate::license::Stage::ExpiringSoon { days_left } => ("expiring_soon", Some(days_left)),
+        crate::license::Stage::Grace { days_left } => ("grace", Some(days_left)),
+        crate::license::Stage::Expired => ("expired", None),
+    };
     json!({
         "tier": eff.license.as_ref().map(|l| &l.tier),
         "customer": eff.license.as_ref().map(|l| &l.customer),
@@ -343,8 +362,11 @@ fn license_json(eff: &crate::license::Effective) -> Value {
         "commercial": eff.commercial,
         "problem": eff.problem,
         "activated_at": eff.activated_at,
+        "expires_at": eff.expires_at,
         "valid_days": eff.license.as_ref().map(|l| l.valid_days),
         "installed": eff.license.is_some(),
+        "stage": stage,
+        "days_left": days_left,
     })
 }
 

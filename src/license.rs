@@ -2,8 +2,9 @@
 //! 100-device cap and permits organisational use. See `LICENSE` and `LICENSE-COMMERCIAL.md`.
 //!
 //! A license file is exactly two lines: the JSON payload, then its Ed25519 signature (hex) over
-//! the exact UTF-8 bytes of that first line. It is issued with `denis license-issue` (run by
-//! whoever sells licenses; the matching private key never goes in this repository) and verified
+//! the exact UTF-8 bytes of that first line. It is issued with `license-issuer` (a separate,
+//! vendor-only tool — see src/bin/license_issuer.rs — run by whoever sells licenses; the matching
+//! private key never goes in this repository) and verified
 //! here against `LICENSE_PUBLIC_KEY`, the same Ed25519 scheme already used for release signing
 //! (see `update::sign` / `update::verify_signature`, and `denis release-keygen`).
 //!
@@ -34,6 +35,14 @@ pub const SETTING_KEY: &str = "license_content";
 /// How long a license is valid for once first used, unless the license itself says otherwise.
 pub const DEFAULT_VALID_DAYS: u32 = 365;
 
+/// After expiry, a license keeps working for this many more days (a higher-severity alert fires,
+/// but nothing is hidden yet) before the install actually falls back to the Community edition.
+pub const GRACE_DAYS: i64 = 7;
+
+/// How many days before expiry the console starts warning (a lower-severity alert, everything
+/// still fully in force).
+pub const WARNING_DAYS: i64 = 30;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct License {
     pub customer: String,
@@ -61,18 +70,54 @@ pub struct Effective {
     pub commercial: bool,
     /// When this install first activated the license (first successful verification), if any.
     pub activated_at: Option<i64>,
-    /// Why the license file (if any) is not in force: unreadable, bad signature, expired...
-    /// `None` means either there is no license file (plain Community edition) or it is valid.
+    /// When it expires (`activated_at + valid_days`), if a license is loaded. Still set during
+    /// the grace period — see `stage()`.
+    pub expires_at: Option<i64>,
+    /// Why the license file (if any) is not in force: unreadable, bad signature, expired (and its
+    /// grace period also passed)... `None` means either there is no license file (plain Community
+    /// edition), it is fully valid, or it is within its grace period (still in force).
     pub problem: Option<String>,
 }
 
 impl Effective {
     fn community(problem: Option<String>) -> Effective {
-        Effective { license: None, device_cap: Some(COMMUNITY_DEVICE_CAP), commercial: false, activated_at: None, problem }
+        Effective { license: None, device_cap: Some(COMMUNITY_DEVICE_CAP), commercial: false, activated_at: None, expires_at: None, problem }
     }
 
     pub fn over_cap(&self, device_count: u32) -> bool {
         self.device_cap.is_some_and(|cap| device_count > cap)
+    }
+}
+
+/// Where a license stands relative to its expiry and grace period.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage {
+    /// No license, an unlimited one, or more than `WARNING_DAYS` from expiry.
+    Fine,
+    /// Still fully in force, within `WARNING_DAYS` of expiring.
+    ExpiringSoon { days_left: i64 },
+    /// Past expiry but within the `GRACE_DAYS` grace period: still fully in force.
+    Grace { days_left: i64 },
+    /// Past the grace period too: downgraded to the Community edition (`problem` is set).
+    Expired,
+}
+
+/// Classify `eff` as of `now`. Cheap and pure — call it as often as you like (e.g. once per
+/// sweep) to decide whether a warning banner or alert is due.
+pub fn stage(eff: &Effective, now: i64) -> Stage {
+    let Some(expires_at) = eff.expires_at else { return Stage::Fine };
+    let grace_until = expires_at + GRACE_DAYS * 86_400;
+    // A partial day left still counts as a whole day (round up), so "0 days left" never shows
+    // while anything is still in force.
+    let days_ceil = |secs: i64| (secs.max(0) + 86_399) / 86_400;
+    if now >= grace_until {
+        Stage::Expired
+    } else if now >= expires_at {
+        Stage::Grace { days_left: days_ceil(grace_until - now) }
+    } else if expires_at - now <= WARNING_DAYS * 86_400 {
+        Stage::ExpiringSoon { days_left: days_ceil(expires_at - now) }
+    } else {
+        Stage::Fine
     }
 }
 
@@ -108,6 +153,18 @@ pub fn load_from_text(text: &str, store: &dyn Store) -> Effective {
     verify_and_activate(text, store, LICENSE_PUBLIC_KEY)
 }
 
+/// The license actually in force right now, freshly recomputed: a pasted one (Settings →
+/// License) always takes priority over `license_file`, exactly as `web::effective_license` also
+/// resolves it. Cheap enough to call periodically (e.g. once per sweep) rather than caching.
+pub fn effective(store: &dyn Store, license_file: Option<&Path>) -> Effective {
+    if let Ok(Some(bytes)) = store.get_setting(SETTING_KEY) {
+        if let Ok(text) = String::from_utf8(bytes) {
+            return load_from_text(&text, store);
+        }
+    }
+    load(license_file, store)
+}
+
 /// Only used by tests, to check verification against a throwaway key instead of the real
 /// (embedded) `LICENSE_PUBLIC_KEY`.
 #[cfg(test)]
@@ -127,16 +184,23 @@ fn verify_and_activate(raw: &str, store: &dyn Store, key: Option<[u8; 32]>) -> E
     let now = crate::model::now_ts();
     let activated = activation_time(store, &payload, now);
     let expires_at = activated + i64::from(license.valid_days.max(1)) * 86_400;
-    if now > expires_at {
+    let grace_until = expires_at + GRACE_DAYS * 86_400;
+    if now >= grace_until {
         Effective {
             device_cap: Some(COMMUNITY_DEVICE_CAP),
             commercial: false,
             activated_at: Some(activated),
-            problem: Some(format!("the license expired {} days after it was first used here", license.valid_days)),
+            expires_at: Some(expires_at),
+            problem: Some(format!(
+                "the license expired {} days after it was first used here, and the {GRACE_DAYS}-day grace period has also passed",
+                license.valid_days
+            )),
             license: Some(license),
         }
     } else {
-        Effective { device_cap: license.device_cap, commercial: license.commercial, activated_at: Some(activated), license: Some(license), problem: None }
+        // Still fully in force, including during the grace period (expired but not yet past
+        // grace): `stage()` is what tells the console/alerts to start warning.
+        Effective { device_cap: license.device_cap, commercial: license.commercial, activated_at: Some(activated), expires_at: Some(expires_at), license: Some(license), problem: None }
     }
 }
 
@@ -173,7 +237,8 @@ fn verify_and_parse(raw: &str, key: Option<[u8; 32]>) -> Result<(String, License
     Ok((payload.to_string(), license))
 }
 
-/// Build and sign a license file's contents (`denis license-issue`). `seed_hex` is the private
+/// Build and sign a license file's contents (see `license-issuer`, src/bin/license_issuer.rs).
+/// `seed_hex` is the private
 /// key's hex seed (never printed or stored by this program; the caller reads it from wherever
 /// they keep it, e.g. an environment variable).
 pub fn issue(seed_hex: &str, license: &License) -> Result<String> {
@@ -254,15 +319,46 @@ mod tests {
 
         let eff = load_with_key(Some(&path), &store, Some(hex32(&public)));
         assert!(eff.problem.is_none(), "should be valid right after activating");
+        // a 1-day license is, by definition, always within the 30-day warning window
+        assert!(matches!(stage(&eff, crate::model::now_ts()), Stage::ExpiringSoon { .. }));
 
-        // back-date the recorded activation to simulate 2 days having passed since first use
+        // back-date the recorded activation to simulate 2 days having passed since first use:
+        // the 1-day license expired a day ago, but the 7-day grace period has not passed yet
         let key = activation_key(text.lines().next().unwrap());
         let two_days_ago = crate::model::now_ts() - 2 * 86_400;
         store.set_setting(&key, two_days_ago.to_string().as_bytes(), two_days_ago).unwrap();
 
         let eff2 = load_with_key(Some(&path), &store, Some(hex32(&public)));
-        assert_eq!(eff2.device_cap, Some(COMMUNITY_DEVICE_CAP));
-        assert!(eff2.problem.unwrap().contains("expired"));
+        assert_eq!(eff2.device_cap, Some(1000), "still in force during the grace period");
+        assert!(eff2.problem.is_none());
+        assert!(matches!(stage(&eff2, crate::model::now_ts()), Stage::Grace { days_left } if days_left == 6));
+
+        // once the grace period has *also* passed, it falls back to the Community edition
+        let long_ago = crate::model::now_ts() - (1 + GRACE_DAYS + 1) * 86_400;
+        store.set_setting(&key, long_ago.to_string().as_bytes(), long_ago).unwrap();
+        let eff3 = load_with_key(Some(&path), &store, Some(hex32(&public)));
+        assert_eq!(eff3.device_cap, Some(COMMUNITY_DEVICE_CAP));
+        assert_eq!(stage(&eff3, crate::model::now_ts()), Stage::Expired);
+        assert!(eff3.problem.unwrap().contains("grace period"));
+    }
+
+    #[test]
+    fn expiring_soon_is_flagged_thirty_days_out_while_still_fully_in_force() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SqliteStore::open_in_memory().unwrap();
+        let (seed, public) = generate_keypair().unwrap();
+        let text = issue(&seed, &sample(Some(1000), 365)).unwrap();
+        let path = dir.path().join("license.key");
+        std::fs::write(&path, &text).unwrap();
+        let key = activation_key(text.lines().next().unwrap());
+
+        // activated 340 days ago: 25 days left on a 365-day license
+        let activated = crate::model::now_ts() - 340 * 86_400;
+        store.set_setting(&key, activated.to_string().as_bytes(), activated).unwrap();
+        let eff = load_with_key(Some(&path), &store, Some(hex32(&public)));
+        assert_eq!(eff.device_cap, Some(1000), "still fully in force");
+        assert!(eff.problem.is_none());
+        assert!(matches!(stage(&eff, crate::model::now_ts()), Stage::ExpiringSoon { days_left } if days_left == 25));
     }
 
     #[test]

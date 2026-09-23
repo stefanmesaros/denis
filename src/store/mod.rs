@@ -192,6 +192,9 @@ pub trait Store: Send + Sync {
     fn get_user_record(&self, id: i64) -> Result<Option<UserRecord>>;
     fn list_users(&self) -> Result<Vec<User>>;
     fn update_user(&self, id: i64, role: Option<&str>, disabled: Option<bool>, password_hash: Option<&str>, must_change: Option<bool>) -> Result<bool>;
+    /// Permanently removes the user and everything tied to their account (sessions, passkeys,
+    /// authenticator app). The audit log keeps their username as plain text, unaffected.
+    fn delete_user(&self, id: i64) -> Result<bool>;
     fn set_last_login(&self, id: i64, ts: i64) -> Result<()>;
     fn create_session(&self, token_hash: &str, user_id: i64, now: i64, expires_at: i64) -> Result<()>;
     fn get_session(&self, token_hash: &str) -> Result<Option<SessionRecord>>;

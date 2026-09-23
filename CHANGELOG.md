@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.7.0: license expiry warnings and a grace period; a separate license-issuing tool
+
+* **License expiry is no longer a cliff.** Settings → License always shows when the current
+  license expires. **30 days out**, a banner and a one-off low-severity alert warn you, with
+  everything still fully licensed. **Once it expires**, a **7-day grace period** keeps it fully
+  working (a higher-severity alert marks this), so a renewal in progress never causes a surprise.
+  Only after the grace period also passes does the install fall back to the Community edition. See
+  [Licensing](docs/licensing.md#expiry-and-a-7-day-grace-period).
+* **`license-issuer`, a new, separate, vendor-only tool** (`src/bin/license_issuer.rs`) replaces
+  the `denis license-keygen`/`license-issue` subcommands, which are removed from `denis` itself —
+  that tooling has no business shipping inside the binary every customer downloads. It keeps its
+  own small database of every license it has issued (customer, tier, cap, validity, and the signed
+  file itself), so a lost license file can always be recovered: `license-issuer issue "Acme
+  s.r.o." --device-cap 500 --years 1`, `license-issuer list`, `license-issuer show <id>`.
+* **Settings → Users**: an already-disabled user can now be permanently deleted (their sessions,
+  passkeys and authenticator app are removed with them). Disabling remains the reversible first
+  step; deleting is not, and is only offered once a user is already disabled.
+
 ## 1.6.0: a second, mirror-port interface — for whole-network flow visibility from one box
 
 * **`denis run --mirror-iface eth1`**: a second, capture-only interface alongside the usual

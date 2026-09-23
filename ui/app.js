@@ -520,6 +520,12 @@ function renderLicenseBanner() {
     // a license file exists but is not in force right now (expired, tampered, wrong key…)
     banner.hidden = false;
     banner.textContent = tr('License problem: {reason}. Showing the Community edition ({cap} devices) until this is fixed.', { reason: lic.problem, cap: lic.device_cap });
+  } else if (lic.stage === 'grace') {
+    banner.hidden = false;
+    banner.textContent = tr('Your license expired. {days} day(s) left in the grace period before this falls back to the Community edition — see Settings → License.', { days: lic.days_left });
+  } else if (lic.stage === 'expiring_soon') {
+    banner.hidden = false;
+    banner.textContent = tr('Your license expires in {days} day(s) — see Settings → License.', { days: lic.days_left });
   } else if (lic.over_cap) {
     banner.hidden = false;
     banner.textContent = tr('Community edition: showing {cap} of {total} devices. See LICENSE-COMMERCIAL.md for a license covering your whole network.', { cap: lic.device_cap, total: s.asset_count });

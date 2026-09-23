@@ -787,6 +787,9 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     tasks.push(tokio::spawn(crate::switches::run(store.clone(), coll.shared.clone())));
     // scheduled backups of the database
     tasks.push(tokio::spawn(crate::backups::run(store.clone(), coll.shared.clone(), cfg.backup_upstream.clone())));
+    // a low-severity alert 30 days before a commercial license expires, a higher-severity one
+    // during its 7-day grace period after that (see `license::stage`)
+    tasks.push(tokio::spawn(crate::license_alerts::run(store.clone(), cfg.license_file.clone(), coll.iface.mac, alerts.clone())));
     if let Some(up) = cfg.report_to.clone() {
         tracing::info!("relaying devices and alerts to the MSP at {}", up.url);
         tasks.push(tokio::spawn(crate::msp_relay::run(store.clone(), up)));

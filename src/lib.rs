@@ -26,6 +26,7 @@ pub mod flow;
 pub mod health;
 pub mod ingest;
 pub mod license;
+pub mod license_alerts;
 pub mod license_key;
 #[cfg(test)]
 mod i18n;

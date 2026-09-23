@@ -357,30 +357,6 @@ enum Cmd {
         key_env: String,
         files: Vec<PathBuf>,
     },
-    /// Print a new commercial-licensing key pair. The private key must be kept secret (never
-    /// committed); the public key goes into src/license_key.rs so builds can verify licenses.
-    LicenseKeygen,
-    /// Issue a signed commercial license file, reading the private key from the environment
-    /// variable named by --key-env (never printed or written anywhere by this command).
-    LicenseIssue {
-        /// Who the license is for (shown in the console).
-        customer: String,
-        /// A label shown in the console; not itself checked.
-        #[arg(long, default_value = "business")]
-        tier: String,
-        /// Devices allowed; omit for unlimited.
-        #[arg(long)]
-        device_cap: Option<u32>,
-        /// How many days the license stays valid, counted from the moment it first verifies on
-        /// an install (not from today) — see LICENSE-COMMERCIAL.md.
-        #[arg(long, default_value_t = 365)]
-        valid_days: u32,
-        #[arg(long, default_value = "DENIS_LICENSE_KEY")]
-        key_env: String,
-        /// Where to write the license file.
-        #[arg(long, default_value = "license.key")]
-        out: PathBuf,
-    },
     /// Write a verified copy of the database to FILE while the program keeps running.
     /// Meant for cron or a systemd timer. The copy holds password hashes and
     /// notification secrets, so it is readable by its owner only; keep it that way.
@@ -702,35 +678,6 @@ async fn main() -> Result<()> {
                 std::fs::write(&out, sig)?;
                 println!("signed {} -> {}", f.display(), out.display());
             }
-            Ok(())
-        }
-        Cmd::LicenseKeygen => {
-            let (private, public) = denis::update::generate_keypair()?;
-            println!("private key (keep SECRET, e.g. as an env var named DENIS_LICENSE_KEY — never commit it):\n  {private}\n");
-            let bytes: Vec<String> = (0..32).map(|i| format!("0x{}", &public[i * 2..i * 2 + 2])).collect();
-            println!("public key (paste into src/license_key.rs):\n  pub const LICENSE_PUBLIC_KEY: Option<[u8; 32]> = Some([{}]);", bytes.join(", "));
-            Ok(())
-        }
-        Cmd::LicenseIssue { customer, tier, device_cap, valid_days, key_env, out } => {
-            let key = std::env::var(&key_env).map_err(|_| anyhow::anyhow!("set the private key in the environment variable {key_env}"))?;
-            let today = denis::model::now_ts().div_euclid(86_400);
-            let license = denis::license::License {
-                customer,
-                tier,
-                device_cap,
-                commercial: true,
-                issued: denis::tracking::date_from_days(today),
-                valid_days,
-            };
-            let text = denis::license::issue(key.trim(), &license)?;
-            std::fs::write(&out, &text)?;
-            println!(
-                "license written to {} (customer: {}, cap: {}, valid {} days from first use)",
-                out.display(),
-                license.customer,
-                license.device_cap.map(|c| c.to_string()).unwrap_or_else(|| "unlimited".into()),
-                license.valid_days
-            );
             Ok(())
         }
         Cmd::Backup { out, db } => {

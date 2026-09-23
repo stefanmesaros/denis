@@ -1012,6 +1012,18 @@ impl Store for SqliteStore {
         Ok(n == 1)
     }
 
+    fn delete_user(&self, id: i64) -> Result<bool> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM sessions WHERE user_id = ?1", params![id])?;
+        tx.execute("DELETE FROM passkeys WHERE user_id = ?1", params![id])?;
+        tx.execute("DELETE FROM totp WHERE user_id = ?1", params![id])?;
+        tx.execute("DELETE FROM totp_recovery WHERE user_id = ?1", params![id])?;
+        let n = tx.execute("DELETE FROM users WHERE id = ?1", params![id])?;
+        tx.commit()?;
+        Ok(n == 1)
+    }
+
     fn set_last_login(&self, id: i64, ts: i64) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("UPDATE users SET last_login = ?2 WHERE id = ?1", params![id, ts])?;
