@@ -156,7 +156,7 @@ mod tests {
     fn our_own_arp_request_is_never_parsed_as_a_device() {
         let mac = Mac([2, 0, 0, 0, 0, 9]);
         let ctx = Ctx {
-            subnet: "192.168.1.0/24".parse().unwrap(),
+            subnets: vec!["192.168.1.0/24".parse().unwrap()],
             own_mac: mac,
             own_ip: Ipv4Addr::new(192, 168, 1, 10),
             flows: false,
@@ -171,7 +171,7 @@ mod tests {
         // Requests carry the sender's binding too (sender = the other host).
         let other = Mac([0x3c, 0x22, 0xfb, 1, 2, 3]);
         let ctx = Ctx {
-            subnet: "192.168.1.0/24".parse().unwrap(),
+            subnets: vec!["192.168.1.0/24".parse().unwrap()],
             own_mac: Mac([2, 0, 0, 0, 0, 9]),
             own_ip: Ipv4Addr::new(192, 168, 1, 10),
             flows: false,

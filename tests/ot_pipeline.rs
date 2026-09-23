@@ -81,7 +81,7 @@ impl Rig {
     fn new() -> Rig {
         let cfg = DetectConfig { learning_secs: 1000, ..Default::default() };
         Rig {
-            ctx: Ctx { subnet: "10.0.0.0/24".parse().unwrap(), own_mac: OWN, own_ip: Ipv4Addr::new(10, 0, 0, 200), flows: true, ot: true },
+            ctx: Ctx { subnets: vec!["10.0.0.0/24".parse().unwrap()], own_mac: OWN, own_ip: Ipv4Addr::new(10, 0, 0, 200), flows: true, ot: true },
             inv: Inventory::new(vec![], None, None),
             agg: FlowAgg::new(10, 0),
             closed: Vec::new(),

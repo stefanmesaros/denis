@@ -301,6 +301,19 @@ denis run --iface eth0 --mirror-iface eth1
   process is needed just to see several VLANs from one box. (What this does **not** do is run
   independent discovery per VLAN — that still needs `denis agent`, one per network, if each VLAN
   needs its own ARP sweep and subnet of known devices.)
+* **`--mirror-subnet <CIDR>`** (repeatable) tells DENIS about a subnet it cannot see on its own. A
+  mirror on the *same* subnet/VLAN as `--iface` needs nothing extra — that range is already known.
+  But a mirror carrying a **different** VLAN (the common reason to add one) usually has no IPv4
+  address of its own to auto-detect its range from, and without being told, DENIS cannot tell that
+  VLAN's traffic apart from "random internet noise": neither device-to-device traffic on it nor its
+  traffic to the internet is recognised as belonging to a local device, so flow accounting and
+  industrial-protocol decoding produce nothing for it — silently, no error. If a mirror interface
+  *does* have its own address, its subnet is added automatically; `--mirror-subnet` is only needed
+  when it does not. DENIS logs a warning at start-up when a mirror interface has neither.
+
+```bash
+denis run --iface eth0 --mirror-iface eth1 --mirror-subnet 10.20.0.0/24
+```
 
 Typical wiring: the switch's uplink to the router/firewall is mirrored to a spare switch port, fed
 into a second NIC (or a USB-Ethernet adapter) on the same server that already runs DENIS.

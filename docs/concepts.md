@@ -33,7 +33,10 @@ A network switch sends each machine only the traffic addressed to it, plus broad
 * **`--mirror-iface`** (repeatable) lets one instance do both at once: `--iface` keeps doing
   discovery exactly as above, and any number of extra, capture-only interfaces (each plugged into
   a mirror/SPAN port, one per VLAN say) are decoded into the same flow accounting — no separate
-  `denis` process needed per VLAN. See
+  `denis` process needed per VLAN. A mirror on a *different* subnet/VLAN than `--iface` also needs
+  **`--mirror-subnet`** to name that range (a SPAN port usually has no address of its own to detect
+  it from) — without it, that VLAN's traffic is invisible: not recognised as local, so nothing is
+  decoded for it, with no error. See
   [Deployment](deployment.md#one-or-more-mirror-port-interfaces-for-whole-network-flow-visibility).
 
 Put **one collector per network segment**. Two collectors on the same segment report every device twice.

@@ -16,7 +16,14 @@ use crate::model::{FlowSample, LinkInfo, Mac, Observation, OtSample, Signal, Tcp
 use crate::ot;
 
 pub struct Ctx {
-    pub subnet: Ipv4Net,
+    /// Every subnet this capture should treat as "local": the monitored interface's own, plus
+    /// (for a mirror/SPAN port that is not on that same subnet — a different VLAN, say) whatever
+    /// `--mirror-subnet` gives it or its own address supplies. An address is local if it falls in
+    /// *any* of these, not necessarily the same one as the other side of a conversation, which is
+    /// deliberately permissive: a mirror trunking several VLANs has no per-packet way to tell
+    /// which of them a frame belongs to without decoding the 802.1Q tag, so this only asks "is
+    /// this ours at all", not "is this the same segment as its peer".
+    pub subnets: Vec<Ipv4Net>,
     pub own_mac: Mac,
     pub own_ip: Ipv4Addr,
     /// Also account per-device traffic to/from outside the subnet (needs the
@@ -25,6 +32,12 @@ pub struct Ctx {
     /// Decode industrial protocols between local devices (needs the wide
     /// filter too, so it is enabled together with `flows`).
     pub ot: bool,
+}
+
+impl Ctx {
+    fn is_local(&self, ip: &Ipv4Addr) -> bool {
+        self.subnets.iter().any(|n| n.contains(ip))
+    }
 }
 
 const ETH_ARP: u16 = 0x0806;
@@ -89,13 +102,13 @@ pub fn parse_frame(ctx: &Ctx, frame: &[u8]) -> Vec<Observation> {
     match ethertype {
         0x88cc if !own => {
             if let Some(f) = ot::parse_lldp(payload) {
-                let ip = f.get("management_ip").and_then(|v| v.parse().ok()).filter(|ip| ctx.subnet.contains(ip));
+                let ip = f.get("management_ip").and_then(|v| v.parse().ok()).filter(|ip| ctx.is_local(ip));
                 out.push(Observation::Link(LinkInfo { mac: src_mac, source: "lldp", ip, fields: f }));
             }
         }
         0x8892 if !own => {
             if let Some((f, ip)) = ot::parse_profinet_dcp(payload) {
-                out.push(Observation::Link(LinkInfo { mac: src_mac, source: "profinet", ip: ip.filter(|ip| ctx.subnet.contains(ip)), fields: f }));
+                out.push(Observation::Link(LinkInfo { mac: src_mac, source: "profinet", ip: ip.filter(|ip| ctx.is_local(ip)), fields: f }));
             }
         }
         ETH_ARP if !own => parse_arp(ctx, src_mac, payload, &mut out),
@@ -118,7 +131,7 @@ pub fn parse_frame(ctx: &Ctx, frame: &[u8]) -> Vec<Observation> {
 /// Addresses that are neither on the monitored subnet nor a "destination":
 /// multicast, broadcast, loopback, link-local, unspecified.
 fn is_external(ctx: &Ctx, ip: Ipv4Addr) -> bool {
-    !ctx.subnet.contains(&ip)
+    !ctx.is_local(&ip)
         && !ip.is_multicast()
         && !ip.is_broadcast()
         && !ip.is_loopback()
@@ -140,7 +153,7 @@ fn parse_ot(ctx: &Ctx, src_mac: Mac, dst_mac: Mac, p: &[u8], out: &mut Vec<Obser
     let proto = p[9];
     let src = Ipv4Addr::new(p[12], p[13], p[14], p[15]);
     let dst = Ipv4Addr::new(p[16], p[17], p[18], p[19]);
-    if !ctx.subnet.contains(&src) || !ctx.subnet.contains(&dst) || !dst_mac.is_unicast() {
+    if !ctx.is_local(&src) || !ctx.is_local(&dst) || !dst_mac.is_unicast() {
         return;
     }
     let l4 = &p[ihl..];
@@ -195,7 +208,7 @@ fn parse_flow(ctx: &Ctx, src_mac: Mac, dst_mac: Mac, p: &[u8], own: bool, out: &
         _ => 0,
     };
 
-    if ctx.subnet.contains(&src) && is_external(ctx, dst) {
+    if ctx.is_local(&src) && is_external(ctx, dst) {
         out.push(Observation::FlowSample(FlowSample {
             mac: src_mac,
             remote: dst,
@@ -208,7 +221,7 @@ fn parse_flow(ctx: &Ctx, src_mac: Mac, dst_mac: Mac, p: &[u8], own: bool, out: &
         if !own {
             out.push(Observation::Arp { mac: src_mac, ip: src });
         }
-    } else if ctx.subnet.contains(&dst) && is_external(ctx, src) && dst_mac.is_valid() {
+    } else if ctx.is_local(&dst) && is_external(ctx, src) && dst_mac.is_valid() {
         out.push(Observation::FlowSample(FlowSample {
             mac: dst_mac,
             remote: src,
@@ -235,7 +248,7 @@ fn parse_arp(ctx: &Ctx, eth_src: Mac, p: &[u8], out: &mut Vec<Observation>) {
     let sha = Mac(p[8..14].try_into().unwrap());
     let spa = Ipv4Addr::new(p[14], p[15], p[16], p[17]);
     // Probes (spa == 0.0.0.0) carry no binding.
-    if spa.is_unspecified() || !sha.is_valid() || !ctx.subnet.contains(&spa) || spa == ctx.own_ip {
+    if spa.is_unspecified() || !sha.is_valid() || !ctx.is_local(&spa) || spa == ctx.own_ip {
         return;
     }
     // A sender hardware address that differs from the Ethernet source is
@@ -282,7 +295,7 @@ fn parse_ipv4(ctx: &Ctx, src_mac: Mac, p: &[u8], out: &mut Vec<Observation>) {
                 out.push(obs);
             }
             // An offer or acknowledgement: this device is acting as a DHCP server.
-            if is_dhcp_server_reply(&l4[8..]) && src_mac.is_valid() && ctx.subnet.contains(&src) && src != ctx.own_ip {
+            if is_dhcp_server_reply(&l4[8..]) && src_mac.is_valid() && ctx.is_local(&src) && src != ctx.own_ip {
                 out.push(Observation::Signal(Signal {
                     kind: "dhcp_server".into(),
                     ts: 0, // stamped by the inventory
@@ -296,7 +309,7 @@ fn parse_ipv4(ctx: &Ctx, src_mac: Mac, p: &[u8], out: &mut Vec<Observation>) {
         }
     }
 
-    if !ctx.subnet.contains(&src) || src == ctx.own_ip {
+    if !ctx.is_local(&src) || src == ctx.own_ip {
         return;
     }
 
@@ -470,7 +483,7 @@ fn parse_dhcp(ctx: &Ctx, b: &[u8]) -> Option<Observation> {
         (1, _) if !ciaddr.is_unspecified() => Some(ciaddr),
         _ => None,
     }
-    .filter(|ip| ctx.subnet.contains(ip));
+    .filter(|ip| ctx.is_local(ip));
 
     Some(Observation::Dhcp {
         mac,
@@ -722,7 +735,7 @@ mod tests {
 
     fn ctx() -> Ctx {
         Ctx {
-            subnet: "192.168.1.0/24".parse().unwrap(),
+            subnets: vec!["192.168.1.0/24".parse().unwrap()],
             own_mac: Mac([0x02, 0, 0, 0, 0, 0x99]),
             own_ip: Ipv4Addr::new(192, 168, 1, 10),
             flows: false,
@@ -1071,6 +1084,41 @@ mod tests {
         let out = eth([0xff; 6], DEV, ETH_IPV4, &ipv4(6, 64, [192, 168, 1, 30], [1, 1, 1, 1], &tcp_hdr(1000, 443)));
         assert!(has_flow(&c, &out));
         assert!(!has_flow(&ctx(), &out), "flows are opt-in");
+    }
+
+    #[test]
+    fn a_mirror_port_on_a_different_subnet_than_iface_needs_its_own_subnet_to_produce_anything() {
+        // A mirror/SPAN port on a VLAN other than --iface's own (exactly the scenario
+        // --mirror-iface's help text offers, "one per VLAN") used to see NOTHING at all: neither
+        // side of an all-in-VLAN conversation is in ctx.subnet (the main interface's), and traffic
+        // from that VLAN to the internet fails ctx.subnet.contains(src) too. Telling Ctx about the
+        // extra subnet (engine::Collector::start, from --mirror-subnet or an auto-detected mirror
+        // address) is what makes it work.
+        let mirror_vlan = eth([0x3c, 0x22, 0xfb, 9, 9, 9], [0x3c, 0x22, 0xfb, 9, 9, 10], ETH_IPV4, &ipv4(6, 64, [10, 20, 0, 30], [1, 1, 1, 1], &tcp_hdr(1000, 443)));
+        let has_flow = |c: &Ctx, f: &[u8]| parse_frame(c, f).iter().any(|o| matches!(o, Observation::FlowSample(_)));
+
+        // ctx() only knows 192.168.1.0/24 (--iface's subnet): the 10.20.0.0/24 mirror VLAN is
+        // indistinguishable from random internet noise.
+        assert!(!has_flow(&flow_ctx(), &mirror_vlan));
+
+        // once Ctx also knows 10.20.0.0/24 (as --mirror-subnet or an auto-detected mirror address
+        // would add it), the very same frame is recognised and produces a flow.
+        let with_mirror_subnet = Ctx { subnets: vec!["192.168.1.0/24".parse().unwrap(), "10.20.0.0/24".parse().unwrap()], ..flow_ctx() };
+        assert!(has_flow(&with_mirror_subnet, &mirror_vlan));
+
+        // and device-to-device traffic entirely within that VLAN now passes parse_ot's subnet
+        // gate too (both ends must be "local"), instead of being rejected at the door regardless
+        // of whether the payload decodes as an industrial protocol.
+        let modbus_query = {
+            let mut m = tcp_hdr(1000, 502);
+            m.extend_from_slice(&[0, 1, 0, 0, 0, 6, 0xff, 0x03, 0, 0, 0, 1]); // a minimal Modbus/TCP read-holding-registers ADU
+            m
+        };
+        let inside_vlan = eth([0x3c, 0x22, 0xfb, 9, 9, 9], [0x3c, 0x22, 0xfb, 9, 9, 10], ETH_IPV4, &ipv4(6, 64, [10, 20, 0, 30], [10, 20, 0, 31], &modbus_query));
+        let ot_ctx = Ctx { ot: true, ..with_mirror_subnet };
+        assert!(parse_frame(&ot_ctx, &inside_vlan).iter().any(|o| matches!(o, Observation::Ot(_))), "still rejected even with the subnet known");
+        let ot_ctx_missing_subnet = Ctx { ot: true, ..flow_ctx() };
+        assert!(!parse_frame(&ot_ctx_missing_subnet, &inside_vlan).iter().any(|o| matches!(o, Observation::Ot(_))), "must be gated on the subnet, not just decodable content");
     }
 
     #[test]
