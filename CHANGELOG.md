@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.13.3: exceptions show who and why; "Add exception" also acknowledges the alert
+
+Follow-up to 1.13.2's "create an exception from an alert", after trying it out:
+
+* **The Rules page's Exceptions (and a watch's "Never for..." lists) now show a row per device** —
+  name, MAC, IP, and, for one added from an alert, why ("contacted 47.254.143.217 (tcp port
+  20001, 0 kB) — 23/09/2026, 15:24") — instead of a bare "Device: <name>" chip. Non-device
+  exceptions (type/tag/network) are still shown as chips.
+* **"Add exception" now also acknowledges the alert**, since it is covered by the new exception:
+  it disappears from the default (unacknowledged) Alerts list immediately, the same as clicking
+  Acknowledge would, in the one click.
+* The button is labelled "Add exception" consistently (Alerts row and the alert's own detail
+  dialog); what it will specifically do is its tooltip.
+
 ## 1.13.2: one-click "create an exception" from an alert
 
 * **Alerts now have an "Except" action** (next to Acknowledge, and in the alert's own detail
