@@ -933,14 +933,22 @@ async function loadTrends() {
   const pts = data.points;
   const last = pts[pts.length - 1];
   const sum = (k) => pts.reduce((n, p) => n + p[k], 0);
-  // "new devices" is not stored on its own: derive it from how the total grew between samples
-  // (never negative — a device leaving the register does not count as a negative arrival).
-  const withNew = pts.map((p, i) => ({ ...p, new_devices: i === 0 ? 0 : Math.max(0, p.devices_total - pts[i - 1].devices_total) }));
+  // None of these are stored on their own: derived client-side from what a sample already carries.
+  const withNew = pts.map((p, i) => ({
+    ...p,
+    // never negative — a device leaving the register does not count as a negative arrival
+    new_devices: i === 0 ? 0 : Math.max(0, p.devices_total - pts[i - 1].devices_total),
+    offline: Math.max(0, p.devices_total - p.devices_online),
+    total_bytes: p.bytes_out + p.bytes_in,
+  }));
   $('trends').replaceChildren(
     chart(tr('Devices online'), last ? tr('{n} of {total}', { n: last.devices_online, total: last.devices_total }) : '–', pts, 'devices_online', 'line', String),
+    chart(tr('Devices offline'), last ? String(Math.max(0, last.devices_total - last.devices_online)) : '–', withNew, 'offline', 'line', String),
+    chart(tr('Devices in the register'), last ? String(last.devices_total) : '–', pts, 'devices_total', 'line', String),
     chart(tr('New devices'), String(withNew.reduce((n, p) => n + p.new_devices, 0)), withNew, 'new_devices', 'bars', String),
     chart(tr('Sent outside the network'), fmtBytes(sum('bytes_out')), pts, 'bytes_out', 'bars', fmtBytes),
     chart(tr('Received'), fmtBytes(sum('bytes_in')), pts, 'bytes_in', 'bars', fmtBytes),
+    chart(tr('Total traffic'), fmtBytes(sum('bytes_out') + sum('bytes_in')), withNew, 'total_bytes', 'bars', fmtBytes),
     chart(tr('Alerts raised'), String(sum('alerts')), pts, 'alerts', 'bars', String));
   $('trends-note').textContent = pts.length ? tr('{n} points, {step} each.', { n: pts.length, step: span(data.step_secs) }) + (state.status && !state.status.flows_enabled ? ' ' + tr('Traffic is only counted with --flows.') : '') : '';
 }
@@ -967,17 +975,21 @@ async function loadCompliance() {
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(k);
   }
-  $('compliance-groups').replaceChildren(...[...groups.entries()].map(([g, rows], i) => {
+  const groupEls = [...groups.entries()].map(([g, rows], i) => {
     const inPlace = rows.filter((k) => k.status === 'in_place').length;
     return el('details', { class: 'compliance-group', open: i === 0 },
       el('summary', {}, g, el('span', { class: 'muted', text: tr('{n} of {total} in place', { n: inPlace, total: rows.length }) })),
-      el('div', { class: 'table-wrap' }, el('table', {},
-        el('thead', {}, el('tr', {}, el('th', { text: tr('Requirement') }), el('th', { text: tr('What DENIS provides') }), el('th', { text: tr('Status') }))),
-        el('tbody', {}, ...rows.map((k) => el('tr', {},
-          el('td', {}, el('b', { text: k.reference }), el('div', { text: tr(k.title) })),
-          el('td', {}, el('div', { text: tr(k.evidence) }), el('div', { class: 'muted small', text: tr(k.note, k.vars) })),
-          el('td', {}, el('span', { class: 'pill ' + label[k.status][1], text: label[k.status][0] }))))))));
-  }));
+      el('div', { class: 'compliance-rows' }, ...rows.map((k) => el('div', { class: 'compliance-row' },
+        el('div', { class: 'compliance-row-head' }, el('b', { text: k.reference }), el('span', { class: 'pill ' + label[k.status][1], text: label[k.status][0] })),
+        el('div', { text: tr(k.title) }),
+        el('div', { class: 'muted small', text: tr(k.evidence) }),
+        el('div', { class: 'muted small', text: tr(k.note, k.vars) })))));
+  });
+  $('compliance-groups').replaceChildren(
+    groupEls.length ? el('div', { class: 'row' },
+      el('button', { type: 'button', text: tr('Expand all'), onclick: () => groupEls.forEach((d) => { d.open = true; }) }),
+      el('button', { type: 'button', text: tr('Collapse all'), onclick: () => groupEls.forEach((d) => { d.open = false; }) })) : null,
+    ...groupEls);
 }
 
 function setTab(t) {

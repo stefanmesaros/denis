@@ -113,6 +113,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/vulndata", get(vuln_page::status).put(vuln_page::put))
         .route("/api/vulndata/refresh", post(vuln_page::refresh))
         .route("/api/vulndata/custom", put(vuln_page::custom_put))
+        .route("/api/vulndata/kev/refresh", post(vuln_page::kev_refresh))
         .route("/api/topology", get(topology_page::topology))
         .route("/api/switches", get(topology_page::list).put(topology_page::put))
         .route("/api/switches/{id}/poll", post(topology_page::poll_now))
@@ -2101,10 +2102,12 @@ mod tests {
         let (app, store, [viewer, editor, admin]) = secured().await;
         let (st, _, v) = send(&app, req("GET", "/api/vulndata", Some(&viewer), None)).await;
         assert_eq!(st, StatusCode::OK);
-        assert!(v["kev_entries"].as_u64().unwrap() >= 5 && v["products"].as_array().unwrap().iter().any(|p| p == "nginx") && v["refresh_eol"] == true && v["refreshed_at"].is_null(), "on by default; {v}");
+        assert!(v["kev_entries"].as_u64().unwrap() >= 5 && v["products"].as_array().unwrap().iter().any(|p| p == "nginx") && v["refresh_eol"] == true && v["refresh_kev"] == false && v["refreshed_at"].is_null(), "on by default; {v}");
         for c in [&viewer, &editor] {
             assert_eq!(send(&app, req("PUT", "/api/vulndata", Some(c), Some(serde_json::json!({"refresh_eol": false})))).await.0, StatusCode::FORBIDDEN);
             assert_eq!(send(&app, req("POST", "/api/vulndata/refresh", Some(c), None)).await.0, StatusCode::FORBIDDEN);
+            // the live CISA/NVD refresh needs an admin too (never called here: it would reach the real internet)
+            assert_eq!(send(&app, req("POST", "/api/vulndata/kev/refresh", Some(c), None)).await.0, StatusCode::FORBIDDEN);
         }
         assert_eq!(send(&app, req("PUT", "/api/vulndata", Some(&admin), Some(serde_json::json!({"refresh_eol": false})))).await.0, StatusCode::NO_CONTENT);
         assert_eq!(send(&app, req("GET", "/api/vulndata", Some(&viewer), None)).await.2["refresh_eol"], false);

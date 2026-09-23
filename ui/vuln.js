@@ -8,14 +8,19 @@ async function loadVulnBox() {
   const d = r.json;
   const status = el('span', { class: 'muted', id: 'vuln-status' });
   const auto = el('input', { type: 'checkbox', id: 'vuln-auto', checked: d.refresh_eol, onchange: async () => {
-    const s = await api('PUT', '/api/vulndata', { refresh_eol: auto.checked });
+    const s = await api('PUT', '/api/vulndata', { refresh_eol: auto.checked, refresh_kev: kevAuto.checked });
     status.textContent = s.ok ? tr('Saved.') : apiError(s);
+  } });
+  const kevStatus = el('span', { class: 'muted', id: 'vuln-kev-status' });
+  const kevAuto = el('input', { type: 'checkbox', id: 'vuln-kev-auto', checked: d.refresh_kev, onchange: async () => {
+    const s = await api('PUT', '/api/vulndata', { refresh_eol: auto.checked, refresh_kev: kevAuto.checked });
+    kevStatus.textContent = s.ok ? tr('Saved.') : apiError(s);
   } });
   $('vuln-body').replaceChildren(
     el('p', { class: 'muted', text: tr('When a service tells DENIS its version (an SSH, FTP or mail banner, a web server header), DENIS can say whether that version is still supported and whether it is in the range of a vulnerability that attackers are exploiting now. Nothing is claimed without a version. A distribution may fix a flaw without changing the version number, so read a match as "check this", not as a verdict.') }),
     el('p', { text: tr('Support dates for {n} products and {k} known-exploited vulnerabilities, as of {date}.', { n: d.products.length, k: d.kev_entries, date: d.generated }) }),
     d.refreshed_at ? el('p', { class: 'muted', text: tr('The support dates were refreshed from endoflife.date {ago}.', { ago: ago(d.refreshed_at) }) }) : el('p', { class: 'muted', text: tr('The support dates are the ones that came with this version of DENIS.') }),
-    el('p', { class: 'muted small', text: tr('The known-exploited list (CISA) and its affected versions (NVD) come with new versions of DENIS. Refreshing the support dates contacts endoflife.date and sends nothing about your network.') }),
+    el('p', { class: 'muted small', text: tr('The known-exploited list (CISA) and its affected versions (NVD) come with new versions of DENIS, or can be refreshed live below. Refreshing the support dates contacts endoflife.date and sends nothing about your network.') }),
     el('label', { class: 'check' }, auto, ' ' + tr('Refresh the support dates from endoflife.date every week')),
     el('div', { class: 'row' }, el('button', { type: 'button', id: 'vuln-refresh', text: tr('Refresh now'), onclick: async (ev) => {
       ev.target.disabled = true;
@@ -25,6 +30,20 @@ async function loadVulnBox() {
       status.textContent = p.ok && p.json.ok ? tr('Refreshed {n} products.', { n: p.json.refreshed }) + (p.json.failed.length ? ' ' + tr('{n} could not be fetched.', { n: p.json.failed.length }) : '') : (p.ok ? p.json.error : apiError(p));
       if (p.ok && p.json.ok) loadVulnBox();
     } }), status),
+    el('h3', { class: 'section', text: tr('Known-exploited vulnerabilities from CISA + NVD') }),
+    el('p', { class: 'muted', text: tr('Fetch the current CISA Known Exploited Vulnerabilities catalog, look up each match\'s affected version range on NVD, and its exploitation-probability score from FIRST.org EPSS. Only entries for software DENIS can recognise from a banner are kept, and only when NVD gives a clean version range — nothing is guessed. Nothing about your network is sent to any of the three.') }),
+    d.kev_live_fetched_at
+      ? el('p', { class: 'muted small', text: tr('{n} known-exploited vulnerabilities from a live refresh {ago}{v}.', { n: d.kev_live_count, ago: ago(d.kev_live_fetched_at), v: d.kev_live_catalog_version ? ' (' + tr('catalog') + ' ' + d.kev_live_catalog_version + ')' : '' }) })
+      : el('p', { class: 'muted small', text: tr('Not refreshed yet — the {k} known-exploited vulnerabilities above are the ones that shipped with this version of DENIS.', { k: d.kev_entries }) }),
+    el('label', { class: 'check' }, kevAuto, ' ' + tr('Refresh from CISA + NVD every week')),
+    el('div', { class: 'row' }, el('button', { type: 'button', id: 'vuln-kev-refresh', text: tr('Update now'), onclick: async (ev) => {
+      ev.target.disabled = true;
+      kevStatus.textContent = tr('Fetching… this can take a minute or two (NVD is rate-limited per CVE).');
+      const p = await api('POST', '/api/vulndata/kev/refresh');
+      ev.target.disabled = false;
+      kevStatus.textContent = p.ok && p.json.ok ? tr('Matched {n}.', { n: p.json.matched }) + (p.json.skipped.length ? ' ' + tr('{n} skipped (no clean version range or unreachable).', { n: p.json.skipped.length }) : '') : (p.ok ? p.json.error : apiError(p));
+      if (p.ok && p.json.ok) loadVulnBox();
+    } }), kevStatus),
     el('h3', { class: 'section', text: tr('Custom CVEs') }),
     el('p', { class: 'muted', text: tr('Add a known-exploited vulnerability of your own — for software DENIS does not ship data for yet, or one you want flagged sooner. Matched against service banners exactly like the built-in list, above.') }),
     customKevTable(d.custom_kev, d.known_products),

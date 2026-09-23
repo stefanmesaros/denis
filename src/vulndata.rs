@@ -16,7 +16,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::banners::Software;
@@ -265,6 +265,9 @@ impl Intel {
                 i.refreshed_at = Some(o.fetched_at);
             }
         }
+        let live = kev_live(store);
+        i.data.kev.extend(live.kev);
+        i.data.epss.extend(live.epss);
         i.data.kev.extend(custom_kev(store));
         i
     }
@@ -343,11 +346,18 @@ pub struct Overlay {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
     pub refresh_eol: bool,
+    /// Whether the console also fetches known-exploited vulnerabilities from CISA/NVD by itself
+    /// every week (see `fetch_kev_live`). Off by default: unlike the EOL refresh this contacts
+    /// two additional public sites and takes a while (NVD is rate-limited per CVE), so it is an
+    /// administrator's own choice to turn on rather than something a fresh install starts doing
+    /// unasked. "Update now" (below) always works regardless of this setting.
+    #[serde(default)]
+    pub refresh_kev: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { refresh_eol: true }
+        Settings { refresh_eol: true, refresh_kev: false }
     }
 }
 
@@ -409,6 +419,182 @@ pub fn save_custom_kev(store: &dyn Store, list: &[Kev], now: i64) -> Result<()> 
     store.set_setting(CUSTOM_KEV_KEY, &serde_json::to_vec(list)?, now)?;
     reload(store);
     Ok(())
+}
+
+// --------------------------------------------------------------------------------- live CISA KEV / NVD / EPSS
+
+/// CISA KEV catalog `(vendorProject, product)` -> `(banner product key, NVD CPE "vendor:product")`.
+/// Mirrors `tools/build-vulndata.py`'s `KEV_PRODUCTS` exactly, so a live refresh recognises the
+/// same names the bundled data was built from.
+type KevProductEntry = ((&'static str, &'static str), (&'static str, &'static str));
+pub const KEV_PRODUCT_MAP: &[KevProductEntry] = &[
+    (("Apache", "HTTP Server"), ("apache-http-server", "apache:http_server")),
+    (("PHP", "PHP"), ("php", "php:php")),
+    (("PHP Group", "PHP"), ("php", "php:php")),
+    (("Exim", "Exim"), ("exim", "exim:exim")),
+    (("Exim", "Exim Internet Mailer"), ("exim", "exim:exim")),
+    (("Exim", "Mail Transfer Agent (MTA)"), ("exim", "exim:exim")),
+    (("OpenSSL", "OpenSSL"), ("openssl", "openssl:openssl")),
+    (("Microsoft", "Internet Information Services (IIS)"), ("iis", "microsoft:internet_information_services")),
+    (("ProFTPD", "ProFTPD"), ("proftpd", "proftpd:proftpd")),
+    (("OpenBSD", "OpenSSH"), ("openssh", "openbsd:openssh")),
+    (("F5", "nginx"), ("nginx", "f5:nginx")),
+    (("Nginx", "nginx"), ("nginx", "f5:nginx")),
+];
+
+pub const KEV_LIVE_KEY: &str = "vulndata.kev_live";
+/// A safety cap: NVD is fetched once per matched CVE, one at a time, paced to respect its
+/// unauthenticated rate limit — an unbounded catalog match would make "Update now" run for a very
+/// long time.
+pub const MAX_KEV_LIVE_MATCHES: usize = 60;
+pub const KEV_URL: &str = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json";
+pub const NVD_URL: &str = "https://services.nvd.nist.gov/rest/json/cves/2.0";
+pub const EPSS_URL: &str = "https://api.first.org/data/v1/epss";
+/// NVD allows 5 requests per rolling 30 seconds without an API key; one every 6.5s stays under that.
+pub const NVD_PACE: std::time::Duration = std::time::Duration::from_millis(6_500);
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct KevLive {
+    pub fetched_at: i64,
+    pub catalog_version: Option<String>,
+    pub kev: Vec<Kev>,
+    pub epss: BTreeMap<String, f32>,
+}
+
+pub fn kev_live(store: &dyn Store) -> KevLive {
+    store.get_setting(KEV_LIVE_KEY).ok().flatten().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+pub fn save_kev_live(store: &dyn Store, live: &KevLive, now: i64) -> Result<()> {
+    store.set_setting(KEV_LIVE_KEY, &serde_json::to_vec(live)?, now)?;
+    reload(store);
+    Ok(())
+}
+
+/// Version ranges of `cpe_product` from one NVD CVE record (the `cve` object inside
+/// `vulnerabilities[0]`), or `None` when the record does not give a clean single-product range —
+/// "product X running on platform Y" (an `AND` of two nodes), a negated match, or a bare product
+/// with no version bound at all say nothing a banner's version can be checked against, so nothing
+/// is guessed. Mirrors `tools/build-vulndata.py`'s `ranges_for`.
+fn ranges_for(cve_item: &serde_json::Value, cpe_product: &str) -> Option<Vec<Range>> {
+    let mut out = Vec::new();
+    for cfg in cve_item.get("configurations").and_then(|c| c.as_array()).into_iter().flatten() {
+        let nodes: Vec<&serde_json::Value> = cfg.get("nodes").and_then(|n| n.as_array()).into_iter().flatten().collect();
+        if cfg.get("operator").and_then(|o| o.as_str()) == Some("AND") && nodes.len() > 1 {
+            return None;
+        }
+        for node in &nodes {
+            if node.get("operator").and_then(|o| o.as_str()) == Some("AND") || node.get("negate").and_then(|b| b.as_bool()) == Some(true) {
+                return None;
+            }
+            for m in node.get("cpeMatch").and_then(|a| a.as_array()).into_iter().flatten() {
+                let criteria = m.get("criteria").and_then(|c| c.as_str()).unwrap_or("");
+                let parts: Vec<&str> = criteria.split(':').collect();
+                if parts.len() < 6 || format!("{}:{}", parts[3], parts[4]) != cpe_product || m.get("vulnerable").and_then(|v| v.as_bool()) != Some(true) {
+                    continue;
+                }
+                let version = parts[5];
+                let (lo, lo_incl) = match (m.get("versionStartIncluding").and_then(|v| v.as_str()), m.get("versionStartExcluding").and_then(|v| v.as_str())) {
+                    (Some(v), _) => (Some(v), true),
+                    (None, e) => (e, false),
+                };
+                let (hi, hi_incl) = match (m.get("versionEndIncluding").and_then(|v| v.as_str()), m.get("versionEndExcluding").and_then(|v| v.as_str())) {
+                    (Some(v), _) => (Some(v), true),
+                    (None, e) => (e, false),
+                };
+                if version != "*" && version != "-" {
+                    let update = parts.get(6).copied().filter(|u| *u != "*" && *u != "-");
+                    let exact = update.map_or_else(|| version.to_string(), |u| format!("{version}:{u}"));
+                    out.push(Range { exact: Some(exact), from: None, from_incl: false, to: None, to_incl: false });
+                } else if lo.is_some() || hi.is_some() {
+                    out.push(Range { exact: None, from: lo.map(String::from), from_incl: lo_incl, to: hi.map(String::from), to_incl: hi_incl });
+                }
+                // a bare product with no version bound at all says nothing about any version: ignored
+            }
+        }
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+fn get_json(agent: &ureq::Agent, url: &str, ua: &str, limit: u64) -> Result<serde_json::Value> {
+    agent.get(url).header("User-Agent", ua).call().map_err(|e| anyhow!("{e}"))?.body_mut().with_config().limit(limit).read_to_vec().map_err(|e| anyhow!("{e}")).and_then(|b| serde_json::from_slice(&b).map_err(|e| anyhow!("not JSON: {e}")))
+}
+
+/// Fetch the CISA KEV catalog, keep only the entries whose (vendor, product) DENIS recognises
+/// (`KEV_PRODUCT_MAP`), look up each one's affected version ranges on NVD, and their EPSS score.
+/// Blocking, and deliberately paced (`nvd_pace`) between NVD calls. Returns what was matched and
+/// added, and a line per CVE that was skipped (with why) — nothing about your own network is sent
+/// to any of the three sites.
+pub fn fetch_kev_live(kev_url: &str, nvd_url: &str, epss_url: &str, nvd_pace: std::time::Duration, now: i64) -> Result<(KevLive, Vec<String>)> {
+    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(30))).http_status_as_error(true).build().into();
+    let ua = concat!("denis/", env!("CARGO_PKG_VERSION"));
+    let catalog = get_json(&agent, kev_url, ua, 50_000_000).context("fetching the CISA KEV catalog")?;
+    let catalog_version = catalog.get("catalogVersion").and_then(|v| v.as_str()).map(String::from);
+
+    let mut entries = Vec::new();
+    let mut failed = Vec::new();
+    let mut first = true;
+    for v in catalog.get("vulnerabilities").and_then(|v| v.as_array()).into_iter().flatten() {
+        if entries.len() >= MAX_KEV_LIVE_MATCHES {
+            break;
+        }
+        let vendor = v.get("vendorProject").and_then(|x| x.as_str()).unwrap_or("");
+        let product = v.get("product").and_then(|x| x.as_str()).unwrap_or("");
+        let Some(&(key, cpe_product)) = KEV_PRODUCT_MAP.iter().find(|((vp, p), _)| *vp == vendor && *p == product).map(|(_, hit)| hit) else { continue };
+        let Some(cve_id) = v.get("cveID").and_then(|x| x.as_str()) else { continue };
+
+        if !first {
+            std::thread::sleep(nvd_pace);
+        }
+        first = false;
+        let nvd = get_json(&agent, &format!("{nvd_url}?cveId={cve_id}"), ua, 5_000_000)
+            .and_then(|root| root.get("vulnerabilities").and_then(|a| a.as_array()).and_then(|a| a.first()).and_then(|x| x.get("cve")).cloned().ok_or_else(|| anyhow!("not found on NVD")));
+        let cve_item = match nvd {
+            Ok(item) => item,
+            Err(e) => {
+                failed.push(format!("{cve_id}: {e:#}"));
+                continue;
+            }
+        };
+        let Some(ranges) = ranges_for(&cve_item, cpe_product) else {
+            failed.push(format!("{cve_id}: no clean single-product version range on NVD"));
+            continue;
+        };
+        entries.push(Kev {
+            cve: cve_id.to_string(),
+            name: v.get("vulnerabilityName").and_then(|x| x.as_str()).unwrap_or(cve_id).to_string(),
+            added: v.get("dateAdded").and_then(|x| x.as_str()).unwrap_or_default().to_string(),
+            product: key.to_string(),
+            ranges,
+            ransomware: v.get("knownRansomwareCampaignUse").and_then(|x| x.as_str()) == Some("Known"),
+        });
+    }
+    entries.sort_by(|a, b| a.cve.cmp(&b.cve));
+
+    let mut epss = BTreeMap::new();
+    for chunk in entries.chunks(40) {
+        let cves = chunk.iter().map(|k| k.cve.as_str()).collect::<Vec<_>>().join(",");
+        if let Ok(v) = get_json(&agent, &format!("{epss_url}?cve={cves}"), ua, 2_000_000) {
+            for row in v.get("data").and_then(|d| d.as_array()).into_iter().flatten() {
+                if let (Some(cve), Some(score)) = (row.get("cve").and_then(|c| c.as_str()), row.get("epss").and_then(value_as_f32)) {
+                    epss.insert(cve.to_string(), score);
+                }
+            }
+        }
+    }
+    if entries.is_empty() && !failed.is_empty() {
+        bail!("nothing matched a version DENIS could compare ({} skipped)", failed.len());
+    }
+    Ok((KevLive { fetched_at: now, catalog_version, kev: entries, epss }, failed))
+}
+
+/// EPSS's own field is written as a JSON string (`"0.00512"`), not a number.
+fn value_as_f32(v: &serde_json::Value) -> Option<f32> {
+    v.as_str().and_then(|s| s.parse().ok()).or_else(|| v.as_f64().map(|f| f as f32))
 }
 
 /// Parse and validate one product's answer from endoflife.date (`[{"cycle": "1.28", "eol": "2026-04-14", ...}, ...]`).
@@ -596,6 +782,28 @@ pub async fn run(store: std::sync::Arc<dyn Store>) {
             Ok(Err(e)) => tracing::warn!("refreshing support dates failed: {e:#}"),
             Err(e) => tracing::warn!("refreshing support dates failed: {e}"),
         }
+
+        let s = store.clone();
+        let done = tokio::task::spawn_blocking(move || -> Result<Option<(usize, Vec<String>)>> {
+            if !settings(&*s).refresh_kev {
+                return Ok(None);
+            }
+            let now = crate::model::now_ts();
+            if now - kev_live(&*s).fetched_at < 7 * 86_400 {
+                return Ok(None);
+            }
+            let (live, failed) = fetch_kev_live(KEV_URL, NVD_URL, EPSS_URL, NVD_PACE, now)?;
+            let n = live.kev.len();
+            save_kev_live(&*s, &live, now)?;
+            Ok(Some((n, failed)))
+        })
+        .await;
+        match done {
+            Ok(Ok(Some((n, failed)))) => tracing::info!("known-exploited vulnerabilities refreshed from CISA/NVD: {n} matched{}", if failed.is_empty() { String::new() } else { format!(" ({} skipped)", failed.len()) }),
+            Ok(Ok(None)) => {}
+            Ok(Err(e)) => tracing::warn!("refreshing known-exploited vulnerabilities failed: {e:#}"),
+            Err(e) => tracing::warn!("refreshing known-exploited vulnerabilities failed: {e}"),
+        }
     }
 }
 
@@ -715,8 +923,10 @@ mod tests {
     fn support_dates_refresh_is_on_by_default_but_can_be_turned_off() {
         let store = crate::store::sqlite::SqliteStore::open_in_memory().unwrap();
         assert!(settings(&store).refresh_eol, "a fresh install refreshes support dates on its own");
-        save_settings(&store, &Settings { refresh_eol: false }, 1).unwrap();
+        assert!(!settings(&store).refresh_kev, "the heavier CISA/NVD refresh is opt-in");
+        save_settings(&store, &Settings { refresh_eol: false, refresh_kev: true }, 1).unwrap();
         assert!(!settings(&store).refresh_eol);
+        assert!(settings(&store).refresh_kev);
     }
 
     fn custom(cve: &str, product: &str, added: &str, ranges: Vec<Range>) -> Kev {
@@ -801,6 +1011,79 @@ mod tests {
         let n = overlay.eol.len();
         store.set_setting(OVERLAY_KEY, &serde_json::to_vec(&overlay)?, now)?;
         Ok((n, failed))
+    }
+
+    #[test]
+    fn ranges_for_reads_a_clean_single_product_range_and_refuses_a_platform_condition() {
+        let exact = serde_json::json!({"configurations": [{"nodes": [{"cpeMatch": [
+            {"criteria": "cpe:2.3:a:vsftpd:vsftpd:3.0.5:*:*:*:*:*:*:*", "vulnerable": true}
+        ]}]}]});
+        assert_eq!(ranges_for(&exact, "vsftpd:vsftpd"), Some(vec![Range { exact: Some("3.0.5".into()), from: None, from_incl: false, to: None, to_incl: false }]));
+
+        let range = serde_json::json!({"configurations": [{"nodes": [{"cpeMatch": [
+            {"criteria": "cpe:2.3:a:openbsd:openssh:*:*:*:*:*:*:*:*", "vulnerable": true, "versionStartIncluding": "7.0", "versionEndExcluding": "7.5"}
+        ]}]}]});
+        assert_eq!(ranges_for(&range, "openbsd:openssh"), Some(vec![Range { exact: None, from: Some("7.0".into()), from_incl: true, to: Some("7.5".into()), to_incl: false }]));
+
+        // "product X running on platform Y" (an AND of two nodes): a banner cannot say this
+        let platform = serde_json::json!({"configurations": [{"operator": "AND", "nodes": [
+            {"cpeMatch": [{"criteria": "cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*", "vulnerable": true}]},
+            {"cpeMatch": [{"criteria": "cpe:2.3:o:linux:linux_kernel:*:*:*:*:*:*:*:*", "vulnerable": true}]},
+        ]}]});
+        assert!(ranges_for(&platform, "apache:http_server").is_none());
+
+        // a bare product with no version bound at all says nothing
+        let bare = serde_json::json!({"configurations": [{"nodes": [{"cpeMatch": [
+            {"criteria": "cpe:2.3:a:exim:exim:*:*:*:*:*:*:*:*", "vulnerable": true}
+        ]}]}]});
+        assert!(ranges_for(&bare, "exim:exim").is_none());
+    }
+
+    #[test]
+    fn a_live_refresh_matches_recognised_products_looks_up_ranges_and_scores_and_skips_the_rest() {
+        use std::io::{Read, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", l.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for stream in l.incoming().take(4) {
+                let mut s = stream.unwrap();
+                let mut buf = [0u8; 4096];
+                let n = s.read(&mut buf).unwrap();
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                // fictional CVE id and version (never anything a real, bundled entry could also match)
+                let (status, body) = if req.contains("GET /kev") {
+                    ("200 OK", r#"{"catalogVersion":"2026.09.01","vulnerabilities":[
+                        {"cveID":"CVE-2099-00001","vendorProject":"Apache","product":"HTTP Server","vulnerabilityName":"Test-only Apache issue","dateAdded":"2026-01-01","knownRansomwareCampaignUse":"Known"},
+                        {"cveID":"CVE-2099-00002","vendorProject":"Apache","product":"HTTP Server","vulnerabilityName":"Not on NVD","dateAdded":"2026-01-01"},
+                        {"cveID":"CVE-2099-00003","vendorProject":"Unrelated Co","product":"Something Else","vulnerabilityName":"ignored: not a recognised product","dateAdded":"2026-01-01"}
+                    ]}"#.to_string())
+                } else if req.contains("cveId=CVE-2099-00001") {
+                    ("200 OK", r#"{"vulnerabilities":[{"cve":{"configurations":[{"nodes":[{"cpeMatch":[{"criteria":"cpe:2.3:a:apache:http_server:9.9.9:*:*:*:*:*:*:*","vulnerable":true}]}]}]}}]}"#.to_string())
+                } else if req.contains("cveId=CVE-2099-00002") {
+                    ("404 Not Found", "{}".to_string())
+                } else if req.contains("GET /epss") {
+                    ("200 OK", r#"{"data":[{"cve":"CVE-2099-00001","epss":"0.94231"}]}"#.to_string())
+                } else {
+                    ("404 Not Found", "{}".to_string())
+                };
+                let _ = write!(s, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            }
+        });
+        let (live, failed) = fetch_kev_live(&format!("{base}/kev"), &format!("{base}/nvd"), &format!("{base}/epss"), std::time::Duration::ZERO, 5_000_000_000).unwrap();
+        assert_eq!(live.catalog_version.as_deref(), Some("2026.09.01"));
+        assert_eq!(live.kev.len(), 1, "{:?}", live.kev);
+        assert_eq!((live.kev[0].cve.as_str(), live.kev[0].product.as_str(), live.kev[0].ransomware), ("CVE-2099-00001", "apache-http-server", true));
+        assert_eq!(live.kev[0].ranges, vec![Range { exact: Some("9.9.9".into()), from: None, from_incl: false, to: None, to_incl: false }]);
+        assert_eq!(live.epss.get("CVE-2099-00001"), Some(&0.94231));
+        assert_eq!(failed.len(), 1, "{failed:?}");
+        assert!(failed[0].starts_with("CVE-2099-00002"), "{failed:?}");
+
+        let store = crate::store::sqlite::SqliteStore::open_in_memory().unwrap();
+        save_kev_live(&store, &live, 5_000_000_000).unwrap();
+        assert_eq!(kev_live(&store), live);
+        let i = Intel::load(&store);
+        assert_eq!(i.kev("apache-http-server", "9.9.9").len(), 1);
+        assert_eq!(i.epss("CVE-2099-00001"), Some(0.94231));
     }
 
     #[test]

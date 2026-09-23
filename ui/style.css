@@ -336,8 +336,6 @@ button.chip, .chip.clickable { cursor: pointer; }
 .measure b { font-size: 22px; }
 .bar { height: 6px; background: var(--line); border-radius: 3px; margin: 6px 0; overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); }
-#compliance-table td { white-space: normal; vertical-align: top; }
-#compliance-table td:last-child { white-space: nowrap; width: 1%; }
 .compliance-group { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .compliance-group + .compliance-group { margin-top: 10px; }
 .compliance-group summary { cursor: pointer; padding: 10px 14px; font-weight: 600; list-style: none; display: flex; align-items: center; gap: 8px; }
@@ -345,7 +343,13 @@ button.chip, .chip.clickable { cursor: pointer; }
 .compliance-group summary::before { content: '▸'; color: var(--muted); transition: transform .1s; }
 .compliance-group[open] summary::before { transform: rotate(90deg); }
 .compliance-group summary .muted { font-weight: 400; }
-.compliance-group .table-wrap { border: 0; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; }
+/* A card per requirement, not a table: the description and the status are always both visible
+   without scrolling sideways, whatever the viewport width. */
+.compliance-rows { border-top: 1px solid var(--line); }
+.compliance-row { padding: 10px 14px; display: grid; gap: 4px; font-size: 13px; }
+.compliance-row + .compliance-row { border-top: 1px solid var(--line); }
+.compliance-row-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.compliance-row-head b { font-size: 13px; }
 .pill.warn { color: var(--warn); border-color: var(--warn); }
 
 .banner-info { background: color-mix(in srgb, var(--accent) 14%, transparent); border-bottom: 1px solid var(--accent); padding: 8px 16px; font-size: 13px; }

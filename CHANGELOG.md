@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.14.1: a live CISA/NVD known-exploited feed, Compliance as cards, more Trends charts
+
+Follow-up to 1.14.0, from the same round of feedback.
+
+* **Known-exploited vulnerabilities can now be refreshed live** (Settings → Software data): "Update
+  now" fetches the current CISA Known Exploited Vulnerabilities catalog, looks up each recognised
+  match's affected version range on NVD, and its exploitation-probability score from FIRST.org
+  EPSS — only entries for the products DENIS can already read from a service banner, and only when
+  NVD gives a clean single-product version range (nothing is ever guessed). An optional weekly
+  auto-refresh sits beside it, off by default (heavier than the existing EOL refresh, so it is an
+  administrator's own choice). Works alongside Custom CVEs, added in 1.14.0.
+* **Compliance is no longer a wide table**: each requirement is its own card with the status always
+  visible without scrolling sideways, and "Expand all" / "Collapse all" buttons for the
+  now-grouped-by-standard list.
+* **Trends**: three more charts — Devices offline, Devices in the register, and Total traffic —
+  alongside 1.14.0's New devices and Received.
+* **Rules**: the "traffic analysis is not running" warnings now name the actual capture interface
+  and say concretely what to do (start with `--flows`, add a mirror interface under Settings if the
+  traffic in question does not cross the main one).
+* Settings fields that should not stretch full width (network interfaces, sign-in security) no
+  longer do; a couple of remaining spacing gaps in Settings/Health were closed.
+
 ## 1.14.0: custom CVEs, simpler agent certificates, data retention, and a round of UX fixes
 
 A larger release across several areas raised in feedback: vulnerability data, certificate
