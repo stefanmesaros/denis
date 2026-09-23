@@ -394,11 +394,21 @@ fn view(
     AssetView { display_name: meta.display_name.clone(), asset, ip, risk, meta, detected, warranty }
 }
 
+/// Loads a device only if `me` may see it (site access; see `access.rs`). `None` means "does not
+/// exist, or you may not see it" — every caller must answer both cases the same way (404), so an
+/// out-of-scope id can never be told apart from a nonexistent one by an attacker probing ids.
+pub(crate) async fn scoped_asset(st: &AppState, me: &User, id: i64) -> Result<Option<Asset>, ApiError> {
+    let a = blocking(&st.store, move |s| s.get_asset(id)).await?;
+    let me = me.clone();
+    Ok(a.filter(move |a| site_readable(st, &me, &a.agent_id)))
+}
+
 /// One asset's full view (used after edits).
-pub(crate) async fn asset_view(st: &AppState, id: i64) -> Result<Option<AssetView>, ApiError> {
+pub(crate) async fn asset_view(st: &AppState, me: &User, id: i64) -> Result<Option<AssetView>, ApiError> {
     let now = now_ts();
-    let (a, alerts, meta) = blocking(&st.store, move |s| Ok((s.get_asset(id)?, open_alerts(s)?, s.get_meta(id)?))).await?;
-    Ok(a.map(|a| view(a, &alerts, meta.unwrap_or_default(), now)))
+    let Some(a) = scoped_asset(st, me, id).await? else { return Ok(None) };
+    let (alerts, meta) = blocking(&st.store, move |s| Ok((open_alerts(s)?, s.get_meta(id)?))).await?;
+    Ok(Some(view(a, &alerts, meta.unwrap_or_default(), now)))
 }
 
 async fn status(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Json<serde_json::Value>, ApiError> {
@@ -579,8 +589,8 @@ async fn findings(State(st): State<AppState>) -> Result<Json<Vec<crate::findings
     Ok(Json(crate::findings::apply_acceptances(crate::findings::compute(&list, &metas, now), &acceptances, now).0))
 }
 
-async fn asset(State(st): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    Ok(match asset_view(&st, id).await? {
+async fn asset(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    Ok(match asset_view(&st, &me, id).await? {
         Some(v) => Json(v).into_response(),
         None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "not found"}))).into_response(),
     })
@@ -695,7 +705,10 @@ async fn agents(State(st): State<AppState>, Extension(AuthUser(me)): Extension<A
 }
 
 /// The device's learned baseline, with destinations most-recent-first and capped.
-async fn baseline(State(st): State<AppState>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+async fn baseline(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    if scoped_asset(&st, &me, id).await?.is_none() {
+        return Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "not found"}))).into_response());
+    }
     Ok(match blocking(&st.store, move |s| s.get_baseline(id)).await? {
         Some(b) => {
             let mut dests: Vec<_> = b.typical_destinations.iter().collect();
@@ -953,6 +966,41 @@ mod tests {
         // a non-admin cannot change anyone's grants
         let (st, _, _) = send(&app, req("PUT", &format!("/api/users/{vera_id}/site-access"), Some(&viewer), Some(serde_json::json!({"grants": []})))).await;
         assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn a_devices_own_endpoints_are_site_scoped_too_not_just_the_list() {
+        // regression test for an IDOR: /api/assets already filtered by site, but
+        // /api/assets/{id}, its /baseline and /history did not — a restricted viewer who knew
+        // (or guessed, ids are sequential) another site's device id could read it directly.
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let mut site_a_asset = Asset { agent_id: Some("site-a".into()), ..Asset::new(Mac([0x02, 0, 0, 0, 0, 2]), 10) };
+        store.save_asset(&mut site_a_asset).unwrap();
+        let id = site_a_asset.id;
+        store
+            .upsert_agent(&crate::model::AgentInfo {
+                id: "site-a".into(), name: "Site A".into(), site: None, version: "0.7.0".into(), subnet: "10.0.0.0/24".into(),
+                first_seen: 10, last_report_at: 10, last_run_id: String::new(), last_seq: 0,
+            })
+            .unwrap();
+        let vera_id = store.find_user("vera").unwrap().unwrap().user.id;
+        send(&app, req("PUT", &format!("/api/users/{vera_id}/site-access"), Some(&admin), Some(serde_json::json!({"grants": [["site-a", "none"]]})))).await;
+
+        // before restriction: reachable, same as any other device
+        assert_eq!(send(&app, req("GET", &format!("/api/assets/{id}"), Some(&admin), None)).await.0, StatusCode::OK);
+
+        // the restricted viewer gets 404, not 403: existence itself must not leak
+        for uri in [format!("/api/assets/{id}"), format!("/api/assets/{id}/baseline"), format!("/api/assets/{id}/history")] {
+            let (st, _, v) = send(&app, req("GET", &uri, Some(&viewer), None)).await;
+            assert_eq!(st, StatusCode::NOT_FOUND, "{uri}: {v}");
+        }
+        // an unrestricted role (editor has no grant here) and the admin still see it
+        for cookie in [&editor, &admin] {
+            assert_eq!(send(&app, req("GET", &format!("/api/assets/{id}"), Some(cookie), None)).await.0, StatusCode::OK);
+            assert_eq!(send(&app, req("GET", &format!("/api/assets/{id}/history"), Some(cookie), None)).await.0, StatusCode::OK);
+        }
+        // a nonexistent id answers exactly the same way (404) — no distinguishing signal
+        assert_eq!(send(&app, req("GET", "/api/assets/999999", Some(&viewer), None)).await.0, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -2724,6 +2772,36 @@ mod tests {
         assert_eq!((st, v["results"][0]["status"].as_str(), v["rescanned"].as_bool()), (StatusCode::OK, Some("not_probed"), Some(false)), "{v}");
         assert!(v["results"][0]["detail"].as_str().unwrap().contains("cannot scan"));
         assert_eq!(send(&app, req("POST", "/api/findings/nope/verify", Some(&editor), None)).await.0, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn verify_fix_silently_drops_asset_ids_outside_the_callers_site_access() {
+        // regression test: an editor restricted to no access on site-a could still ask
+        // /api/findings/{id}/verify to check a site-a device's asset_id directly (that endpoint
+        // never looked at site access at all, unlike /api/assets).
+        let (app, store, [_viewer, editor, admin]) = secured().await;
+        let mut cam = Asset { agent_id: Some("site-a".into()), ..Asset::new(Mac([0x02, 0, 0, 0, 0, 9]), 1) };
+        cam.device_type = "camera".into();
+        cam.last_seen = now_ts();
+        cam.open_ports = vec![crate::model::OpenPort { port: 23, proto: "tcp".into(), service: None }];
+        store.save_asset(&mut cam).unwrap();
+        store
+            .upsert_agent(&crate::model::AgentInfo {
+                id: "site-a".into(), name: "Site A".into(), site: None, version: "0.7.0".into(), subnet: "10.0.0.0/24".into(),
+                first_seen: 10, last_report_at: 10, last_run_id: String::new(), last_seq: 0,
+            })
+            .unwrap();
+        let eda_id = store.find_user("eda").unwrap().unwrap().user.id;
+        send(&app, req("PUT", &format!("/api/users/{eda_id}/site-access"), Some(&admin), Some(serde_json::json!({"grants": [["site-a", "none"]]})))).await;
+
+        let path = "/api/findings/telnet_open/verify";
+        let (st, _, v) = send(&app, req("POST", path, Some(&editor), Some(serde_json::json!({"asset_ids": [cam.id]})))).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["results"].as_array().map(Vec::len), Some(0), "the site-a device was asked for by id but must not appear: {v}");
+
+        // an admin (or anyone with access to site-a) still gets it
+        let (_, _, v) = send(&app, req("POST", path, Some(&admin), Some(serde_json::json!({"asset_ids": [cam.id]})))).await;
+        assert_eq!(v["results"].as_array().map(Vec::len), Some(1), "{v}");
     }
 
     #[tokio::test]

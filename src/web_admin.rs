@@ -1,8 +1,11 @@
 //! Handlers for everything that changes state or manages access: login and
 //! sessions, users, agent tokens, asset editing/creation/import, audit trail.
 //!
-//! Authorisation is decided in `web::authn` (by method and path) *before* these
-//! run; the handlers only need to know *who* is acting, for the audit trail.
+//! **Role** (viewer/editor/admin) is decided in `web::authn` (by method and path) *before* these
+//! run. **Site access** (which agents'/sites' devices `me` may see or change, see `access.rs`) is
+//! not: `authn` has no notion of "which device", so each handler that takes a device id checks it
+//! itself, via `web::scoped_asset` (reads) or `web::site_writable` (writes). A handler that takes
+//! `Path(id)` and skips this check is a bug — see the site-access tests in `web.rs`.
 
 use std::sync::Arc;
 
@@ -1066,7 +1069,7 @@ pub(crate) async fn patch_meta(
             if !changes.is_empty() {
                 audit(&st, &me.username, "asset.edit", Some(id), json!({ "changes": changes }));
             }
-            Ok(match asset_view(&st, id).await? {
+            Ok(match asset_view(&st, &me, id).await? {
                 Some(v) => Json(v).into_response(),
                 None => err(StatusCode::NOT_FOUND, "no such asset"),
             })
@@ -1157,7 +1160,7 @@ pub(crate) async fn create_asset(State(st): State<AppState>, Extension(AuthUser(
         Err((c, m)) => err(c, m),
         Ok((id, changes)) => {
             audit(&st, &me.username, "asset.create", Some(id), json!({ "changes": changes }));
-            match asset_view(&st, id).await? {
+            match asset_view(&st, &me, id).await? {
                 Some(v) => (StatusCode::CREATED, Json(v)).into_response(),
                 None => err(StatusCode::INTERNAL_SERVER_ERROR, "created asset vanished"),
             }
@@ -1187,9 +1190,14 @@ pub(crate) async fn delete_asset(State(st): State<AppState>, Extension(AuthUser(
     })
 }
 
-pub(crate) async fn history(State(st): State<AppState>, Path(id): Path<i64>) -> Result<Json<Value>, ApiError> {
+/// A device's edit history. Site-scoped like the device itself (`web::scoped_asset`): the audit
+/// trail is at least as sensitive as the device record it is about.
+pub(crate) async fn history(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    if crate::web::scoped_asset(&st, &me, id).await?.is_none() {
+        return Ok(err(StatusCode::NOT_FOUND, "not found"));
+    }
     let h = blocking(&st.store, move |s| s.list_audit(Some(id), 100)).await?;
-    Ok(Json(json!(h)))
+    Ok(Json(json!(h)).into_response())
 }
 
 #[derive(Deserialize)]
@@ -1328,7 +1336,11 @@ pub(crate) async fn risk_accept(State(st): State<AppState>, Extension(AuthUser(m
     let Some(finding) = current.iter().find(|f| f.id == b.finding_id) else {
         return Ok(err(StatusCode::CONFLICT, E_NOT_APPLY));
     };
-    if let Some(bad) = b.asset_ids.iter().find(|id| !finding.assets.contains(id)) {
+    // A device outside `me`'s site access is rejected with the exact same message as one the
+    // finding does not apply to — never a distinct "no access" reason, which would itself leak
+    // that the device exists on a site `me` cannot see (see the site-access tests in web.rs).
+    let agent_of: std::collections::HashMap<i64, Option<String>> = assets.iter().map(|a| (a.id, a.agent_id.clone())).collect();
+    if let Some(bad) = b.asset_ids.iter().find(|id| !finding.assets.contains(id) || !agent_of.get(id).is_some_and(|a| site_writable(&st, &me, a))) {
         return Ok(err(StatusCode::CONFLICT, format!("that finding does not apply to device #{bad}")));
     }
     let expires_at = b.days.map(|d| now + d as i64 * 86_400);
@@ -1347,6 +1359,21 @@ pub(crate) async fn risk_accept(State(st): State<AppState>, Extension(AuthUser(m
 
 /// Withdraw a decision: the finding counts again.
 pub(crate) async fn risk_revoke(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    // the acceptance names an asset_id, not a site, so its site access has to be looked up; a
+    // missing acceptance and a missing/out-of-scope asset are refused identically (E_NO_RISK),
+    // never distinguished, so this cannot be used to probe whether an asset id exists elsewhere.
+    // `Some(None)` = acceptance found but its asset is gone; treated the same as "not found".
+    let target_agent = blocking(&st.store, move |s| {
+        let Some(r) = s.list_risk_acceptances()?.into_iter().find(|r| r.id == id) else { return Ok(None) };
+        Ok(Some(s.get_asset(r.asset_id)?.map(|a| a.agent_id)))
+    })
+    .await?;
+    let Some(Some(agent_id)) = target_agent else {
+        return Ok(err(StatusCode::NOT_FOUND, E_NO_RISK));
+    };
+    if !site_writable(&st, &me, &agent_id) {
+        return Ok(err(StatusCode::NOT_FOUND, E_NO_RISK)); // same message as "does not exist": see risk_accept
+    }
     let (by, now) = (me.username.clone(), now_ts());
     let done = blocking(&st.store, move |s| s.revoke_risk_acceptance(id, &by, now)).await?;
     if !done {
@@ -1384,6 +1411,9 @@ pub(crate) async fn finding_verify(State(st): State<AppState>, Extension(AuthUse
     if !wanted.is_empty() {
         ids = wanted.into_iter().collect();
     }
+    // silently drop anything outside `me`'s site access, the same as if it had not been asked for
+    let agent_of: std::collections::HashMap<i64, Option<String>> = assets.iter().map(|a| (a.id, a.agent_id.clone())).collect();
+    ids.retain(|id| agent_of.get(id).is_some_and(|a| site_writable(&st, &me, a)));
     ids.sort_unstable();
     ids.dedup();
     ids.truncate(200);
