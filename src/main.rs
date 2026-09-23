@@ -201,7 +201,10 @@ enum Cmd {
         /// GitHub Enterprise: where release files are downloaded from.
         #[arg(long, env = "DENIS_UPDATE_DOWNLOAD_PREFIX", hide = true)]
         update_download_prefix: Option<String>,
-        /// Send alerts to a SIEM as syslog/CEF: udp://host:514 or tcp://host:514.
+        /// Send alerts to a SIEM as syslog/CEF: udp://host:514, tcp://host:514 or tls://host:6514.
+        /// Only seeds Settings -> SIEM / Log export the first time nothing has been saved there
+        /// yet; after that, the console is authoritative (format, streams, transport, TLS — all
+        /// editable live, no restart).
         #[arg(long, env = "DENIS_SYSLOG")]
         syslog: Option<String>,
         /// Only alerts at or above this score go to the webhook.

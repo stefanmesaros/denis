@@ -35,6 +35,7 @@ use crate::web_reports as reports_page;
 use crate::web_setup as setup_page;
 use crate::web_topology as topology_page;
 use crate::web_totp as totp_page;
+use crate::web_siem as siem_page;
 use crate::web_vuln as vuln_page;
 use crate::web_passkey as passkey;
 use crate::{report, trends};
@@ -105,6 +106,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/data/erase", post(admin::data_erase))
         .route("/api/findings", get(findings))
         .route("/api/findings/{id}/verify", post(admin::finding_verify))
+        .route("/api/siem", get(siem_page::get).put(siem_page::put))
+        .route("/api/siem/test", post(siem_page::test))
         .route("/api/vulndata", get(vuln_page::status).put(vuln_page::put))
         .route("/api/vulndata/refresh", post(vuln_page::refresh))
         .route("/api/topology", get(topology_page::topology))
@@ -185,7 +188,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path == "/api/reports/settings") && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path == "/api/reports/settings") && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -1094,6 +1097,41 @@ mod tests {
 
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
         assert!(audit.contains("interfaces.set"), "{audit}");
+    }
+
+    #[tokio::test]
+    async fn siem_settings_are_admin_only_validated_and_a_bad_test_target_reports_its_own_error() {
+        let (app, _store, [viewer, editor, admin]) = secured().await;
+
+        // any signed-in role can see the (disabled by default) settings
+        let (st, _, v) = send(&app, req("GET", "/api/siem", Some(&viewer), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["enabled"], false);
+
+        // only an admin may change it
+        let body = serde_json::json!({"enabled": true, "transport": "udp", "host": "siem.example.com", "port": 514, "format": "leef", "streams": {"events": true, "findings": true, "audit": false}, "insecure_tls": false});
+        assert_eq!(send(&app, req("PUT", "/api/siem", Some(&viewer), Some(body.clone()))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("PUT", "/api/siem", Some(&editor), Some(body.clone()))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("PUT", "/api/siem", Some(&admin), Some(body))).await.0, StatusCode::NO_CONTENT);
+
+        let (_, _, v) = send(&app, req("GET", "/api/siem", Some(&viewer), None)).await;
+        assert_eq!((v["enabled"].as_bool(), v["format"].as_str(), v["streams"]["findings"].as_bool()), (Some(true), Some("leef"), Some(true)));
+
+        // enabling it with no stream chosen at all is rejected, and nothing is changed
+        let no_streams = serde_json::json!({"enabled": true, "transport": "udp", "host": "siem.example.com", "port": 514, "format": "cef", "streams": {"events": false, "findings": false, "audit": false}, "insecure_tls": false});
+        assert_eq!(send(&app, req("PUT", "/api/siem", Some(&admin), Some(no_streams))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, req("GET", "/api/siem", Some(&viewer), None)).await.2["format"], "leef", "the bad request must not have been saved");
+
+        // the Test button uses whatever is in the form, not what was saved, and reports failure plainly
+        let unreachable = serde_json::json!({"transport": "tcp", "host": "127.0.0.1", "port": 1, "format": "json"});
+        let (st, _, v) = send(&app, req("POST", "/api/siem/test", Some(&admin), Some(unreachable))).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["ok"], false);
+        assert!(v["error"].as_str().is_some());
+        assert_eq!(send(&app, req("POST", "/api/siem/test", Some(&editor), Some(serde_json::json!({"transport": "udp", "host": "x", "port": 514, "format": "cef"})))).await.0, StatusCode::FORBIDDEN);
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("siem.settings") && audit.contains("siem.test"), "{audit}");
     }
 
     #[tokio::test]

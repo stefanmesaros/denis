@@ -502,11 +502,14 @@ function renderStatus() {
     [tr('sweep'), s.sweeping ? tr('running…') : s.passive_only ? tr('passive only') : ago(s.last_sweep_finished)],
     [tr('frames'), s.frames_matched],
   ];
-  // OpenObserve export health: a stalled export must be visible, not silent.
-  for (const x of s.exports || []) parts.push([x.target.split(':')[0] === 'udp' || x.target.startsWith('tcp') ? 'syslog' : tr('export'), x.last_error ? tr('FAILING') : x.last_ok ? tr('ok {t}', { t: ago(x.last_ok) }) : tr('starting')]);
+  // OpenObserve/SIEM export health: a stalled export must be visible, not silent. An export that
+  // is registered but not (yet) enabled from its own settings has an empty target: nothing to
+  // show until it is turned on.
+  const exports = (s.exports || []).filter((x) => x.target);
+  for (const x of exports) parts.push([['udp', 'tcp', 'tls'].includes(x.target.split(':')[0]) ? 'syslog' : tr('export'), x.last_error ? tr('FAILING') : x.last_ok ? tr('ok {t}', { t: ago(x.last_ok) }) : tr('starting')]);
   box.replaceChildren(...parts.flatMap(([k, v], i) => [i ? ' · ' : '', k + ' ', el('b', { text: String(v) })]));
   if (s.notes.length) box.append(el('div', { text: translateNote(s.notes[0]) }));
-  for (const x of s.exports || []) if (x.last_error) box.append(el('div', { class: 'form-error', text: tr('Export to {target}: {error}', { target: x.target, error: x.last_error }) }));
+  for (const x of exports) if (x.last_error) box.append(el('div', { class: 'form-error', text: tr('Export to {target}: {error}', { target: x.target, error: x.last_error }) }));
   $('scan').disabled = s.passive_only;
   $('scan').title = s.passive_only ? tr('Disabled in passive-only mode') : tr('Run an ARP sweep and port scan now');
 }
@@ -894,7 +897,7 @@ function setTab(t) {
   if (t === 'health') loadHealth();
   if (t === 'alerting') loadAlerting();
   if (t === 'users') { renderUsers(); renderApiTokens(); }
-  if (t === 'settings') { initBrandingForm(); initOverviewBox(); loadLicenseBox(); loadInterfacesBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); }
+  if (t === 'settings') { initBrandingForm(); initOverviewBox(); loadLicenseBox(); loadInterfacesBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); loadSiemBox(); }
   if (t === 'audit') renderAudit();
   if (t === 'account') renderAccount();
   if (t === 'agents') renderTokens();

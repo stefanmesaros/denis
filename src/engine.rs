@@ -890,12 +890,18 @@ pub async fn run(mut cfg: Config) -> Result<()> {
         tasks.push(tokio::spawn(crate::msp_relay::run(store.clone(), up)));
     }
 
+    // SIEM export (syslog: CEF/LEEF/JSON, events/findings/audit) is fully console-configured (see
+    // `syslog::Settings`) and re-read every cycle, so turning it on/off or changing anything about
+    // it from Settings needs no restart. The legacy --syslog flag only seeds that setting, once,
+    // the first time nothing has been saved yet -- after that the console alone is authoritative.
     if let Some(sc) = cfg.syslog.clone() {
-        let sl = Arc::new(crate::syslog::Syslog::new(sc));
-        tracing::info!("sending alerts as syslog/CEF to {}", sl.status.lock().unwrap_or_else(|e| e.into_inner()).target);
-        coll.shared.exports.lock().unwrap_or_else(|e| e.into_inner()).push(sl.status.clone());
-        tasks.push(tokio::spawn(crate::syslog::run(sl, store.clone())));
+        if let Err(e) = crate::syslog::seed_from_cli(&*store, &sc, now_ts()) {
+            tracing::warn!("could not seed SIEM export settings from --syslog: {e:#}");
+        }
     }
+    let siem_status = Arc::new(Mutex::new(crate::sink::ExportStatus::default()));
+    coll.shared.exports.lock().unwrap_or_else(|e| e.into_inner()).push(siem_status.clone());
+    tasks.push(tokio::spawn(crate::syslog::run(store.clone(), siem_status)));
 
     if let Some(oc) = cfg.openobserve.clone() {
         let cleartext = oc.cleartext_remote();

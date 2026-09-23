@@ -225,6 +225,7 @@ async function start() {
   $('security-box').hidden = !can('admin');
   $('switches-box').hidden = !can('admin');
   $('vuln-box').hidden = !can('admin');
+  $('siem-box').hidden = !can('admin');
   for (const b of document.querySelectorAll('#topo-mode button')) b.onclick = () => setTopoMode(b.dataset.mode);
   $('setup-open').onclick = openSetupGuide;
   if (can('admin')) initBrandingForm();
@@ -975,7 +976,7 @@ function applyHash() {
   if (what === 'rules' && arg === 'watches') setTimeout(() => $('watches')?.scrollIntoView({ block: 'start' }), 700);
   // #settings/tls, #settings/updates ...: scroll to that section
   if (what === 'settings' && arg && !$('tab-settings').hidden) {
-    const box = { branding: 'branding-box', overview: 'overview-box', license: 'license-box', interfaces: 'interfaces-box', tls: 'tls-box', updates: 'update-box', data: 'data-box', setup: 'setup-box', security: 'security-box', switches: 'switches-box', vulndata: 'vuln-box' }[arg];
+    const box = { branding: 'branding-box', overview: 'overview-box', license: 'license-box', interfaces: 'interfaces-box', tls: 'tls-box', updates: 'update-box', data: 'data-box', setup: 'setup-box', security: 'security-box', switches: 'switches-box', vulndata: 'vuln-box', siem: 'siem-box' }[arg];
     if (box) setTimeout(() => $(box).scrollIntoView({ block: 'start' }), 50);
   }
   if (what === 'passkeys') { location.hash = '#account'; return; }
@@ -1253,6 +1254,46 @@ $('interfaces-save').onclick = async () => {
   const r = await api('PUT', '/api/interfaces', { iface, mirror_ifaces });
   $('interfaces-msg').textContent = r.ok ? tr('Saved. Restart DENIS to apply.') : apiError(r);
   if (r.ok) loadInterfacesBox();
+};
+
+function siemForm() {
+  return {
+    transport: $('siem-transport').value,
+    host: $('siem-host').value.trim(),
+    port: Number($('siem-port').value) || 0,
+    format: $('siem-format').value,
+    insecure_tls: $('siem-insecure').checked,
+  };
+}
+async function loadSiemBox() {
+  if (!can('admin')) return;
+  const r = await api('GET', '/api/siem');
+  if (!r.ok) return;
+  const d = r.json;
+  $('siem-enabled').checked = d.enabled;
+  $('siem-transport').value = d.transport;
+  $('siem-host').value = d.host;
+  $('siem-port').value = d.port;
+  $('siem-format').value = d.format;
+  $('siem-insecure').checked = d.insecure_tls;
+  $('siem-insecure-row').hidden = d.transport !== 'tls';
+  $('siem-events').checked = d.streams.events;
+  $('siem-findings').checked = d.streams.findings;
+  $('siem-audit').checked = d.streams.audit;
+  $('siem-status').textContent = d.enabled ? tr('Sending to {target} as {format}.', { target: d.transport + '://' + d.host + ':' + d.port, format: d.format.toUpperCase() }) : '';
+}
+$('siem-transport').onchange = () => { $('siem-insecure-row').hidden = $('siem-transport').value !== 'tls'; };
+$('siem-save').onclick = async () => {
+  const body = { enabled: $('siem-enabled').checked, ...siemForm(), streams: { events: $('siem-events').checked, findings: $('siem-findings').checked, audit: $('siem-audit').checked } };
+  const r = await api('PUT', '/api/siem', body);
+  $('siem-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
+  if (r.ok) loadSiemBox();
+};
+$('siem-test').onclick = async () => {
+  $('siem-msg').textContent = tr('Sending…');
+  const r = await api('POST', '/api/siem/test', siemForm());
+  if (!r.ok) { $('siem-msg').textContent = apiError(r); return; }
+  $('siem-msg').textContent = r.json.ok ? tr('Test message sent.') : tr('Could not send it: {error}', { error: r.json.error || '?' });
 };
 
 async function loadTlsBox() {

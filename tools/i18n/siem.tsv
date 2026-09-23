@@ -1,0 +1,24 @@
+# SIEM / Log export settings (Settings -> SIEM / Log export; src/web_siem.rs, src/syslog.rs).
+SIEM / Log export || SIEM / Protokollexport || SIEM / Export des journaux || SIEM / Exportación de registros || SIEM / Export logov
+Send events, standing findings and the audit log to a SIEM as syslog, in CEF, LEEF or plain JSON, over UDP, TCP or TLS. Takes effect within seconds — no restart. || Sendet Ereignisse, offene Befunde und das Prüfprotokoll als Syslog an ein SIEM, in CEF, LEEF oder reinem JSON, über UDP, TCP oder TLS. Wirkt innerhalb von Sekunden — kein Neustart nötig. || Envoie les événements, les constats en cours et le journal d'audit à un SIEM en syslog, au format CEF, LEEF ou JSON brut, via UDP, TCP ou TLS. Prend effet en quelques secondes — sans redémarrage. || Envía eventos, hallazgos vigentes y el registro de auditoría a un SIEM como syslog, en CEF, LEEF o JSON plano, por UDP, TCP o TLS. Surte efecto en segundos, sin reiniciar. || Posiela eventy, otvorené nálezy a audit log do SIEM ako syslog, vo formáte CEF, LEEF alebo obyčajný JSON, cez UDP, TCP alebo TLS. Prejaví sa do pár sekúnd — bez reštartu.
+Enabled || Aktiviert || Activé || Habilitado || Zapnuté
+Transport || Übertragung || Transport || Transporte || Prenos
+Host || Host || Hôte || Host || Hostiteľ
+Format || Format || Format || Formato || Formát
+UDP || UDP || UDP || UDP || UDP
+TCP || TCP || TCP || TCP || TCP
+TLS (encrypted) || TLS (verschlüsselt) || TLS (chiffré) || TLS (cifrado) || TLS (šifrované)
+CEF || CEF || CEF || CEF || CEF
+LEEF || LEEF || LEEF || LEEF || LEEF
+JSON || JSON || JSON || JSON || JSON
+siem.example.com || siem.beispiel.de || siem.exemple.fr || siem.ejemplo.es || siem.priklad.sk
+Do not verify the server's TLS certificate (a self-signed collector) || Das TLS-Zertifikat des Servers nicht prüfen (ein selbstsigniertes Ziel) || Ne pas vérifier le certificat TLS du serveur (collecteur auto-signé) || No verificar el certificado TLS del servidor (un colector autofirmado) || Neoverovať TLS certifikát servera (self-signed kolektor)
+What to send: || Was gesendet wird: || Ce qui est envoyé : || Qué enviar: || Čo sa má posielať:
+Events and alerts (everything the detector raised; info-level is skipped) || Ereignisse und Alarme (alles, was der Detektor gemeldet hat; Info-Stufe wird ausgelassen) || Événements et alertes (tout ce que le détecteur a signalé ; le niveau info est ignoré) || Eventos y alertas (todo lo que el detector generó; se omite el nivel info) || Eventy a alerty (všetko, čo detektor zaznamenal; úroveň info sa preskakuje)
+Standing findings (end-of-support software, known-exploited vulnerabilities, risky open ports, …) || Offene Befunde (Software am Support-Ende, bekannt ausgenutzte Schwachstellen, riskante offene Ports, …) || Constats en cours (logiciels en fin de support, vulnérabilités activement exploitées, ports ouverts à risque, …) || Hallazgos vigentes (software sin soporte, vulnerabilidades explotadas conocidas, puertos abiertos riesgosos, …) || Otvorené nálezy (softvér po konci podpory, známe zneužívané zraniteľnosti, rizikové otvorené porty, …)
+Audit log (who changed what in the console) || Prüfprotokoll (wer was in der Konsole geändert hat) || Journal d'audit (qui a changé quoi dans la console) || Registro de auditoría (quién cambió qué en la consola) || Audit log (kto čo zmenil v konzole)
+Send a test message || Testnachricht senden || Envoyer un message de test || Enviar un mensaje de prueba || Odoslať testovaciu správu
+Sending to {target} as {format}. || Sendet an {target} als {format}. || Envoi vers {target} au format {format}. || Enviando a {target} como {format}. || Posiela na {target} vo formáte {format}.
+Sending… || Wird gesendet… || Envoi… || Enviando… || Odosiela sa…
+Test message sent. || Testnachricht gesendet. || Message de test envoyé. || Mensaje de prueba enviado. || Testovacia správa odoslaná.
+Could not send it: {error} || Konnte nicht gesendet werden: {error} || Envoi impossible : {error} || No se pudo enviar: {error} || Nepodarilo sa odoslať: {error}

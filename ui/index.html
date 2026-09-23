@@ -349,7 +349,7 @@
       <section id="view-settings" hidden>
         <p class="muted">Settings for the whole installation. Only administrators see this page; every change is written to the <a href="#audit">audit log</a>.</p>
         <nav class="subnav" aria-label="Settings sections">
-          <a href="#settings/branding">Branding (white label)</a><a href="#settings/overview">MSP view</a><a href="#settings/license">License</a><a href="#settings/interfaces">Network interfaces</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/vulndata">Software data</a><a href="#settings/switches">Switches (SNMP)</a><a href="#settings/security">Sign-in security</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
+          <a href="#settings/branding">Branding (white label)</a><a href="#settings/overview">MSP view</a><a href="#settings/license">License</a><a href="#settings/interfaces">Network interfaces</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/vulndata">Software data</a><a href="#settings/switches">Switches (SNMP)</a><a href="#settings/security">Sign-in security</a><a href="#settings/siem">SIEM / Log export</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
         </nav>
         <div id="branding-box" hidden>
           <h3 class="section">Branding (white label)</h3>
@@ -420,6 +420,25 @@
         <div id="security-box" hidden>
           <h3 class="section">Sign-in security</h3>
           <div id="security-body"></div>
+        </div>
+        <div id="siem-box" hidden>
+          <h3 class="section">SIEM / Log export</h3>
+          <p class="muted">Send events, standing findings and the audit log to a SIEM as syslog, in CEF, LEEF or plain
+            JSON, over UDP, TCP or TLS. Takes effect within seconds — no restart.</p>
+          <label class="check"><input id="siem-enabled" type="checkbox"> Enabled</label>
+          <div class="row">
+            <label>Transport<select id="siem-transport"><option value="udp">UDP</option><option value="tcp">TCP</option><option value="tls">TLS (encrypted)</option></select></label>
+            <label>Host<input id="siem-host" placeholder="siem.example.com"></label>
+            <label>Port<input id="siem-port" type="number" min="1" max="65535" value="514"></label>
+            <label>Format<select id="siem-format"><option value="cef">CEF</option><option value="leef">LEEF</option><option value="json">JSON</option></select></label>
+          </div>
+          <label class="check" id="siem-insecure-row" hidden><input id="siem-insecure" type="checkbox"> Do not verify the server's TLS certificate (a self-signed collector)</label>
+          <p class="muted">What to send:</p>
+          <label class="check"><input id="siem-events" type="checkbox"> Events and alerts (everything the detector raised; info-level is skipped)</label>
+          <label class="check"><input id="siem-findings" type="checkbox"> Standing findings (end-of-support software, known-exploited vulnerabilities, risky open ports, …)</label>
+          <label class="check"><input id="siem-audit" type="checkbox"> Audit log (who changed what in the console)</label>
+          <div class="row"><button id="siem-save" type="button" class="primary">Save</button><button id="siem-test" type="button">Send a test message</button><span id="siem-msg" class="muted"></span></div>
+          <div id="siem-status" class="muted"></div>
         </div>
         <div id="setup-box" hidden>
           <h3 class="section">Setup guide</h3>

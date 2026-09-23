@@ -1,5 +1,50 @@
 # Changelog
 
+## 1.13.0: SIEM export (CEF/LEEF/JSON, GUI-configurable), a big internal refactor, six review fixes
+
+* **New: SIEM / log export**, fully configurable from Settings, no restart needed. Send events
+  and alerts, standing findings and/or the audit log — independently — as syslog, in **CEF**,
+  **LEEF** or plain **JSON**, over **UDP**, **TCP** or **TLS** (encrypted; a self-signed
+  collector's certificate can be trusted without verification, for setups with no public CA). A
+  "Send a test message" button checks a target before saving it. The previous `--syslog` CLI flag
+  (CEF, alerts only) still works — it now just seeds this setting the first time nothing has been
+  saved yet, after which the console is authoritative.
+* **Fixed: a mistyped network interface name could crash-loop the whole program.** `PUT
+  /api/interfaces` validated everything about the request except whether the name actually exists
+  on the machine; a typo saved cleanly and only failed on the next restart, which under
+  `systemd`'s `Restart=always` is a crash-loop from one keystroke. It is now checked against the
+  same interface list the page itself offers.
+* **Fixed: a license-expiry alert could be silently lost.** The "already alerted for this stage"
+  marker was written before the alert was actually sent; on the very first check after start-up
+  (before the self-host device exists yet) that meant the marker was set with nothing sent, and
+  since later checks only alert on a *change* of stage, the warning for that stage never went out
+  for the life of the process.
+* **Fixed: a down MSP backup upload wasted a whole schedule interval per failure**, even though
+  the loop checks every 15 minutes regardless of the configured schedule. The upload slot is now
+  only consumed once a send actually succeeds.
+* **Fixed: an unmodified local backup was re-uploaded to the MSP on every due check** when the
+  local backup schedule was slower than the upload one (e.g. weekly local, daily upload — the
+  default). On the MSP side, uploads are named by arrival time and the retention count does not
+  look at content, so this could fill an MSP's entire retention window with copies of one backup
+  instead of real history. Re-sending is now skipped when the content has not changed.
+* **Fixed: a mirror/SPAN interface on a different subnet or VLAN than the main one produced
+  nothing at all** — no flows, no industrial-protocol decoding, no error — because every capture
+  thread used the main interface's own subnet to decide what counted as "local", exactly the
+  scenario `--mirror-iface`'s own documentation describes ("one per VLAN"). A new `--mirror-subnet
+  <CIDR>` (repeatable) tells DENIS about a VLAN it cannot detect on its own; a mirror interface
+  that does have its own address is now detected and added automatically, and one with neither
+  logs a warning at start-up instead of failing silently.
+* **Fixed: a device merged from one site into another could leak to a user restricted to the
+  other site.** `GET /api/assets/{id}/merged` checked the canonical device's own site access but
+  not each merged sibling's — a sibling that had since been re-observed on a site the caller
+  cannot see would still hand over its MAC and timestamps.
+* **Internal refactor** (no behaviour change other than the fixes above): the `Shared`
+  collector-status struct and the `Store` trait (previously one 85-method trait) are now each
+  split into narrow, independently-usable pieces; the `web` module's import cycle with its
+  `web_*` handler modules is gone; per-site access grants moved out of a JSON blob under
+  `settings` into their own database table with a real foreign key, replacing a fail-open default
+  (an unreadable settings row used to mean full access for everyone) with fail-closed.
+
 ## 1.12.0: merge duplicate devices, a real SNMP port list, two live bugs fixed
 
 * **"This is the same device as…"**: a device seen under more than one MAC address (an access

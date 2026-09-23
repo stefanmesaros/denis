@@ -67,6 +67,7 @@ pub mod web_health;
 pub mod web_passkey;
 pub mod web_reports;
 pub mod web_setup;
+pub mod web_siem;
 pub mod web_topology;
 pub mod web_totp;
 pub mod web_vuln;
