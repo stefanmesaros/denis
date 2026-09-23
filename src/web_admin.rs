@@ -20,7 +20,7 @@ use crate::auth::{self, AuthError};
 use crate::branding;
 use crate::model::{now_ts, Asset, AssetMeta, RiskAcceptance};
 use crate::tracking;
-use crate::web::{asset_view, blocking, site_writable, ApiError, AppState, AuthUser, SESSION_COOKIE};
+use crate::web::common::{asset_view, blocking, effective_license, scoped_asset, site_writable, ApiError, AppState, AuthUser, SESSION_COOKIE};
 
 pub(crate) fn err(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(json!({ "error": msg.into() }))).into_response()
@@ -376,7 +376,7 @@ fn license_json(eff: &crate::license::Effective) -> Value {
 /// The license in force right now (see `web::effective_license`): a GUI-pasted one always wins
 /// over `--license-file`. Anyone signed in may see it (it says which edition they are on).
 pub(crate) async fn license_get(State(st): State<AppState>) -> Result<Json<Value>, ApiError> {
-    Ok(Json(license_json(&crate::web::effective_license(&st))))
+    Ok(Json(license_json(&effective_license(&st))))
 }
 
 /// Paste a license file's two lines into the console instead of using `--license-file`. Verified
@@ -402,7 +402,7 @@ pub(crate) async fn license_put(State(st): State<AppState>, Extension(AuthUser(m
 pub(crate) async fn license_delete(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Response, ApiError> {
     st.store.delete_setting(crate::license::SETTING_KEY)?;
     audit(&st, &me.username, "license.remove", None, json!({}));
-    Ok(Json(license_json(&crate::web::effective_license(&st))).into_response())
+    Ok(Json(license_json(&effective_license(&st))).into_response())
 }
 
 // -------------------------------------------------------------------- capture interfaces
@@ -1211,7 +1211,7 @@ pub(crate) async fn delete_asset(State(st): State<AppState>, Extension(AuthUser(
 /// A device's edit history. Site-scoped like the device itself (`web::scoped_asset`): the audit
 /// trail is at least as sensitive as the device record it is about.
 pub(crate) async fn history(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    if crate::web::scoped_asset(&st, &me, id).await?.is_none() {
+    if scoped_asset(&st, &me, id).await?.is_none() {
         return Ok(err(StatusCode::NOT_FOUND, "not found"));
     }
     let h = blocking(&st.store, move |s| s.list_audit(Some(id), 100)).await?;

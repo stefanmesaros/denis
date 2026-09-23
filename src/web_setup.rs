@@ -15,7 +15,7 @@ use serde_json::json;
 
 use crate::model::now_ts;
 use crate::store::Store;
-use crate::web::{blocking, ApiError, AppState, AuthUser};
+use crate::web::common::{blocking, ApiError, AppState, AuthUser};
 use crate::web_admin::audit;
 
 const KEY: &str = "setup_guide";
