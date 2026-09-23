@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::store::Store;
+use crate::store::{Store};
 
 pub const SETTING_KEY: &str = "site_access";
 
@@ -109,6 +109,7 @@ pub fn set_for_user(store: &dyn Store, user_id: i64, rows: &[(String, String)], 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::AuthStore;
     use crate::store::sqlite::SqliteStore;
 
     #[test]
@@ -159,7 +160,6 @@ mod tests {
 
     #[test]
     fn deleting_a_user_removes_their_grants_but_leaves_everyone_elses_alone() {
-        use crate::store::Store;
         let store = SqliteStore::open_in_memory().unwrap();
         let disabled = store.create_user("temp", "x", "viewer", true, 100).unwrap();
         let other = store.create_user("kept", "x", "viewer", true, 100).unwrap();

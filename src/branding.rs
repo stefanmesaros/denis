@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::store::Store;
+use crate::store::{Store};
 
 pub const KEY: &str = "branding";
 pub const LOGO_KEY: &str = "branding.logo";
@@ -154,6 +154,7 @@ pub fn load_logo(store: &dyn Store) -> anyhow::Result<Option<(&'static str, Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::SettingsStore;
     use crate::store::sqlite::SqliteStore;
     use serde_json::json;
 

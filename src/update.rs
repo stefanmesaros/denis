@@ -38,7 +38,7 @@ use ring::signature::{UnparsedPublicKey, ED25519};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::store::Store;
+use crate::store::{Store};
 
 /// Set once an update has been installed and a restart into the new program is wanted.
 static RESTART_WANTED: AtomicBool = AtomicBool::new(false);
@@ -758,6 +758,7 @@ pub fn sign(seed_hex: &str, message: &[u8]) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::SettingsStore;
     use crate::store::sqlite::SqliteStore;
     use std::io::{Read, Write};
     use std::net::TcpListener;

@@ -529,6 +529,10 @@ pub fn html(data: &ReportData) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::AssetStore;
+    use crate::store::EventStore;
+    use crate::store::MetricStore;
+    use crate::store::SettingsStore;
     use crate::model::{IpRecord, Mac, Metric, OpenPort};
     use crate::store::sqlite::SqliteStore;
     use std::net::Ipv4Addr;

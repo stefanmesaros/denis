@@ -20,7 +20,7 @@ use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::banners::Software;
-use crate::store::Store;
+use crate::store::{Store};
 
 const BUNDLED: &str = include_str!("../data/vulndata.json");
 pub const OVERLAY_KEY: &str = "vulndata.eol";
@@ -530,6 +530,7 @@ pub async fn run(store: std::sync::Arc<dyn Store>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::SettingsStore;
 
     fn ver(s: &str) -> Ver {
         Ver::parse(s).unwrap_or_else(|| panic!("{s}"))

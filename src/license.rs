@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 use crate::license_key::LICENSE_PUBLIC_KEY;
-use crate::store::Store;
+use crate::store::{Store};
 use crate::tracking::valid_date;
 use crate::update::{sha256_hex, sign, verify_signature};
 
@@ -256,6 +256,7 @@ pub fn issue(seed_hex: &str, license: &License) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::SettingsStore;
     use crate::store::sqlite::SqliteStore;
     use crate::update::generate_keypair;
 

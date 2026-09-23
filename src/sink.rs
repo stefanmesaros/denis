@@ -37,7 +37,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::model::{Asset, AssetMeta};
-use crate::store::Store;
+use crate::store::{Store};
 
 /// Documents per HTTP request.
 const BATCH: usize = 500;
@@ -386,6 +386,8 @@ pub async fn run(sink: Arc<Sink>, store: Arc<dyn Store>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::AssetStore;
+    use crate::store::EventStore;
     use crate::model::{Event, Mac};
     use crate::store::sqlite::SqliteStore;
     use std::io::{Read, Write};

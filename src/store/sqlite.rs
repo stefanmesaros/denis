@@ -6,7 +6,10 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use std::collections::HashMap;
 
-use super::{AgentToken, ApiToken, EventQuery, Passkey, SessionRecord, Store, StoreStats, TopoRow, TotpRecord, UserRecord};
+use super::{
+    AdminStore, AgentToken, ApiToken, AssetStore, AuthStore, EventQuery, EventStore, MetricStore, Passkey, ReportStore,
+    SessionRecord, SettingsStore, Store, StoreStats, TopoRow, TotpRecord, UserRecord,
+};
 use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, ReportMeta, RiskAcceptance, User};
 
 const SCHEMA_VERSION: i64 = 13;
@@ -375,14 +378,13 @@ impl SqliteStore {
     }
 }
 
-impl Store for SqliteStore {
+impl AssetStore for SqliteStore {
     fn load_assets(&self) -> Result<Vec<Asset>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(&format!("SELECT {ASSET_COLS} FROM assets ORDER BY id"))?;
         let rows = stmt.query_map([], row_to_asset)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
-
     fn save_asset(&self, a: &mut Asset) -> Result<()> {
         let conn = self.conn();
         // A manually created asset may already own this (agent, mac): adopt it, so
@@ -446,7 +448,6 @@ impl Store for SqliteStore {
         }
         Ok(())
     }
-
     fn get_asset(&self, id: i64) -> Result<Option<Asset>> {
         let conn = self.conn();
         Ok(conn
@@ -457,7 +458,6 @@ impl Store for SqliteStore {
             )
             .optional()?)
     }
-
     fn find_asset(&self, agent_id: Option<&str>, mac: &Mac) -> Result<Option<Asset>> {
         let conn = self.conn();
         Ok(conn
@@ -470,7 +470,116 @@ impl Store for SqliteStore {
             )
             .optional()?)
     }
+    fn load_baselines(&self) -> Result<Vec<Baseline>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT data FROM baselines")?;
+        let rows = stmt.query_map([], |r| from_json::<Baseline>(r, 0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+    fn get_baseline(&self, asset_id: i64) -> Result<Option<Baseline>> {
+        let conn = self.conn();
+        Ok(conn
+            .query_row("SELECT data FROM baselines WHERE asset_id = ?1", [asset_id], |r| from_json(r, 0))
+            .optional()?)
+    }
+    fn save_baseline(&self, b: &Baseline) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO baselines (asset_id, data, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(asset_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+            params![b.asset_id, json(b), b.updated_at],
+        )?;
+        Ok(())
+    }
+    fn load_presence(&self) -> Result<Vec<Presence>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT data FROM presence")?;
+        let rows = stmt.query_map([], |r| from_json::<Presence>(r, 0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+    fn save_presence(&self, p: &Presence) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO presence (asset_id, data) VALUES (?1, ?2)
+             ON CONFLICT(asset_id) DO UPDATE SET data = excluded.data",
+            params![p.asset_id, json(p)],
+        )?;
+        Ok(())
+    }
+    // ------------------------------------------------ industrial conversations
+    fn save_conversations(&self, c: &[Conversation]) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        for x in c {
+            tx.execute(
+                "INSERT OR REPLACE INTO conversations
+                    (client_id, server_id, proto, port, first_seen, last_seen, packets, bytes, reads, writes, controls, note, commands)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+                params![x.client_id, x.server_id, x.proto, x.port, x.first_seen, x.last_seen, x.packets, x.bytes, x.reads, x.writes, x.controls, x.note, serde_json::to_string(&x.commands)?],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    fn list_conversations(&self) -> Result<Vec<Conversation>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT client_id, server_id, proto, port, first_seen, last_seen, packets, bytes, reads, writes, controls, note, commands
+             FROM conversations ORDER BY last_seen DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(Conversation {
+                client_id: r.get(0)?, server_id: r.get(1)?, proto: r.get(2)?, port: r.get(3)?, first_seen: r.get(4)?,
+                last_seen: r.get(5)?, packets: r.get(6)?, bytes: r.get(7)?, reads: r.get(8)?, writes: r.get(9)?,
+                controls: r.get(10)?, note: r.get(11)?,
+                commands: serde_json::from_str(&r.get::<_, String>(12)?).unwrap_or_default(),
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+    // ------------------------------------------------ asset tracking
+    fn load_all_meta(&self) -> Result<HashMap<i64, AssetMeta>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT asset_id, data FROM asset_meta")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, from_json::<AssetMeta>(r, 1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+    fn get_meta(&self, asset_id: i64) -> Result<Option<AssetMeta>> {
+        let conn = self.conn();
+        Ok(conn
+            .query_row("SELECT data FROM asset_meta WHERE asset_id = ?1", [asset_id], |r| from_json(r, 0))
+            .optional()?)
+    }
+    fn save_meta(&self, asset_id: i64, meta: &AssetMeta, by: &str, ts: i64) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO asset_meta (asset_id, data, updated_at, updated_by) VALUES (?1,?2,?3,?4)
+             ON CONFLICT(asset_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at, updated_by=excluded.updated_by",
+            params![asset_id, json(meta), ts, by],
+        )?;
+        Ok(())
+    }
+    fn delete_asset(&self, id: i64) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        for sql in [
+            "DELETE FROM asset_meta WHERE asset_id = ?1",
+            "DELETE FROM risk_acceptances WHERE asset_id = ?1",
+            "DELETE FROM baselines WHERE asset_id = ?1",
+            "DELETE FROM presence WHERE asset_id = ?1",
+            "DELETE FROM conversations WHERE client_id = ?1 OR server_id = ?1",
+            "DELETE FROM events WHERE asset_id = ?1",
+            "DELETE FROM assets WHERE id = ?1",
+        ] {
+            tx.execute(sql, [id])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
 
+}
+
+impl EventStore for SqliteStore {
     fn insert_event(&self, e: &mut Event) -> Result<()> {
         let conn = self.conn();
         conn.execute(
@@ -481,7 +590,6 @@ impl Store for SqliteStore {
         e.id = conn.last_insert_rowid();
         Ok(())
     }
-
     fn list_events(&self, q: &EventQuery) -> Result<Vec<Event>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
@@ -510,7 +618,6 @@ impl Store for SqliteStore {
         )?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
-
     fn get_event(&self, id: i64) -> Result<Option<Event>> {
         let conn = self.conn();
         Ok(conn
@@ -533,7 +640,6 @@ impl Store for SqliteStore {
             )
             .optional()?)
     }
-
     fn events_after(&self, after: i64, limit: usize) -> Result<Vec<Event>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
@@ -548,53 +654,14 @@ impl Store for SqliteStore {
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
-
     fn set_event_acked(&self, id: i64, acked: bool) -> Result<bool> {
         let conn = self.conn();
         Ok(conn.execute("UPDATE events SET acked = ?2 WHERE id = ?1", params![id, acked])? == 1)
     }
 
-    fn load_baselines(&self) -> Result<Vec<Baseline>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare("SELECT data FROM baselines")?;
-        let rows = stmt.query_map([], |r| from_json::<Baseline>(r, 0))?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
-    }
+}
 
-    fn get_baseline(&self, asset_id: i64) -> Result<Option<Baseline>> {
-        let conn = self.conn();
-        Ok(conn
-            .query_row("SELECT data FROM baselines WHERE asset_id = ?1", [asset_id], |r| from_json(r, 0))
-            .optional()?)
-    }
-
-    fn save_baseline(&self, b: &Baseline) -> Result<()> {
-        let conn = self.conn();
-        conn.execute(
-            "INSERT INTO baselines (asset_id, data, updated_at) VALUES (?1, ?2, ?3)
-             ON CONFLICT(asset_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
-            params![b.asset_id, json(b), b.updated_at],
-        )?;
-        Ok(())
-    }
-
-    fn load_presence(&self) -> Result<Vec<Presence>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare("SELECT data FROM presence")?;
-        let rows = stmt.query_map([], |r| from_json::<Presence>(r, 0))?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
-    }
-
-    fn save_presence(&self, p: &Presence) -> Result<()> {
-        let conn = self.conn();
-        conn.execute(
-            "INSERT INTO presence (asset_id, data) VALUES (?1, ?2)
-             ON CONFLICT(asset_id) DO UPDATE SET data = excluded.data",
-            params![p.asset_id, json(p)],
-        )?;
-        Ok(())
-    }
-
+impl MetricStore for SqliteStore {
     fn insert_metrics(&self, m: &[Metric]) -> Result<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
@@ -608,7 +675,6 @@ impl Store for SqliteStore {
         tx.commit()?;
         Ok(())
     }
-
     fn list_metrics(&self, since: i64, until: i64, agent_id: Option<&str>) -> Result<Vec<Metric>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
@@ -629,45 +695,19 @@ impl Store for SqliteStore {
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
-
     fn prune_metrics(&self, before: i64) -> Result<usize> {
         let conn = self.conn();
         Ok(conn.execute("DELETE FROM metrics WHERE ts < ?1", [before])?)
     }
 
-    fn upsert_agent(&self, a: &AgentInfo) -> Result<()> {
-        let conn = self.conn();
-        conn.execute(
-            "INSERT INTO agents (id, name, site, version, subnet, first_seen, last_report_at, last_run_id, last_seq)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
-             ON CONFLICT(id) DO UPDATE SET name=excluded.name, site=excluded.site, version=excluded.version,
-                subnet=excluded.subnet, last_report_at=excluded.last_report_at,
-                last_run_id=excluded.last_run_id, last_seq=excluded.last_seq",
-            params![a.id, a.name, a.site, a.version, a.subnet, a.first_seen, a.last_report_at, a.last_run_id, a.last_seq as i64],
-        )?;
-        Ok(())
-    }
+}
 
-    fn get_agent(&self, id: &str) -> Result<Option<AgentInfo>> {
-        let conn = self.conn();
-        Ok(conn
-            .query_row(&format!("SELECT {AGENT_COLS} FROM agents WHERE id = ?1"), [id], row_to_agent)
-            .optional()?)
-    }
-
-    fn list_agents(&self) -> Result<Vec<AgentInfo>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare(&format!("SELECT {AGENT_COLS} FROM agents ORDER BY name"))?;
-        let rows = stmt.query_map([], row_to_agent)?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
-    }
-
+impl SettingsStore for SqliteStore {
     // ------------------------------------------------ settings
     fn get_setting(&self, key: &str) -> Result<Option<Vec<u8>>> {
         let conn = self.conn();
         Ok(conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0)).optional()?)
     }
-
     fn set_setting(&self, key: &str, value: &[u8], ts: i64) -> Result<()> {
         let conn = self.conn();
         conn.execute(
@@ -677,276 +717,14 @@ impl Store for SqliteStore {
         )?;
         Ok(())
     }
-
     fn delete_setting(&self, key: &str) -> Result<bool> {
         let conn = self.conn();
         Ok(conn.execute("DELETE FROM settings WHERE key = ?1", [key])? > 0)
     }
 
-    // ------------------------------------------------ industrial conversations
-    fn save_conversations(&self, c: &[Conversation]) -> Result<()> {
-        let mut conn = self.conn();
-        let tx = conn.transaction()?;
-        for x in c {
-            tx.execute(
-                "INSERT OR REPLACE INTO conversations
-                    (client_id, server_id, proto, port, first_seen, last_seen, packets, bytes, reads, writes, controls, note, commands)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
-                params![x.client_id, x.server_id, x.proto, x.port, x.first_seen, x.last_seen, x.packets, x.bytes, x.reads, x.writes, x.controls, x.note, serde_json::to_string(&x.commands)?],
-            )?;
-        }
-        tx.commit()?;
-        Ok(())
-    }
+}
 
-    fn list_conversations(&self) -> Result<Vec<Conversation>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT client_id, server_id, proto, port, first_seen, last_seen, packets, bytes, reads, writes, controls, note, commands
-             FROM conversations ORDER BY last_seen DESC",
-        )?;
-        let rows = stmt.query_map([], |r| {
-            Ok(Conversation {
-                client_id: r.get(0)?, server_id: r.get(1)?, proto: r.get(2)?, port: r.get(3)?, first_seen: r.get(4)?,
-                last_seen: r.get(5)?, packets: r.get(6)?, bytes: r.get(7)?, reads: r.get(8)?, writes: r.get(9)?,
-                controls: r.get(10)?, note: r.get(11)?,
-                commands: serde_json::from_str(&r.get::<_, String>(12)?).unwrap_or_default(),
-            })
-        })?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
-    }
-
-    // ------------------------------------------------ asset tracking
-    fn load_all_meta(&self) -> Result<HashMap<i64, AssetMeta>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare("SELECT asset_id, data FROM asset_meta")?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, from_json::<AssetMeta>(r, 1)?)))?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
-    }
-
-    fn get_meta(&self, asset_id: i64) -> Result<Option<AssetMeta>> {
-        let conn = self.conn();
-        Ok(conn
-            .query_row("SELECT data FROM asset_meta WHERE asset_id = ?1", [asset_id], |r| from_json(r, 0))
-            .optional()?)
-    }
-
-    fn save_meta(&self, asset_id: i64, meta: &AssetMeta, by: &str, ts: i64) -> Result<()> {
-        let conn = self.conn();
-        conn.execute(
-            "INSERT INTO asset_meta (asset_id, data, updated_at, updated_by) VALUES (?1,?2,?3,?4)
-             ON CONFLICT(asset_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at, updated_by=excluded.updated_by",
-            params![asset_id, json(meta), ts, by],
-        )?;
-        Ok(())
-    }
-
-    fn backup_to(&self, dest: &Path) -> Result<()> {
-        SqliteStore::backup_to(self, dest)
-    }
-
-    fn delete_agent_data(&self, agent_id: &str) -> Result<()> {
-        let mut conn = self.conn();
-        let tx = conn.transaction()?;
-        tx.execute("DELETE FROM metrics WHERE agent_id = ?1", [agent_id])?;
-        tx.execute("DELETE FROM agents WHERE id = ?1", [agent_id])?;
-        tx.commit()?;
-        Ok(())
-    }
-
-    fn stats(&self, with_rows: bool) -> Result<StoreStats> {
-        let conn = self.conn();
-        let pragma = |name: &str| -> Result<i64> { Ok(conn.query_row(&format!("PRAGMA {name}"), [], |r| r.get(0))?) };
-        let (pages, size, free) = (pragma("page_count")?, pragma("page_size")?, pragma("freelist_count")?);
-        let mut rows = Vec::new();
-        // fixed names, never user input
-        for t in ["assets", "events", "conversations", "metrics", "presence", "audit", "reports", "risk_acceptances", "sessions"].into_iter().filter(|_| with_rows) {
-            rows.push((t, conn.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))?));
-        }
-        Ok(StoreStats { schema_version: pragma("user_version")?, db_bytes: pages * size, free_bytes: free * size, rows })
-    }
-
-    fn erase_inventory(&self) -> Result<()> {
-        let mut conn = self.conn();
-        let tx = conn.transaction()?;
-        // children first
-        for sql in [
-            "DELETE FROM events", "DELETE FROM baselines", "DELETE FROM conversations", "DELETE FROM presence", "DELETE FROM metrics",
-            "DELETE FROM asset_meta", "DELETE FROM risk_acceptances", "DELETE FROM reports", "DELETE FROM topo_snapshots", "DELETE FROM assets", "DELETE FROM agents",
-            // learned state that belongs to the old network
-            "DELETE FROM settings WHERE key = 'dhcp_servers'",
-        ] {
-            tx.execute(sql, [])?;
-        }
-        tx.commit()?;
-        Ok(())
-    }
-
-    fn delete_asset(&self, id: i64) -> Result<()> {
-        let mut conn = self.conn();
-        let tx = conn.transaction()?;
-        for sql in [
-            "DELETE FROM asset_meta WHERE asset_id = ?1",
-            "DELETE FROM risk_acceptances WHERE asset_id = ?1",
-            "DELETE FROM baselines WHERE asset_id = ?1",
-            "DELETE FROM presence WHERE asset_id = ?1",
-            "DELETE FROM conversations WHERE client_id = ?1 OR server_id = ?1",
-            "DELETE FROM events WHERE asset_id = ?1",
-            "DELETE FROM assets WHERE id = ?1",
-        ] {
-            tx.execute(sql, [id])?;
-        }
-        tx.commit()?;
-        Ok(())
-    }
-
-    // ------------------------------------------------ accepted risks
-    fn add_risk_acceptance(&self, a: &RiskAcceptance) -> Result<i64> {
-        let mut conn = self.conn();
-        let tx = conn.transaction()?;
-        // a new decision replaces the one still in force for the same finding and device
-        tx.execute(
-            "UPDATE risk_acceptances SET revoked_at = ?3, revoked_by = 'replaced' WHERE finding_id = ?1 AND asset_id = ?2 AND revoked_at IS NULL",
-            params![a.finding_id, a.asset_id, a.accepted_at],
-        )?;
-        tx.execute(
-            "INSERT INTO risk_acceptances (finding_id, asset_id, reason, accepted_by, accepted_at, expires_at) VALUES (?1,?2,?3,?4,?5,?6)",
-            params![a.finding_id, a.asset_id, a.reason, a.accepted_by, a.accepted_at, a.expires_at],
-        )?;
-        let id = tx.last_insert_rowid();
-        tx.commit()?;
-        Ok(id)
-    }
-
-    fn list_risk_acceptances(&self) -> Result<Vec<RiskAcceptance>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT id, finding_id, asset_id, reason, accepted_by, accepted_at, expires_at, revoked_at, revoked_by
-             FROM risk_acceptances WHERE revoked_at IS NULL ORDER BY accepted_at DESC, id DESC",
-        )?;
-        let rows = stmt.query_map([], |r| {
-            Ok(RiskAcceptance {
-                id: r.get(0)?, finding_id: r.get(1)?, asset_id: r.get(2)?, reason: r.get(3)?, accepted_by: r.get(4)?,
-                accepted_at: r.get(5)?, expires_at: r.get(6)?, revoked_at: r.get(7)?, revoked_by: r.get(8)?,
-            })
-        })?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
-    }
-
-    fn revoke_risk_acceptance(&self, id: i64, by: &str, ts: i64) -> Result<bool> {
-        let conn = self.conn();
-        Ok(conn.execute("UPDATE risk_acceptances SET revoked_at = ?2, revoked_by = ?3 WHERE id = ?1 AND revoked_at IS NULL", params![id, ts, by])? > 0)
-    }
-
-    // ------------------------------------------------ switches (SNMP topology)
-    fn save_topo(&self, id: &str, now: i64, snapshot: Result<&str, &str>) -> Result<()> {
-        let conn = self.conn();
-        match snapshot {
-            Ok(json) => conn.execute(
-                "INSERT INTO topo_snapshots (id, last_poll, last_ok, error, snapshot) VALUES (?1, ?2, ?2, NULL, ?3)
-                 ON CONFLICT(id) DO UPDATE SET last_poll = ?2, last_ok = ?2, error = NULL, snapshot = ?3",
-                params![id, now, json],
-            )?,
-            // a failed poll keeps what the switch said last time, and says why the newest one failed
-            Err(e) => conn.execute(
-                "INSERT INTO topo_snapshots (id, last_poll, last_ok, error, snapshot) VALUES (?1, ?2, NULL, ?3, NULL)
-                 ON CONFLICT(id) DO UPDATE SET last_poll = ?2, error = ?3",
-                params![id, now, e],
-            )?,
-        };
-        Ok(())
-    }
-
-    fn list_topo(&self) -> Result<Vec<TopoRow>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare("SELECT id, last_poll, last_ok, error, snapshot FROM topo_snapshots ORDER BY id")?;
-        let rows = stmt.query_map([], |r| Ok(TopoRow { id: r.get(0)?, last_poll: r.get(1)?, last_ok: r.get(2)?, error: r.get(3)?, snapshot: r.get(4)? }))?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
-    }
-
-    fn delete_topo(&self, id: &str) -> Result<()> {
-        self.conn().execute("DELETE FROM topo_snapshots WHERE id = ?1", [id])?;
-        Ok(())
-    }
-
-    // ------------------------------------------------ authenticator app (TOTP)
-    fn get_totp(&self, user_id: i64) -> Result<Option<TotpRecord>> {
-        let conn = self.conn();
-        Ok(conn
-            .query_row("SELECT user_id, secret, enabled, last_step, created_at FROM totp WHERE user_id = ?1", [user_id], |r| {
-                Ok(TotpRecord { user_id: r.get(0)?, secret: r.get(1)?, enabled: r.get::<_, i64>(2)? != 0, last_step: r.get(3)?, created_at: r.get(4)? })
-            })
-            .optional()?)
-    }
-
-    fn set_totp_pending(&self, user_id: i64, secret: &[u8], now: i64) -> Result<bool> {
-        let conn = self.conn();
-        // a working secret is never replaced by starting again: it has to be switched off first
-        if conn.query_row("SELECT enabled FROM totp WHERE user_id = ?1", [user_id], |r| r.get::<_, i64>(0)).optional()?.is_some_and(|e| e != 0) {
-            return Ok(false);
-        }
-        conn.execute("INSERT OR REPLACE INTO totp (user_id, secret, enabled, last_step, created_at) VALUES (?1, ?2, 0, 0, ?3)", params![user_id, secret, now])?;
-        Ok(true)
-    }
-
-    fn enable_totp(&self, user_id: i64, step: i64, recovery_hashes: &[String]) -> Result<bool> {
-        let mut conn = self.conn();
-        let tx = conn.transaction()?;
-        let changed = tx.execute("UPDATE totp SET enabled = 1, last_step = ?2 WHERE user_id = ?1 AND enabled = 0", params![user_id, step])?;
-        if changed == 0 {
-            return Ok(false);
-        }
-        tx.execute("DELETE FROM totp_recovery WHERE user_id = ?1", [user_id])?;
-        for h in recovery_hashes {
-            tx.execute("INSERT INTO totp_recovery (user_id, code_hash) VALUES (?1, ?2)", params![user_id, h])?;
-        }
-        tx.commit()?;
-        Ok(true)
-    }
-
-    fn advance_totp_step(&self, user_id: i64, step: i64) -> Result<bool> {
-        let conn = self.conn();
-        // one statement, so two requests with the same code cannot both win
-        Ok(conn.execute("UPDATE totp SET last_step = ?2 WHERE user_id = ?1 AND enabled = 1 AND last_step < ?2", params![user_id, step])? > 0)
-    }
-
-    fn use_recovery_code(&self, user_id: i64, code_hash: &str, now: i64) -> Result<bool> {
-        let conn = self.conn();
-        Ok(conn.execute("UPDATE totp_recovery SET used_at = ?3 WHERE user_id = ?1 AND code_hash = ?2 AND used_at IS NULL", params![user_id, code_hash, now])? > 0)
-    }
-
-    fn replace_recovery_codes(&self, user_id: i64, hashes: &[String]) -> Result<()> {
-        let mut conn = self.conn();
-        let tx = conn.transaction()?;
-        tx.execute("DELETE FROM totp_recovery WHERE user_id = ?1", [user_id])?;
-        for h in hashes {
-            tx.execute("INSERT INTO totp_recovery (user_id, code_hash) VALUES (?1, ?2)", params![user_id, h])?;
-        }
-        tx.commit()?;
-        Ok(())
-    }
-
-    fn recovery_codes_left(&self, user_id: i64) -> Result<usize> {
-        let conn = self.conn();
-        Ok(conn.query_row("SELECT COUNT(*) FROM totp_recovery WHERE user_id = ?1 AND used_at IS NULL", [user_id], |r| r.get::<_, i64>(0))? as usize)
-    }
-
-    fn delete_totp(&self, user_id: i64) -> Result<bool> {
-        let mut conn = self.conn();
-        let tx = conn.transaction()?;
-        tx.execute("DELETE FROM totp_recovery WHERE user_id = ?1", [user_id])?;
-        let n = tx.execute("DELETE FROM totp WHERE user_id = ?1", [user_id])?;
-        tx.commit()?;
-        Ok(n > 0)
-    }
-
-    fn totp_enabled_users(&self) -> Result<std::collections::HashSet<i64>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare("SELECT user_id FROM totp WHERE enabled = 1")?;
-        let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
-    }
-
+impl ReportStore for SqliteStore {
     // ------------------------------------------------ reports
     fn add_report(&self, m: &ReportMeta, content: &[u8]) -> Result<i64> {
         let conn = self.conn();
@@ -956,7 +734,6 @@ impl Store for SqliteStore {
         )?;
         Ok(conn.last_insert_rowid())
     }
-
     fn list_reports(&self) -> Result<Vec<ReportMeta>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
@@ -967,7 +744,6 @@ impl Store for SqliteStore {
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
-
     fn get_report(&self, id: i64) -> Result<Option<(ReportMeta, Vec<u8>)>> {
         let conn = self.conn();
         Ok(conn
@@ -983,12 +759,10 @@ impl Store for SqliteStore {
             )
             .optional()?)
     }
-
     fn delete_report(&self, id: i64) -> Result<bool> {
         let conn = self.conn();
         Ok(conn.execute("DELETE FROM reports WHERE id = ?1", [id])? > 0)
     }
-
     fn prune_reports(&self, kind: &str, keep: usize) -> Result<usize> {
         let conn = self.conn();
         Ok(conn.execute(
@@ -997,6 +771,78 @@ impl Store for SqliteStore {
         )?)
     }
 
+}
+
+impl AuthStore for SqliteStore {
+    // ------------------------------------------------ authenticator app (TOTP)
+    fn get_totp(&self, user_id: i64) -> Result<Option<TotpRecord>> {
+        let conn = self.conn();
+        Ok(conn
+            .query_row("SELECT user_id, secret, enabled, last_step, created_at FROM totp WHERE user_id = ?1", [user_id], |r| {
+                Ok(TotpRecord { user_id: r.get(0)?, secret: r.get(1)?, enabled: r.get::<_, i64>(2)? != 0, last_step: r.get(3)?, created_at: r.get(4)? })
+            })
+            .optional()?)
+    }
+    fn set_totp_pending(&self, user_id: i64, secret: &[u8], now: i64) -> Result<bool> {
+        let conn = self.conn();
+        // a working secret is never replaced by starting again: it has to be switched off first
+        if conn.query_row("SELECT enabled FROM totp WHERE user_id = ?1", [user_id], |r| r.get::<_, i64>(0)).optional()?.is_some_and(|e| e != 0) {
+            return Ok(false);
+        }
+        conn.execute("INSERT OR REPLACE INTO totp (user_id, secret, enabled, last_step, created_at) VALUES (?1, ?2, 0, 0, ?3)", params![user_id, secret, now])?;
+        Ok(true)
+    }
+    fn enable_totp(&self, user_id: i64, step: i64, recovery_hashes: &[String]) -> Result<bool> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let changed = tx.execute("UPDATE totp SET enabled = 1, last_step = ?2 WHERE user_id = ?1 AND enabled = 0", params![user_id, step])?;
+        if changed == 0 {
+            return Ok(false);
+        }
+        tx.execute("DELETE FROM totp_recovery WHERE user_id = ?1", [user_id])?;
+        for h in recovery_hashes {
+            tx.execute("INSERT INTO totp_recovery (user_id, code_hash) VALUES (?1, ?2)", params![user_id, h])?;
+        }
+        tx.commit()?;
+        Ok(true)
+    }
+    fn advance_totp_step(&self, user_id: i64, step: i64) -> Result<bool> {
+        let conn = self.conn();
+        // one statement, so two requests with the same code cannot both win
+        Ok(conn.execute("UPDATE totp SET last_step = ?2 WHERE user_id = ?1 AND enabled = 1 AND last_step < ?2", params![user_id, step])? > 0)
+    }
+    fn use_recovery_code(&self, user_id: i64, code_hash: &str, now: i64) -> Result<bool> {
+        let conn = self.conn();
+        Ok(conn.execute("UPDATE totp_recovery SET used_at = ?3 WHERE user_id = ?1 AND code_hash = ?2 AND used_at IS NULL", params![user_id, code_hash, now])? > 0)
+    }
+    fn replace_recovery_codes(&self, user_id: i64, hashes: &[String]) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM totp_recovery WHERE user_id = ?1", [user_id])?;
+        for h in hashes {
+            tx.execute("INSERT INTO totp_recovery (user_id, code_hash) VALUES (?1, ?2)", params![user_id, h])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    fn recovery_codes_left(&self, user_id: i64) -> Result<usize> {
+        let conn = self.conn();
+        Ok(conn.query_row("SELECT COUNT(*) FROM totp_recovery WHERE user_id = ?1 AND used_at IS NULL", [user_id], |r| r.get::<_, i64>(0))? as usize)
+    }
+    fn delete_totp(&self, user_id: i64) -> Result<bool> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM totp_recovery WHERE user_id = ?1", [user_id])?;
+        let n = tx.execute("DELETE FROM totp WHERE user_id = ?1", [user_id])?;
+        tx.commit()?;
+        Ok(n > 0)
+    }
+    fn totp_enabled_users(&self) -> Result<std::collections::HashSet<i64>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT user_id FROM totp WHERE enabled = 1")?;
+        let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
     // ------------------------------------------------ users and sessions
     fn create_user(&self, username: &str, password_hash: &str, role: &str, must_change: bool, ts: i64) -> Result<User> {
         let conn = self.conn();
@@ -1007,28 +853,24 @@ impl Store for SqliteStore {
         .with_context(|| format!("creating user {username:?}"))?;
         Ok(User { id: conn.last_insert_rowid(), username: username.into(), role: role.into(), created_at: ts, disabled: false, must_change, last_login: None })
     }
-
     fn find_user(&self, username: &str) -> Result<Option<UserRecord>> {
         let conn = self.conn();
         Ok(conn
             .query_row(&format!("SELECT {USER_COLS} FROM users WHERE username = ?1"), [username], row_to_user_record)
             .optional()?)
     }
-
     fn get_user_record(&self, id: i64) -> Result<Option<UserRecord>> {
         let conn = self.conn();
         Ok(conn
             .query_row(&format!("SELECT {USER_COLS} FROM users WHERE id = ?1"), [id], row_to_user_record)
             .optional()?)
     }
-
     fn list_users(&self) -> Result<Vec<User>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(&format!("SELECT {USER_COLS} FROM users ORDER BY username"))?;
         let rows = stmt.query_map([], |r| row_to_user_record(r).map(|u| u.user))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
-
     fn update_user(&self, id: i64, role: Option<&str>, disabled: Option<bool>, password_hash: Option<&str>, must_change: Option<bool>) -> Result<bool> {
         let conn = self.conn();
         let n = conn.execute(
@@ -1039,7 +881,6 @@ impl Store for SqliteStore {
         )?;
         Ok(n == 1)
     }
-
     fn delete_user(&self, id: i64) -> Result<bool> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
@@ -1066,13 +907,11 @@ impl Store for SqliteStore {
         tx.commit()?;
         Ok(n == 1)
     }
-
     fn set_last_login(&self, id: i64, ts: i64) -> Result<()> {
         let conn = self.conn();
         conn.execute("UPDATE users SET last_login = ?2 WHERE id = ?1", params![id, ts])?;
         Ok(())
     }
-
     fn create_session(&self, token_hash: &str, user_id: i64, now: i64, expires_at: i64) -> Result<()> {
         let conn = self.conn();
         conn.execute(
@@ -1081,7 +920,6 @@ impl Store for SqliteStore {
         )?;
         Ok(())
     }
-
     fn get_session(&self, token_hash: &str) -> Result<Option<SessionRecord>> {
         let conn = self.conn();
         Ok(conn
@@ -1104,19 +942,16 @@ impl Store for SqliteStore {
             )
             .optional()?)
     }
-
     fn touch_session(&self, token_hash: &str, now: i64) -> Result<()> {
         let conn = self.conn();
         conn.execute("UPDATE sessions SET last_used = ?2 WHERE token_hash = ?1", params![token_hash, now])?;
         Ok(())
     }
-
     fn delete_session(&self, token_hash: &str) -> Result<()> {
         let conn = self.conn();
         conn.execute("DELETE FROM sessions WHERE token_hash = ?1", [token_hash])?;
         Ok(())
     }
-
     fn delete_user_sessions(&self, user_id: i64, except: Option<&str>) -> Result<()> {
         let conn = self.conn();
         conn.execute(
@@ -1125,43 +960,10 @@ impl Store for SqliteStore {
         )?;
         Ok(())
     }
-
     fn prune_sessions(&self, now: i64) -> Result<usize> {
         let conn = self.conn();
         Ok(conn.execute("DELETE FROM sessions WHERE expires_at <= ?1", [now])?)
     }
-
-    // ------------------------------------------------ audit trail
-    fn add_audit(&self, ts: i64, user: &str, action: &str, asset_id: Option<i64>, detail: &serde_json::Value) -> Result<()> {
-        let conn = self.conn();
-        conn.execute(
-            "INSERT INTO audit (ts, user, action, asset_id, detail) VALUES (?1,?2,?3,?4,?5)",
-            params![ts, user, action, asset_id, json(detail)],
-        )?;
-        Ok(())
-    }
-
-    fn audit_after(&self, after: i64, limit: usize) -> Result<Vec<AuditEntry>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare("SELECT id, ts, user, action, asset_id, detail FROM audit WHERE id > ?1 ORDER BY id LIMIT ?2")?;
-        let rows = stmt.query_map(params![after, limit as i64], |r| {
-            Ok(AuditEntry { id: r.get(0)?, ts: r.get(1)?, user: r.get(2)?, action: r.get(3)?, asset_id: r.get(4)?, detail: from_json(r, 5)? })
-        })?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
-    }
-
-    fn list_audit(&self, asset_id: Option<i64>, limit: usize) -> Result<Vec<AuditEntry>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT id, ts, user, action, asset_id, detail FROM audit
-             WHERE (?1 IS NULL OR asset_id = ?1) ORDER BY ts DESC, id DESC LIMIT ?2",
-        )?;
-        let rows = stmt.query_map(params![asset_id, limit as i64], |r| {
-            Ok(AuditEntry { id: r.get(0)?, ts: r.get(1)?, user: r.get(2)?, action: r.get(3)?, asset_id: r.get(4)?, detail: from_json(r, 5)? })
-        })?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
-    }
-
     // ------------------------------------------------ per-agent tokens
     fn set_agent_token(&self, agent_id: &str, token_hash: &str, label: &str, ts: i64) -> Result<()> {
         let mut conn = self.conn();
@@ -1174,7 +976,6 @@ impl Store for SqliteStore {
         tx.commit()?;
         Ok(())
     }
-
     fn find_agent_token(&self, token_hash: &str) -> Result<Option<AgentToken>> {
         let conn = self.conn();
         Ok(conn
@@ -1185,7 +986,6 @@ impl Store for SqliteStore {
             )
             .optional()?)
     }
-
     fn list_agent_tokens(&self) -> Result<Vec<AgentToken>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
@@ -1194,18 +994,15 @@ impl Store for SqliteStore {
         let rows = stmt.query_map([], row_to_agent_token)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
-
     fn revoke_agent_token(&self, agent_id: &str) -> Result<bool> {
         let conn = self.conn();
         Ok(conn.execute("UPDATE agent_tokens SET revoked = 1 WHERE agent_id = ?1 AND revoked = 0", [agent_id])? > 0)
     }
-
     fn touch_agent_token(&self, token_hash: &str, ts: i64) -> Result<()> {
         let conn = self.conn();
         conn.execute("UPDATE agent_tokens SET last_used = ?2 WHERE token_hash = ?1", params![token_hash, ts])?;
         Ok(())
     }
-
     fn add_passkey(&self, user_id: i64, credential_id: &[u8], public_key: &[u8], sign_count: u32, name: &str, ts: i64) -> Result<i64> {
         let conn = self.conn();
         conn.execute(
@@ -1214,7 +1011,6 @@ impl Store for SqliteStore {
         )?;
         Ok(conn.last_insert_rowid())
     }
-
     fn find_passkey(&self, credential_id: &[u8]) -> Result<Option<Passkey>> {
         let conn = self.conn();
         Ok(conn
@@ -1225,30 +1021,25 @@ impl Store for SqliteStore {
             )
             .optional()?)
     }
-
     fn list_passkeys(&self, user_id: i64) -> Result<Vec<Passkey>> {
         let conn = self.conn();
         let mut stmt = conn.prepare("SELECT id, user_id, credential_id, public_key, sign_count, name, created_at, last_used FROM passkeys WHERE user_id = ?1 ORDER BY id")?;
         let rows = stmt.query_map([user_id], row_to_passkey)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
-
     fn update_passkey_use(&self, id: i64, sign_count: u32, ts: i64) -> Result<()> {
         let conn = self.conn();
         conn.execute("UPDATE passkeys SET sign_count = ?2, last_used = ?3 WHERE id = ?1", params![id, sign_count, ts])?;
         Ok(())
     }
-
     fn delete_passkey(&self, id: i64, user_id: i64) -> Result<bool> {
         let conn = self.conn();
         Ok(conn.execute("DELETE FROM passkeys WHERE id = ?1 AND user_id = ?2", params![id, user_id])? > 0)
     }
-
     fn delete_user_passkeys(&self, user_id: i64) -> Result<usize> {
         let conn = self.conn();
         Ok(conn.execute("DELETE FROM passkeys WHERE user_id = ?1", [user_id])?)
     }
-
     fn create_api_token(&self, token_hash: &str, label: &str, role: &str, created_by: &str, ts: i64) -> Result<i64> {
         let conn = self.conn();
         conn.execute(
@@ -1257,7 +1048,6 @@ impl Store for SqliteStore {
         )?;
         Ok(conn.last_insert_rowid())
     }
-
     fn find_api_token(&self, token_hash: &str) -> Result<Option<ApiToken>> {
         let conn = self.conn();
         Ok(conn
@@ -1268,25 +1058,181 @@ impl Store for SqliteStore {
             )
             .optional()?)
     }
-
     fn list_api_tokens(&self) -> Result<Vec<ApiToken>> {
         let conn = self.conn();
         let mut stmt = conn.prepare("SELECT id, label, role, created_by, created_at, last_used, revoked FROM api_tokens ORDER BY id DESC")?;
         let rows = stmt.query_map([], row_to_api_token)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
-
     fn revoke_api_token(&self, id: i64) -> Result<bool> {
         let conn = self.conn();
         Ok(conn.execute("UPDATE api_tokens SET revoked = 1 WHERE id = ?1 AND revoked = 0", [id])? > 0)
     }
-
     fn touch_api_token(&self, token_hash: &str, ts: i64) -> Result<()> {
         let conn = self.conn();
         conn.execute("UPDATE api_tokens SET last_used = ?2 WHERE token_hash = ?1", params![token_hash, ts])?;
         Ok(())
     }
+
 }
+
+impl AdminStore for SqliteStore {
+    fn upsert_agent(&self, a: &AgentInfo) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO agents (id, name, site, version, subnet, first_seen, last_report_at, last_run_id, last_seq)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+             ON CONFLICT(id) DO UPDATE SET name=excluded.name, site=excluded.site, version=excluded.version,
+                subnet=excluded.subnet, last_report_at=excluded.last_report_at,
+                last_run_id=excluded.last_run_id, last_seq=excluded.last_seq",
+            params![a.id, a.name, a.site, a.version, a.subnet, a.first_seen, a.last_report_at, a.last_run_id, a.last_seq as i64],
+        )?;
+        Ok(())
+    }
+    fn get_agent(&self, id: &str) -> Result<Option<AgentInfo>> {
+        let conn = self.conn();
+        Ok(conn
+            .query_row(&format!("SELECT {AGENT_COLS} FROM agents WHERE id = ?1"), [id], row_to_agent)
+            .optional()?)
+    }
+    fn list_agents(&self) -> Result<Vec<AgentInfo>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&format!("SELECT {AGENT_COLS} FROM agents ORDER BY name"))?;
+        let rows = stmt.query_map([], row_to_agent)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+    fn backup_to(&self, dest: &Path) -> Result<()> {
+        SqliteStore::backup_to(self, dest)
+    }
+    fn delete_agent_data(&self, agent_id: &str) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM metrics WHERE agent_id = ?1", [agent_id])?;
+        tx.execute("DELETE FROM agents WHERE id = ?1", [agent_id])?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn stats(&self, with_rows: bool) -> Result<StoreStats> {
+        let conn = self.conn();
+        let pragma = |name: &str| -> Result<i64> { Ok(conn.query_row(&format!("PRAGMA {name}"), [], |r| r.get(0))?) };
+        let (pages, size, free) = (pragma("page_count")?, pragma("page_size")?, pragma("freelist_count")?);
+        let mut rows = Vec::new();
+        // fixed names, never user input
+        for t in ["assets", "events", "conversations", "metrics", "presence", "audit", "reports", "risk_acceptances", "sessions"].into_iter().filter(|_| with_rows) {
+            rows.push((t, conn.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))?));
+        }
+        Ok(StoreStats { schema_version: pragma("user_version")?, db_bytes: pages * size, free_bytes: free * size, rows })
+    }
+    fn erase_inventory(&self) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        // children first
+        for sql in [
+            "DELETE FROM events", "DELETE FROM baselines", "DELETE FROM conversations", "DELETE FROM presence", "DELETE FROM metrics",
+            "DELETE FROM asset_meta", "DELETE FROM risk_acceptances", "DELETE FROM reports", "DELETE FROM topo_snapshots", "DELETE FROM assets", "DELETE FROM agents",
+            // learned state that belongs to the old network
+            "DELETE FROM settings WHERE key = 'dhcp_servers'",
+        ] {
+            tx.execute(sql, [])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    // ------------------------------------------------ accepted risks
+    fn add_risk_acceptance(&self, a: &RiskAcceptance) -> Result<i64> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        // a new decision replaces the one still in force for the same finding and device
+        tx.execute(
+            "UPDATE risk_acceptances SET revoked_at = ?3, revoked_by = 'replaced' WHERE finding_id = ?1 AND asset_id = ?2 AND revoked_at IS NULL",
+            params![a.finding_id, a.asset_id, a.accepted_at],
+        )?;
+        tx.execute(
+            "INSERT INTO risk_acceptances (finding_id, asset_id, reason, accepted_by, accepted_at, expires_at) VALUES (?1,?2,?3,?4,?5,?6)",
+            params![a.finding_id, a.asset_id, a.reason, a.accepted_by, a.accepted_at, a.expires_at],
+        )?;
+        let id = tx.last_insert_rowid();
+        tx.commit()?;
+        Ok(id)
+    }
+    fn list_risk_acceptances(&self) -> Result<Vec<RiskAcceptance>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, finding_id, asset_id, reason, accepted_by, accepted_at, expires_at, revoked_at, revoked_by
+             FROM risk_acceptances WHERE revoked_at IS NULL ORDER BY accepted_at DESC, id DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(RiskAcceptance {
+                id: r.get(0)?, finding_id: r.get(1)?, asset_id: r.get(2)?, reason: r.get(3)?, accepted_by: r.get(4)?,
+                accepted_at: r.get(5)?, expires_at: r.get(6)?, revoked_at: r.get(7)?, revoked_by: r.get(8)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+    fn revoke_risk_acceptance(&self, id: i64, by: &str, ts: i64) -> Result<bool> {
+        let conn = self.conn();
+        Ok(conn.execute("UPDATE risk_acceptances SET revoked_at = ?2, revoked_by = ?3 WHERE id = ?1 AND revoked_at IS NULL", params![id, ts, by])? > 0)
+    }
+    // ------------------------------------------------ switches (SNMP topology)
+    fn save_topo(&self, id: &str, now: i64, snapshot: Result<&str, &str>) -> Result<()> {
+        let conn = self.conn();
+        match snapshot {
+            Ok(json) => conn.execute(
+                "INSERT INTO topo_snapshots (id, last_poll, last_ok, error, snapshot) VALUES (?1, ?2, ?2, NULL, ?3)
+                 ON CONFLICT(id) DO UPDATE SET last_poll = ?2, last_ok = ?2, error = NULL, snapshot = ?3",
+                params![id, now, json],
+            )?,
+            // a failed poll keeps what the switch said last time, and says why the newest one failed
+            Err(e) => conn.execute(
+                "INSERT INTO topo_snapshots (id, last_poll, last_ok, error, snapshot) VALUES (?1, ?2, NULL, ?3, NULL)
+                 ON CONFLICT(id) DO UPDATE SET last_poll = ?2, error = ?3",
+                params![id, now, e],
+            )?,
+        };
+        Ok(())
+    }
+    fn list_topo(&self) -> Result<Vec<TopoRow>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT id, last_poll, last_ok, error, snapshot FROM topo_snapshots ORDER BY id")?;
+        let rows = stmt.query_map([], |r| Ok(TopoRow { id: r.get(0)?, last_poll: r.get(1)?, last_ok: r.get(2)?, error: r.get(3)?, snapshot: r.get(4)? }))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+    fn delete_topo(&self, id: &str) -> Result<()> {
+        self.conn().execute("DELETE FROM topo_snapshots WHERE id = ?1", [id])?;
+        Ok(())
+    }
+    // ------------------------------------------------ audit trail
+    fn add_audit(&self, ts: i64, user: &str, action: &str, asset_id: Option<i64>, detail: &serde_json::Value) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO audit (ts, user, action, asset_id, detail) VALUES (?1,?2,?3,?4,?5)",
+            params![ts, user, action, asset_id, json(detail)],
+        )?;
+        Ok(())
+    }
+    fn audit_after(&self, after: i64, limit: usize) -> Result<Vec<AuditEntry>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT id, ts, user, action, asset_id, detail FROM audit WHERE id > ?1 ORDER BY id LIMIT ?2")?;
+        let rows = stmt.query_map(params![after, limit as i64], |r| {
+            Ok(AuditEntry { id: r.get(0)?, ts: r.get(1)?, user: r.get(2)?, action: r.get(3)?, asset_id: r.get(4)?, detail: from_json(r, 5)? })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+    fn list_audit(&self, asset_id: Option<i64>, limit: usize) -> Result<Vec<AuditEntry>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, ts, user, action, asset_id, detail FROM audit
+             WHERE (?1 IS NULL OR asset_id = ?1) ORDER BY ts DESC, id DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![asset_id, limit as i64], |r| {
+            Ok(AuditEntry { id: r.get(0)?, ts: r.get(1)?, user: r.get(2)?, action: r.get(3)?, asset_id: r.get(4)?, detail: from_json(r, 5)? })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+}
+
+impl Store for SqliteStore {}
 
 const USER_COLS: &str = "id, username, role, created_at, disabled, must_change, last_login, password_hash";
 

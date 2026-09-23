@@ -16,7 +16,7 @@ use crate::inventory::Inventory;
 use crate::model::{Asset, Conversation, Event, Mac, Observation};
 use crate::parse::{parse_frame, Ctx};
 use crate::store::sqlite::SqliteStore;
-use crate::store::Store;
+use crate::store::AssetStore;
 
 #[derive(Debug)]
 pub struct Replay {

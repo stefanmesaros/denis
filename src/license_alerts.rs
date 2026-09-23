@@ -13,7 +13,7 @@ use std::time::Duration;
 use crate::license::{self, Stage};
 use crate::model::{Event, Mac};
 use crate::notify::Alerts;
-use crate::store::Store;
+use crate::store::{Store};
 
 pub const RULE_LICENSE_EXPIRING: &str = "license_expiring";
 pub const RULE_LICENSE_GRACE: &str = "license_grace_period";
@@ -94,6 +94,7 @@ fn event_for(store: &Arc<dyn Store>, stage: &Stage, own_mac: Mac, now: i64) -> O
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::AssetStore;
     use crate::model::Asset;
     use crate::store::sqlite::SqliteStore;
 

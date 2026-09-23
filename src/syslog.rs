@@ -31,7 +31,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::model::Event;
 use crate::sink::ExportStatus;
-use crate::store::Store;
+use crate::store::{Store};
 
 const BATCH: usize = 500;
 const MAX_BATCHES_PER_CYCLE: usize = 40;
@@ -280,6 +280,8 @@ pub async fn run(sink: Arc<Syslog>, store: Arc<dyn Store>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::AssetStore;
+    use crate::store::EventStore;
     use crate::model::{Asset, Mac};
     use crate::store::sqlite::SqliteStore;
     use serde_json::json;

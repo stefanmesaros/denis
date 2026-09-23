@@ -8,7 +8,7 @@ use denis::agent::AgentConfig;
 use denis::detect::{DetectConfig, RULES};
 use denis::model::{now_ts, AgentMeta};
 use denis::store::sqlite::SqliteStore;
-use denis::store::{EventQuery, Store};
+use denis::store::{AdminStore, AssetStore, AuthStore, EventQuery, EventStore};
 use denis::{engine, net};
 use tracing_subscriber::EnvFilter;
 

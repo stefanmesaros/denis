@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::detect::{DetectConfig, RULES};
-use crate::store::Store;
+use crate::store::{Store};
 
 /// Settings key holding the saved overrides (JSON).
 pub const KEY: &str = "rules";
@@ -691,6 +691,7 @@ pub fn describe(base: &DetectConfig, o: &Overrides) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::SettingsStore;
 
     #[test]
     fn every_rule_is_described_and_every_param_is_used_and_within_its_own_limits() {

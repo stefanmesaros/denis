@@ -15,7 +15,7 @@ use denis::inventory::Inventory;
 use denis::model::{Mac, Observation};
 use denis::parse::{parse_frame, Ctx};
 use denis::store::sqlite::SqliteStore;
-use denis::store::Store;
+use denis::store::AssetStore;
 
 const OWN: Mac = Mac([0x02, 0, 0, 0, 0, 0x99]);
 const HMI: [u8; 6] = [0x3c, 0x22, 0xfb, 0, 0, 0x01];

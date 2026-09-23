@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::store::Store;
+use crate::store::{Store};
 
 pub const SETTINGS_KEY: &str = "backups";
 pub const MAX_KEEP: u32 = 60;
@@ -397,6 +397,7 @@ pub async fn run(store: std::sync::Arc<dyn Store>, db_path: PathBuf, upstream: O
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::SettingsStore;
     use crate::store::sqlite::SqliteStore;
 
     #[test]
