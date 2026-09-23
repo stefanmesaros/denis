@@ -270,6 +270,20 @@ fn set_last_upload(store: &dyn Store, now: i64) {
     let _ = store.set_setting(UPLOAD_LAST_KEY, now.to_string().as_bytes(), now);
 }
 
+/// Which local backup was last successfully sent (its name, which already encodes its creation
+/// moment — see `kind_of`/`create` — so two backups never share one). Kept apart from
+/// `UPLOAD_LAST_KEY`'s timestamp: that one paces the schedule; this one is what says whether the
+/// *content* due to be sent next has actually changed since.
+const UPLOAD_LAST_NAME_KEY: &str = "backups.upload_last_name";
+
+fn last_uploaded_name(store: &dyn Store) -> Option<String> {
+    store.get_setting(UPLOAD_LAST_NAME_KEY).ok().flatten().and_then(|b| String::from_utf8(b).ok())
+}
+
+fn set_last_uploaded_name(store: &dyn Store, name: &str, now: i64) {
+    let _ = store.set_setting(UPLOAD_LAST_NAME_KEY, name.as_bytes(), now);
+}
+
 /// How many of a given customer's uploaded backups an MSP keeps under
 /// `backups/from-agents/<agent-id>/` (the oldest are pruned after each new one arrives). This is
 /// the MSP's own, purely local setting — it does not reach back to the customer in any way.
@@ -348,10 +362,21 @@ fn upload_if_due(store: &dyn Store, db_path: &Path, upstream: &Upstream, now: i6
         return Ok(None);
     }
     let Some(newest) = list(db_path).into_iter().next() else { return Ok(None) };
+    // A local schedule slower than the upload one (weekly backups, daily uploads — the upload
+    // default, independent of the local one) would otherwise resend the same bytes on every due
+    // check: the loop only ever looks at "whatever the newest local backup happens to be right
+    // now" (see the module doc comment), and nothing else marks it as already sent. Skip a send
+    // whose content has not changed since the last one that actually went out, but do not touch
+    // either marker: an unmodified skip must stay cheap and retried every tick (a name comparison,
+    // no network call), not paced by the schedule interval like a real send is.
+    if last_uploaded_name(store).as_deref() == Some(newest.name.as_str()) {
+        return Ok(None);
+    }
     let path = dir(db_path).join(&newest.name);
     let result = upload(upstream, &path);
     if result.is_ok() {
         set_last_upload(store, now);
+        set_last_uploaded_name(store, &newest.name, now);
     }
     Ok(Some((newest.name, result)))
 }
@@ -466,23 +491,27 @@ mod tests {
         assert_eq!(load_upload_settings(&store).unwrap(), UploadSettings::default());
     }
 
-    /// A tiny fake MSP: answers every request with whatever status `code` currently holds.
+    /// A tiny fake MSP: answers every request with whatever status `code` currently holds, and
+    /// counts how many requests actually arrived (so a test can tell a real send from a skip).
     struct Fake {
         url: String,
         code: Arc<std::sync::atomic::AtomicU16>,
+        requests: Arc<std::sync::atomic::AtomicUsize>,
     }
 
     fn fake() -> Fake {
         use std::io::{Read, Write};
         use std::net::TcpListener;
-        use std::sync::atomic::{AtomicU16, Ordering};
+        use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", l.local_addr().unwrap());
         let code = Arc::new(AtomicU16::new(200));
-        let c2 = code.clone();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let (c2, r2) = (code.clone(), requests.clone());
         std::thread::spawn(move || {
             for conn in l.incoming() {
                 let Ok(mut c) = conn else { return };
+                r2.fetch_add(1, Ordering::SeqCst);
                 // Drain the whole request (headers, then exactly `content-length` body bytes)
                 // before answering: an early reply while the client is still writing the backup
                 // file's body would abort the connection instead of exercising the real
@@ -512,7 +541,7 @@ mod tests {
                 let _ = write!(c, "HTTP/1.1 {code} X\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}");
             }
         });
-        Fake { url, code }
+        Fake { url, code, requests }
     }
 
     #[test]
@@ -541,6 +570,31 @@ mod tests {
         assert_eq!(last_upload(&store), Some(2_002));
         // and now it is not due again until the next interval
         assert!(upload_if_due(&store, &db, &up, 2_003).unwrap().is_none());
+    }
+
+    #[test]
+    fn an_unchanged_local_backup_is_not_resent_every_time_the_upload_schedule_comes_due() {
+        use std::sync::atomic::Ordering;
+        // a slower local schedule (weekly) than the upload one (daily, the default): for most of
+        // the week the "newest local backup" the upload loop looks at is the very same file
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("denis.db");
+        let store = SqliteStore::open(&db).unwrap();
+        create(&store, &db, "auto", 1_000).unwrap();
+        let f = fake();
+        let up = Upstream { url: f.url.clone(), token: "t".into() };
+        assert_eq!(load_upload_settings(&store).unwrap().schedule, "daily", "the default this test relies on");
+
+        let day = 86_400;
+        for tick in 0..7 {
+            upload_if_due(&store, &db, &up, 1_000 + tick * day).unwrap();
+        }
+        assert_eq!(f.requests.load(Ordering::SeqCst), 1, "six of the seven daily checks found the same content already sent and must not resend it");
+
+        // the local (weekly) backup finally rotates: the new content is sent on the next due check
+        create(&store, &db, "auto", 1_000 + 7 * day).unwrap();
+        upload_if_due(&store, &db, &up, 1_000 + 7 * day).unwrap();
+        assert_eq!(f.requests.load(Ordering::SeqCst), 2);
     }
 
     #[test]
