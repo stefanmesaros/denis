@@ -14,7 +14,7 @@ function untilText(a) {
 }
 
 async function loadFindings() {
-  const [r, ar] = await Promise.all([fetch('/api/findings'), fetch('/api/risk-acceptances')]);
+  const [r, ar] = await Promise.all([apiFetch('/api/findings'), apiFetch('/api/risk-acceptances')]);
   if (!r.ok) return;
   const list = await r.json();
   acceptedRisks = ar.ok ? await ar.json() : [];

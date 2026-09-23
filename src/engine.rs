@@ -68,6 +68,14 @@ impl CollectorConfig {
     }
 }
 
+/// A mirror interface exists for no reason other than flow accounting, so it always implies
+/// `--flows` -- whether the mirror list came from the CLI (`Collect::into_config`, main.rs) or
+/// replaced it afterwards via a GUI override (`run`, below): both must agree, or a mirror
+/// interface set from Settings silently does nothing (see the regression test).
+pub fn flows_needed(explicit: bool, mirror_ifaces: &[String]) -> bool {
+    explicit || !mirror_ifaces.is_empty()
+}
+
 impl Default for CollectorConfig {
     fn default() -> Self {
         CollectorConfig {
@@ -652,6 +660,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     let (iface, mirror_ifaces) = crate::capture_config::effective(&*store, cfg.collector.iface.clone(), cfg.collector.mirror_ifaces.clone());
     cfg.collector.iface = iface;
     cfg.collector.mirror_ifaces = mirror_ifaces;
+    cfg.collector.flows = flows_needed(cfg.collector.flows, &cfg.collector.mirror_ifaces);
     if cfg.no_auth && !cfg.listen.ip().is_loopback() {
         anyhow::bail!("--insecure-no-auth is only allowed when the UI listens on a loopback address");
     }
@@ -1268,6 +1277,18 @@ mod tests {
         assert!(cfg.may_probe(Ipv4Addr::new(10, 0, 9, 8)));
         let all: Vec<Ipv4Addr> = (1..=254u8).map(|i| Ipv4Addr::new(10, 0, 5, i)).chain([Ipv4Addr::new(10, 0, 6, 1), Ipv4Addr::new(10, 0, 9, 7)]).collect();
         assert_eq!(probe_targets(all, &cfg.exclude), vec![Ipv4Addr::new(10, 0, 6, 1)]);
+    }
+
+    #[test]
+    fn a_mirror_interface_always_implies_flows_however_it_was_set() {
+        // regression: a GUI-configured mirror interface (Settings -> Network interfaces)
+        // replaces the mirror list *after* main.rs's own --flows-implication already ran, so
+        // `run()` must re-derive it the same way, or the console silently shows flow accounting
+        // as off even though a mirror interface is actively decoding traffic.
+        assert!(!flows_needed(false, &[]));
+        assert!(flows_needed(true, &[]));
+        assert!(flows_needed(false, &["eth1".to_string()]));
+        assert!(flows_needed(false, &["eth1".to_string(), "eth2".to_string()]));
     }
 
     #[test]

@@ -13,7 +13,7 @@ async function api(method, url, body) {
     init.body = typeof body === 'string' ? body : JSON.stringify(body);
   }
   try {
-    const r = await fetch(url, init);
+    const r = await apiFetch(url, init);
     let json = null;
     try { json = await r.json(); } catch (e) { /* 204 or non-JSON */ }
     return { ok: r.ok, status: r.status, json };
@@ -162,13 +162,13 @@ $('br-accent-reset').onclick = () => { $('br-accent').dataset.reset = '1'; $('br
 $('br-file').onchange = async () => {
   const f = $('br-file').files[0];
   if (!f) return;
-  const res = await fetch('/api/branding/logo', { method: 'PUT', headers: { 'Content-Type': f.type || 'application/octet-stream' }, body: f });
+  const res = await apiFetch('/api/branding/logo', { method: 'PUT', headers: { 'Content-Type': f.type || 'application/octet-stream' }, body: f });
   $('br-file').value = '';
   if (res.ok) { await loadBranding(); initBrandingForm(); $('br-status').textContent = tr('Logo updated.'); }
   else { const j = await res.json().catch(() => ({})); $('br-status').textContent = j.error ? translateError(j.error) : tr('Upload failed ({status}).', { status: res.status }); }
 };
 $('br-remove').onclick = async () => {
-  const res = await fetch('/api/branding/logo', { method: 'DELETE' });
+  const res = await apiFetch('/api/branding/logo', { method: 'DELETE' });
   if (res.ok) { await loadBranding(); initBrandingForm(); $('br-status').textContent = tr('Logo removed.'); }
 };
 
@@ -403,6 +403,28 @@ function typeOptions(current) {
 }
 
 /** Create/edit form. `a` is null when creating a new asset. */
+/** "This is the same device as…": one access point (or anything else) broadcasting under more
+ * than one MAC address, say, so it does not need to show up more than once. */
+function openMergeForm(a) {
+  const candidates = state.assets.filter((x) => x.id !== a.id && (x.agent_id || '') === (a.agent_id || '')).sort((x, y) => deviceLabel(x, x.mac).localeCompare(deviceLabel(y, y.mac)));
+  if (!candidates.length) { showMessage(tr('This is the same device as…'), el('p', { text: tr('No other device on this site to merge with.') })); return; }
+  const sel = el('select', {}, ...candidates.map((x) => el('option', { value: String(x.id), text: deviceLabel(x, x.mac) + ' · ' + x.mac })));
+  openForm(tr('This is the same device as…'), [
+    el('p', { class: 'muted', text: tr('Choose the device this really is (the same access point under another MAC address, say). This one is then hidden from the devices list and findings — its own history is kept, not deleted, and it comes straight back if you undo this later.') }),
+    el('div', { class: 'form-grid' }, field(tr('Merge into'), sel)),
+  ], {
+    submitLabel: tr('Merge'),
+    onSubmit: async () => {
+      const target = Number(sel.value);
+      const r = await api('PATCH', '/api/assets/' + a.id + '/meta', { merged_into: target });
+      if (!r.ok) return apiError(r);
+      await refresh();
+      showDetail(target);
+      return null;
+    },
+  });
+}
+
 async function openAssetForm(a) {
   // the lists may be missing if the first request was refused (a forced password change): fetch them now
   if (!state.options) await loadOptions();

@@ -14,7 +14,7 @@ function attachmentText(topo, at) {
 }
 
 async function loadPhysical() {
-  const r = await fetch('/api/topology');
+  const r = await apiFetch('/api/topology');
   if (!r.ok) return null;
   physical = await r.json();
   return physical;
@@ -82,17 +82,38 @@ async function renderPhysical() {
     kids.push(hub);
     kids.push(svg('text', { x: cx, y: cy + 4, class: 'switch-label' }, document.createTextNode(s.name.slice(0, 9))));
   }
+  // Even when the forwarding table is not offered at all (some cheap "smart" switches answer
+  // IF-MIB fully but do not implement it), the port list itself — name, alias, up/down — is
+  // still worth showing: it is the most a switch that limited will ever give.
+  const portTable = (s) => {
+    if (!s.ports || !s.ports.length) return null;
+    const byPort = new Map(topo.attachments.filter((a) => a.switch === s.id).map((a) => [a.port, a]));
+    return el('details', {},
+      el('summary', { text: tr('Ports ({n})', { n: s.ports.length }) }),
+      el('div', { class: 'table-wrap' }, el('table', {}, el('tbody', {},
+        ...s.ports.map((p) => {
+          const at = byPort.get(p.name);
+          const dev = at && at.asset_id != null ? assetById(at.asset_id) : null;
+          return el('tr', {},
+            el('td', { text: p.name + (p.alias ? ' (' + p.alias + ')' : '') }),
+            el('td', {}, el('span', { class: 'pill ' + (p.up ? 'ok' : p.up === false ? '' : 'warn'), text: p.up ? tr('up') : p.up === false ? tr('down') : tr('unknown') })),
+            el('td', { class: 'muted small', text: dev ? deviceLabel(dev, '') : (at ? (at.name || at.mac || '') : '') }));
+        })))));
+  };
   const cards = topo.switches.map((s) => el('div', { class: 'rule-card' },
     el('div', { class: 'rule-head' }, el('b', { text: s.name }), el('code', { text: s.address }),
       s.error ? el('span', { class: 'changed', text: tr('cannot be read') }) : null),
     s.error ? el('p', { class: 'form-error', text: s.error }) : null,
-    el('p', { class: 'muted small', text: s.last_ok ? tr('{ports} ports ({up} up), {macs} MACs learned; read {ago}.', { ports: s.ports_total, up: s.ports_up, macs: s.macs, ago: ago(s.last_ok) }) : tr('Not read yet.') })));
+    el('p', { class: 'muted small', text: s.last_ok ? tr('{ports} ports ({up} up), {macs} MACs learned; read {ago}.', { ports: s.ports_total, up: s.ports_up, macs: s.macs, ago: ago(s.last_ok) }) : tr('Not read yet.') }),
+    portTable(s)));
   $('topo-legend-physical').replaceChildren(...['none', 'low', 'medium', 'high'].map((l) => el('span', {}, el('i', { style: 'background:' + colors[l] }), l === 'none' ? tr('no risk') : tr(l))));
   box.replaceChildren(
-    el('div', { class: 'topo-site' },
-      svg('svg', { viewBox: `0 0 ${cols * CELL} ${rows * CELL}`, role: 'img', 'aria-label': tr('Physical topology') }, ...kids)),
-    topo.unknown_macs ? el('p', { class: 'muted small', text: tr('{n} more MAC addresses are plugged into access ports but are not in the register.', { n: topo.unknown_macs }) }) : null,
-    ...cards);
+    ...[
+      el('div', { class: 'topo-site' },
+        svg('svg', { viewBox: `0 0 ${cols * CELL} ${rows * CELL}`, role: 'img', 'aria-label': tr('Physical topology') }, ...kids)),
+      topo.unknown_macs ? el('p', { class: 'muted small', text: tr('{n} more MAC addresses are plugged into access ports but are not in the register.', { n: topo.unknown_macs }) }) : null,
+      ...cards,
+    ].filter(Boolean));
 }
 
 // ------------------------------------------------------------------ settings: the switches

@@ -764,6 +764,10 @@ await check('a switch read over SNMP shows which port a device is plugged into: 
     await sleep(1500);
     const drawn = await evaluate("({ switches: document.querySelectorAll('#topo-physical-body .switch-node').length, devices: document.querySelectorAll('#topo-physical-body circle.node').length, label: [...document.querySelectorAll('#topo-physical-body svg text')].map((t) => t.textContent) })");
     if (drawn.switches !== 1 || drawn.devices !== 1 || !drawn.label.includes('Gi1/0/2')) return 'the map: ' + JSON.stringify(drawn);
+    // the only learned MAC belongs to a known device, so there is no "unknown MACs" line: check
+    // this does not leave a stray "null" behind (regression: box.replaceChildren(..., null, ...))
+    const physicalBad = await evaluate(BAD_TEXT);
+    if (physicalBad.length) return 'the physical map shows ' + physicalBad.join(', ');
     // on the device itself
     const id = await evaluate(`state.assets.find((a) => a.mac === ${JSON.stringify(mac)}).id`);
     await evaluate(`showDetail(${id}); 0`);

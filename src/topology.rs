@@ -212,6 +212,10 @@ pub struct SwitchView {
     pub macs: usize,
     pub last_ok: Option<i64>,
     pub error: Option<String>,
+    /// Every port IF-MIB reports (name, alias, up/down, speed), whether or not anything was
+    /// learned on it — some switches (cheap "smart" models especially) answer IF-MIB fully but
+    /// do not implement the forwarding table at all, so this is worth showing on its own.
+    pub ports: Vec<Port>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -368,6 +372,7 @@ pub fn build(polled: &[Polled], assets: &[Asset]) -> Topology {
             macs: s.map_or(0, |s| s.fdb.len()),
             last_ok: p.last_ok,
             error: p.error.clone(),
+            ports: s.map(|s| s.ports.clone()).unwrap_or_default(),
         });
     }
     topo

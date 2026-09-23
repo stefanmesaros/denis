@@ -5,21 +5,22 @@
 
 const $ = (id) => document.getElementById(id);
 
-// Every API call goes through here: it adds the CSRF header to state-changing
-// requests and reacts centrally to "not signed in" / "password must change".
-const rawFetch = window.fetch.bind(window);
-window.fetch = async (input, init = {}) => {
+// Every API call goes through here (never the bare global `fetch`): it adds the CSRF header to
+// state-changing requests and reacts centrally to "not signed in" / "password must change". An
+// explicit wrapper, not a monkey-patched `window.fetch`, so a reader can find every caller by
+// searching for its name instead of discovering the behaviour by accident.
+async function apiFetch(input, init = {}) {
   const url = typeof input === 'string' ? input : input.url;
   const method = (init.method || 'GET').toUpperCase();
   if (method !== 'GET') init = { ...init, headers: { 'X-Denis': '1', ...(init.headers || {}) } };
-  const r = await rawFetch(input, { credentials: 'same-origin', ...init });
+  const r = await window.fetch(input, { credentials: 'same-origin', ...init });
   // a wrong password or code typed into a form is a 401 too, but it is not the end of the session
   if (url.startsWith('/api/') && !/^\/api\/auth\/(login|mfa|password|totp)/.test(url)) {
     if (r.status === 401) onUnauthenticated();
     else if (r.status === 403) r.clone().json().then((j) => { if (j.code === 'must_change') onMustChange(); else if (j.code === 'mfa_required') onMustEnrol(); }).catch(() => {});
   }
   return r;
-};
+}
 
 const RANK = { viewer: 1, editor: 2, admin: 3 };
 /** Does the signed-in user have at least this role? (The server enforces it; this only hides buttons.) */
@@ -395,7 +396,7 @@ function renderAlerts() {
 }
 
 async function ack(id, acked) {
-  await fetch('/api/alerts/' + id + (acked ? '/ack' : '/unack'), { method: 'POST', headers: { 'X-Denis': '1' } });
+  await apiFetch('/api/alerts/' + id + (acked ? '/ack' : '/unack'), { method: 'POST', headers: { 'X-Denis': '1' } });
   refresh();
 }
 
@@ -549,13 +550,19 @@ async function showDetail(id) {
 
   let bl = null, hist = [];
   try {
-    const r = await fetch('/api/assets/' + id + '/baseline');
+    const r = await apiFetch('/api/assets/' + id + '/baseline');
     if (r.ok) bl = await r.json();
-    const h = await fetch('/api/assets/' + id + '/history');
+    const h = await apiFetch('/api/assets/' + id + '/history');
     if (h.ok) hist = await h.json();
   } catch (e) { /* offline: show without baseline/history */ }
   const plugged = await connectedTo(id); // which switch port it is plugged into, when a switch says
   const mine = state.alerts.filter((e) => e.asset_id === id).slice(0, 8);
+  // a merged-away device is never reachable here itself (it does not appear in state.assets, by
+  // design — see /api/assets), so this only ever needs to handle the canonical side: who is
+  // merged into *this* device, offered with "Unmerge".
+  let mergedSiblings = [];
+  const mr = await apiFetch('/api/assets/' + id + '/merged');
+  if (mr.ok) mergedSiblings = await mr.json();
 
   const baselineNodes = bl ? [
     dl([
@@ -590,8 +597,12 @@ async function showDetail(id) {
     can('editor') ? el('div', { class: 'detail-actions' },
       el('button', { type: 'button', class: 'primary', text: tr('Edit asset'), onclick: () => openAssetForm(a) }),
       needsReview(a) ? el('button', { type: 'button', text: tr('Mark as known'), onclick: async () => { await api('POST', '/api/assets/review', { ids: [a.id] }); await refresh(); showDetail(a.id); } }) : null,
+      el('button', { type: 'button', text: tr('This is the same device as…'), title: tr('For an access point (or anything else) that shows up more than once under a different MAC address'), onclick: () => openMergeForm(a) }),
       m.manual && can('admin') ? el('button', { type: 'button', text: tr('Delete'), onclick: () => deleteAsset(a) }) : null) : null,
     detected ? el('div', { class: 'muted small', text: tr('Discovery guessed: {what}', { what: tr(a.detected.device_type) + (a.detected.os_guess ? ' / ' + a.detected.os_guess : '') }) }) : null,
+    mergedSiblings.length ? el('div', { class: 'muted small' }, tr('Also known as:') + ' ',
+      ...mergedSiblings.flatMap((s, i) => [i ? ', ' : '', s.mac, ' ',
+        can('editor') ? el('button', { type: 'button', text: tr('(unmerge)'), onclick: async () => { await api('PATCH', '/api/assets/' + s.id + '/meta', { merged_into: null }); await refresh(); showDetail(a.id); } }) : null])) : null,
     el('h3', { text: tr('Asset information') }),
     infoRows.flat().length ? dl(infoRows) : el('div', { class: 'muted', text: can('editor') ? tr('Nothing entered yet. Use "Edit asset" to add an owner, serial number, location, warranty…') : tr('Nothing entered yet.') }),
     el('h3', { text: tr('Risk {score} ({level})', { score: a.risk.score, level: tr(a.risk.level) }) }),
@@ -731,7 +742,7 @@ function identityText(a) {
 }
 
 async function loadOt() {
-  const r = await fetch('/api/conversations');
+  const r = await apiFetch('/api/conversations');
   if (r.ok) state.convs = await r.json();
   renderOt();
 }
@@ -827,7 +838,7 @@ async function loadTrends() {
   const agent = !site || site === '__all' ? '' : '&agent=' + encodeURIComponent(site === '__local' ? 'local' : site);
   let data;
   try {
-    data = await fetch('/api/trends?hours=' + $('range').value + agent).then((r) => r.json());
+    data = await apiFetch('/api/trends?hours=' + $('range').value + agent).then((r) => r.json());
   } catch (e) { return; }
   const pts = data.points;
   const last = pts[pts.length - 1];
@@ -844,7 +855,7 @@ async function loadTrends() {
 // --------------------------------------------------------------- findings
 
 async function loadCompliance() {
-  const r = await fetch('/api/compliance');
+  const r = await apiFetch('/api/compliance');
   if (!r.ok) return;
   const c = await r.json();
   $('compliance-note').textContent = tr(c.disclaimer);
@@ -893,7 +904,7 @@ async function refresh() {
   if (!state.me) return;
   if (!state.options) loadOptions(); // in case the first request was refused
   try {
-    const j = (u) => fetch(u).then((r) => r.json());
+    const j = (u) => apiFetch(u).then((r) => r.json());
     const [status, assets, events, alerts, agents] = await Promise.all([
       j('/api/status'), j('/api/assets'), j('/api/events?limit=200'), j('/api/alerts?limit=200'), j('/api/agents'),
     ]);
@@ -940,7 +951,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('close')
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 $('scan').onclick = async () => {
   $('scan').disabled = true;
-  await fetch('/api/scan', { method: 'POST', headers: { 'X-Denis': '1' } });
+  await apiFetch('/api/scan', { method: 'POST', headers: { 'X-Denis': '1' } });
   setTimeout(refresh, 1500);
   setTimeout(() => { $('scan').disabled = !!(state.status && state.status.passive_only); }, 5000);
 };

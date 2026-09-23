@@ -72,8 +72,7 @@ impl Collect {
             rescan_interval: Duration::from_secs(self.rescan_interval),
             // OT: listen only, unless the operator explicitly allows gentle probing.
             passive_only: self.passive_only || (ot && !self.active),
-            // A mirror interface exists for no reason other than flow accounting.
-            flows: self.flows || ot || !self.mirror_ifaces.is_empty(),
+            flows: engine::flows_needed(self.flows || ot, &self.mirror_ifaces),
             exclude: self.exclude,
             arp_pace: Duration::from_millis(if ot { 50 } else { 2 }),
             ..Default::default()

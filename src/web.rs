@@ -159,6 +159,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/assets/{id}/meta", patch(admin::patch_meta))
         .route("/api/assets/{id}/history", get(admin::history))
         .route("/api/assets/{id}/baseline", get(baseline))
+        .route("/api/assets/{id}/merged", get(merged_into_this))
         .route("/api/events", get(events))
         .route("/api/alerts", get(alerts))
         .route("/api/alerts/{id}/ack", post(ack))
@@ -539,6 +540,10 @@ async fn assets(State(st): State<AppState>, Extension(AuthUser(me)): Extension<A
     let now = now_ts();
     let (mut list, alerts, mut metas) = blocking(&st.store, |s| Ok((s.load_assets()?, open_alerts(s)?, s.load_all_meta()?))).await?;
     list.retain(|a| site_readable(&st, &me, &a.agent_id));
+    // A device merged into another (the same physical box seen under a second MAC, typically) is
+    // hidden here — its own history is kept, not deleted, and it comes straight back the moment
+    // the merge is undone.
+    list.retain(|a| metas.get(&a.id).is_none_or(|m| m.merged_into.is_none()));
     // Community edition (or an expired/invalid license): only the first `cap` devices are
     // returned. Detection and alerting are unaffected — every device is still monitored, just
     // not listed here past the cap (see license::keep_within_cap and LICENSE, clause 1).
@@ -735,6 +740,27 @@ async fn baseline(State(st): State<AppState>, Extension(AuthUser(me)): Extension
         // accounting), and the browser logs every 404 as a console error.
         None => Json(serde_json::Value::Null).into_response(),
     })
+}
+
+/// Devices merged into this one (see `AssetMeta::merged_into`) — hidden from `/api/assets`, so
+/// the canonical device's own panel needs its own way to list them, to offer "Unmerge".
+async fn merged_into_this(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    if scoped_asset(&st, &me, id).await?.is_none() {
+        return Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "not found"}))).into_response());
+    }
+    let siblings = blocking(&st.store, move |s| {
+        let metas = s.load_all_meta()?;
+        let ids: Vec<i64> = metas.iter().filter(|(_, m)| m.merged_into == Some(id)).map(|(id, _)| *id).collect();
+        let mut out = Vec::new();
+        for sid in ids {
+            if let Some(a) = s.get_asset(sid)? {
+                out.push(serde_json::json!({ "id": a.id, "mac": a.mac.to_string(), "first_seen": a.first_seen, "last_seen": a.last_seen }));
+            }
+        }
+        Ok(out)
+    })
+    .await?;
+    Ok(Json(serde_json::json!(siblings)).into_response())
 }
 
 #[derive(Deserialize)]
@@ -1001,6 +1027,50 @@ mod tests {
         }
         // a nonexistent id answers exactly the same way (404) — no distinguishing signal
         assert_eq!(send(&app, req("GET", "/api/assets/999999", Some(&viewer), None)).await.0, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn merging_a_device_hides_it_from_the_list_and_its_own_findings_but_keeps_its_history() {
+        let (app, store, [_viewer, editor, admin]) = secured().await;
+        let mut canonical = Asset::new(Mac([0x02, 0, 0, 0, 0, 1]), 10);
+        store.save_asset(&mut canonical).unwrap();
+        let mut sibling = Asset::new(Mac([0x02, 0, 0, 0, 0, 2]), 10);
+        store.save_asset(&mut sibling).unwrap();
+        let (cid, sid) = (canonical.id, sibling.id);
+
+        // cannot merge into itself, into a nonexistent device, or into one on another site
+        assert_eq!(send(&app, req("PATCH", &format!("/api/assets/{sid}/meta"), Some(&editor), Some(serde_json::json!({"merged_into": sid})))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, req("PATCH", &format!("/api/assets/{sid}/meta"), Some(&editor), Some(serde_json::json!({"merged_into": 999999})))).await.0, StatusCode::BAD_REQUEST);
+
+        // merge sibling into canonical
+        let (st, _, _) = send(&app, req("PATCH", &format!("/api/assets/{sid}/meta"), Some(&editor), Some(serde_json::json!({"merged_into": cid})))).await;
+        assert_eq!(st, StatusCode::OK);
+
+        // no chains: cannot merge a third device into the now-merged sibling
+        let mut third = Asset::new(Mac([0x02, 0, 0, 0, 0, 3]), 10);
+        store.save_asset(&mut third).unwrap();
+        assert_eq!(send(&app, req("PATCH", &format!("/api/assets/{}/meta", third.id), Some(&editor), Some(serde_json::json!({"merged_into": sid})))).await.0, StatusCode::BAD_REQUEST);
+
+        // hidden from the list...
+        let (_, _, list) = send(&app, req("GET", "/api/assets", Some(&admin), None)).await;
+        let ids: Vec<i64> = list.as_array().unwrap().iter().map(|a| a["id"].as_i64().unwrap()).collect();
+        assert!(ids.contains(&cid) && !ids.contains(&sid), "{ids:?}");
+        // ...but its own endpoint and history still work (nothing was deleted)
+        assert_eq!(send(&app, req("GET", &format!("/api/assets/{sid}"), Some(&admin), None)).await.0, StatusCode::OK);
+
+        // the canonical device's own /merged endpoint lists it, for the "unmerge" button
+        let (st, _, siblings) = send(&app, req("GET", &format!("/api/assets/{cid}/merged"), Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(siblings.as_array().unwrap().len(), 1);
+        assert_eq!(siblings[0]["id"], sid);
+        assert_eq!(send(&app, req("GET", &format!("/api/assets/{sid}/merged"), Some(&admin), None)).await.2.as_array().unwrap().len(), 0, "not itself a canonical device for anything");
+
+        // unmerging brings it straight back
+        send(&app, req("PATCH", &format!("/api/assets/{sid}/meta"), Some(&editor), Some(serde_json::json!({"merged_into": null})))).await;
+        let (_, _, list) = send(&app, req("GET", "/api/assets", Some(&admin), None)).await;
+        let ids: Vec<i64> = list.as_array().unwrap().iter().map(|a| a["id"].as_i64().unwrap()).collect();
+        assert!(ids.contains(&sid), "{ids:?}");
+        assert_eq!(send(&app, req("GET", &format!("/api/assets/{cid}/merged"), Some(&admin), None)).await.2.as_array().unwrap().len(), 0);
     }
 
     #[tokio::test]

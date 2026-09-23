@@ -6,7 +6,7 @@ const SCHEDULE_TEXT = () => [['off', tr('Never')], ['weekly', tr('Every week')],
 const PERIOD_TEXT = () => [[7, tr('7 days')], [30, tr('30 days')], [90, tr('90 days')], [180, tr('180 days')], [365, tr('1 year')]];
 
 async function loadReports() {
-  const r = await fetch('/api/reports');
+  const r = await apiFetch('/api/reports');
   if (!r.ok) return;
   const data = await r.json();
   const rows = data.reports;

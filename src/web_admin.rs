@@ -1051,6 +1051,24 @@ pub(crate) async fn patch_meta(
         if s.get_asset(id)?.is_none() {
             return Ok(Err((StatusCode::NOT_FOUND, "no such asset".to_string())));
         }
+        // `merged_into` names another device by id: checked here, where the store is reachable
+        // (tracking::apply_patch is pure and cannot see it). Never a chain -- the target must be
+        // a "root" device, not itself merged into a third one -- and always the same site, so a
+        // merge cannot be used to peek at a device on a site this user cannot otherwise see.
+        if let Some(target) = patch.get("merged_into").and_then(|v| if v.is_null() { None } else { v.as_i64() }) {
+            if target == id {
+                return Ok(Err((StatusCode::BAD_REQUEST, "a device cannot be merged into itself".to_string())));
+            }
+            let Some(canonical) = s.get_asset(target)? else {
+                return Ok(Err((StatusCode::BAD_REQUEST, "no such device to merge into".to_string())));
+            };
+            if canonical.agent_id != existing.agent_id {
+                return Ok(Err((StatusCode::BAD_REQUEST, "can only merge into a device on the same site".to_string())));
+            }
+            if s.get_meta(target)?.unwrap_or_default().merged_into.is_some() {
+                return Ok(Err((StatusCode::BAD_REQUEST, "that device is itself merged into another one; merge into it instead".to_string())));
+            }
+        }
         let mut meta = s.get_meta(id)?.unwrap_or_default();
         match tracking::apply_patch(&mut meta, &patch) {
             Err(e) => Ok(Err((StatusCode::BAD_REQUEST, e))),

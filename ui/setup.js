@@ -38,7 +38,7 @@ const SETUP_STEPS = () => ({
 });
 
 async function openSetupGuide() {
-  const r = await fetch('/api/setup');
+  const r = await apiFetch('/api/setup');
   if (!r.ok) return;
   const data = await r.json();
   const words = SETUP_STEPS();
@@ -72,7 +72,7 @@ async function maybeShowSetupGuide() {
   if (!can('admin') || !state.status || state.status.mode === 'viewer') return;
   if ($('form-dialog').open || $('msg-dialog').open) return; // a forced password change comes first
   try { if (sessionStorage.getItem(SETUP_LATER)) return; } catch { /* no storage: ask */ }
-  const r = await fetch('/api/setup');
+  const r = await apiFetch('/api/setup');
   if (!r.ok) return;
   if (!(await r.json()).completed) openSetupGuide();
 }

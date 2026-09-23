@@ -9,7 +9,7 @@ const BACKUP_KIND = () => ({ auto: tr('On schedule'), manual: tr('By hand'), upd
 /** The number of problems, in the menu (light request: no table counts). */
 async function loadHealthBadge() {
   if (!state.me) return;
-  const r = await fetch('/api/system?rows=0');
+  const r = await apiFetch('/api/system?rows=0');
   if (!r.ok) return;
   const n = (await r.json()).warnings.length;
   $('count-health').hidden = !n;
@@ -17,7 +17,7 @@ async function loadHealthBadge() {
 }
 
 async function loadHealth() {
-  const r = await fetch('/api/system');
+  const r = await apiFetch('/api/system');
   if (!r.ok) return;
   const h = await r.json();
   $('count-health').hidden = !h.warnings.length;
@@ -73,7 +73,7 @@ async function loadMspBackups() {
 }
 
 async function loadBackups() {
-  const r = await fetch('/api/backups');
+  const r = await apiFetch('/api/backups');
   if (!r.ok) return;
   const data = await r.json();
   const kinds = BACKUP_KIND();

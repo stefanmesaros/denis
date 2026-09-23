@@ -226,6 +226,20 @@ pub fn apply_patch(meta: &mut AssetMeta, patch: &Value) -> Result<Vec<Change>, S
                     next.reviewed = new;
                 }
             }
+            // Whether the target id actually exists, is not this same device, and is not
+            // itself already merged into something else, is checked by the caller (it needs
+            // the store; this function is pure). This only parses the shape.
+            "merged_into" => {
+                let new = match val {
+                    Value::Null => None,
+                    Value::Number(n) => Some(n.as_i64().ok_or("merged_into must be a whole number")?),
+                    _ => return Err("merged_into must be a device id or null".into()),
+                };
+                if next.merged_into != new {
+                    changes.push(Change { field: "merged_into".into(), old: next.merged_into.map(|n| n.to_string()), new: new.map(|n| n.to_string()) });
+                    next.merged_into = new;
+                }
+            }
             k if TEXT_FIELDS.contains(&k) => {
                 let new = match val {
                     Value::Null => None,

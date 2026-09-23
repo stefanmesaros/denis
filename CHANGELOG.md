@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.12.0: merge duplicate devices, a real SNMP port list, two live bugs fixed
+
+* **"This is the same device as…"**: a device seen under more than one MAC address (an access
+  point broadcasting several SSIDs, typically its most common cause) can now be merged into
+  another one from its detail panel. The merged device disappears from the devices list and
+  findings; its own history is kept, not deleted, and it comes straight back the moment you
+  undo it (Settings is not involved: it is a per-device action, "Unmerge" shown right on the
+  canonical device's panel under "Also known as").
+* **Switches (SNMP): the port list is now shown even when the forwarding table is not**, for
+  switches (some cheap "smart" models especially) that answer IF-MIB fully but do not implement
+  a readable MAC table at all — you at least get port names, aliases and up/down status, which
+  is the most such a switch will ever give.
+* **Fixed: a mirror interface set from Settings → Network interfaces did not actually turn flow
+  accounting on** (`flows_enabled` stayed `false` in `/api/status` even with a mirror interface
+  configured and running) — the GUI override replaced the interface list *after* the CLI's own
+  `--flows` implication had already run, so it was never re-derived. Detection was not affected
+  (it never checked the flag), but the console's own status display was misleadingly wrong.
+* **Fixed: Topology → "Switches and cables" could show a literal "null"** on the page — one
+  render path passed `null` straight to the browser's `replaceChildren`, which stringifies it
+  instead of skipping it. Caught after the fact by a real report; the smoke test that exercises
+  this exact view now checks for it directly, not only after navigating away from the page.
+* Removed the global `window.fetch` monkey-patch in favour of an explicit `apiFetch()` — every
+  caller is now findable by name instead of the CSRF/401-handling behaviour being an invisible
+  side effect of calling the browser's own `fetch`. No behaviour change.
+
 ## 1.11.0: more ports, ICS-CERT advisories, EPSS scores, and five more compliance standards
 
 * **More ports scanned and risk-scored**: Kerberos, legacy r-services (rexec/rlogin/rsh), a SOCKS

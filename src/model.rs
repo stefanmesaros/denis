@@ -634,6 +634,13 @@ pub struct AssetMeta {
     /// Part of the built-in demo data (fictional; removable in one step).
     #[serde(default)]
     pub demo: bool,
+    /// This device is the same physical device as another one already in the register (a common
+    /// case: one access point broadcasting several SSIDs, each with its own "sibling" MAC address
+    /// a few digits apart). Hidden from the devices list and findings once set; its own history
+    /// is kept, not deleted, and it un-hides itself the moment it is cleared. Never a chain: the
+    /// target of a merge is never itself merged into something else.
+    #[serde(default)]
+    pub merged_into: Option<i64>,
 }
 
 /// One accepted change, for the audit trail.

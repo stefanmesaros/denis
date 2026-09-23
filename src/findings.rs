@@ -240,6 +240,12 @@ pub fn compute(assets: &[Asset], metas: &HashMap<i64, AssetMeta>, now: i64) -> V
 
     for a in assets {
         let m = metas.get(&a.id).unwrap_or(&default_meta);
+        // Merged into another device (the same physical box under a second MAC, typically): its
+        // own findings would just repeat the canonical device's, or nag about a device nobody
+        // will ever look at directly again.
+        if m.merged_into.is_some() {
+            continue;
+        }
         let recent = now - a.last_seen <= RECENT_SECS;
         let status = m.status.as_deref().unwrap_or("active");
         let device_type = m.type_override.as_deref().unwrap_or(&a.device_type);
