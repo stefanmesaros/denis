@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.3.0: "Explain with AI" (bring-your-own-key), and a fix for a stuck alerts badge
+
+* **"Explain with AI"** on any alert or finding (Settings → Explain with AI): an administrator
+  gives their own API key for Claude, ChatGPT, Gemini or Grok, and anyone can then click one
+  button for a short, plain-language summary. Never automatic, never sent anywhere unless someone
+  clicks it — DENIS runs no shared AI backend and pays for none of this; every call is billed to
+  the administrator's own account. Only what the console already shows for that one alert or
+  finding is sent, nothing else about the network.
+* **Alerts: "Acknowledge all"** clears an unacked backlog older than the page itself ever shows
+  (it fetches only the most recent 200) — the unacked badge could otherwise stay stuck above zero
+  forever with nothing left on screen to acknowledge, typically left over from before a noisy
+  rule was tuned down.
+* CI: fixed the dependency-audit job failing on a missing permission, and documented why one
+  advisory (a timing side-channel in RSA private-key operations, reached transitively through
+  SSO's OIDC library) does not apply to how DENIS actually uses it — a public-key-only verifier,
+  never a private-key operation.
+
 ## 2.2.0: single sign-on (OpenID Connect)
 
 * **Sign in through an identity provider** (Entra ID, Okta, Google Workspace, Keycloak, anything
