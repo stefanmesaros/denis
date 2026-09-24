@@ -83,6 +83,56 @@ pub fn save(store: &dyn Store, s: &Settings, now: i64) -> Result<()> {
     store.set_setting(SETTINGS_KEY, &serde_json::to_vec(s)?, now)
 }
 
+// --------------------------------------------------------------------------------- sharing
+
+const SHARES_KEY: &str = "report_shares";
+
+/// A saved report is otherwise only reachable by someone who can sign in. Sharing gives out a
+/// long random token instead of the report's numeric id, so the link cannot be guessed or
+/// enumerated; anyone who has the token can view (never edit or delete) that one report, without
+/// an account. Kept in the generic settings store (`report_id -> token`) rather than a new
+/// database column: the expected number of shared reports at once is small, and this needs no
+/// migration.
+pub fn load_shares(store: &dyn Store) -> Result<std::collections::HashMap<i64, String>> {
+    Ok(store.get_setting(SHARES_KEY)?.and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default())
+}
+
+fn save_shares(store: &dyn Store, shares: &std::collections::HashMap<i64, String>, now: i64) -> Result<()> {
+    store.set_setting(SHARES_KEY, &serde_json::to_vec(shares)?, now)
+}
+
+/// The token this report is already shared under, if any.
+pub fn share_token_of(store: &dyn Store, report_id: i64) -> Result<Option<String>> {
+    Ok(load_shares(store)?.get(&report_id).cloned())
+}
+
+/// Start sharing a report (or return its existing token, so clicking "Share" twice does not
+/// invalidate a link someone already has).
+pub fn share(store: &dyn Store, report_id: i64, now: i64) -> Result<String> {
+    let mut shares = load_shares(store)?;
+    if let Some(t) = shares.get(&report_id) {
+        return Ok(t.clone());
+    }
+    let token = crate::auth::random_token()?;
+    shares.insert(report_id, token.clone());
+    save_shares(store, &shares, now)?;
+    Ok(token)
+}
+
+/// Stop sharing a report: the old link stops working immediately.
+pub fn unshare(store: &dyn Store, report_id: i64, now: i64) -> Result<()> {
+    let mut shares = load_shares(store)?;
+    if shares.remove(&report_id).is_some() {
+        save_shares(store, &shares, now)?;
+    }
+    Ok(())
+}
+
+/// Which report (if any) a share link's token names.
+pub fn report_id_for_token(store: &dyn Store, token: &str) -> Result<Option<i64>> {
+    Ok(load_shares(store)?.into_iter().find(|(_, t)| t == token).map(|(id, _)| id))
+}
+
 /// The compliance overview as of now (what the Compliance page shows).
 pub fn compliance_now(store: &dyn Store, shared: &impl ReportStatus, now: i64) -> Result<crate::compliance::Report> {
     let info = shared.snapshot();
@@ -187,6 +237,25 @@ pub async fn run<S: ReportStatus + Send + Sync + 'static>(store: std::sync::Arc<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sharing_gives_a_stable_token_that_resolves_back_and_can_be_revoked() {
+        let store = crate::store::sqlite::SqliteStore::open_in_memory().unwrap();
+        assert_eq!(share_token_of(&store, 1).unwrap(), None);
+        let t1 = share(&store, 1, 1).unwrap();
+        assert_eq!(share_token_of(&store, 1).unwrap(), Some(t1.clone()));
+        // sharing again returns the same token, not a fresh one -- an existing link keeps working
+        assert_eq!(share(&store, 1, 2).unwrap(), t1);
+        assert_eq!(report_id_for_token(&store, &t1).unwrap(), Some(1));
+        assert_eq!(report_id_for_token(&store, "no-such-token").unwrap(), None);
+        // a second report gets its own, different token
+        let t2 = share(&store, 2, 3).unwrap();
+        assert_ne!(t1, t2);
+        unshare(&store, 1, 4).unwrap();
+        assert_eq!(share_token_of(&store, 1).unwrap(), None);
+        assert_eq!(report_id_for_token(&store, &t1).unwrap(), None, "the old link stops working");
+        assert_eq!(share_token_of(&store, 2).unwrap(), Some(t2), "unsharing one report leaves another alone");
+    }
 
     #[test]
     fn schedule_is_due_after_its_interval() {

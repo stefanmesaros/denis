@@ -454,6 +454,32 @@ pub fn software_of(identity: &BTreeMap<String, String>) -> Vec<Software> {
     out
 }
 
+/// One distinct product+version across the whole fleet, and every device that has it — a
+/// fleet-wide view of the same per-device data `software_of` already reads, grouped the other
+/// way round (by software, not by device). Pure: does not judge the version against anything
+/// (no EOL/CVE lookup here), so a caller with `vulndata::Intel` can match each group once
+/// instead of once per device — the answer is identical for every device on the same version.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct SoftwareGroup {
+    pub product: &'static str,
+    pub version: String,
+    pub source: &'static str,
+    pub asset_ids: Vec<i64>,
+}
+
+pub fn software_inventory<'a>(assets: impl IntoIterator<Item = (i64, &'a BTreeMap<String, String>)>) -> Vec<SoftwareGroup> {
+    let mut by: BTreeMap<(&'static str, String), SoftwareGroup> = BTreeMap::new();
+    for (id, identity) in assets {
+        for s in software_of(identity) {
+            by.entry((s.product, s.version.clone()))
+                .or_insert_with(|| SoftwareGroup { product: s.product, version: s.version.clone(), source: s.source, asset_ids: Vec::new() })
+                .asset_ids
+                .push(id);
+        }
+    }
+    by.into_values().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,6 +563,25 @@ mod tests {
         id.insert("lldp.system_name".to_string(), "not a banner".to_string());
         let s = software_of(&id);
         assert_eq!(s.iter().map(|x| (x.product, x.version.as_str(), x.source)).collect::<Vec<_>>(), vec![("openssh", "8.9p1", "ssh"), ("nginx", "1.18.0", "http")]);
+    }
+
+    #[test]
+    fn software_inventory_groups_the_fleet_by_product_and_version() {
+        let mut a = BTreeMap::new();
+        a.insert("banner.ssh".to_string(), "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6".to_string());
+        let mut b = BTreeMap::new();
+        b.insert("banner.ssh".to_string(), "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6".to_string());
+        b.insert("banner.http".to_string(), "Server: nginx/1.18.0".to_string());
+        let mut c = BTreeMap::new();
+        c.insert("banner.ssh".to_string(), "SSH-2.0-OpenSSH_9.6p1".to_string());
+
+        let groups = software_inventory([(1, &a), (2, &b), (3, &c)]);
+        let mut byproduct: Vec<_> = groups.iter().map(|g| (g.product, g.version.as_str(), g.asset_ids.clone())).collect();
+        byproduct.sort();
+        assert_eq!(
+            byproduct,
+            vec![("nginx", "1.18.0", vec![2]), ("openssh", "8.9p1", vec![1, 2]), ("openssh", "9.6p1", vec![3])]
+        );
     }
 
     /// A stand-in service on this machine: says `banner` on connect (or after a request, for HTTP).

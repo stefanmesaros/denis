@@ -104,7 +104,7 @@ const ready2 = async () => { for (let i = 0; i < 60; i++) { if (await evaluate("
 await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
 await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/meta/options*' }] });
 
-const TABS = ['assets', 'alerts', 'findings', 'topology', 'ot', 'trends', 'events', 'compliance', 'reports', 'health', 'rules', 'alerting', 'agents', 'users', 'settings', 'audit', 'account'];
+const TABS = ['assets', 'alerts', 'findings', 'topology', 'ot', 'software', 'trends', 'events', 'compliance', 'reports', 'health', 'rules', 'alerting', 'agents', 'users', 'settings', 'audit', 'account'];
 // text a person must never see on a page
 const BAD_TEXT = "(() => { const t = document.getElementById('app').innerText; return ['null', 'undefined', '[object Object]', 'NaN'].filter((w) => new RegExp('(^|[^A-Za-z0-9_])' + w.replace(/[\\[\\]]/g, '\\\\$&') + '([^A-Za-z0-9_]|$)').test(t)); })()";
 
@@ -131,7 +131,7 @@ for (const tab of TABS) {
 }
 
 // ------------------------------------------------------------------ what each list must contain
-const counts = { assets: ['#assets-table tbody tr', 30], alerts: ['#alerts-table tbody tr', 5], ot: ['#ot-matrix tbody tr', 5], rules: ['#rules-list .rule-card', 15], compliance: ['#compliance-groups .compliance-row', 8], audit: ['#audit-table tbody tr', 0], users: ['#users-table tbody tr', 0] };
+const counts = { assets: ['#assets-table tbody tr', 30], alerts: ['#alerts-table tbody tr', 5], ot: ['#ot-matrix tbody tr', 5], software: ['#software-table tbody tr', 3], rules: ['#rules-list .rule-card', 15], compliance: ['#compliance-groups .compliance-row', 8], audit: ['#audit-table tbody tr', 0], users: ['#users-table tbody tr', 0] };
 for (const [tab, [sel, min]] of Object.entries(counts)) {
   await check(`"${tab}" lists at least ${min} rows`, async () => {
     await evaluate(`setTab('${tab}'); 0`);
@@ -323,7 +323,7 @@ await check('the Reports page makes a report, keeps it in the list, serves it an
   await evaluate("(() => { const s = document.getElementById('rep-schedule'); s.value = 'weekly'; document.getElementById('rep-save').click(); })()");
   await sleep(800);
   if ((await (await fetch(base + '/api/reports/settings')).json()).schedule !== 'weekly') return 'the schedule was not saved';
-  await evaluate("window.confirm = () => true; document.querySelector('#reports-table tbody tr:first-child button').click(); 0");
+  await evaluate("window.confirm = () => true; [...document.querySelectorAll('#reports-table tbody tr:first-child button')].find((b) => /Delete/.test(b.textContent)).click(); 0");
   await sleep(1000);
   if ((await (await fetch(base + '/api/reports')).json()).reports.length !== before) return 'the report was not deleted';
   const bad = await evaluate(BAD_TEXT);
@@ -363,6 +363,100 @@ await check('Devices can be grouped by room/type/owner, and filters combine (typ
   if (restored !== total) return `clearing filters gave ${restored} rows, expected ${total}`;
   if (!(await evaluate("document.getElementById('filters-count').hidden"))) return 'the filter badge did not clear';
   void afterType;
+  const bad = await evaluate(BAD_TEXT);
+  const p = takeProblems();
+  return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
+});
+
+// ------------------------------------------------------------------ Devices: key:value search syntax
+await check('The search box also takes type:/port:/vendor: terms for power users, plain text still works', async () => {
+  takeProblems();
+  await evaluate("location.hash = '#assets'; setTab('assets'); 0");
+  await sleep(400);
+  const total = await evaluate("state.assets.length");
+  const search = () => evaluate("document.getElementById('search')");
+  const setQuery = (q) => evaluate(`(() => { const i = document.getElementById('search'); i.value = ${JSON.stringify(q)}; i.dispatchEvent(new Event('input')); })()`);
+  const rowCount = () => evaluate("document.querySelectorAll('#assets-table tbody tr').length");
+  await setQuery('type:printer');
+  await sleep(300);
+  const printerRows = await rowCount();
+  if (printerRows === 0 || printerRows === total) return `type:printer gave ${printerRows} of ${total} rows, expected a narrower, non-empty subset`;
+  await setQuery('type:printer port:9100');
+  await sleep(300);
+  const narrower = await rowCount();
+  if (narrower > printerRows) return `adding port:9100 grew the list (${printerRows} -> ${narrower}), a second term should narrow, not widen`;
+  // an unrecognised key falls back to plain text (which will not literally appear anywhere), not to matching nothing by design
+  await setQuery('nosuchkey:zzz');
+  await sleep(300);
+  const fallback = await rowCount();
+  if (fallback !== 0) return `nosuchkey:zzz (a literal substring nothing contains) matched ${fallback} rows`;
+  await setQuery('');
+  await sleep(300);
+  const restored = await rowCount();
+  if (restored !== total) return `clearing the search gave ${restored} rows, expected ${total}`;
+  void search;
+  const bad = await evaluate(BAD_TEXT);
+  const p = takeProblems();
+  return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
+});
+
+// ------------------------------------------------------------------ Devices: bulk tag add/remove
+await check('Selecting devices and adding/removing a tag in bulk updates just the selected ones', async () => {
+  takeProblems();
+  await evaluate("location.hash = '#assets'; setTab('assets'); 0");
+  await sleep(400);
+  const barHidden = await evaluate("document.getElementById('bulk-tag-bar').hidden");
+  if (!barHidden) return 'the bulk-tag bar should start hidden (nothing selected yet)';
+  // select the first two visible rows' checkboxes
+  await evaluate("[...document.querySelectorAll('#assets-table tbody tr')].slice(0, 2).forEach((r) => { const b = r.cells[0].querySelector('input'); b.checked = true; b.dispatchEvent(new Event('change')); }); 0");
+  await sleep(200);
+  const countText = await evaluate("document.getElementById('bulk-tag-count').textContent");
+  if (!countText.includes('2')) return `the bulk-tag bar does not say 2 selected: ${countText}`;
+  await evaluate("(() => { const i = document.getElementById('bulk-tag-name'); i.value = 'smoke-bulk'; })()");
+  await evaluate("document.getElementById('bulk-tag-add').click(); 0");
+  await sleep(600);
+  const twoTagged = await evaluate("state.assets.filter((a) => (a.meta && a.meta.tags || []).includes('smoke-bulk')).length");
+  if (twoTagged !== 2) return `expected exactly 2 devices tagged after bulk add, got ${twoTagged}`;
+  // remove it again from the same selection
+  await evaluate("[...document.querySelectorAll('#assets-table tbody tr')].slice(0, 2).forEach((r) => { const b = r.cells[0].querySelector('input'); b.checked = true; b.dispatchEvent(new Event('change')); }); 0");
+  await sleep(200);
+  await evaluate("(() => { const i = document.getElementById('bulk-tag-name'); i.value = 'smoke-bulk'; })()");
+  await evaluate("document.getElementById('bulk-tag-remove').click(); 0");
+  await sleep(600);
+  const noneTagged = await evaluate("state.assets.filter((a) => (a.meta && a.meta.tags || []).includes('smoke-bulk')).length");
+  if (noneTagged !== 0) return `the tag was not fully removed again: ${noneTagged} devices still have it`;
+  await evaluate("document.getElementById('bulk-tag-clear')?.click(); 0");
+  const bad = await evaluate(BAD_TEXT);
+  const p = takeProblems();
+  return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
+});
+
+// ------------------------------------------------------------------ Reports: sharing a report by link
+await check('A report can be shared by link (no session needed to view it) and unshared again', async () => {
+  takeProblems();
+  await evaluate("location.hash = '#reports'; setTab('reports'); 0");
+  await sleep(500);
+  const reportsNow = await evaluate("fetch('/api/reports').then((r) => r.json()).then((d) => d.reports.length)");
+  if (reportsNow === 0) {
+    await evaluate("api('POST', '/api/reports', { days: 7 }).then(() => loadReports())");
+    await sleep(600);
+  }
+  const shareBtn = await evaluate("[...document.querySelectorAll('#reports-table tbody tr:first-child button')].some((b) => /Share/.test(b.textContent))");
+  if (!shareBtn) return 'no "Share…" button found on the first report row';
+  await evaluate("[...document.querySelectorAll('#reports-table tbody tr:first-child button')].find((b) => /Share/.test(b.textContent)).click(); 0");
+  await sleep(300);
+  await evaluate("[...document.querySelectorAll('#msg-dialog button')].find((b) => /Turn on sharing/.test(b.textContent))?.click(); 0"); // if it was not on already
+  await sleep(400);
+  const link = await evaluate("document.querySelector('#msg-dialog input[readonly]')?.value");
+  if (!link || !link.includes('/api/reports/shared/')) return `the share dialog did not show a shared link: ${link}`;
+  const token = link.split('/api/reports/shared/')[1];
+  const anonStatus = await evaluate(`fetch(${JSON.stringify('/api/reports/shared/' + token)}, { credentials: 'omit' }).then((r) => r.status)`);
+  if (anonStatus !== 200) return `the shared link answered ${anonStatus} even without any session cookie`;
+  await evaluate("[...document.querySelectorAll('#msg-dialog button')].find((b) => /Stop sharing/.test(b.textContent))?.click(); 0");
+  await sleep(400);
+  const afterStop = await evaluate(`fetch(${JSON.stringify('/api/reports/shared/' + token)}, { credentials: 'omit' }).then((r) => r.status)`);
+  if (afterStop !== 404) return `the link still works after "Stop sharing": ${afterStop}`;
+  takeProblems(); // discard the expected 404 from checking the revoked link just above
   const bad = await evaluate(BAD_TEXT);
   const p = takeProblems();
   return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;

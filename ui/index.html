@@ -56,6 +56,7 @@
           <div class="navgroup">Analyze</div>
           <button class="tab" data-tab="topology" type="button"><span class="label">Topology</span></button>
           <button class="tab" data-tab="ot" type="button"><span class="label">OT</span></button>
+          <button class="tab" data-tab="software" type="button"><span class="label">Software</span></button>
           <button class="tab" data-tab="trends" type="button"><span class="label">Trends</span></button>
           <button class="tab" data-tab="events" type="button"><span class="label">Events</span></button>
           <button class="tab" data-tab="compliance" type="button"><span class="label">Compliance</span></button>
@@ -73,7 +74,7 @@
       <div class="content">
         <div id="learning" class="banner" hidden></div>
         <div class="toolbar">
-          <input id="search" type="search" placeholder="Filter by IP, MAC, name, owner, serial, tag…" aria-label="Filter devices">
+          <input id="search" type="search" placeholder="Filter by IP, MAC, name, owner, serial, tag…" aria-label="Filter devices" title="Also takes type:printer, port:9100, vendor:hp, owner:, tag:, room:, os:, status: — combine several, separated by a space">
           <select id="site" aria-label="Filter by site" hidden></select>
           <select id="group-by" aria-label="Group devices by" hidden>
             <option value="none">Not grouped</option>
@@ -112,9 +113,18 @@
 
       <section id="view-assets">
         <div id="license-banner" class="banner" hidden></div>
+        <div id="bulk-tag-bar" class="row" hidden>
+          <span id="bulk-tag-count" class="muted"></span>
+          <input id="bulk-tag-name" placeholder="tag name" maxlength="32">
+          <button id="bulk-tag-add" type="button">+ Add to selected</button>
+          <button id="bulk-tag-remove" type="button">− Remove from selected</button>
+          <button id="bulk-tag-clear" type="button">Clear selection</button>
+          <span id="bulk-tag-msg" class="muted"></span>
+        </div>
         <div class="table-wrap" id="assets-scroll">
           <table id="assets-table">
             <thead><tr>
+              <th><input id="select-all-assets" type="checkbox" aria-label="Select all shown" title="Select all shown"></th>
               <th data-sort="online"></th>
               <th data-sort="site" class="site-col" hidden>Site</th>
               <th data-sort="risk">Risk</th>
@@ -175,6 +185,12 @@
         <div class="inline-form"><select id="ot-proto" aria-label="Protocol"></select><label class="check"><input id="ot-risky" type="checkbox"> only writes / control commands</label></div>
         <div class="table-wrap"><table id="ot-matrix"><thead><tr><th>Client</th><th></th><th>Server</th><th>Protocol</th><th>Reads</th><th>Writes</th><th>Control</th><th>Commands seen</th><th>Last seen</th></tr></thead><tbody></tbody></table></div>
         <p class="muted">Who talks to whom, over which industrial protocol, and what kind of messages (read / write / control such as STOP or program download). A path that appears after the learning period raises an alert; so does any control command. Click a command to be told whenever it is sent (an OT command watch, see Rules).</p>
+      </section>
+
+      <section id="view-software" hidden>
+        <p class="muted">Every product and version DENIS has read from a device's service banner (SSH, HTTP, FTP, SMTP, MySQL/MariaDB), grouped by software instead of by device — the same data the Findings page already checks against known-exploited vulnerabilities and end-of-support dates, seen fleet-wide.</p>
+        <div class="table-wrap"><table id="software-table"><thead><tr><th data-sort="product">Product</th><th data-sort="version">Version</th><th data-sort="devices" class="num">Devices</th><th data-sort="status">Status</th></tr></thead><tbody></tbody></table></div>
+        <p id="software-empty" class="muted" hidden>No software read yet. Needs a service to reveal itself in a banner (SSH, HTTP, FTP, SMTP or a MySQL/MariaDB greeting).</p>
       </section>
 
       <section id="view-trends" hidden>
@@ -263,7 +279,7 @@
           <a href="/report?days=7" target="_blank" rel="noopener" class="muted small">Open a live report without saving it</a>
         </div>
         <p id="no-reports" class="muted" hidden>No reports yet. Make one now, or switch the schedule on below.</p>
-        <div class="table-wrap"><table id="reports-table"><thead><tr><th>Made</th><th>How</th><th>Covers</th><th>Size</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="table-wrap"><table id="reports-table"><thead><tr><th>Made</th><th>How</th><th>Covers</th><th>Size</th><th></th><th></th></tr></thead><tbody></tbody></table></div>
         <h3 class="section">Schedule</h3>
         <div id="reports-schedule"></div>
       </section>

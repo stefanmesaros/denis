@@ -129,12 +129,15 @@ pub fn router(state: AppState) -> Router {
         .route("/api/reports", get(reports_page::list).post(reports_page::make))
         .route("/api/reports/settings", get(reports_page::settings_get).put(reports_page::settings_put))
         .route("/api/reports/{id}", get(reports_page::view).delete(reports_page::remove))
+        .route("/api/reports/{id}/share", put(reports_page::share_put).delete(reports_page::share_delete))
+        .route("/api/reports/shared/{token}", get(reports_page::shared_view))
         .route("/api/risk-acceptances", get(admin::risk_list).post(admin::risk_accept))
         .route("/api/risk-acceptances/{id}", delete(admin::risk_revoke))
         .route("/api/rules", get(admin::rules_get).put(admin::rules_put).delete(admin::rules_reset))
         .route("/api/assets", get(assets).post(admin::create_asset))
         .route("/api/assets/import", post(admin::import_assets))
         .route("/api/assets/review", post(admin::review_assets))
+        .route("/api/assets/bulk-tags", post(admin::bulk_tags))
         .route("/api/assets/{id}", get(asset).delete(admin::delete_asset))
         .route("/api/assets/{id}/meta", patch(admin::patch_meta))
         .route("/api/assets/{id}/history", get(admin::history))
@@ -148,6 +151,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/conversations", get(conversations))
         .route("/api/trends", get(trend_points))
         .route("/api/top-talkers", get(top_talkers_get))
+        .route("/api/software", get(software_get))
         .route("/api/top-talkers/excluded", put(top_talkers_excluded_put))
         .route("/api/export/assets.csv", get(export_assets))
         .route("/api/export/alerts.csv", get(export_alerts))
@@ -184,6 +188,8 @@ fn is_public(method: &axum::http::Method, path: &str) -> bool {
         || matches!(path, "/api/auth/login" | "/api/health" | "/api/auth/methods" | "/api/auth/passkey/login/begin" | "/api/auth/passkey/login/finish" | "/api/auth/mfa")
         // branding is read before anybody can sign in; changing it is admin-only
         || (path == "/api/branding" && method == axum::http::Method::GET)
+        // a shared report link is the point of sharing it: no session, by a long random token
+        || (path.starts_with("/api/reports/shared/") && method == axum::http::Method::GET)
 }
 
 /// Lowest role that may call `method path`. Reads need `viewer`; changing
@@ -196,7 +202,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path == "/api/reports/settings") && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -604,6 +610,40 @@ async fn baseline(State(st): State<AppState>, Extension(AuthUser(me)): Extension
         // accounting), and the browser logs every 404 as a console error.
         None => Json(serde_json::Value::Null).into_response(),
     })
+}
+
+/// Fleet-wide software inventory: every distinct product+version read from a device's service
+/// banners, with which devices have it and, where `vulndata::Intel` knows about it, whether it is
+/// end-of-support or has a known-exploited vulnerability. The same access rules as `/api/assets`
+/// (site visibility, the Community edition's device cap) apply to which devices can contribute a
+/// row here, so this never reveals a device outside what the caller could already see there.
+async fn software_get(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Json<serde_json::Value>, ApiError> {
+    let now = now_ts();
+    let (mut list, intel) = blocking(&st.store, |s| Ok((s.load_assets()?, crate::vulndata::Intel::load(s)))).await?;
+    list.retain(|a| site_readable(&st, &me, &a.agent_id));
+    let cap = effective_license(&st).device_cap;
+    if cap.is_some() {
+        let keep = crate::license::keep_within_cap(&list.iter().map(|a| a.id).collect::<Vec<_>>(), cap);
+        list.retain(|a| keep.contains(&a.id));
+    }
+    let today = now / 86_400;
+    let groups = crate::banners::software_inventory(list.iter().map(|a| (a.id, &a.fingerprint.identity)));
+    let rows: Vec<_> = groups
+        .into_iter()
+        .map(|g| {
+            let eol = intel.eol(g.product, &g.version, today);
+            let kev = intel.kev(g.product, &g.version);
+            serde_json::json!({
+                "product": crate::vulndata::product_name(g.product),
+                "version": g.version,
+                "source": g.source,
+                "asset_ids": g.asset_ids,
+                "eol": eol.map(|e| serde_json::json!({ "state": e.state, "cycle": e.cycle, "days_left": e.days_left })),
+                "cves": kev.iter().map(|k| serde_json::json!({ "cve": k.cve, "name": k.name, "ransomware": k.ransomware, "epss": intel.epss(&k.cve) })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    Ok(Json(serde_json::json!({ "software": rows })))
 }
 
 /// Devices merged into this one (see `AssetMeta::merged_into`) — hidden from `/api/assets`, so
@@ -1398,6 +1438,36 @@ mod tests {
         let ids: Vec<i64> = v["talkers"].as_array().unwrap().iter().map(|t| t["asset_id"].as_i64().unwrap()).collect();
         assert!(!ids.contains(&noisy.id) && ids.contains(&quiet.id));
         assert_eq!(v["excluded"], serde_json::json!([noisy.id]));
+    }
+
+    #[tokio::test]
+    async fn software_groups_the_fleet_by_product_and_version_and_respects_site_access() {
+        let (app, store) = app(true);
+        let mut a = Asset::new(Mac([0, 0, 0, 0, 0, 1]), 0);
+        a.fingerprint.identity.insert("banner.ssh".into(), "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6".into());
+        store.save_asset(&mut a).unwrap();
+        let mut b = Asset::new(Mac([0, 0, 0, 0, 0, 2]), 0);
+        b.fingerprint.identity.insert("banner.ssh".into(), "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6".into());
+        store.save_asset(&mut b).unwrap();
+        let mut c = Asset::new(Mac([0, 0, 0, 0, 0, 3]), 0);
+        c.fingerprint.identity.insert("banner.ssh".into(), "SSH-2.0-OpenSSH_9.6p1".into());
+        store.save_asset(&mut c).unwrap();
+        let mut none = Asset::new(Mac([0, 0, 0, 0, 0, 4]), 0);
+        store.save_asset(&mut none).unwrap();
+
+        let (code, v) = get_json(&app, "/api/software", "localhost").await;
+        assert_eq!(code, StatusCode::OK);
+        let rows = v["software"].as_array().unwrap();
+        assert_eq!(rows.len(), 2, "one row per distinct product+version: {rows:?}");
+        let old = rows.iter().find(|r| r["version"] == "8.9p1").unwrap();
+        assert_eq!(old["product"], "OpenSSH");
+        let mut ids: Vec<i64> = old["asset_ids"].as_array().unwrap().iter().map(|x| x.as_i64().unwrap()).collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![a.id, b.id]);
+        let newer = rows.iter().find(|r| r["version"] == "9.6p1").unwrap();
+        assert_eq!(newer["asset_ids"].as_array().unwrap(), &vec![serde_json::json!(c.id)]);
+        // a device with no readable banner contributes no row at all -- not a null/empty one
+        assert!(rows.iter().all(|r| r["asset_ids"].as_array().unwrap().iter().all(|x| x.as_i64().unwrap() != none.id)));
     }
 
     // ------------------------------------------------------------ auth / RBAC
@@ -2409,6 +2479,40 @@ mod tests {
         assert!(reviewed(ids[0]));
     }
 
+    #[tokio::test]
+    async fn bulk_tags_add_and_remove_one_tag_across_many_devices_for_editors() {
+        let (app, store, [viewer, editor, _]) = secured().await;
+        let mut ids = Vec::new();
+        for n in 1..=3u8 {
+            let mut a = Asset::new(Mac([3, 0, 0, 0, 0, n]), 1);
+            store.save_asset(&mut a).unwrap();
+            ids.push(a.id);
+        }
+        // device 0 already has the tag; adding it in bulk should not double it or count as changed
+        let mut m = crate::model::AssetMeta { tags: vec!["rack-2".into()], ..Default::default() };
+        store.save_meta(ids[0], &m, "setup", 1).unwrap();
+        m.tags = vec![];
+
+        assert_eq!(send(&app, req("POST", "/api/assets/bulk-tags", Some(&viewer), Some(serde_json::json!({"ids": ids, "add": "rack-2"})))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("POST", "/api/assets/bulk-tags", Some(&editor), Some(serde_json::json!({"ids": ids})))).await.0, StatusCode::BAD_REQUEST, "neither add nor remove given");
+        assert_eq!(send(&app, req("POST", "/api/assets/bulk-tags", Some(&editor), Some(serde_json::json!({"ids": ids, "add": "rack-2", "remove": "x"})))).await.0, StatusCode::BAD_REQUEST, "both given");
+
+        let tags_of = |id: i64| store.get_meta(id).unwrap().unwrap_or_default().tags;
+        let (st, _, v) = send(&app, req("POST", "/api/assets/bulk-tags", Some(&editor), Some(serde_json::json!({"ids": ids, "add": "Rack-2"})))).await;
+        assert_eq!((st, v["changed"].as_i64()), (StatusCode::OK, Some(2)), "only the two devices that did not already have it change");
+        assert!(ids.iter().all(|&id| tags_of(id) == vec!["rack-2".to_string()]), "the tag is normalised the same way a single-device edit would");
+
+        let (st, _, v) = send(&app, req("POST", "/api/assets/bulk-tags", Some(&editor), Some(serde_json::json!({"ids": ids, "remove": "rack-2"})))).await;
+        assert_eq!((st, v["changed"].as_i64()), (StatusCode::OK, Some(3)));
+        assert!(ids.iter().all(|&id| tags_of(id).is_empty()));
+
+        // {"all": true} reaches every device, same as the review queue
+        store.save_meta(ids[0], &crate::model::AssetMeta::default(), "setup", 1).unwrap();
+        let (_, _, v) = send(&app, req("POST", "/api/assets/bulk-tags", Some(&editor), Some(serde_json::json!({"all": true, "add": "fleet"})))).await;
+        assert_eq!(v["changed"].as_i64(), Some(3));
+        assert!(ids.iter().all(|&id| tags_of(id) == vec!["fleet".to_string()]));
+    }
+
     /// A console with passkeys on for `http://localhost:8080`, and one signed-in viewer "vera".
     async fn with_passkeys() -> (Router, Arc<dyn Store>, String, crate::passkey::Config) {
         let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
@@ -2764,6 +2868,23 @@ mod tests {
         let (_, h, _) = text(app.clone().oneshot(req("GET", &format!("/api/reports/{id}?download=1"), Some(&viewer), None)).await.unwrap()).await;
         assert!(h[header::CONTENT_DISPOSITION].to_str().unwrap().starts_with("attachment; filename=\"denis-report-"));
         assert_eq!(send(&app, req("GET", "/api/reports/9999", Some(&viewer), None)).await.0, StatusCode::NOT_FOUND);
+        // sharing: admin-only, idempotent, reachable with no session at all by its token, and the
+        // list shows the current token so the console can offer the link again
+        assert_eq!(send(&app, req("PUT", &format!("/api/reports/{id}/share"), Some(&editor), None)).await.0, StatusCode::FORBIDDEN);
+        let (st, _, v) = send(&app, req("PUT", &format!("/api/reports/{id}/share"), Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        let token = v["share_token"].as_str().unwrap().to_string();
+        assert_eq!(send(&app, req("PUT", &format!("/api/reports/{id}/share"), Some(&admin), None)).await.2["share_token"], token, "a second share reuses the same link");
+        let (_, _, list) = send(&app, req("GET", "/api/reports", Some(&viewer), None)).await;
+        assert_eq!(list["reports"][0]["share_token"], token);
+        let (st, h, body) = text(app.clone().oneshot(req("GET", &format!("/api/reports/shared/{token}"), None, None)).await.unwrap()).await;
+        assert_eq!(st, StatusCode::OK, "no cookie, no bearer token -- just the shared link");
+        assert!(h[header::CONTENT_SECURITY_POLICY].to_str().unwrap().contains("default-src 'none'"));
+        assert!(body.contains("Compliance overview"));
+        assert_eq!(send(&app, req("GET", "/api/reports/shared/not-a-real-token", None, None)).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(send(&app, req("DELETE", &format!("/api/reports/{id}/share"), Some(&editor), None)).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("DELETE", &format!("/api/reports/{id}/share"), Some(&admin), None)).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, req("GET", &format!("/api/reports/shared/{token}"), None, None)).await.0, StatusCode::NOT_FOUND, "the old link stops working");
         // the schedule: administrators only, validated
         let sched = serde_json::json!({"schedule": "weekly", "keep": 4, "days": 14});
         assert_eq!(send(&app, req("PUT", "/api/reports/settings", Some(&editor), Some(sched.clone()))).await.0, StatusCode::FORBIDDEN);
@@ -2771,9 +2892,12 @@ mod tests {
         assert_eq!(send(&app, req("PUT", "/api/reports/settings", Some(&admin), Some(sched))).await.0, StatusCode::OK);
         assert_eq!(send(&app, req("GET", "/api/reports/settings", Some(&viewer), None)).await.2["keep"], 4);
         // deleting: administrators only
+        // deleting a report also revokes its share, if it had one
+        let token2 = send(&app, req("PUT", &format!("/api/reports/{id}/share"), Some(&admin), None)).await.2["share_token"].as_str().unwrap().to_string();
         assert_eq!(send(&app, req("DELETE", &format!("/api/reports/{id}"), Some(&editor), None)).await.0, StatusCode::FORBIDDEN);
         assert_eq!(send(&app, req("DELETE", &format!("/api/reports/{id}"), Some(&admin), None)).await.0, StatusCode::NO_CONTENT);
         assert_eq!(send(&app, req("DELETE", &format!("/api/reports/{id}"), Some(&admin), None)).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(send(&app, req("GET", &format!("/api/reports/shared/{token2}"), None, None)).await.0, StatusCode::NOT_FOUND, "deleting the report revoked its share too");
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
         assert!(audit.contains("report.create") && audit.contains("report.schedule") && audit.contains("report.delete"));
     }

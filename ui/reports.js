@@ -19,9 +19,13 @@ async function loadReports() {
     el('td', {}, el('b', { text: x.kind === 'scheduled' ? tr('On schedule') : tr('By hand') }), el('div', { class: 'muted small', text: x.created_by === 'schedule' ? '' : x.created_by })),
     el('td', { text: x.period_days === 1 ? tr('1 day') : tr('{n} days', { n: x.period_days }) }),
     el('td', { text: fmtBytes(x.size) }),
+    el('td', {}, x.share_token
+      ? el('span', { class: 'tag', title: tr('Anyone with the link can view this report, without signing in') }, tr('Shared'))
+      : null),
     el('td', { class: 'row-actions' },
       el('a', { class: 'button', href: '/api/reports/' + x.id, target: '_blank', rel: 'noopener', text: tr('Open') }),
       el('a', { class: 'button', href: '/api/reports/' + x.id + '?download=1', text: tr('Download') }),
+      admin ? el('button', { type: 'button', text: x.share_token ? tr('Sharing…') : tr('Share…'), onclick: () => openShareDialog(x) }) : null,
       admin ? el('button', { type: 'button', text: tr('Delete'), onclick: async () => {
         if (!confirm(tr('Delete the report from {date}? It cannot be recovered.', { date: fmtTime(x.created_at) }))) return;
         const d = await api('DELETE', '/api/reports/' + x.id);
@@ -29,6 +33,36 @@ async function loadReports() {
         loadReports();
       } }) : null))));
   drawReportSchedule(data.settings);
+}
+
+/** The dialog for one report's "Share…" button: turn sharing on (or show the existing link),
+ * copy it, or turn it off. The link works with no sign-in at all, so it is spelled out plainly
+ * what that means before showing it. */
+function openShareDialog(x) {
+  const linkFor = (token) => location.origin + '/api/reports/shared/' + token;
+  const draw = (token) => {
+    const nodes = [el('p', { class: 'muted', text: tr('Anyone with this link can view this report — the full compliance overview and inventory it was made from — without signing in. Turn it off any time; the link stops working immediately.') })];
+    if (token) {
+      const link = el('input', { readOnly: true, value: linkFor(token), onclick: (ev) => ev.target.select() });
+      nodes.push(
+        el('div', { class: 'row' }, link, el('button', { type: 'button', text: tr('Copy'), onclick: async () => { await navigator.clipboard.writeText(linkFor(token)); } })),
+        el('div', { class: 'row' }, el('button', { type: 'button', text: tr('Stop sharing'), onclick: async () => {
+          const r = await api('DELETE', '/api/reports/' + x.id + '/share');
+          if (!r.ok) { showMessage(tr('Could not save'), el('p', { text: apiError(r) })); return; }
+          close(); loadReports();
+        } })));
+    } else {
+      nodes.push(el('div', { class: 'row' }, el('button', { type: 'button', class: 'primary', text: tr('Turn on sharing'), onclick: async () => {
+        const r = await api('PUT', '/api/reports/' + x.id + '/share', {});
+        if (!r.ok) { showMessage(tr('Could not save'), el('p', { text: apiError(r) })); return; }
+        openShareDialog({ ...x, share_token: r.json.share_token });
+        loadReports();
+      } })));
+    }
+    return nodes;
+  };
+  const close = () => $('msg-dialog').close();
+  showMessage(tr('Share this report'), ...draw(x.share_token));
 }
 
 function drawReportSchedule(s) {

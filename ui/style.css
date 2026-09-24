@@ -306,6 +306,8 @@ button.chip, .chip.clickable { cursor: pointer; }
 .exception-row-body { flex: 1; min-width: 0; }
 .exception-remove { flex: none; width: 20px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 4px; background: none; font-size: 13px; line-height: 1; cursor: pointer; color: inherit; }
 .exception-remove:hover { border-color: var(--accent); color: var(--accent); }
+#bulk-tag-bar { background: color-mix(in srgb, var(--accent) 8%, var(--panel)); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
+#bulk-tag-name { width: 140px; }
 .watch { border-top: 1px solid var(--line); padding: 8px 0; }
 .watch.off { opacity: .55; }
 .watch-actions { margin-left: auto; display: flex; gap: 6px; }
