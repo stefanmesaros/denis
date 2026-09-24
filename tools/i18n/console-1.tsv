@@ -4,6 +4,7 @@
 local || lokal || local || local || lokálne
 no risk factors || keine Risikofaktoren || aucun facteur de risque || sin factores de riesgo || žiadne rizikové faktory
 Mark the {n} devices shown as known? || Die {n} angezeigten Geräte als bekannt markieren? || Marquer les {n} appareils affichés comme connus ? || ¿Marcar los {n} dispositivos mostrados como conocidos? || Označiť {n} zobrazených zariadení ako známe?
+×{n}, recurring since {time} || ×{n}, wiederholt seit {time} || ×{n}, se répète depuis {time} || ×{n}, se repite desde {time} || ×{n}, opakuje sa od {time}
 Could not save || Speichern nicht möglich || Enregistrement impossible || No se pudo guardar || Nepodarilo sa uložiť
 online || online || en ligne || en línea || online
 not seen recently || zuletzt nicht gesehen || pas vu récemment || no visto recientemente || nedávno nevidené

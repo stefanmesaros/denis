@@ -1642,6 +1642,7 @@
 "{t} ago": "pred {t}",
 "{users} people can sign in.": "Prihlásiť sa môže {users} ľudí.",
 "{vendor} has an open ICS-CERT advisory, {id} ({name}), published {date}.": "{vendor} má otvorené odporúčanie ICS-CERT, {id} ({name}), zverejnené {date}.",
+"×{n}, recurring since {time}": "×{n}, opakuje sa od {time}",
 "×σ": "×σ",
 "… starting the new version": "… spúšťa sa nová verzia"
 }

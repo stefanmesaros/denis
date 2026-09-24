@@ -30,6 +30,7 @@ const state = {
   tab: 'assets', sort: 'last_seen', asc: false, selected: null, groupBy: 'none',
   alertSort: 'time', alertAsc: false,
   filters: { device_type: '', location: '', vendor: '', owner: '', os_guess: '' },
+  expandedAlertGroups: new Set(), // Alerts page: which repeated-alert groups are expanded (this browser tab only)
 };
 
 function el(tag, props = {}, ...kids) {
@@ -358,6 +359,58 @@ function renderSiteFilter() {
 
 const sevTag = (e) => el('span', { class: 'sev ' + e.severity, text: tr(e.severity) });
 
+/** One alert's row, exactly as before grouping existed: used both for a singleton and for each
+ * occurrence inside an expanded group. */
+function alertRow(e, extraClass) {
+  const a = assetById(e.asset_id);
+  const d = e.raw_details || {};
+  const site = e.agent_id ? ' · ' + siteName(e.agent_id) : '';
+  return el('tr', { class: (e.acked ? 'acked ' : '') + (extraClass || ''), onclick: () => showAlert(e, a) },
+    el('td', { text: ago(e.timestamp), title: fmtTime(e.timestamp) }),
+    el('td', {}, sevTag(e), ' ' + e.score),
+    el('td', {}, el('span', { class: 'tag', text: e.type })),
+    el('td', { text: deviceLabel(a, '#' + e.asset_id) + site }),
+    el('td', { class: 'wrap' }, el('div', { text: d.summary || '' }),
+      (d.reasons || []).length ? el('div', { class: 'why', text: d.reasons.join(' · ') }) : null),
+    el('td', { class: 'row-actions' }, el('button', {
+      type: 'button', text: e.acked ? tr('Undo') : tr('Acknowledge'),
+      onclick: (ev) => { ev.stopPropagation(); ack(e.id, !e.acked); },
+    }), can('admin') ? el('button', {
+      type: 'button', text: tr('Add exception'), title: exceptionLabel(e),
+      onclick: async (ev) => {
+        ev.stopPropagation();
+        ev.target.disabled = true;
+        const err = await exceptFromAlert(e);
+        if (err) { ev.target.disabled = false; showMessage(tr('Alert'), el('p', { text: err })); }
+        // on success the alert is gone (acknowledged, an exception now covers it) -- refresh()
+        // already re-renders this table, so there is nothing left here to update by hand
+      },
+    }) : null));
+}
+
+/** The same alert kind repeating for the same device clutters the list fast (a flapping sensor,
+ * a chatty rule) — every occurrence of the same (device, alert type) is collapsed into one header
+ * row, wherever the first (in the current sort order) of them falls, showing the most recent
+ * occurrence, "×N" and how long they have been recurring; click it to expand and see (and act on)
+ * each occurrence individually, still in the current sort order. Singletons are unaffected.
+ * Purely a display grouping, remembered per browser tab (`state.expandedAlertGroups`), not sent to
+ * the server or reflected in `alerts_unacked`. */
+function groupRepeatingAlerts(rows) {
+  const groups = [];
+  const byKey = new Map();
+  for (const e of rows) {
+    const k = e.asset_id + '|' + e.type;
+    let g = byKey.get(k);
+    if (!g) {
+      g = [];
+      byKey.set(k, g);
+      groups.push(g);
+    }
+    g.push(e);
+  }
+  return groups;
+}
+
 function renderAlerts() {
   const showAcked = $('show-acked').checked;
   let rows = state.alerts.filter((e) => showAcked || !e.acked);
@@ -380,31 +433,34 @@ function renderAlerts() {
     th.classList.toggle('asc', !!th.dataset.sort && th.dataset.sort === state.alertSort && state.alertAsc);
   }
   const body = $('alerts-table').tBodies[0];
-  body.replaceChildren(...rows.map((e) => {
-    const a = assetById(e.asset_id);
-    const d = e.raw_details || {};
-    const site = e.agent_id ? ' · ' + siteName(e.agent_id) : '';
-    return el('tr', { class: e.acked ? 'acked' : '', onclick: () => showAlert(e, a) },
-      el('td', { text: ago(e.timestamp), title: fmtTime(e.timestamp) }),
-      el('td', {}, sevTag(e), ' ' + e.score),
-      el('td', {}, el('span', { class: 'tag', text: e.type })),
-      el('td', { text: deviceLabel(a, '#' + e.asset_id) + site }),
-      el('td', { class: 'wrap' }, el('div', { text: d.summary || '' }),
-        (d.reasons || []).length ? el('div', { class: 'why', text: d.reasons.join(' · ') }) : null),
-      el('td', { class: 'row-actions' }, el('button', {
-        type: 'button', text: e.acked ? tr('Undo') : tr('Acknowledge'),
-        onclick: (ev) => { ev.stopPropagation(); ack(e.id, !e.acked); },
-      }), can('admin') ? el('button', {
-        type: 'button', text: tr('Add exception'), title: exceptionLabel(e),
+  body.replaceChildren(...groupRepeatingAlerts(rows).flatMap((g) => {
+    if (g.length === 1) return [alertRow(g[0])];
+    const gkey = g[0].asset_id + '|' + g[0].type;
+    const open = state.expandedAlertGroups.has(gkey);
+    // g's own order follows whatever the table is currently sorted by, which is not necessarily
+    // time -- newest/oldest here are always by timestamp, regardless of that display order
+    const newest = g.reduce((a, b) => (b.timestamp > a.timestamp ? b : a));
+    const oldest = g.reduce((a, b) => (b.timestamp < a.timestamp ? b : a));
+    const a = assetById(newest.asset_id);
+    const d = newest.raw_details || {};
+    const site = newest.agent_id ? ' · ' + siteName(newest.agent_id) : '';
+    const header = el('tr', { class: 'alert-group-head' + (newest.acked ? ' acked' : ''), onclick: () => { open ? state.expandedAlertGroups.delete(gkey) : state.expandedAlertGroups.add(gkey); renderAlerts(); } },
+      el('td', { text: ago(newest.timestamp), title: fmtTime(newest.timestamp) }),
+      el('td', {}, sevTag(newest), ' ' + newest.score),
+      el('td', {}, el('span', { class: 'tag', text: newest.type })),
+      el('td', { text: deviceLabel(a, '#' + newest.asset_id) + site }),
+      el('td', { class: 'wrap' }, el('div', {}, el('span', { class: 'expand-caret', text: open ? '▾ ' : '▸ ' }), d.summary || ''),
+        el('div', { class: 'muted small', text: tr('×{n}, recurring since {time}', { n: g.length, time: ago(oldest.timestamp) }) })),
+      el('td', { class: 'row-actions' }, can('admin') ? el('button', {
+        type: 'button', text: tr('Add exception'), title: exceptionLabel(newest),
         onclick: async (ev) => {
           ev.stopPropagation();
           ev.target.disabled = true;
-          const err = await exceptFromAlert(e);
+          const err = await exceptFromAlert(newest);
           if (err) { ev.target.disabled = false; showMessage(tr('Alert'), el('p', { text: err })); }
-          // on success the alert is gone (acknowledged, an exception now covers it) -- refresh()
-          // already re-renders this table, so there is nothing left here to update by hand
         },
       }) : null));
+    return open ? [header, ...g.map((e) => alertRow(e, 'alert-group-item'))] : [header];
   }));
   $('no-alerts').hidden = rows.length > 0;
   const n = state.status ? state.status.alerts_unacked : 0;
