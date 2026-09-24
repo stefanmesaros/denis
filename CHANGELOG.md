@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.0.0: Docker image, software inventory, bulk tagging, shared reports, alert grouping
+
+* **Docker.** An official image (`docker compose up demo` for the no-install demo, or a `denis`
+  service with `network_mode: host` for real capture) — see [docs/docker.md](docs/docker.md) for
+  exactly what is and is not verified with it. Built with `cargo-chef` so a source-only change
+  rebuilds in under two minutes instead of a full recompile.
+* **Software inventory.** A fleet-wide page listing every product/version DENIS has read from a
+  banner, and which devices run it — `GET /api/software`.
+* **Power-user search.** The device search box now also takes `type:`, `port:`, `vendor:`,
+  `owner:`, `tag:`, `room:`, `os:` and `status:`, combinable in one query separated by a space.
+* **Bulk tagging.** Select devices on the register with a checkbox column and add or remove a tag
+  from all of them at once.
+* **Shareable reports.** A report can be given a public link (`PUT /api/reports/{id}/share`) that
+  needs no sign-in to view, and revoked again at any time.
+* **Alerts: repeated alerts for the same device now collapse into one row** ("×N, recurring since
+  …") instead of cluttering the list with every repeat, with a caret to expand the individual
+  occurrences.
+* **IPv6 groundwork** (see [IPV6.md](IPV6.md)): an address model, storage, and a fuzz-tested
+  header/NDP parser. Not yet wired into capture or the BPF filter — inert until that follow-up
+  work lands, listed honestly as groundwork, not a feature.
+* **Windows groundwork** (see [WINDOWS.md](WINDOWS.md)): `src/net.rs` now has a Windows
+  implementation of interface discovery, local UTC offset and hostname lookup, verified by real
+  cross-compilation (`cargo check`/`clippy --target x86_64-pc-windows-gnu`) — not yet by running an
+  actual build on Windows, which still needs the Npcap SDK and a real machine to finish and test.
+
 ## 1.16.1: fixed the update dialog getting stuck on a successful update
 
 * **The "Updating DENIS" dialog could get stuck** showing a half-finished checklist even though the
