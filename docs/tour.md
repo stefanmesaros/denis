@@ -148,6 +148,15 @@ Filter to *writes / control commands only* to see who can change a process.
 Devices online, traffic sent outside the network and alerts raised over the last hours or days, per site.
 (Traffic needs `--flows`.)
 
+### Top talkers
+
+![Top talkers](img/top-talkers.png)
+
+Below the charts: which devices have sent and received the most, from each device's own traffic baseline — a live
+leaderboard, not a period like the charts above it (a device seen longer naturally shows more; hover a bar for that
+device's own start). The gateway and this monitoring host are left out automatically, since traffic naturally
+funnels through them; click **×** on any device to hide it from all three lists too.
+
 ## Events
 
 Every event, including the low-scoring ones that never became alerts. Useful when you wonder *"did it notice

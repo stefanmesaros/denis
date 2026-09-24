@@ -2,7 +2,9 @@
 
 **D**evice **E**numeration & **N**etwork **I**nventory **S**ecurity: find every device on an IT **or industrial (OT)**
 network, keep an asset register you can edit, learn what is normal for each device, and get told (in Slack, Teams,
-e-mail, PagerDuty…) when something is not. One Rust binary, no external services, documentation built in.
+e-mail, PagerDuty…) when something is not — including a device running software with a **known-exploited
+vulnerability** or past its **end of support**, matched from a live feed, no agent installed on the device itself.
+One Rust binary, no external services, documentation built in.
 
 ![The DENIS console](docs/img/devices.png)
 
@@ -33,9 +35,10 @@ page, or `cargo build --release`):
 1. **Finds everything on the network.** Passive listening (ARP, DHCP, mDNS, SSDP, LLDP/CDP, PROFINET, TCP/IP
    stack) plus polite active discovery (ARP sweep, ping, port scan). Nothing hides from it; industrial devices are
    never probed.
-2. **Says what each device is, and why.** Manufacturer from the IEEE registry, device type and operating system from
-   weighted evidence (DHCP option lists, mDNS, SSDP, ports, names…). Every guess lists the rules behind it, and your
-   correction always wins.
+2. **Says what each device is, what it is running, and why.** Manufacturer from the IEEE registry, device type and
+   operating system from weighted evidence (DHCP option lists, mDNS, SSDP, ports, names…); product and version read
+   from nine service banners (SSH, FTP, SMTP, HTTP, Telnet, MySQL/MariaDB, SMB, MSSQL) where a service reveals one.
+   Every guess lists the rules behind it, and your correction always wins.
 3. **Detects what changed, with explainable scores.** New device, rogue DHCP server, ARP hijack and gateway takeover,
    new destination or port, unusual volume or hour, silent device, burst of newcomers, contact with known-bad
    addresses: each scored 0–100 with the factors behind the score and **what to do about it**.
@@ -46,10 +49,18 @@ page, or `cargo build --release`):
    fields, 80+ icons, 90+ device types, change history, a review queue for new devices, CSV import/export.
 6. **Alerts reach you.** Slack, Microsoft Teams, Discord, PagerDuty, Pushover, ntfy, e-mail and a signed webhook, each with its own
    threshold, a Test button, digests during storms, maintenance mode and per-device silencing.
-7. **Tells you what to fix.** *Findings* (Telnet/RDP exposed, lost devices still online, no owner, expiring
-   warranty…), each with **Verify fix** (a fresh scan) and **Accept risk** (a reason, an end date, an audit trail) and a *Compliance* view mapping your coverage to CIS Controls v8, NIST CSF 2.0, IEC 62443-3-3, NIST SP 800-82, ISO/IEC 27001 Annex A and NIS2, and *Reports* that are kept on the server (made by hand or on a schedule) to view, download or print.
-8. **A console you can trust, in your language.** English, German, French, Spanish and Slovak. Roles, passkey sign-in (WebAuthn), Argon2id, lock-outs, API tokens, an audit log,
-   optional built-in HTTPS, strict headers. Every detection is visible and tunable (*Rules* tab).
+7. **Tells you what to fix — including what is actually being exploited right now.** *Findings*: each device's
+   software matched against a live feed of **CISA/NVD known-exploited vulnerabilities** (with a EPSS
+   exploitation-probability score) and **end-of-support** dates, on top of Telnet/RDP exposed, lost devices still
+   online, no owner, expiring warranty…; each with **Verify fix** (a fresh scan) and **Accept risk** (a reason, an
+   end date, an audit trail). A *Compliance* view maps your coverage to CIS Controls v8, NIST CSF 2.0, IEC 62443-3-3,
+   NIST SP 800-82, ISO/IEC 27001 Annex A, NIS2, DORA, PCI DSS v4.0, HIPAA, SOC 2 and CMMC 2.0; *Reports* are kept on
+   the server (made by hand or on a schedule) to view, download or print.
+8. **A console you can trust, in your language, and keep up to date on its own.** English, German, French, Spanish
+   and Slovak. Roles, passkey sign-in (WebAuthn), Argon2id, lock-outs, API tokens, an audit log, optional built-in
+   HTTPS, strict headers. Every detection is visible and tunable (*Rules* tab). One-click self-update checks a
+   signed release, backs up the database first, and puts the previous version back automatically if the new one
+   fails to start.
 9. **Plays well with the rest of your stack.** SIEM export in CEF, LEEF or JSON over UDP/TCP/TLS — pick the
    format, transport and which streams (events, findings, audit) from *Settings → SIEM / Log export*, no
    restart — OpenObserve export, Prometheus `/metrics`, REST API, `denis backup`.
@@ -59,12 +70,22 @@ page, or `cargo build --release`):
 11. **Built to explain itself.** Documentation and a guided demo ship inside the binary; the code is commented for
     maintainers and fuzz-tested where it parses hostile input.
 
+Alerts with the reasoning behind every score, the industrial communications matrix, and compliance mapped against
+your actual register — three of the console's 20-odd pages ([more screenshots in the console tour](docs/tour.md)):
+
+<p>
+<img src="docs/img/alerts.png" width="32%" alt="Alerts, each with the reasons behind its score">
+<img src="docs/img/ot.png" width="32%" alt="Industrial (OT) devices and their communications matrix">
+<img src="docs/img/compliance.png" width="32%" alt="Compliance mapped against CIS, NIST, IEC 62443 and more">
+</p>
+
 ## Status: what is verified, what is not
 
-Verified on macOS (Apple Silicon, Wi-Fi, a /24 with ~45 devices): 480+ unit tests and an end-to-end replay of a
+Verified on macOS (Apple Silicon, Wi-Fi, a /24 with ~45 devices): 500+ unit tests and an end-to-end replay of a
 simulated industrial network through the whole pipeline; fuzz tests of all parsers; `cargo audit` clean; a
 master and agent talking over HTTP; the UI exercised in a browser (sign-in, forced password change, editing,
-users, OT, topology, trends, report).
+users, OT, topology, trends, report). Verified on a real Linux server as a permanent `systemd` service, including
+a real one-click self-update (backup, verified signature, atomic swap, automatic rollback on failure).
 
 **Not yet verified**:
 

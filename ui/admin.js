@@ -1128,6 +1128,14 @@ async function watchInstall() {
       seen = Math.max(seen, stages.indexOf(r.json.stage));
       list.replaceChildren(...stages.map((s, idx) => el('div', { text: (idx < seen ? '✓ ' : idx === seen ? '▸ ' : '   ') + tr(s) })));
     } else if (r.json.result && !down) {
+      // a successful install clears `stage` and sets this same-shaped `result` right before the
+      // process restarts -- the restart can be fast enough that this poll is the only sign of it,
+      // so this is not necessarily failure: keep waiting for the new version rather than stopping
+      if (/^Updated to /.test(r.json.result)) {
+        list.replaceChildren(...stages.map((s) => el('div', { text: '✓ ' + tr(s) })));
+        note.textContent = tr('… starting the new version');
+        continue;
+      }
       // the update stopped before changing anything
       note.textContent = translateResult(r.json.result);
       note.className = 'form-error';

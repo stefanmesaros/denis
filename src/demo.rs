@@ -253,6 +253,31 @@ pub fn load(store: &dyn Store, now: i64) -> Result<Loaded> {
     base.updated_at = now - 300;
     store.save_baseline(&base)?;
 
+    // a few more devices' traffic, just enough for the Top talkers leaderboards to show a real
+    // spread rather than one bar: the ERP server (mostly received, a nightly backup upstream),
+    // the two cameras (upload-heavy: footage leaving toward an NVR outside this segment), two
+    // laptops and the domain controller (a mix, dominated by video calls and cloud sync), the
+    // boardroom TV (streaming, almost all received) and the reception printer (barely anything:
+    // firmware check-ins)
+    for (key, dests) in [
+        ("erp", vec![("52.98.10.4", 41_000_000u64, 260_000_000u64), ("13.107.42.14", 22_000_000, 3_000_000)]),
+        ("cam1", vec![("10.20.90.5", 480_000_000, 2_000_000)]),
+        ("cam2", vec![("10.20.90.5", 410_000_000, 2_000_000)]),
+        ("l1", vec![("142.250.74.14", 38_000_000, 61_000_000), ("52.98.10.4", 5_000_000, 9_000_000)]),
+        ("l2", vec![("142.250.74.14", 21_000_000, 34_000_000), ("13.107.42.14", 4_000_000, 6_000_000)]),
+        ("dc", vec![("52.98.10.4", 9_000_000, 51_000_000)]),
+        ("tv", vec![("17.253.144.10", 3_000_000, 190_000_000)]),
+        ("p1", vec![("13.107.42.14", 400_000, 900_000)]),
+    ] {
+        let mut b2 = Baseline::new(b.id(key), now - 6 * DAY);
+        for (ip, out, inb) in dests {
+            b2.typical_destinations.insert(ip.into(), DestStat { first_seen: now - 6 * DAY, last_seen: now - 600, bytes: out + inb, bytes_out: out, bytes_in: inb });
+        }
+        b2.buckets = 1728;
+        b2.updated_at = now - 300;
+        store.save_baseline(&b2)?;
+    }
+
     // ------------------------------------------------------------ alerts
     let mut events = 0usize;
     let mut ev = |kind: &str, asset: &str, score: i32, ago_min: i64, summary: &str, reasons: &[&str], acked: bool, extra: Value| -> Result<()> {

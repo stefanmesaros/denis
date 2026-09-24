@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.16.1: fixed the update dialog getting stuck on a successful update
+
+* **The "Updating DENIS" dialog could get stuck** showing a half-finished checklist even though the
+  update had already succeeded and the service had already restarted. A successful install clears
+  the stage and reports `"Updated to X. DENIS is restarting."` — the same shape of message the
+  console also uses for a *failed* install ("the update stopped before changing anything"), and the
+  dialog treated both alike: showed the message and stopped watching, instead of waiting for the
+  new version and reloading. It now tells the two apart and keeps waiting on success. Nothing on
+  the server changed; installations that hit this only needed a manual page reload to see the new
+  version, which is exactly what the dialog now does for you.
+* **Top talkers** now says **since when** each figure runs: hover a bar for that device's own
+  start, and a note under the three lists gives the oldest and newest start among what is shown —
+  so a figure is never mistaken for a fixed daily or weekly total.
+* Documentation: the README undersold what DENIS actually does — known-exploited CVE/end-of-support
+  matching (a live CISA/NVD/EPSS feed) wasn't mentioned at all, and the compliance mapping list was
+  missing half the standards DENIS already covers (DORA, PCI DSS, HIPAA, SOC 2, CMMC 2.0). Fixed,
+  with more screenshots. All documentation screenshots regenerated against the current console
+  (several were a few versions stale); the demo company now has traffic baselines for nine devices
+  instead of one, so the Top talkers screenshot — and the demo itself — show a real leaderboard.
+
 ## 1.16.0: Top talkers leaderboards, and Alerts sorting/layout fixes
 
 * **Trends → Top talkers**: three leaderboards ("Most received", "Most sent", "Total traffic")

@@ -962,7 +962,7 @@ function talkersChart(title, talkers, key, onExclude) {
   const max = Math.max(1, ...top.map((t) => t[key]));
   const rows = top.map((t) => {
     const a = assetById(t.asset_id);
-    return el('div', { class: 'talker-row' },
+    return el('div', { class: 'talker-row', title: tr('Since {time}', { time: fmtTime(t.since) }) },
       onExclude ? el('button', { type: 'button', class: 'talker-x', title: tr('Hide this device from Top talkers'), text: '×', onclick: () => onExclude(t.asset_id) }) : null,
       el('div', { class: 'talker-label', text: deviceLabel(a, tr('device #{id}', { id: t.asset_id })) }),
       el('div', { class: 'talker-bar-track' }, el('div', { class: 'talker-bar', style: `width:${(100 * t[key]) / max}%` })),
@@ -985,7 +985,14 @@ async function loadTopTalkers() {
   $('top-talkers').replaceChildren(
     talkersChart(tr('Most received'), talkers, 'bytes_in', exclude),
     talkersChart(tr('Most sent'), talkers, 'bytes_out', exclude),
-    talkersChart(tr('Total traffic'), talkers.map((t) => ({ asset_id: t.asset_id, total: t.bytes_out + t.bytes_in })), 'total', exclude));
+    talkersChart(tr('Total traffic'), talkers.map((t) => ({ asset_id: t.asset_id, total: t.bytes_out + t.bytes_in, since: t.since })), 'total', exclude));
+  // each device's own baseline can have started at a different time (a device seen longer
+  // naturally shows more) — the oldest and newest of what is actually on screen, so nobody reads
+  // this as a fixed daily/weekly figure the way the charts above it are
+  const since = talkers.map((t) => t.since).filter((n) => n > 0);
+  $('top-talkers-note').textContent = since.length
+    ? tr('Totals run since each device\'s baseline started: the oldest shown began {oldest}, the newest {newest}. Hover a bar for that device\'s own start.', { oldest: ago(Math.min(...since)), newest: ago(Math.max(...since)) })
+    : '';
 }
 
 async function loadTrends() {

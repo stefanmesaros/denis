@@ -111,12 +111,15 @@ pub fn downsample(samples: &[Metric], max_points: usize) -> (Vec<Point>, i64) {
 
 // --------------------------------------------------------------------------------- top talkers
 
-/// One device's share of `top_talkers`: a live snapshot, not a time series.
+/// One device's share of `top_talkers`: a live snapshot, not a time series. `since` (the
+/// baseline's `observed_since`) says how far back the totals go, so the console can tell people
+/// this is not a daily or weekly figure.
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct TopTalker {
     pub asset_id: i64,
     pub bytes_out: u64,
     pub bytes_in: u64,
+    pub since: i64,
 }
 
 /// Every device's traffic so far, from its baseline (`--flows` only: without it every
@@ -134,7 +137,7 @@ pub fn top_talkers(baselines: &[Baseline], assets: &[Asset], excluded: &HashSet<
         .filter(|b| !auto_excluded.contains(&b.asset_id) && !excluded.contains(&b.asset_id))
         .map(|b| {
             let (bytes_out, bytes_in) = b.typical_destinations.values().fold((0u64, 0u64), |(o, i), d| (o + d.bytes_out, i + d.bytes_in));
-            TopTalker { asset_id: b.asset_id, bytes_out, bytes_in }
+            TopTalker { asset_id: b.asset_id, bytes_out, bytes_in, since: b.observed_since }
         })
         .filter(|t| t.bytes_out > 0 || t.bytes_in > 0)
         .collect()
@@ -237,7 +240,7 @@ mod tests {
         let b = baseline_with(1, &[("1.1.1.1", 100, 10), ("2.2.2.2", 50, 5)]);
         let a = asset(1, None, 0);
         let out = top_talkers(&[b], &[a], &HashSet::new());
-        assert_eq!(out, vec![TopTalker { asset_id: 1, bytes_out: 150, bytes_in: 15 }]);
+        assert_eq!(out, vec![TopTalker { asset_id: 1, bytes_out: 150, bytes_in: 15, since: 0 }]);
     }
 
     #[test]
@@ -260,7 +263,7 @@ mod tests {
         ];
         let excluded = HashSet::from([3]);
         let out = top_talkers(&baselines, &[gw, me, picked, normal], &excluded);
-        assert_eq!(out, vec![TopTalker { asset_id: 4, bytes_out: 100, bytes_in: 0 }]);
+        assert_eq!(out, vec![TopTalker { asset_id: 4, bytes_out: 100, bytes_in: 0, since: 0 }]);
     }
 
     #[test]
