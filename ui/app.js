@@ -584,6 +584,13 @@ async function ack(id, acked) {
   refresh();
 }
 
+$('ack-all-alerts').onclick = async () => {
+  if (!confirm(tr('Acknowledge every unacknowledged alert, including any older backlog this page does not show?'))) return;
+  const r = await api('POST', '/api/alerts/ack-all');
+  if (!r.ok) { showMessage(tr('Acknowledge all'), el('p', { text: apiError(r) })); return; }
+  refresh();
+};
+
 /** What clicking "Create exception" on this alert would do, in one line — shown as the button's
  * label so an administrator knows what they are about to change before they click it. */
 function exceptionLabel(e) {
@@ -656,6 +663,7 @@ function showAlert(e, a) {
     a ? el('p', { class: 'muted', text: tr('Device: {name}', { name: deviceLabel(a, '#' + e.asset_id) + ' (' + a.mac + ')' }) }) : null,
     (d.reasons || []).length ? el('div', {}, el('b', { text: tr('Why this score') }), el('ul', {}, ...d.reasons.map((r) => el('li', { text: translateFactor(r) })))) : null,
     advice ? el('div', {}, el('b', { text: tr('What to do') }), el('p', { text: tr(advice) })) : null,
+    aiExplainButton('alert', e.id),
     el('div', { class: 'row' },
       a ? el('button', { type: 'button', text: tr('Open device'), onclick: () => { $('msg-dialog').close(); showDetail(a.id); } }) : null,
       can('admin') ? el('button', {
@@ -1296,7 +1304,7 @@ function setTab(t) {
   if (t === 'health') loadHealth();
   if (t === 'alerting') loadAlerting();
   if (t === 'users') { renderUsers(); renderApiTokens(); }
-  if (t === 'settings') { initBrandingForm(); initOverviewBox(); loadLicenseBox(); loadInterfacesBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); loadSiemBox(); loadSsoBox(); loadRetentionBox(); }
+  if (t === 'settings') { initBrandingForm(); initOverviewBox(); loadLicenseBox(); loadInterfacesBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); loadSiemBox(); loadSsoBox(); loadAiBox(); loadRetentionBox(); }
   if (t === 'audit') renderAudit();
   if (t === 'account') renderAccount();
   if (t === 'agents') renderTokens();

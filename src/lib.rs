@@ -7,6 +7,7 @@
 pub mod access;
 pub mod active;
 pub mod agent;
+pub mod ai;
 pub mod auth;
 pub mod banners;
 pub mod backups;
@@ -66,6 +67,7 @@ pub mod tracking;
 pub mod trends;
 pub mod web;
 pub mod web_admin;
+pub mod web_ai;
 pub mod web_health;
 pub mod web_passkey;
 pub mod web_reports;
