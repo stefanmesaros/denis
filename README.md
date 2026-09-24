@@ -129,9 +129,14 @@ sudo bash install.sh
 
 Details, uninstalling and upgrading: [Deployment](docs/deployment.md). Prefer to read a script before running it as
 root? See [Manual installation](docs/deployment.md#without-the-installer) — `less install.sh` first works too, it
-just isn't the default above. There is no Docker image today — DENIS needs direct access to a network interface
-(and ideally a mirror port) to be useful, which fits a plain binary or VM more naturally than a container; if that
-changes, it will be documented here, not silently implied.
+just isn't the default above.
+
+**Or with Docker** (a demo, no real capture; see [docs/docker.md](docs/docker.md) for monitoring a real network,
+which needs host networking and two Linux capabilities — spelled out there, not hidden in a flag):
+
+```bash
+docker compose up demo
+```
 
 ## Demo: try DENIS without installing a sensor
 
@@ -143,7 +148,8 @@ network, or whenever you just want to look around without touching anything real
 [Console tour](docs/tour.md) · [Concepts](docs/concepts.md) · [Asset management](docs/asset-management.md) ·
 [Detection rules](docs/detection-rules.md) · [Alerting](docs/alerting.md) · [OT guide](docs/ot-guide.md) ·
 [Branding](docs/branding.md) · [Export & SIEM](docs/export.md) · [Deployment](docs/deployment.md) ·
-[Operations](docs/operations.md) · [Security](docs/security.md) · [API](docs/api.md) · [Troubleshooting](docs/troubleshooting.md)
+[Docker](docs/docker.md) · [Operations](docs/operations.md) · [Security](docs/security.md) · [API](docs/api.md) ·
+[Troubleshooting](docs/troubleshooting.md)
 
 Alerts with the reasoning behind every score, the industrial communications matrix, and compliance mapped against
 your actual register — three of the console's 20-odd pages ([more screenshots in the console tour](docs/tour.md)):

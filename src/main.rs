@@ -341,7 +341,7 @@ enum Cmd {
     /// Web console over an existing database, with no capture, probing or detection:
     /// for looking at a backup or a copy, for training and for demonstrations.
     Serve {
-        #[arg(short, long, default_value = "127.0.0.1:8080")]
+        #[arg(short, long, default_value = "127.0.0.1:8080", env = "DENIS_LISTEN")]
         listen: SocketAddr,
         #[arg(long)]
         db: Option<PathBuf>,

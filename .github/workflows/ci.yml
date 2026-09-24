@@ -47,6 +47,25 @@ jobs:
         env:
           CHROME: /usr/bin/google-chrome
 
+  docker:
+    name: Docker image builds and the demo container answers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose build demo
+      - name: run the demo service and wait for it to answer
+        run: |
+          docker compose up -d demo
+          for i in $(seq 1 30); do
+            curl -fs http://127.0.0.1:8080/api/health && break
+            sleep 2
+          done
+          curl -fs http://127.0.0.1:8080/api/health
+      - name: the login page itself loads (not just /api/health)
+        run: curl -fs http://127.0.0.1:8080/ | grep -q "DENIS"
+      - if: always()
+        run: docker compose logs demo
+
   audit:
     name: dependency audit
     runs-on: ubuntu-latest
