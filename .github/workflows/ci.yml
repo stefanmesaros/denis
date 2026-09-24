@@ -30,6 +30,24 @@ jobs:
       - run: cargo test --locked
       - run: cargo clippy --locked --all-targets -- -D warnings
 
+  windows-check:
+    # A real `cargo build`/`test` needs the Npcap SDK's import library (pcap links against it even
+    # to produce a binary, not only to capture) -- see WINDOWS.md. Until that is resolved, this
+    # catches the far more common way Windows portability breaks: a change that plainly does not
+    # type-check or lint for that target, the way src/net.rs did before this job was added.
+    name: type-check and lint for Windows (no capture yet, see WINDOWS.md)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+      - run: cargo check --locked --target x86_64-pc-windows-gnu --all-targets
+      - run: cargo clippy --locked --target x86_64-pc-windows-gnu --all-targets -- -D warnings
+
   smoke:
     name: the console in a real browser
     runs-on: ubuntu-22.04
