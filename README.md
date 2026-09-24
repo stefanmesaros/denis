@@ -93,7 +93,7 @@ Every step above is real DENIS behaviour (`src/detect.rs`); you can watch it hap
 
 ## Quick start
 
-### Try the demo — no sensor, no real traffic
+### Try DENIS in 2 minutes — no sensor, no real traffic
 
 ```bash
 ./denis demo --db demo.db load && ./denis serve --db demo.db --insecure-no-auth
@@ -103,6 +103,9 @@ Loads a fictional mid-size company (routers, servers, printers, cameras, laptops
 devices, open alerts, findings, an OT communications matrix already populated) and serves the console with no
 login, capturing nothing, on this machine only. The console shows a permanent banner while demo data is loaded:
 *"Demo data is loaded: the devices and alerts you see are fictional… Remove it under Settings → Demo data."*
+Everything is explorable: the register, alert scoring, findings (including known-exploited CVEs and
+end-of-support software matched against fictional banners), the OT communications matrix, compliance mapping and
+reports — nothing you do here touches a real network. More: [Demo](#demo-try-denis-without-installing-a-sensor).
 
 ### Monitor a real network
 
@@ -121,26 +124,20 @@ port, prints the address and the one-time admin password):
 
 ```bash
 curl -fLO https://github.com/stefanmesaros/denis/releases/latest/download/install.sh
-less install.sh && sudo bash install.sh
+sudo bash install.sh
 ```
 
-Details, uninstalling and upgrading: [Deployment](docs/deployment.md). There is no Docker image today — DENIS
-needs direct access to a network interface (and ideally a mirror port) to be useful, which fits a plain binary or
-VM more naturally than a container; if that changes, it will be documented here, not silently implied.
+Details, uninstalling and upgrading: [Deployment](docs/deployment.md). Prefer to read a script before running it as
+root? See [Manual installation](docs/deployment.md#without-the-installer) — `less install.sh` first works too, it
+just isn't the default above. There is no Docker image today — DENIS needs direct access to a network interface
+(and ideally a mirror port) to be useful, which fits a plain binary or VM more naturally than a container; if that
+changes, it will be documented here, not silently implied.
 
 ## Demo: try DENIS without installing a sensor
 
-The same command as above is the fastest way to answer "what does this actually look like?" before you point it
-at a real network:
-
-```bash
-./denis demo --db demo.db load && ./denis serve --db demo.db --insecure-no-auth
-```
-
-Everything in the console is explorable: the asset register, open alerts with their full scoring, standing
-findings (including known-exploited CVEs and end-of-support software matched against fictional banners), the OT
-communications matrix, compliance mapping, and reports — all against made-up data for a made-up company, so
-nothing you do there touches a real network.
+Covered above in [Quick start](#quick-start) — the same one command loads a fictional company and serves the
+console with no login and no capture. Use it to see what DENIS actually looks like before you point it at a real
+network, or whenever you just want to look around without touching anything real.
 
 **Documentation** (also inside the console, with screenshots): [Quick start](docs/quickstart.md) ·
 [Console tour](docs/tour.md) · [Concepts](docs/concepts.md) · [Asset management](docs/asset-management.md) ·
