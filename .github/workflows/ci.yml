@@ -87,8 +87,19 @@ jobs:
   audit:
     name: dependency audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      issues: write
     steps:
       - uses: actions/checkout@v4
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # RUSTSEC-2023-0071 ("Marvin Attack"): a timing side-channel in the `rsa` crate's
+          # *private-key* operations (decryption/signing). `rsa` reaches this project only
+          # transitively through `openidconnect`/`oauth2` (SSO), which uses it solely to verify
+          # an identity provider's ID token signature with its *public* key — DENIS never holds
+          # or uses an RSA private key here, so this specific advisory does not apply to how the
+          # crate is actually used. No patched version exists upstream to update to either way.
+          ignore: RUSTSEC-2023-0071
