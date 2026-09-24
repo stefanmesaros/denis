@@ -148,6 +148,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/conversations", get(conversations))
         .route("/api/trends", get(trend_points))
         .route("/api/top-talkers", get(top_talkers_get))
+        .route("/api/software", get(software_get))
         .route("/api/top-talkers/excluded", put(top_talkers_excluded_put))
         .route("/api/export/assets.csv", get(export_assets))
         .route("/api/export/alerts.csv", get(export_alerts))
@@ -604,6 +605,40 @@ async fn baseline(State(st): State<AppState>, Extension(AuthUser(me)): Extension
         // accounting), and the browser logs every 404 as a console error.
         None => Json(serde_json::Value::Null).into_response(),
     })
+}
+
+/// Fleet-wide software inventory: every distinct product+version read from a device's service
+/// banners, with which devices have it and, where `vulndata::Intel` knows about it, whether it is
+/// end-of-support or has a known-exploited vulnerability. The same access rules as `/api/assets`
+/// (site visibility, the Community edition's device cap) apply to which devices can contribute a
+/// row here, so this never reveals a device outside what the caller could already see there.
+async fn software_get(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Json<serde_json::Value>, ApiError> {
+    let now = now_ts();
+    let (mut list, intel) = blocking(&st.store, |s| Ok((s.load_assets()?, crate::vulndata::Intel::load(s)))).await?;
+    list.retain(|a| site_readable(&st, &me, &a.agent_id));
+    let cap = effective_license(&st).device_cap;
+    if cap.is_some() {
+        let keep = crate::license::keep_within_cap(&list.iter().map(|a| a.id).collect::<Vec<_>>(), cap);
+        list.retain(|a| keep.contains(&a.id));
+    }
+    let today = now / 86_400;
+    let groups = crate::banners::software_inventory(list.iter().map(|a| (a.id, &a.fingerprint.identity)));
+    let rows: Vec<_> = groups
+        .into_iter()
+        .map(|g| {
+            let eol = intel.eol(g.product, &g.version, today);
+            let kev = intel.kev(g.product, &g.version);
+            serde_json::json!({
+                "product": crate::vulndata::product_name(g.product),
+                "version": g.version,
+                "source": g.source,
+                "asset_ids": g.asset_ids,
+                "eol": eol.map(|e| serde_json::json!({ "state": e.state, "cycle": e.cycle, "days_left": e.days_left })),
+                "cves": kev.iter().map(|k| serde_json::json!({ "cve": k.cve, "name": k.name, "ransomware": k.ransomware, "epss": intel.epss(&k.cve) })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    Ok(Json(serde_json::json!({ "software": rows })))
 }
 
 /// Devices merged into this one (see `AssetMeta::merged_into`) — hidden from `/api/assets`, so
@@ -1398,6 +1433,36 @@ mod tests {
         let ids: Vec<i64> = v["talkers"].as_array().unwrap().iter().map(|t| t["asset_id"].as_i64().unwrap()).collect();
         assert!(!ids.contains(&noisy.id) && ids.contains(&quiet.id));
         assert_eq!(v["excluded"], serde_json::json!([noisy.id]));
+    }
+
+    #[tokio::test]
+    async fn software_groups_the_fleet_by_product_and_version_and_respects_site_access() {
+        let (app, store) = app(true);
+        let mut a = Asset::new(Mac([0, 0, 0, 0, 0, 1]), 0);
+        a.fingerprint.identity.insert("banner.ssh".into(), "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6".into());
+        store.save_asset(&mut a).unwrap();
+        let mut b = Asset::new(Mac([0, 0, 0, 0, 0, 2]), 0);
+        b.fingerprint.identity.insert("banner.ssh".into(), "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6".into());
+        store.save_asset(&mut b).unwrap();
+        let mut c = Asset::new(Mac([0, 0, 0, 0, 0, 3]), 0);
+        c.fingerprint.identity.insert("banner.ssh".into(), "SSH-2.0-OpenSSH_9.6p1".into());
+        store.save_asset(&mut c).unwrap();
+        let mut none = Asset::new(Mac([0, 0, 0, 0, 0, 4]), 0);
+        store.save_asset(&mut none).unwrap();
+
+        let (code, v) = get_json(&app, "/api/software", "localhost").await;
+        assert_eq!(code, StatusCode::OK);
+        let rows = v["software"].as_array().unwrap();
+        assert_eq!(rows.len(), 2, "one row per distinct product+version: {rows:?}");
+        let old = rows.iter().find(|r| r["version"] == "8.9p1").unwrap();
+        assert_eq!(old["product"], "OpenSSH");
+        let mut ids: Vec<i64> = old["asset_ids"].as_array().unwrap().iter().map(|x| x.as_i64().unwrap()).collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![a.id, b.id]);
+        let newer = rows.iter().find(|r| r["version"] == "9.6p1").unwrap();
+        assert_eq!(newer["asset_ids"].as_array().unwrap(), &vec![serde_json::json!(c.id)]);
+        // a device with no readable banner contributes no row at all -- not a null/empty one
+        assert!(rows.iter().all(|r| r["asset_ids"].as_array().unwrap().iter().all(|x| x.as_i64().unwrap() != none.id)));
     }
 
     // ------------------------------------------------------------ auth / RBAC
