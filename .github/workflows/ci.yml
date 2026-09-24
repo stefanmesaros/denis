@@ -17,7 +17,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install libpcap (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libpcap-dev
@@ -38,7 +38,7 @@ jobs:
     name: type-check and lint for Windows (no capture yet, see WINDOWS.md)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-gnu
@@ -52,7 +52,7 @@ jobs:
     name: the console in a real browser
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install libpcap
         run: sudo apt-get update && sudo apt-get install -y libpcap-dev
       - uses: dtolnay/rust-toolchain@stable
@@ -69,7 +69,7 @@ jobs:
     name: Docker image builds and the demo container answers
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker compose build demo
       - name: run the demo service and wait for it to answer
         run: |
@@ -92,7 +92,7 @@ jobs:
       checks: write
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
