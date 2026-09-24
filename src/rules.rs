@@ -704,7 +704,10 @@ pub fn save(store: &dyn Store, o: &Overrides, now: i64) -> Result<()> {
 pub fn describe(base: &DetectConfig, o: &Overrides, now: i64) -> Value {
     let eff = o.apply(base, now);
     let learning = o.learning_override.as_ref().map(|lo| {
-        json!({ "active": lo.active(now), "until": lo.until, "paused": lo.paused_at.is_some() })
+        // Frozen at whatever it was when paused, not still ticking down against `until`
+        // (which itself only moves on resume) — otherwise a pause would not look like one.
+        let remaining = (if let Some(p) = lo.paused_at { lo.until - p } else { lo.until - now }).max(0);
+        json!({ "active": lo.active(now), "until": lo.until, "paused": lo.paused_at.is_some(), "remaining_secs": remaining })
     });
     let num = |x: f64| (x * 1000.0).round() / 1000.0;
     let rules: Vec<Value> = RULE_INFO
