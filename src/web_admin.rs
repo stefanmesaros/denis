@@ -1171,6 +1171,74 @@ pub(crate) async fn review_assets(State(st): State<AppState>, Extension(AuthUser
     Ok(Json(json!({ "reviewed": n })).into_response())
 }
 
+#[derive(Deserialize)]
+pub struct BulkTagReq {
+    /// Apply to exactly these devices...
+    #[serde(default)]
+    ids: Vec<i64>,
+    /// ...or every device currently in the register.
+    #[serde(default)]
+    all: bool,
+    /// Add this tag to every targeted device that does not already have it.
+    add: Option<String>,
+    /// Remove this tag from every targeted device that has it.
+    remove: Option<String>,
+}
+
+/// Add or remove one tag across many devices at once (a bulk operation for the Devices page, the
+/// same way `review_assets` bulk-marks devices as known). Exactly one of `add`/`remove` is taken
+/// per call; each device's new tag list goes through the same validation and normalisation a
+/// single-device edit would (`tracking::apply_patch`), so this cannot create a tag a normal edit
+/// could not. Returns how many devices actually changed (already having/lacking the tag is not a
+/// change, and a device this user cannot write to is silently skipped, like `review_assets`).
+pub(crate) async fn bulk_tags(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<BulkTagReq>) -> Result<Response, ApiError> {
+    if !b.all && (b.ids.is_empty() || b.ids.len() > 5000) {
+        return Ok(err(StatusCode::BAD_REQUEST, "give 1-5000 device ids, or {\"all\": true}"));
+    }
+    let (add, remove) = match (&b.add, &b.remove) {
+        (Some(t), None) if !t.trim().is_empty() => (Some(t.trim().to_lowercase()), None),
+        (None, Some(t)) if !t.trim().is_empty() => (None, Some(t.trim().to_lowercase())),
+        _ => return Ok(err(StatusCode::BAD_REQUEST, "give exactly one of \"add\" or \"remove\", a non-empty tag")),
+    };
+    let by = me.username.clone();
+    let (user_id, role) = (me.id, me.role.clone());
+    let (add_task, remove_task) = (add.clone(), remove.clone());
+    let n = blocking(&st.store, move |s| {
+        let now = now_ts();
+        let ids: Vec<i64> = if b.all { s.load_assets()?.into_iter().map(|a| a.id).collect() } else { b.ids };
+        let mut changed = 0usize;
+        for id in ids {
+            let Some(a) = s.get_asset(id)? else { continue };
+            if !crate::access::writable(s, user_id, &role, &a.agent_id) {
+                continue;
+            }
+            let mut meta = s.get_meta(id)?.unwrap_or_default();
+            let mut tags = meta.tags.clone();
+            if let Some(t) = &add_task {
+                if tags.iter().any(|x| x == t) {
+                    continue;
+                }
+                tags.push(t.clone());
+            } else if let Some(t) = &remove_task {
+                let before = tags.len();
+                tags.retain(|x| x != t);
+                if tags.len() == before {
+                    continue;
+                }
+            }
+            if tracking::apply_patch(&mut meta, &json!({ "tags": tags })).map_err(|e| anyhow::anyhow!(e))?.is_empty() {
+                continue;
+            }
+            s.save_meta(id, &meta, &by, now)?;
+            changed += 1;
+        }
+        Ok(changed)
+    })
+    .await?;
+    audit(&st, &me.username, "assets.bulk_tag", None, json!({ "count": n, "add": add, "remove": remove }));
+    Ok(Json(json!({ "changed": n })).into_response())
+}
+
 /// Outcome of creating a manual asset: `(id, changes)` or an HTTP-ready error.
 type Created = Result<(i64, Vec<crate::model::Change>), (StatusCode, String)>;
 

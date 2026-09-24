@@ -30,6 +30,7 @@ const state = {
   tab: 'assets', sort: 'last_seen', asc: false, selected: null, groupBy: 'none',
   alertSort: 'time', alertAsc: false,
   filters: { device_type: '', location: '', vendor: '', owner: '', os_guess: '' },
+  selectedAssets: new Set(), // Devices page: checked rows for bulk tagging (this browser session only)
 };
 
 function el(tag, props = {}, ...kids) {
@@ -114,11 +115,38 @@ const sorters = {
   last_seen: (a) => a.last_seen,
 };
 
+/**
+ * Optional `key:value` search terms for power users, on top of the plain substring search
+ * everyone already gets: `type:printer port:9100 vendor:hp` narrows by field instead of hoping
+ * the word shows up somewhere. An unrecognised key (or one used without a value) is treated as
+ * plain text instead of silently matching nothing -- a typo in the key never hides every device.
+ */
+const SEARCH_KEYS = {
+  type: (a) => tr(a.device_type).toLowerCase(),
+  room: (a) => ((a.meta && a.meta.location) || '').toLowerCase(),
+  location: (a) => ((a.meta && a.meta.location) || '').toLowerCase(),
+  vendor: (a) => (vendor(a) || '').toLowerCase(),
+  owner: (a) => ((a.meta && a.meta.owner) || '').toLowerCase(),
+  os: (a) => (a.os_guess || '').toLowerCase(),
+  ip: (a) => (a.ip || '').toLowerCase(),
+  mac: (a) => (a.mac || '').toLowerCase(),
+  tag: (a) => ((a.meta && a.meta.tags) || []).join(' ').toLowerCase(),
+  status: (a) => ((a.meta && a.meta.status) || '').toLowerCase(),
+  port: (a) => a.open_ports.map((p) => String(p.port)),
+};
+
 function matches(a, q) {
   if (!q) return true;
   const m = a.meta || {};
   const hay = [a.ip, a.mac, vendor(a), a.hostnames.join(' '), a.display_name, a.device_type, a.os_guess, portsText(a), siteName(a.agent_id), m.owner, m.serial_number, m.asset_tag, m.location, m.department, m.zone, m.status, (m.tags || []).join(' ')].join(' ').toLowerCase();
-  return q.toLowerCase().split(/\s+/).every((t) => hay.includes(t));
+  return q.toLowerCase().split(/\s+/).every((t) => {
+    const i = t.indexOf(':');
+    const key = i > 0 ? t.slice(0, i) : null;
+    const val = i > 0 ? t.slice(i + 1) : null;
+    const field = key && val && SEARCH_KEYS[key] ? SEARCH_KEYS[key](a) : null;
+    if (field != null) return Array.isArray(field) ? field.includes(val) : field.includes(val);
+    return hay.includes(t);
+  });
 }
 
 const multiSite = () => state.agents.length > 0;
@@ -299,8 +327,15 @@ function renderAssets() {
   });
   const showSite = multiSite();
   for (const c of document.querySelectorAll('.site-col')) c.hidden = !showSite;
-  const cols = 11 + (showSite ? 1 : 0);
+  const cols = 12 + (showSite ? 1 : 0);
+  const canBulk = can('editor');
+  const selectBox = (a) => el('input', {
+    type: 'checkbox', checked: state.selectedAssets.has(a.id),
+    onclick: (ev) => ev.stopPropagation(),
+    onchange: (ev) => { if (ev.target.checked) state.selectedAssets.add(a.id); else state.selectedAssets.delete(a.id); updateBulkTagBar(); },
+  });
   const row = (a) => el('tr', { onclick: () => showDetail(a.id) },
+    el('td', { onclick: (ev) => ev.stopPropagation(), hidden: !canBulk }, canBulk ? selectBox(a) : null),
     el('td', {}, el('span', { class: 'dot' + (isOnline(a) ? ' on' : ''), title: isOnline(a) ? tr('online') : tr('not seen recently') })),
     showSite ? el('td', { text: siteName(a.agent_id) }) : null,
     el('td', {}, riskTag(a)),
@@ -335,7 +370,46 @@ function renderAssets() {
     th.classList.toggle('sorted', th.dataset.sort === state.sort);
     th.classList.toggle('asc', th.dataset.sort === state.sort && state.asc);
   }
+  // a device removed from the register (or merged away) cannot stay selected
+  const stillThere = new Set(state.assets.map((a) => a.id));
+  for (const id of state.selectedAssets) if (!stillThere.has(id)) state.selectedAssets.delete(id);
+  $('select-all-assets').closest('th').hidden = !canBulk;
+  if (canBulk) {
+    const shown = rows.map((a) => a.id);
+    const allShown = shown.length > 0 && shown.every((id) => state.selectedAssets.has(id));
+    $('select-all-assets').checked = allShown;
+    $('select-all-assets').indeterminate = !allShown && shown.some((id) => state.selectedAssets.has(id));
+    $('select-all-assets').onchange = () => {
+      if ($('select-all-assets').checked) shown.forEach((id) => state.selectedAssets.add(id));
+      else shown.forEach((id) => state.selectedAssets.delete(id));
+      renderAssets();
+    };
+  }
+  updateBulkTagBar();
 }
+
+/** Shows/hides the "N selected — add/remove a tag" bar above the Devices table, and keeps its
+ * count current. The bar itself only ever touches `state.selectedAssets`, never the rows: it
+ * works the same whether the table is grouped, filtered or windowed (virtualised). */
+function updateBulkTagBar() {
+  const n = state.selectedAssets.size;
+  $('bulk-tag-bar').hidden = !(can('editor') && n > 0);
+  $('bulk-tag-count').textContent = tr('{n} device{s} selected', { n, s: n === 1 ? '' : 's' });
+}
+
+async function bulkTag(field) {
+  const tag = $('bulk-tag-name').value.trim();
+  if (!tag) { $('bulk-tag-name').focus(); return; }
+  const r = await api('POST', '/api/assets/bulk-tags', { ids: [...state.selectedAssets], [field]: tag });
+  $('bulk-tag-msg').textContent = r.ok
+    ? tr('{n} device{s} changed.', { n: r.json.changed, s: r.json.changed === 1 ? '' : 's' })
+    : apiError(r);
+  if (r.ok) { $('bulk-tag-name').value = ''; refresh(); }
+}
+$('bulk-tag-add').onclick = () => bulkTag('add');
+$('bulk-tag-remove').onclick = () => bulkTag('remove');
+$('bulk-tag-clear').onclick = () => { state.selectedAssets.clear(); renderAssets(); };
+$('bulk-tag-name').onkeydown = (ev) => { if (ev.key === 'Enter') bulkTag('add'); };
 
 function renderSiteFilter() {
   const sel = $('site');
@@ -916,6 +990,59 @@ function renderOt() {
 $('ot-proto').onchange = renderOt;
 $('ot-risky').onchange = renderOt;
 
+// --------------------------------------------------------------- software
+
+/** One line per product+version: worst status first (known-exploited, then end-of-support, then
+ * "soon", then nothing to report), same severity language the Findings page already uses. */
+function softwareStatus(row) {
+  if (row.cves && row.cves.length) return { text: tr('Known-exploited ({n} CVE{s})', { n: row.cves.length, s: row.cves.length === 1 ? '' : 's' }), sev: 'high' };
+  if (row.eol && row.eol.state === 'ended') return { text: tr('End of support'), sev: 'medium' };
+  if (row.eol && row.eol.state === 'soon') return { text: tr('End of support soon'), sev: 'low' };
+  return { text: tr('No known issue'), sev: 'info' };
+}
+
+async function loadSoftware() {
+  let data;
+  try {
+    data = await apiFetch('/api/software').then((r) => r.json());
+  } catch (e) { return; }
+  state.software = data.software || [];
+  renderSoftware();
+}
+
+function renderSoftware() {
+  const rows = (state.software || []).slice();
+  const key = {
+    product: (r) => r.product.toLowerCase(),
+    version: (r) => r.version.toLowerCase(),
+    devices: (r) => r.asset_ids.length,
+    status: (r) => (r.cves && r.cves.length ? 2 : r.eol ? 1 : 0),
+  }[state.softwareSort || 'devices'];
+  rows.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0) * (state.softwareAsc ? 1 : -1));
+  $('software-table').tBodies[0].replaceChildren(...rows.map((r) => {
+    const status = softwareStatus(r);
+    const names = r.asset_ids.map((id) => { const a = assetById(id); return deviceLabel(a, '#' + id); });
+    return el('tr', {},
+      el('td', { text: r.product }),
+      el('td', {}, el('code', { text: r.version })),
+      el('td', { class: 'num', title: names.join(', ') }, String(r.asset_ids.length)),
+      el('td', {}, el('span', { class: 'sev ' + status.sev, text: status.text })));
+  }));
+  $('software-empty').hidden = rows.length > 0;
+  for (const th of $('software-table').tHead.rows[0].cells) {
+    th.classList.toggle('sorted', th.dataset.sort === (state.softwareSort || 'devices'));
+    th.classList.toggle('asc', th.dataset.sort === (state.softwareSort || 'devices') && state.softwareAsc);
+  }
+}
+for (const th of $('software-table').tHead.rows[0].cells) {
+  th.onclick = () => {
+    const k = th.dataset.sort;
+    state.softwareAsc = state.softwareSort === k ? !state.softwareAsc : k === 'product' || k === 'version';
+    state.softwareSort = k;
+    renderSoftware();
+  };
+}
+
 // ------------------------------------------------------------------ trends
 
 function chart(title, big, points, key, kind, fmt) {
@@ -1068,7 +1195,7 @@ async function loadCompliance() {
 function setTab(t) {
   state.tab = t;
   for (const b of document.querySelectorAll('.tab')) b.classList.toggle('active', b.dataset.tab === t);
-  for (const v of ['overview', 'assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'health', 'alerting', 'topology', 'ot', 'trends', 'events', 'agents', 'users', 'settings', 'audit', 'account']) $('view-' + v).hidden = t !== v;
+  for (const v of ['overview', 'assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'health', 'alerting', 'topology', 'ot', 'software', 'trends', 'events', 'agents', 'users', 'settings', 'audit', 'account']) $('view-' + v).hidden = t !== v;
   $('search').hidden = $('online-label').hidden = $('review-label').hidden = $('group-by').hidden = $('filters-box').hidden = t !== 'assets';
   if (t !== 'assets') $('filters-menu').hidden = true;
   if (t !== 'assets') $('review-all').hidden = true;
@@ -1084,6 +1211,7 @@ function setTab(t) {
   if (t === 'topology') { if (topoMode === 'physical') renderPhysical(); else renderTopology(); }
   if (t === 'trends') loadTrends();
   if (t === 'ot') loadOt();
+  if (t === 'software') loadSoftware();
   if (t === 'findings') loadFindings();
   if (t === 'rules') loadRules();
   if (t === 'compliance') loadCompliance();

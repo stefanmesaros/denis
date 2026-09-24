@@ -21,8 +21,9 @@ pub fn texts() -> [&'static str; 2] {
 }
 
 pub(crate) async fn list(State(st): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
-    let (items, settings) = blocking(&st.store, |s| Ok((s.list_reports()?, reports::load(s)?))).await?;
+    let (items, settings, shares) = blocking(&st.store, |s| Ok((s.list_reports()?, reports::load(s)?, reports::load_shares(s)?))).await?;
     let total: i64 = items.iter().map(|r| r.size).sum();
+    let items: Vec<_> = items.into_iter().map(|m| { let t = shares.get(&m.id).cloned(); let mut v = serde_json::to_value(&m).unwrap(); v["share_token"] = json!(t); v }).collect();
     Ok(Json(json!({ "reports": items, "settings": settings, "total_bytes": total })))
 }
 
@@ -48,17 +49,16 @@ pub(crate) struct ViewQuery {
     download: Option<u8>,
 }
 
-/// The saved page itself. It carries its own styles, so it gets its own strict CSP (no script, ever).
-pub(crate) async fn view(State(st): State<AppState>, Path(id): Path<i64>, Query(q): Query<ViewQuery>) -> Result<Response, ApiError> {
-    let Some((meta, body)) = blocking(&st.store, move |s| s.get_report(id)).await? else {
-        return Ok(err(StatusCode::NOT_FOUND, E_NO_REPORT));
-    };
-    let disposition = if q.download == Some(1) {
+/// The rendered page and its headers, shared by the signed-in view and the public shared-link
+/// view: identical content and CSP either way, since a report is a frozen, self-contained page
+/// that carries no script and cannot be edited from here regardless of who is looking at it.
+fn report_response(meta: &crate::model::ReportMeta, body: Vec<u8>, download: bool) -> Response {
+    let disposition = if download {
         format!("attachment; filename=\"denis-report-{}-{}.html\"", crate::report::day(meta.created_at), meta.id)
     } else {
         "inline".to_string()
     };
-    Ok((
+    (
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
             (header::CONTENT_DISPOSITION, disposition),
@@ -67,14 +67,59 @@ pub(crate) async fn view(State(st): State<AppState>, Path(id): Path<i64>, Query(
         ],
         body,
     )
-        .into_response())
+        .into_response()
+}
+
+/// The saved page itself. It carries its own styles, so it gets its own strict CSP (no script, ever).
+pub(crate) async fn view(State(st): State<AppState>, Path(id): Path<i64>, Query(q): Query<ViewQuery>) -> Result<Response, ApiError> {
+    let Some((meta, body)) = blocking(&st.store, move |s| s.get_report(id)).await? else {
+        return Ok(err(StatusCode::NOT_FOUND, E_NO_REPORT));
+    };
+    Ok(report_response(&meta, body, q.download == Some(1)))
+}
+
+/// The same report, reached with a share token instead of a session: no `Extension<AuthUser>`,
+/// so this is only ever wired up as a public route (see `is_public`). A token that does not
+/// currently name a shared report -- wrong, revoked, or the report itself was deleted -- gets the
+/// same 404 either way, so a guess cannot tell those apart.
+pub(crate) async fn shared_view(State(st): State<AppState>, Path(token): Path<String>, Query(q): Query<ViewQuery>) -> Result<Response, ApiError> {
+    let t = token.clone();
+    let Some(id) = blocking(&st.store, move |s| reports::report_id_for_token(s, &t)).await? else {
+        return Ok(err(StatusCode::NOT_FOUND, E_NO_REPORT));
+    };
+    let Some((meta, body)) = blocking(&st.store, move |s| s.get_report(id)).await? else {
+        return Ok(err(StatusCode::NOT_FOUND, E_NO_REPORT));
+    };
+    Ok(report_response(&meta, body, q.download == Some(1)))
 }
 
 pub(crate) async fn remove(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
     if !blocking(&st.store, move |s| s.delete_report(id)).await? {
         return Ok(err(StatusCode::NOT_FOUND, E_NO_REPORT));
     }
+    let now = now_ts();
+    let _ = blocking(&st.store, move |s| reports::unshare(s, id, now)).await;
     audit(&st, &me.username, "report.delete", None, json!({ "id": id }));
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// Turn sharing on for a report (idempotent: a second call returns the same link) or off.
+/// Admin-only (see `required_role`): this is the one thing on the Reports page that makes data
+/// reachable by someone who cannot sign in at all.
+pub(crate) async fn share_put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    if blocking(&st.store, move |s| s.get_report(id)).await?.is_none() {
+        return Ok(err(StatusCode::NOT_FOUND, E_NO_REPORT));
+    }
+    let now = now_ts();
+    let token = blocking(&st.store, move |s| reports::share(s, id, now)).await?;
+    audit(&st, &me.username, "report.share", None, json!({ "id": id }));
+    Ok(Json(json!({ "share_token": token })).into_response())
+}
+
+pub(crate) async fn share_delete(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
+    let now = now_ts();
+    blocking(&st.store, move |s| reports::unshare(s, id, now)).await?;
+    audit(&st, &me.username, "report.unshare", None, json!({ "id": id }));
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
