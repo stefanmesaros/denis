@@ -176,6 +176,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/license", get(admin::license_get).put(admin::license_put).delete(admin::license_delete))
         .route("/api/msp-overview", put(admin::msp_overview_put))
         .route("/api/interfaces", get(admin::interfaces_get).put(admin::interfaces_put))
+        .route("/api/interfaces/deconfigure-ip", post(admin::interfaces_deconfigure_ip))
         .route("/api/branding/logo", axum::routing::put(admin::logo_put).delete(admin::logo_delete).layer(DefaultBodyLimit::max(crate::branding::MAX_LOGO_BYTES + 1024)))
         .route("/branding/logo", get(admin::logo_get))
         .fallback(static_file)
@@ -1198,6 +1199,18 @@ mod tests {
 
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
         assert!(audit.contains("interfaces.set"), "{audit}");
+    }
+
+    #[tokio::test]
+    async fn removing_a_mirror_interfaces_address_only_ever_touches_one_this_process_is_actually_mirroring() {
+        let (app, _, [viewer, editor, admin]) = secured().await;
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("POST", "/api/interfaces/deconfigure-ip", Some(c), Some(serde_json::json!({"name": "eth0"})))).await.0, StatusCode::FORBIDDEN);
+        }
+        // this test's `shared` is configured (in test_shared) with no mirror interfaces at all,
+        // so an admin naming any interface — real or not — is refused, never acted on blind
+        let (st, ..) = send(&app, req("POST", "/api/interfaces/deconfigure-ip", Some(&admin), Some(serde_json::json!({"name": "eth0"})))).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

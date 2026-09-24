@@ -443,6 +443,54 @@ pub struct InterfacesPut {
     mirror_ifaces: Option<Vec<String>>,
 }
 
+#[derive(Deserialize)]
+pub struct DeconfigureIpReq {
+    name: String,
+}
+
+/// Remove a mirror interface's IPv4 address right now (Linux only): a monitor/SPAN port
+/// should not have one, and one there caused a real outage (see `health::W_MIRROR_IP`).
+/// Only ever acts on a name this process itself is configured to mirror, and refuses if
+/// that address is the only one left on the machine, so this cannot cut the box off.
+pub(crate) async fn interfaces_deconfigure_ip(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<DeconfigureIpReq>) -> Result<Response, ApiError> {
+    let running = st.shared.snapshot();
+    if !running.mirror_interfaces.contains(&b.name) {
+        return Ok(err(StatusCode::BAD_REQUEST, "not a mirror interface this process is configured to capture on"));
+    }
+    let name = b.name.clone();
+    let res = tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let ifaces = crate::net::list_interfaces().map_err(|e| e.to_string())?;
+        if !ifaces.iter().any(|i| i.name == name) {
+            return Err("this interface has no IPv4 address to remove".into());
+        }
+        if ifaces.len() <= 1 {
+            return Err("this is the only interface on the machine with an address: removing it would cut the machine off the network".into());
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let out = std::process::Command::new("ip").args(["addr", "flush", "dev", &name]).output().map_err(|e| format!("could not run ip: {e}"))?;
+            if !out.status.success() {
+                return Err(format!("ip addr flush failed: {}", String::from_utf8_lossy(&out.stderr)));
+            }
+            Ok(())
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = name;
+            Err("removing an interface address is only implemented on Linux so far".into())
+        }
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!(e))?;
+    Ok(match res {
+        Ok(()) => {
+            audit(&st, &me.username, "interfaces.deconfigure_ip", None, json!({ "name": b.name }));
+            Json(json!({"status": "removed"})).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    })
+}
+
 pub(crate) async fn interfaces_put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<InterfacesPut>) -> Result<Response, ApiError> {
     if b.iface.as_deref() == Some("") {
         return Ok(err(StatusCode::BAD_REQUEST, "pass null, not an empty string, to clear the discovery interface"));

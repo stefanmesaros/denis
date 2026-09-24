@@ -41,9 +41,39 @@ pub const W_NO_SWEEP: &str = "No network sweep has finished since DENIS started 
 pub const W_DISK: &str = "Only {free} of {total} is free on the disk that holds the database. When it is full, DENIS stops recording.";
 pub const W_NO_BACKUP: &str = "There is no backup yet. Switch the schedule on, or make one now.";
 pub const W_OLD_BACKUP: &str = "The newest backup is {age} old.";
+pub const W_MIRROR_IP: &str = "The mirror interface {name} has an IP address of its own ({ip}). A monitor/SPAN port normally should not: an address there can conflict with a real device and cause outages on the network you are watching, not just on this box. See below to remove it.";
+pub const W_DNS: &str = "This machine could not resolve a domain name just now. Check its own DNS settings, or whether the router it uses for DNS is itself working and can reach the internet.";
 
-pub fn texts() -> [&'static str; 7] {
-    [W_CAPTURE_DOWN, W_DROPS, W_SWEEP_LATE, W_NO_SWEEP, W_DISK, W_NO_BACKUP, W_OLD_BACKUP]
+pub fn texts() -> [&'static str; 9] {
+    [W_CAPTURE_DOWN, W_DROPS, W_SWEEP_LATE, W_NO_SWEEP, W_DISK, W_NO_BACKUP, W_OLD_BACKUP, W_MIRROR_IP, W_DNS]
+}
+
+/// A DNS resolution attempt from this host, in its own thread so a genuinely broken resolver
+/// (the exact thing being checked for) cannot hang the health check that reports it. Cached
+/// for a few minutes: this runs on every poll of a page that refreshes every 60 seconds.
+///
+/// Never actually resolves anything in a test build: this crate's test suite has no business
+/// depending on real, live network access (offline, hermetic, and no slower for it).
+#[cfg(not(test))]
+fn dns_ok(now: i64) -> bool {
+    static CACHE: std::sync::Mutex<(i64, bool)> = std::sync::Mutex::new((0, true));
+    const TTL: i64 = 300;
+    let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if now - c.0 >= TTL {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            use std::net::ToSocketAddrs;
+            let _ = tx.send(("example.com", 0u16).to_socket_addrs().is_ok_and(|mut a| a.next().is_some()));
+        });
+        c.1 = rx.recv_timeout(std::time::Duration::from_secs(3)).unwrap_or(false);
+        c.0 = now;
+    }
+    c.1
+}
+
+#[cfg(test)]
+fn dns_ok(_now: i64) -> bool {
+    true
 }
 
 #[derive(Debug, Serialize)]
@@ -64,6 +94,9 @@ pub struct Health {
     pub capture: Option<CaptureHealth>,
     pub sweep: Option<SweepHealth>,
     pub backups: BackupHealth,
+    /// Mirror/capture-only interfaces that currently have an IPv4 address of their own
+    /// (name, address) — see `W_MIRROR_IP`. Empty in the common, correctly configured case.
+    pub mirror_ips: Vec<(String, std::net::Ipv4Addr)>,
     pub warnings: Vec<Warning>,
 }
 
@@ -206,7 +239,22 @@ pub fn gather(store: &dyn Store, shared: &impl StatusSource, now: i64, with_rows
         }
     }
 
-    Ok(Health { version: info.version, mode: info.mode, uptime_secs: now - info.started_at, db, disk, capture, sweep, backups, warnings })
+    let mirror_ips: Vec<(String, std::net::Ipv4Addr)> = if info.mirror_interfaces.is_empty() {
+        Vec::new()
+    } else {
+        crate::net::list_interfaces()
+            .map(|ifaces| ifaces.into_iter().filter(|i| info.mirror_interfaces.contains(&i.name)).map(|i| (i.name, i.ip)).collect())
+            .unwrap_or_default()
+    };
+    for (name, ip) in &mirror_ips {
+        warnings.push(warn(W_MIRROR_IP, &[("name", name.clone()), ("ip", ip.to_string())]));
+    }
+
+    if !viewer && !dns_ok(now) {
+        warnings.push(warn(W_DNS, &[]));
+    }
+
+    Ok(Health { version: info.version, mode: info.mode, uptime_secs: now - info.started_at, db, disk, capture, sweep, backups, mirror_ips, warnings })
 }
 
 #[cfg(test)]
