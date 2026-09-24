@@ -443,6 +443,54 @@ pub struct InterfacesPut {
     mirror_ifaces: Option<Vec<String>>,
 }
 
+#[derive(Deserialize)]
+pub struct DeconfigureIpReq {
+    name: String,
+}
+
+/// Remove a mirror interface's IPv4 address right now (Linux only): a monitor/SPAN port
+/// should not have one, and one there caused a real outage (see `health::W_MIRROR_IP`).
+/// Only ever acts on a name this process itself is configured to mirror, and refuses if
+/// that address is the only one left on the machine, so this cannot cut the box off.
+pub(crate) async fn interfaces_deconfigure_ip(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<DeconfigureIpReq>) -> Result<Response, ApiError> {
+    let running = st.shared.snapshot();
+    if !running.mirror_interfaces.contains(&b.name) {
+        return Ok(err(StatusCode::BAD_REQUEST, "not a mirror interface this process is configured to capture on"));
+    }
+    let name = b.name.clone();
+    let res = tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let ifaces = crate::net::list_interfaces().map_err(|e| e.to_string())?;
+        if !ifaces.iter().any(|i| i.name == name) {
+            return Err("this interface has no IPv4 address to remove".into());
+        }
+        if ifaces.len() <= 1 {
+            return Err("this is the only interface on the machine with an address: removing it would cut the machine off the network".into());
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let out = std::process::Command::new("ip").args(["addr", "flush", "dev", &name]).output().map_err(|e| format!("could not run ip: {e}"))?;
+            if !out.status.success() {
+                return Err(format!("ip addr flush failed: {}", String::from_utf8_lossy(&out.stderr)));
+            }
+            Ok(())
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = name;
+            Err("removing an interface address is only implemented on Linux so far".into())
+        }
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!(e))?;
+    Ok(match res {
+        Ok(()) => {
+            audit(&st, &me.username, "interfaces.deconfigure_ip", None, json!({ "name": b.name }));
+            Json(json!({"status": "removed"})).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    })
+}
+
 pub(crate) async fn interfaces_put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<InterfacesPut>) -> Result<Response, ApiError> {
     if b.iface.as_deref() == Some("") {
         return Ok(err(StatusCode::BAD_REQUEST, "pass null, not an empty string, to clear the discovery interface"));
@@ -603,6 +651,53 @@ pub(crate) async fn update_install(State(st): State<AppState>, Extension(AuthUse
         }
         Err(e) => err(StatusCode::BAD_REQUEST, format!("{e:#}")),
     })
+}
+
+// ---------------------------------------------------------------- restart / shutdown
+
+#[derive(Deserialize)]
+pub struct SystemActionReq {
+    /// The administrator's own password, checked again: a mistaken click here stops the
+    /// service, so it needs more than an open session to trigger.
+    password: String,
+}
+
+/// Restart the running program in place (same binary, no update). Only available where
+/// self-update is (the same background mechanism does the restart).
+pub(crate) async fn system_restart(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<SystemActionReq>) -> Result<Response, ApiError> {
+    if b.password.len() > 256 {
+        return Ok(err(StatusCode::BAD_REQUEST, "that password is not right"));
+    }
+    let auth = st.auth.clone();
+    let (u, pw) = (me.clone(), b.password);
+    match tokio::task::spawn_blocking(move || auth.confirm_password(&u, &pw, now_ts())).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return Ok(map_auth_err(e)),
+        Err(_) => return Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),
+    }
+    let u = match updater(&st) { Ok(u) => u, Err(r) => return Ok(*r) };
+    audit(&st, &me.username, "system.restart", None, json!({}));
+    u.request_restart();
+    Ok(Json(json!({"status": "restarting"})).into_response())
+}
+
+/// Stop the program. It does not come back on its own: the shipped systemd unit
+/// (`Restart=on-failure`) leaves a clean, deliberate exit stopped.
+pub(crate) async fn system_shutdown(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<SystemActionReq>) -> Result<Response, ApiError> {
+    if b.password.len() > 256 {
+        return Ok(err(StatusCode::BAD_REQUEST, "that password is not right"));
+    }
+    let auth = st.auth.clone();
+    let (u, pw) = (me.clone(), b.password);
+    match tokio::task::spawn_blocking(move || auth.confirm_password(&u, &pw, now_ts())).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return Ok(map_auth_err(e)),
+        Err(_) => return Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),
+    }
+    let u = match updater(&st) { Ok(u) => u, Err(r) => return Ok(*r) };
+    audit(&st, &me.username, "system.shutdown", None, json!({}));
+    u.request_shutdown();
+    Ok(Json(json!({"status": "shutting down"})).into_response())
 }
 
 #[derive(Deserialize)]
@@ -823,7 +918,22 @@ pub(crate) async fn maintenance_put(State(st): State<AppState>, Extension(AuthUs
 pub(crate) async fn rules_get(State(st): State<AppState>) -> Result<Json<Value>, ApiError> {
     let base = st.shared.detect_base().unwrap_or_default();
     let o = blocking(&st.store, |s| crate::rules::load(s)).await?;
-    Ok(Json(crate::rules::describe(&base, &o)))
+    Ok(Json(crate::rules::describe(&base, &o, now_ts())))
+}
+
+/// The raw overrides (weights, thresholds, exceptions, watches) as a file to save and
+/// re-import elsewhere — handy with a large exceptions list. `PUT /api/rules` re-imports it
+/// unchanged: every field it names is applied exactly as `patch` already validates.
+pub(crate) async fn rules_export(State(st): State<AppState>) -> Result<Response, ApiError> {
+    let o = blocking(&st.store, |s| crate::rules::load(s)).await?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/json"),
+            (header::CONTENT_DISPOSITION, "attachment; filename=\"denis-rules.json\""),
+        ],
+        Json(o),
+    )
+        .into_response())
 }
 
 /// Change rule settings (admin). Takes effect within seconds, no restart.
@@ -845,7 +955,7 @@ pub(crate) async fn rules_put(State(st): State<AppState>, Extension(AuthUser(me)
         Err(e) => err(StatusCode::BAD_REQUEST, e),
         Ok(o) => {
             audit(&st, &me.username, "rules.update", None, patch);
-            Json(crate::rules::describe(&base, &o)).into_response()
+            Json(crate::rules::describe(&base, &o, now_ts())).into_response()
         }
     })
 }
@@ -855,7 +965,103 @@ pub(crate) async fn rules_reset(State(st): State<AppState>, Extension(AuthUser(m
     let base = st.shared.detect_base().unwrap_or_default();
     blocking(&st.store, |s| crate::rules::save(s, &crate::rules::Overrides::default(), now_ts())).await?;
     audit(&st, &me.username, "rules.reset", None, json!({}));
-    Ok(Json(crate::rules::describe(&base, &crate::rules::Overrides::default())).into_response())
+    Ok(Json(crate::rules::describe(&base, &crate::rules::Overrides::default(), now_ts())).into_response())
+}
+
+// ------------------------------------------------------ restarted learning periods
+
+/// Load the overrides, let `f` change (or refuse to change) the learning override, and save
+/// if it agreed. `f`'s error is a plain sentence shown back as the reason it refused.
+async fn edit_learning(st: &AppState, f: impl FnOnce(&mut crate::rules::Overrides) -> Result<(), &'static str> + Send + 'static) -> Result<Result<crate::rules::Overrides, &'static str>, ApiError> {
+    blocking(&st.store, move |s| {
+        let mut o = crate::rules::load(s)?;
+        match f(&mut o) {
+            Ok(()) => {
+                crate::rules::save(s, &o, now_ts())?;
+                Ok(Ok(o))
+            }
+            Err(e) => Ok(Err(e)),
+        }
+    })
+    .await
+}
+
+async fn learning_response(st: &AppState, username: &str, action: &str, res: Result<crate::rules::Overrides, &'static str>) -> Result<Response, ApiError> {
+    let base = st.shared.detect_base().unwrap_or_default();
+    Ok(match res {
+        Ok(o) => {
+            audit(st, username, action, None, json!({}));
+            Json(crate::rules::describe(&base, &o, now_ts())).into_response()
+        }
+        Err(e) => err(StatusCode::CONFLICT, e),
+    })
+}
+
+#[derive(Deserialize)]
+pub struct LearningStartReq {
+    /// 1 to 7 days.
+    days: i64,
+}
+
+/// Restart network-wide learning for 1 to 7 days: while it runs, nothing anywhere raises an
+/// alert (every device is treated the way a brand new one already is) — for after a network
+/// change big enough that the existing baselines are no longer a fair comparison.
+pub(crate) async fn learning_start(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<LearningStartReq>) -> Result<Response, ApiError> {
+    if !(1..=7).contains(&b.days) {
+        return Ok(err(StatusCode::BAD_REQUEST, "choose between 1 and 7 days"));
+    }
+    let days = b.days;
+    let res = edit_learning(&st, move |o| {
+        o.learning_override = Some(crate::rules::LearningOverride { until: now_ts() + days * 86_400, paused_at: None });
+        Ok(())
+    })
+    .await?;
+    learning_response(&st, &me.username, "learning.start", res).await
+}
+
+/// Freeze the remaining time (does not count down while paused).
+pub(crate) async fn learning_pause(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Response, ApiError> {
+    let res = edit_learning(&st, |o| {
+        let now = now_ts();
+        match &mut o.learning_override {
+            Some(lo) if lo.active(now) && lo.paused_at.is_none() => {
+                lo.paused_at = Some(now);
+                Ok(())
+            }
+            Some(_) => Err("already paused, or already over"),
+            None => Err("no learning period is running"),
+        }
+    })
+    .await?;
+    learning_response(&st, &me.username, "learning.pause", res).await
+}
+
+/// Resume a paused learning period: the time it spent paused is added back, so the
+/// remaining time picks up where it left off instead of having quietly run out.
+pub(crate) async fn learning_resume(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Response, ApiError> {
+    let res = edit_learning(&st, |o| {
+        let now = now_ts();
+        match &mut o.learning_override {
+            Some(lo) if lo.paused_at.is_some() => {
+                let paused_at = lo.paused_at.take().unwrap();
+                lo.until += now - paused_at;
+                Ok(())
+            }
+            _ => Err("not paused"),
+        }
+    })
+    .await?;
+    learning_response(&st, &me.username, "learning.resume", res).await
+}
+
+/// End it now: back to ordinary, per-device judging immediately.
+pub(crate) async fn learning_end(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Response, ApiError> {
+    let res = edit_learning(&st, |o| match o.learning_override.take() {
+        Some(_) => Ok(()),
+        None => Err("no learning period is running"),
+    })
+    .await?;
+    learning_response(&st, &me.username, "learning.end", res).await
 }
 
 // ---------------------------------------------------------------- API tokens

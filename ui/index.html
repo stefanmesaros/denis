@@ -287,6 +287,7 @@
       <section id="view-health" hidden>
         <p class="muted">Is DENIS itself in good shape? Problems are listed first, in plain words; the rest is what to look at when something seems slow or the disk fills up.</p>
         <div id="health-warnings"></div>
+        <div id="mirror-ip-fix"></div>
         <div id="health-cards" class="measures"></div>
         <div id="health-rows" hidden>
           <h3 class="section">What is in the database</h3>
@@ -317,8 +318,9 @@
       <section id="view-rules" hidden>
         <p class="muted">Every detection DENIS runs, and how it is set. Alerts are scored 0–100; anything below the minimum score is only logged. Turning a rule off, or its weight down, is safe: nothing is deleted. Changes apply within seconds and are written to the audit log. <a href="/docs/detection-rules" target="_blank" rel="noopener">How each rule scores</a></p>
         <div id="rules-global" class="rule-card"></div>
+        <div id="learning-box" class="rule-card" hidden></div>
         <div id="rules-list"></div>
-        <div class="row" id="rules-actions" hidden><button id="rules-save" type="button" class="primary">Save changes</button><button id="rules-reset" type="button">Reset everything to defaults</button><span id="rules-status" class="muted"></span></div>
+        <div class="row" id="rules-actions" hidden><button id="rules-save" type="button" class="primary">Save changes</button><button id="rules-reset" type="button">Reset everything to defaults</button><button id="rules-export" type="button">Export as file</button><button id="rules-import" type="button">Import from file…</button><input id="rules-import-file" type="file" accept="application/json,.json" hidden><span id="rules-status" class="muted"></span></div>
       </section>
 
       <section id="view-events" hidden>
@@ -429,6 +431,11 @@
           <h3 class="section">Updates</h3>
           <div id="update-status" class="muted"></div>
           <div class="row"><button id="update-check" type="button">Check for updates now</button><button id="update-open" type="button" hidden>Update available…</button><span id="update-msg" class="muted"></span></div>
+        </div>
+        <div id="system-box" hidden>
+          <h3 class="section">System</h3>
+          <p class="muted">Restarting picks up any configuration change that needs one, without losing the register. Both ask for your password again.</p>
+          <div class="row"><button id="system-restart" type="button">Restart…</button><button id="system-shutdown" type="button" class="danger">Shut down…</button><span id="system-msg" class="muted"></span></div>
         </div>
         <div id="vuln-box" hidden>
           <h3 class="section">Software versions: end of support and known exploits</h3>

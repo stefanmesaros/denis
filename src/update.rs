@@ -525,6 +525,22 @@ impl Updater {
         Ok(())
     }
 
+    /// Restart the running process in place, same binary, no update — the exact mechanism
+    /// already used to come back after installing one (`main` sees `restart_wanted()` and
+    /// re-execs itself with the same arguments).
+    pub fn request_restart(&self) {
+        if self.cfg.exe_path.is_none() {
+            RESTART_WANTED.store(true, Ordering::SeqCst);
+        }
+        self.shutdown.notify_one();
+    }
+
+    /// Stop the process without asking `main` to come back. The shipped systemd unit uses
+    /// `Restart=on-failure`, so a clean, deliberate exit (this one) stays down.
+    pub fn request_shutdown(&self) {
+        self.shutdown.notify_one();
+    }
+
     /// Background loop: look for updates now and then, and run a scheduled install when it is due.
     pub async fn run(self: Arc<Self>) {
         if !self.cfg.configured() {

@@ -145,7 +145,11 @@ td.wrap .why { color: var(--muted); font-size: 12px; margin-top: 2px; }
 tr.acked td { opacity: .55; }
 .alert-group-head { cursor: pointer; }
 .alert-group-head:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
-.alert-group-item td:first-child { padding-left: 28px; }
+/* An expanded group's own occurrences: tinted and set off with a left rule the whole row's
+ * height, so they read as "inside this group" at a glance instead of blending into an ordinary
+ * (ungrouped) row directly below once the group ends. */
+.alert-group-item { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.alert-group-item td:first-child { padding-left: 40px; border-left: 3px solid color-mix(in srgb, var(--accent) 35%, transparent); }
 .expand-caret { color: var(--muted); font-size: 11px; }
 code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 .hours { display: flex; align-items: flex-end; gap: 2px; height: 34px; }

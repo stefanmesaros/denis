@@ -13,6 +13,7 @@ Also takes type:printer, port:9100, vendor:hp, owner:, tag:, room:, os:, status:
 tag name || Tag-Name || nom de l'étiquette || nombre de la etiqueta || názov štítku
 Select all shown || Alle angezeigten auswählen || Sélectionner tout ce qui est affiché || Seleccionar todo lo mostrado || Vybrať všetky zobrazené
 ×{n}, recurring since {time} || ×{n}, wiederholt seit {time} || ×{n}, se répète depuis {time} || ×{n}, se repite desde {time} || ×{n}, opakuje sa od {time}
+Acknowledge all ({n}) || Alle bestätigen ({n}) || Tout confirmer ({n}) || Confirmar todo ({n}) || Potvrdiť všetky ({n})
 Could not save || Speichern nicht möglich || Enregistrement impossible || No se pudo guardar || Nepodarilo sa uložiť
 online || online || en ligne || en línea || online
 not seen recently || zuletzt nicht gesehen || pas vu récemment || no visto recientemente || nedávno nevidené

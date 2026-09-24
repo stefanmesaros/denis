@@ -97,6 +97,40 @@ function exceptionsEditor(list, onChange, editable) {
 
 // -------------------------------------------------------------------------------------- rules page
 
+/** "Restart learning mode" (admin only): while it runs, nothing anywhere raises an alert —
+ * every device is treated the way a brand new one already is — network-wide, for a chosen
+ * 1-7 days. For after a change big enough that the existing baselines are not a fair
+ * comparison any more (a new switch, a re-addressed subnet, a big batch of new devices). */
+function drawLearningBox(learning) {
+  const act = async (path, body) => {
+    const r = await api('POST', '/api/learning/' + path, body);
+    $('learning-msg').textContent = r.ok ? '' : apiError(r);
+    if (r.ok) loadRules();
+  };
+  if (!learning) {
+    const days = el('select', {}, ...[1, 2, 3, 4, 5, 6, 7].map((n) => el('option', { value: String(n), text: n === 1 ? tr('1 day') : tr('{n} days', { n }) })));
+    days.value = '3';
+    $('learning-box').replaceChildren(
+      el('div', { class: 'rule-head' }, el('b', { text: tr('Restart learning mode') })),
+      el('p', { class: 'muted', text: tr('After a change big enough that the existing baselines no longer make a fair comparison (a new switch, a re-addressed subnet, a batch of new devices), restart learning for every device at once: nothing anywhere alerts for the time you choose, the same treatment a brand new device already gets.') }),
+      el('div', { class: 'rule-controls' }, el('label', {}, tr('For'), days),
+        el('button', { type: 'button', onclick: () => act('start', { days: Number(days.value) }), text: tr('Restart learning mode') })),
+      el('span', { id: 'learning-msg', class: 'muted' }));
+    return;
+  }
+  const remaining = span(learning.remaining_secs);
+  $('learning-box').replaceChildren(
+    el('div', { class: 'rule-head' }, el('b', { text: tr('Learning mode is running') }),
+      el('span', { class: 'changed', text: learning.paused ? tr('paused') : tr('active') })),
+    el('p', { class: 'muted', text: learning.paused
+      ? tr('Paused with {remaining} left; nothing resumes counting down until you resume it. Nothing alerts anywhere while it is paused, either.', { remaining })
+      : tr('{remaining} left. Nothing anywhere raises an alert until then, or until you end it early.', { remaining }) }),
+    el('div', { class: 'rule-controls' },
+      el('button', { type: 'button', onclick: () => act(learning.paused ? 'resume' : 'pause', {}), text: learning.paused ? tr('Resume') : tr('Pause') }),
+      el('button', { type: 'button', class: 'danger', onclick: async () => { if (confirm(tr('End learning mode now? Detection returns to normal immediately.'))) await act('end', {}); }, text: tr('End now') })),
+    el('span', { id: 'learning-msg', class: 'muted' }));
+}
+
 /** Draw the rules. Everyone can read them; only administrators get editable fields. */
 async function loadRules() {
   const r = await api('GET', '/api/rules');
@@ -121,6 +155,9 @@ async function loadRules() {
       g.overridden ? el('span', { class: 'changed', text: tr('changed (default {value})', { value: g.default }) }) : null),
     el('p', { class: 'muted', text: tr('Events scoring below this are recorded but not shown as alerts, and never sent out. Raise it to hear less, lower it to hear more.') }),
     el('div', { class: 'rule-controls' }, el('label', {}, tr('Score'), minIn)));
+
+  $('learning-box').hidden = !edit;
+  if (edit) drawLearningBox(rulesData.learning);
 
   const cards = [];
   cards.push(el('p', { class: 'muted small', text: '* ' + tr('needs traffic analysis (--flows), on the main interface or a mirror port') + (state.status && !state.status.flows_enabled ? ' — ' + tr('not currently running: {fix}', { fix: FLOWS_FIX() }) : '') }));
@@ -185,6 +222,28 @@ $('rules-save').onclick = async () => {
   }
   const r = await api('PUT', '/api/rules', patch);
   $('rules-status').textContent = r.ok ? tr('Saved. Applies within a few seconds.') : apiError(r);
+  if (r.ok) loadRules();
+};
+
+// Export: the browser's normal download-a-link dance, so the file keeps its name and the
+// person is never navigated away from the console. Import reads the chosen file and PUTs it
+// as-is — it is already the exact shape /api/rules validates and applies (see rules_export).
+$('rules-export').onclick = () => el('a', { href: '/api/rules/export', download: 'denis-rules.json' }).click();
+$('rules-import').onclick = () => $('rules-import-file').click();
+$('rules-import-file').onchange = async (ev) => {
+  const file = ev.target.files[0];
+  ev.target.value = ''; // so choosing the same file again still fires onchange
+  if (!file) return;
+  let patch;
+  try {
+    patch = JSON.parse(await file.text());
+  } catch {
+    $('rules-status').textContent = tr('Not a valid rules file.');
+    return;
+  }
+  if (!confirm(tr('Import "{name}"? It replaces the settings it names (weights, thresholds, exceptions, watches) — anything not in the file is left as it is.', { name: file.name }))) return;
+  const r = await api('PUT', '/api/rules', patch);
+  $('rules-status').textContent = r.ok ? tr('Imported.') : apiError(r);
   if (r.ok) loadRules();
 };
 

@@ -181,6 +181,33 @@ pub struct Overrides {
     /// The administrator's own watches on ordinary (IT) traffic.
     #[serde(default)]
     pub it_watches: Vec<ItWatch>,
+    /// A manually restarted, network-wide learning period: `None` outside of one. Live state,
+    /// not a durable setting — left out of export when inactive, and never settable via
+    /// `patch` (only through `/api/learning/*`), so a rules file never carries a stale
+    /// countdown from whenever it happened to be exported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub learning_override: Option<LearningOverride>,
+}
+
+/// A learning period an administrator restarted by hand (Rules → "Restart learning mode"),
+/// covering every device at once, in addition to each device's own. While active (and not
+/// paused), nothing crosses the alert threshold anywhere — the same "recorded, not raised"
+/// treatment a brand new device already gets, just applied network-wide for a chosen time.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LearningOverride {
+    /// When it ends, wall-clock — pushed forward by however long it spent paused.
+    pub until: i64,
+    /// `Some(when it was paused)` while paused; the remaining time is preserved, not lost.
+    #[serde(default)]
+    pub paused_at: Option<i64>,
+}
+
+impl LearningOverride {
+    /// Still holding off alerts right now? False once `until` passes, unless paused (a pause
+    /// suspends the countdown, so it never "expires" on its own until resumed).
+    pub fn active(&self, now: i64) -> bool {
+        self.paused_at.is_some() || now < self.until
+    }
 }
 
 /// Who or what a rule setting applies to.
@@ -497,8 +524,9 @@ impl ItWatch {
 }
 
 impl Overrides {
-    /// The configuration in force: `base` with these overrides applied.
-    pub fn apply(&self, base: &DetectConfig) -> DetectConfig {
+    /// The configuration in force: `base` with these overrides applied, as of `now` (needed
+    /// only to judge whether a restarted learning period is still active).
+    pub fn apply(&self, base: &DetectConfig, now: i64) -> DetectConfig {
         let mut c = base.clone();
         if let Some(m) = self.min_score {
             c.min_score = m;
@@ -514,6 +542,11 @@ impl Overrides {
         c.ot_watches = self.ot_watches.clone();
         c.it_watches = self.it_watches.clone();
         c.rule_min_scores = self.min_scores.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        // Above the highest possible score (100): every rule's own min-score gate already
+        // reads this field, so nothing anywhere can cross the alert threshold while this holds.
+        if self.learning_override.as_ref().is_some_and(|lo| lo.active(now)) {
+            c.min_score = 101;
+        }
         c
     }
 
@@ -647,6 +680,9 @@ impl Overrides {
                     }
                     next.it_watches = checked;
                 }
+                // live state, not a durable setting; ignored so re-importing an export made
+                // while a learning period happened to be running never fails on it
+                "learning_override" => {}
                 other => return Err(format!("unknown field {other:?}")),
             }
         }
@@ -665,8 +701,14 @@ pub fn save(store: &dyn Store, o: &Overrides, now: i64) -> Result<()> {
 
 /// Everything the Rules screen needs: each rule with its effective and default
 /// values, and which of them an administrator has changed.
-pub fn describe(base: &DetectConfig, o: &Overrides) -> Value {
-    let eff = o.apply(base);
+pub fn describe(base: &DetectConfig, o: &Overrides, now: i64) -> Value {
+    let eff = o.apply(base, now);
+    let learning = o.learning_override.as_ref().map(|lo| {
+        // Frozen at whatever it was when paused, not still ticking down against `until`
+        // (which itself only moves on resume) — otherwise a pause would not look like one.
+        let remaining = (if let Some(p) = lo.paused_at { lo.until - p } else { lo.until - now }).max(0);
+        json!({ "active": lo.active(now), "until": lo.until, "paused": lo.paused_at.is_some(), "remaining_secs": remaining })
+    });
     let num = |x: f64| (x * 1000.0).round() / 1000.0;
     let rules: Vec<Value> = RULE_INFO
         .iter()
@@ -702,6 +744,7 @@ pub fn describe(base: &DetectConfig, o: &Overrides) -> Value {
         "ot_watches": o.ot_watches,
         "it_watches": o.it_watches,
         "watch_protocols": WATCH_PROTOS,
+        "learning": learning,
     })
 }
 
@@ -731,7 +774,7 @@ mod tests {
         for p in PARAMS {
             let mut o = Overrides::default();
             o.patch(&json!({"params": {p.key: p.max}})).unwrap();
-            let c = o.apply(&DetectConfig::default());
+            let c = o.apply(&DetectConfig::default(), 0);
             assert!(((p.get)(&c) - p.max).abs() < 1e-6, "{}: {} vs {}", p.key, (p.get)(&c), p.max);
         }
     }
@@ -742,19 +785,19 @@ mod tests {
         base.weights.insert("new_port".into(), 0.5); // from the command line
         let mut o = Overrides::default();
         o.patch(&json!({"min_score": 45, "weights": {"new_device": 0, "new_port": 2}, "params": {"silent_minutes": 240, "volume_z_threshold": 4.5}})).unwrap();
-        let c = o.apply(&base);
+        let c = o.apply(&base, 0);
         assert_eq!((c.min_score, c.silent_secs, c.z_threshold), (45, 240 * 60, 4.5));
         assert_eq!((c.weights["new_device"], c.weights["new_port"]), (0.0, 2.0));
         o.patch(&json!({"weights": {"new_port": null}, "min_score": null})).unwrap();
-        let c = o.apply(&base);
+        let c = o.apply(&base, 0);
         assert_eq!((c.min_score, c.weights["new_port"]), (30, 0.5), "back to the command-line value, not the built-in one");
-        let d = describe(&base, &o);
+        let d = describe(&base, &o, 0);
         let np = d["rules"].as_array().unwrap().iter().find(|r| r["id"] == "new_port").unwrap();
         assert_eq!((np["weight"].as_f64(), np["overridden"].as_bool()), (Some(0.5), Some(false)));
         let nd = d["rules"].as_array().unwrap().iter().find(|r| r["id"] == "new_device").unwrap();
         assert_eq!((nd["enabled"].as_bool(), nd["overridden"].as_bool()), (Some(false), Some(true)));
         assert_eq!(d["any_override"], true);
-        assert_eq!(describe(&base, &Overrides::default())["any_override"], false);
+        assert_eq!(describe(&base, &Overrides::default(), 0)["any_override"], false);
     }
 
     #[test]
@@ -831,7 +874,7 @@ mod tests {
                             "targets": [{"kind": "tag", "value": "line1"}], "allowed_senders": [], "score": 90, "cooldown_minutes": 5}]})).unwrap();
         assert_eq!(o.ot_watches[0].name, "S7 stop");
         assert_eq!(o.ot_watches[0].commands, vec!["0x29".to_string()]);
-        let c = o.apply(&DetectConfig::default());
+        let c = o.apply(&DetectConfig::default(), 0);
         assert_eq!(c.ot_watches.len(), 1, "the watches reach the detector");
         // an emptied list removes the exception; null too
         o.patch(&json!({"exceptions": {"new_device": []}})).unwrap();
@@ -862,7 +905,7 @@ mod tests {
         let many: Vec<Value> = (0..=MAX_WATCHES).map(|i| json!({"id": format!("w{i}"), "name": "n", "enabled": true, "proto": "any", "writes": true, "score": 5, "cooldown_minutes": 1})).collect();
         assert!(o.patch(&json!({"ot_watches": many})).is_err());
         // it all shows up in the description the console reads
-        let d = describe(&DetectConfig::default(), &o);
+        let d = describe(&DetectConfig::default(), &o, 0);
         assert!(d["ot_watches"].is_array() && d["exceptions"].is_object() && d["watch_protocols"].as_array().unwrap().len() > 5);
     }
 
@@ -931,7 +974,7 @@ mod tests {
         let mut o = Overrides::default();
         o.patch(&json!({"it_watches": [it_watch()]})).unwrap();
         assert_eq!(o.it_watches[0].name, "Guest VLAN to the office");
-        assert_eq!(o.apply(&DetectConfig::default()).it_watches.len(), 1);
+        assert_eq!(o.apply(&DetectConfig::default(), 0).it_watches.len(), 1);
         let before = o.clone();
         let mut dup = it_watch();
         dup.name = "again".into();
@@ -939,7 +982,7 @@ mod tests {
         assert!(o.patch(&json!({"it_watches": (0..31).map(|i| { let mut w = it_watch(); w.id = format!("w{i}"); w }).collect::<Vec<_>>()})).is_err());
         assert!(o.patch(&json!({"it_watches": "all"})).is_err());
         assert_eq!(o, before, "a refused change leaves everything as it was");
-        assert!(describe(&DetectConfig::default(), &o)["it_watches"].is_array());
+        assert!(describe(&DetectConfig::default(), &o, 0)["it_watches"].is_array());
     }
 
     #[test]
@@ -949,12 +992,12 @@ mod tests {
             "allowed_senders": [{"kind": "device", "value": "3"}], "score": 85, "cooldown_minutes": 30});
         o.patch(&json!({"ot_watches": [allow]})).unwrap();
         assert!(o.ot_watches[0].any_traffic && o.ot_watches[0].proto == "opcua-tls");
-        assert_eq!(o.apply(&DetectConfig::default()).ot_watches.len(), 1);
+        assert_eq!(o.apply(&DetectConfig::default(), 0).ot_watches.len(), 1);
         // nothing to match at all is still refused, and an unknown protocol too
         let none = json!({"id": "a2", "name": "n", "enabled": true, "proto": "any", "score": 50, "cooldown_minutes": 5});
         assert!(o.patch(&json!({"ot_watches": [none]})).is_err());
         let bad = json!({"id": "a3", "name": "n", "enabled": true, "proto": "ssl", "any_traffic": true, "score": 50, "cooldown_minutes": 5});
         assert!(o.patch(&json!({"ot_watches": [bad]})).is_err());
-        assert!(describe(&DetectConfig::default(), &o)["watch_protocols"].as_array().unwrap().iter().any(|p| p == "modbus-tls"));
+        assert!(describe(&DetectConfig::default(), &o, 0)["watch_protocols"].as_array().unwrap().iter().any(|p| p == "modbus-tls"));
     }
 }

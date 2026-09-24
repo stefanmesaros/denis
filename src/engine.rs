@@ -278,6 +278,11 @@ impl Shared {
         *self.tls.lock().unwrap_or_else(|e| e.into_inner()) = Some(h);
     }
 
+    #[cfg(test)]
+    pub fn set_updater_for_test(&self, u: Arc<crate::update::Updater>) {
+        *self.updater.lock().unwrap_or_else(|e| e.into_inner()) = Some(u);
+    }
+
     /// The updater, when this process runs one.
     pub fn updater(&self) -> Option<Arc<crate::update::Updater>> {
         self.updater.lock().unwrap_or_else(|e| e.into_inner()).clone()
@@ -611,15 +616,21 @@ fn refresh_threat_list(path: &std::path::Path, last: &mut Option<std::time::Syst
 
 /// Pick up rule settings an administrator saved in the portal: if the stored
 /// value changed since `applied`, rebuild the configuration and hand it to the detector.
-fn refresh_rules(store: &dyn Store, base: &DetectConfig, det: &Mutex<Detector>, applied: &mut Option<Vec<u8>>) {
+/// `was_learning` remembers whether a restarted learning period was active last time this ran,
+/// so its natural expiry (nothing in the saved bytes changes when a clock just passes `until`)
+/// still gets picked up and reverted, instead of only reacting to an actual settings change.
+fn refresh_rules(store: &dyn Store, base: &DetectConfig, det: &Mutex<Detector>, applied: &mut Option<Vec<u8>>, was_learning: &mut bool) {
     let Ok(now_stored) = store.get_setting(crate::rules::KEY) else { return };
-    if now_stored == *applied {
+    let overrides = crate::rules::load(store).unwrap_or_default();
+    let now = now_ts();
+    let learning_active = overrides.learning_override.as_ref().is_some_and(|lo| lo.active(now));
+    if now_stored == *applied && learning_active == *was_learning {
         return;
     }
-    let overrides = crate::rules::load(store).unwrap_or_default();
-    det.lock().unwrap().set_config(overrides.apply(base));
+    det.lock().unwrap().set_config(overrides.apply(base, now));
     tracing::info!("detection rules updated from the portal");
     *applied = now_stored;
+    *was_learning = learning_active;
 }
 
 /// The one-time administrator password, shown on this terminal only.
@@ -794,7 +805,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     let base_detect = detect_cfg.clone();
     // settings saved in the portal apply from the very first event
     let saved_rules = store.get_setting(crate::rules::KEY)?;
-    let detect_cfg = crate::rules::load(&*store)?.apply(&detect_cfg);
+    let detect_cfg = crate::rules::load(&*store)?.apply(&detect_cfg, now);
     let mut det = Detector::new(detect_cfg, store.load_baselines()?, now);
     let mut threat_mtime = None;
     if let Some(path) = &cfg.threat_list {
@@ -962,10 +973,11 @@ pub async fn run(mut cfg: Config) -> Result<()> {
         let mut tick = tokio::time::interval(Duration::from_secs(5));
         let mut n = 0u64;
         let mut applied_rules = saved_rules;
+        let mut was_learning = false;
         loop {
             tick.tick().await;
             n += 1;
-            refresh_rules(&*s, &base_detect, &d, &mut applied_rules);
+            refresh_rules(&*s, &base_detect, &d, &mut applied_rules, &mut was_learning);
             if n.is_multiple_of(12) {
                 if let Some(p) = &threat_path {
                     refresh_threat_list(p, &mut threat_mtime, &d);
@@ -1389,19 +1401,43 @@ mod tests {
         let base = DetectConfig::default();
         let det = Mutex::new(Detector::new(base.clone(), vec![], 0));
         let mut applied = None;
-        refresh_rules(&store, &base, &det, &mut applied);
+        let mut was_learning = false;
+        refresh_rules(&store, &base, &det, &mut applied, &mut was_learning);
         assert_eq!(det.lock().unwrap().config().min_score, 30, "nothing saved: unchanged");
         let mut o = crate::rules::Overrides::default();
         o.patch(&serde_json::json!({"min_score": 60, "weights": {"new_device": 0}})).unwrap();
         crate::rules::save(&store, &o, 1).unwrap();
-        refresh_rules(&store, &base, &det, &mut applied);
+        refresh_rules(&store, &base, &det, &mut applied, &mut was_learning);
         assert_eq!(det.lock().unwrap().config().min_score, 60);
         assert_eq!(det.lock().unwrap().config().weights["new_device"], 0.0);
         // reset: back to the base
         crate::rules::save(&store, &crate::rules::Overrides::default(), 2).unwrap();
-        refresh_rules(&store, &base, &det, &mut applied);
+        refresh_rules(&store, &base, &det, &mut applied, &mut was_learning);
         assert_eq!(det.lock().unwrap().config().min_score, 30);
         assert!(!det.lock().unwrap().config().weights.contains_key("new_device"));
+    }
+
+    #[test]
+    fn a_restarted_learning_period_reaches_the_running_detector() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let base = DetectConfig::default();
+        let det = Mutex::new(Detector::new(base.clone(), vec![], 0));
+        let mut applied = None;
+        let mut was_learning = false;
+        // comfortably in the future: `refresh_rules` judges "active" against the real clock
+        let o = crate::rules::Overrides {
+            learning_override: Some(crate::rules::LearningOverride { until: now_ts() + 3600, paused_at: None }),
+            ..Default::default()
+        };
+        crate::rules::save(&store, &o, 1).unwrap();
+        refresh_rules(&store, &base, &det, &mut applied, &mut was_learning);
+        assert_eq!(det.lock().unwrap().config().min_score, 101, "nothing can alert while it is active");
+        assert!(was_learning);
+        // ending it early (an ordinary settings change) is picked up the same way as any other
+        crate::rules::save(&store, &crate::rules::Overrides::default(), 2).unwrap();
+        refresh_rules(&store, &base, &det, &mut applied, &mut was_learning);
+        assert_eq!(det.lock().unwrap().config().min_score, 30);
+        assert!(!was_learning);
     }
 
     #[test]

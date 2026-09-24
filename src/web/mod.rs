@@ -98,6 +98,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/tls/certificate", post(admin::tls_upload).delete(admin::tls_reset))
         .route("/tls/ca.pem", get(admin::tls_ca))
         .route("/api/update", get(admin::update_get))
+        .route("/api/system/restart", post(admin::system_restart))
+        .route("/api/system/shutdown", post(admin::system_shutdown))
         .route("/api/update/check", post(admin::update_check))
         .route("/api/update/install", post(admin::update_install))
         .route("/api/update/snooze", post(admin::update_snooze))
@@ -134,6 +136,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/risk-acceptances", get(admin::risk_list).post(admin::risk_accept))
         .route("/api/risk-acceptances/{id}", delete(admin::risk_revoke))
         .route("/api/rules", get(admin::rules_get).put(admin::rules_put).delete(admin::rules_reset))
+        .route("/api/rules/export", get(admin::rules_export))
+        .route("/api/learning/start", post(admin::learning_start))
+        .route("/api/learning/pause", post(admin::learning_pause))
+        .route("/api/learning/resume", post(admin::learning_resume))
+        .route("/api/learning/end", post(admin::learning_end))
         .route("/api/assets", get(assets).post(admin::create_asset))
         .route("/api/assets/import", post(admin::import_assets))
         .route("/api/assets/review", post(admin::review_assets))
@@ -173,6 +180,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/license", get(admin::license_get).put(admin::license_put).delete(admin::license_delete))
         .route("/api/msp-overview", put(admin::msp_overview_put))
         .route("/api/interfaces", get(admin::interfaces_get).put(admin::interfaces_put))
+        .route("/api/interfaces/deconfigure-ip", post(admin::interfaces_deconfigure_ip))
         .route("/api/branding/logo", axum::routing::put(admin::logo_put).delete(admin::logo_delete).layer(DefaultBodyLimit::max(crate::branding::MAX_LOGO_BYTES + 1024)))
         .route("/branding/logo", get(admin::logo_get))
         .fallback(static_file)
@@ -202,7 +210,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -450,7 +458,7 @@ async fn assets(State(st): State<AppState>, Extension(AuthUser(me)): Extension<A
 }
 
 /// Standing weaknesses and housekeeping problems, with what to do about each.
-async fn findings(State(st): State<AppState>) -> Result<Json<Vec<crate::findings::Finding>>, ApiError> {
+async fn findings(State(st): State<AppState>) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     let now = now_ts();
     let (mut list, metas) = blocking(&st.store, |s| Ok((s.load_assets()?, s.load_all_meta()?))).await?;
     // the same corrections the asset list applies, so both views agree
@@ -461,7 +469,27 @@ async fn findings(State(st): State<AppState>) -> Result<Json<Vec<crate::findings
     }
     let acceptances = blocking(&st.store, |s| s.list_risk_acceptances()).await?;
     // what is still open: a decision to live with a risk takes that device out of the finding
-    Ok(Json(crate::findings::apply_acceptances(crate::findings::compute(&list, &metas, now), &acceptances, now).0))
+    let open = crate::findings::apply_acceptances(crate::findings::compute(&list, &metas, now), &acceptances, now).0;
+    // "since when": findings are recomputed fresh every time, so the first-seen date per kind
+    // is tracked separately, here, rather than on `Finding` itself.
+    let mut seen = blocking(&st.store, |s| crate::findings::load_first_seen(s)).await?;
+    let mut changed = false;
+    let out: Vec<serde_json::Value> = open
+        .iter()
+        .map(|f| {
+            let ts = *seen.entry(f.id.to_string()).or_insert_with(|| {
+                changed = true;
+                now
+            });
+            let mut v = serde_json::to_value(f).unwrap_or_default();
+            v["first_seen"] = serde_json::json!(ts);
+            v
+        })
+        .collect();
+    if changed {
+        blocking(&st.store, move |s| crate::findings::save_first_seen(s, &seen, now)).await?;
+    }
+    Ok(Json(out))
 }
 
 async fn asset(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
@@ -1175,6 +1203,18 @@ mod tests {
 
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
         assert!(audit.contains("interfaces.set"), "{audit}");
+    }
+
+    #[tokio::test]
+    async fn removing_a_mirror_interfaces_address_only_ever_touches_one_this_process_is_actually_mirroring() {
+        let (app, _, [viewer, editor, admin]) = secured().await;
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("POST", "/api/interfaces/deconfigure-ip", Some(c), Some(serde_json::json!({"name": "eth0"})))).await.0, StatusCode::FORBIDDEN);
+        }
+        // this test's `shared` is configured (in test_shared) with no mirror interfaces at all,
+        // so an admin naming any interface — real or not — is refused, never acted on blind
+        let (st, ..) = send(&app, req("POST", "/api/interfaces/deconfigure-ip", Some(&admin), Some(serde_json::json!({"name": "eth0"})))).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
@@ -2025,6 +2065,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rules_can_be_exported_and_the_export_re_imports_unchanged() {
+        let (app, store, [viewer, _editor, admin]) = secured().await;
+        let patch = serde_json::json!({"min_score": 60, "weights": {"new_device": 0.5},
+            "exceptions": {"new_device": [{"kind": "type", "value": "printer"}]}});
+        assert_eq!(send(&app, req("PUT", "/api/rules", Some(&admin), Some(patch))).await.0, StatusCode::OK);
+        // anyone signed in can read the raw settings back out, as a file to keep
+        let resp = app.clone().oneshot(req("GET", "/api/rules/export", Some(&viewer), None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers()[header::CONTENT_DISPOSITION].to_str().unwrap().contains("denis-rules.json"));
+        let body = axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        let exported: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(exported["min_score"], 60);
+        assert_eq!(exported["exceptions"]["new_device"][0]["value"], "printer");
+        // reset, then feed the exported file straight back in as a PUT: it is a valid patch body
+        assert_eq!(send(&app, req("DELETE", "/api/rules", Some(&admin), None)).await.0, StatusCode::OK);
+        assert_eq!(crate::rules::load(&*store).unwrap(), crate::rules::Overrides::default());
+        let (st, _, v) = send(&app, req("PUT", "/api/rules", Some(&admin), Some(exported))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(crate::rules::load(&*store).unwrap().min_score, Some(60));
+        assert_eq!(crate::rules::load(&*store).unwrap().exceptions["new_device"][0].value, "printer");
+    }
+
+    #[tokio::test]
+    async fn a_restarted_learning_period_can_be_started_paused_resumed_and_ended_by_an_admin_only() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("POST", "/api/learning/start", Some(c), Some(serde_json::json!({"days": 3})))).await.0, StatusCode::FORBIDDEN);
+        }
+        // out of range is refused
+        for bad in [0, 8, -1] {
+            assert_eq!(send(&app, req("POST", "/api/learning/start", Some(&admin), Some(serde_json::json!({"days": bad})))).await.0, StatusCode::BAD_REQUEST);
+        }
+        assert_eq!(send(&app, req("POST", "/api/learning/pause", Some(&admin), None)).await.0, StatusCode::CONFLICT, "nothing running yet");
+        assert_eq!(send(&app, req("POST", "/api/learning/end", Some(&admin), None)).await.0, StatusCode::CONFLICT);
+
+        let (st, _, v) = send(&app, req("POST", "/api/learning/start", Some(&admin), Some(serde_json::json!({"days": 3})))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!((v["learning"]["active"].as_bool(), v["learning"]["paused"].as_bool()), (Some(true), Some(false)));
+        let saved = crate::rules::load(&*store).unwrap().learning_override.unwrap();
+        assert!(!saved.paused_at.is_some() && saved.until > now_ts() + 2 * 86_400, "3 days out");
+        // it took hold immediately: nothing can alert (an ordinary rules::apply check)
+        let base = crate::detect::DetectConfig::default();
+        assert_eq!(crate::rules::load(&*store).unwrap().apply(&base, now_ts()).min_score, 101);
+
+        assert_eq!(send(&app, req("POST", "/api/learning/pause", Some(&viewer), None)).await.0, StatusCode::FORBIDDEN);
+        let (st, _, v) = send(&app, req("POST", "/api/learning/pause", Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(v["learning"]["paused"].as_bool(), Some(true));
+        assert_eq!(send(&app, req("POST", "/api/learning/pause", Some(&admin), None)).await.0, StatusCode::CONFLICT, "already paused");
+        // still active (info-only) while paused, even though `until` itself does not move yet
+        assert_eq!(crate::rules::load(&*store).unwrap().apply(&base, now_ts()).min_score, 101);
+
+        assert_eq!(send(&app, req("POST", "/api/learning/resume", Some(&editor), None)).await.0, StatusCode::FORBIDDEN);
+        let before_until = crate::rules::load(&*store).unwrap().learning_override.unwrap().until;
+        let (st, _, v) = send(&app, req("POST", "/api/learning/resume", Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(v["learning"]["paused"].as_bool(), Some(false));
+        assert!(crate::rules::load(&*store).unwrap().learning_override.unwrap().until >= before_until, "paused time is added back, never lost");
+        assert_eq!(send(&app, req("POST", "/api/learning/resume", Some(&admin), None)).await.0, StatusCode::CONFLICT, "not paused");
+
+        let (st, _, v) = send(&app, req("POST", "/api/learning/end", Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(v["learning"], serde_json::Value::Null);
+        assert!(crate::rules::load(&*store).unwrap().learning_override.is_none());
+        assert_eq!(crate::rules::load(&*store).unwrap().apply(&base, now_ts()).min_score, 30, "back to normal immediately");
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("learning.start") && audit.contains("learning.pause") && audit.contains("learning.resume") && audit.contains("learning.end"), "{audit}");
+    }
+
+    #[tokio::test]
     async fn watches_exceptions_and_per_rule_minimums_round_trip_and_reach_the_detector_settings() {
         let (app, store, [viewer, _editor, admin]) = secured().await;
         let watch = serde_json::json!({"id": "w1", "name": "S7 stop", "enabled": true, "proto": "s7", "controls": true, "commands": ["PLC stop"],
@@ -2040,7 +2151,7 @@ mod tests {
         let np = v["rules"].as_array().unwrap().iter().find(|r| r["id"] == "new_port").unwrap().clone();
         assert_eq!(np["min_score"], 45);
         // the detector's settings carry the watch and the per-rule minimum
-        let cfg = crate::rules::load(&*store).unwrap().apply(&crate::detect::DetectConfig::default());
+        let cfg = crate::rules::load(&*store).unwrap().apply(&crate::detect::DetectConfig::default(), 0);
         assert_eq!((cfg.ot_watches.len(), cfg.rule_min_scores["new_port"]), (1, 45));
         // a bad watch is refused and nothing changes
         let bad = serde_json::json!({"ot_watches": [{"id": "x", "name": "n", "enabled": true, "proto": "s7", "score": 50, "cooldown_minutes": 5}]});
@@ -2333,7 +2444,7 @@ mod tests {
         let (_, _, v) = send(&app, req("GET", "/api/rules", Some(&viewer), None)).await;
         assert_eq!((v["it_watches"][0]["name"].as_str(), v["it_watches"][0]["remotes"][0].as_str()), (Some("Cameras stay home"), Some("public")));
         assert!(v["rules"].as_array().unwrap().iter().any(|r| r["id"] == "it_watch" && r["group"] == "network"), "the rule behind the watches is listed, so its weight can be turned down");
-        let cfg = crate::rules::load(&*store).unwrap().apply(&crate::detect::DetectConfig::default());
+        let cfg = crate::rules::load(&*store).unwrap().apply(&crate::detect::DetectConfig::default(), 0);
         assert_eq!(cfg.it_watches.len(), 1);
         // nonsense is refused and nothing changes
         for bad in [
@@ -2694,6 +2805,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn restart_and_shutdown_need_an_administrator_and_the_password_again() {
+        // no updater configured: told so plainly, not crashed on
+        let (app, _, [_, _, admin]) = secured().await;
+        assert_eq!(send(&app, req("POST", "/api/system/restart", Some(&admin), Some(serde_json::json!({"password": "a-long-passphrase-1"})))).await.0, StatusCode::BAD_REQUEST);
+
+        // wire one up, same as `run` does, but pointed at a fake exe path so a real
+        // restart never touches the process-wide flag from a test
+        let shared = crate::engine::test_shared();
+        let mut cfg = crate::update::UpdateConfig::new(Some(String::new()), false, std::path::PathBuf::new()).unwrap();
+        cfg.exe_path = Some(std::path::PathBuf::from("/nonexistent-test-exe"));
+        shared.set_updater_for_test(crate::update::Updater::new(cfg, Arc::new(SqliteStore::open_in_memory().unwrap())));
+        let (app, _store, [viewer, editor, admin]) = secured_with(shared).await;
+
+        for (m, u) in [("POST", "/api/system/restart"), ("POST", "/api/system/shutdown")] {
+            for c in [&viewer, &editor] {
+                assert_eq!(send(&app, req(m, u, Some(c), Some(serde_json::json!({"password": "a-long-passphrase-1"})))).await.0, StatusCode::FORBIDDEN, "{m} {u}");
+            }
+            let (st, ..) = send(&app, req(m, u, Some(&admin), Some(serde_json::json!({"password": "wrong password entirely"})))).await;
+            assert_eq!(st, StatusCode::UNAUTHORIZED, "{m} {u}: {st}");
+        }
+        // the administrator's real password, given again, is accepted
+        let (st, _, v) = send(&app, req("POST", "/api/system/restart", Some(&admin), Some(serde_json::json!({"password": "a-long-passphrase-1"})))).await;
+        assert_eq!((st, v["status"].as_str()), (StatusCode::OK, Some("restarting")));
+        assert!(!crate::update::restart_wanted(), "the fake exe_path keeps this out of the real process-wide flag");
+        let (st, _, v) = send(&app, req("POST", "/api/system/shutdown", Some(&admin), Some(serde_json::json!({"password": "a-long-passphrase-1"})))).await;
+        assert_eq!((st, v["status"].as_str()), (StatusCode::OK, Some("shutting down")));
+        assert!(send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string().contains("system.restart"));
+    }
+
+    #[tokio::test]
     async fn the_certificate_can_be_inspected_replaced_and_reset_only_by_admins_and_the_ca_is_public() {
         let dir = tempfile::tempdir().unwrap();
         let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
@@ -2782,6 +2923,27 @@ mod tests {
         // marking the device as spare takes it out of the list
         store.save_meta(cam.id, &crate::model::AssetMeta { status: Some("spare".into()), ..Default::default() }, "t", 1).unwrap();
         assert!(get_json(&app, "/api/findings", "localhost").await.1.as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_finding_carries_when_it_was_first_seen_and_that_date_does_not_move() {
+        let (app, store) = app(true);
+        let mut cam = Asset::new(Mac([2, 0, 0, 0, 0, 1]), 10);
+        cam.device_type = "camera".into();
+        cam.last_seen = now_ts();
+        cam.open_ports = vec![crate::model::OpenPort { port: 23, proto: "tcp".into(), service: None }];
+        store.save_asset(&mut cam).unwrap();
+        let (_, v) = get_json(&app, "/api/findings", "localhost").await;
+        let first = v[0]["first_seen"].as_i64().unwrap();
+        assert!(first > 0 && (now_ts() - first).abs() < 5, "recorded as of now, the first time it is seen");
+        // a second device with the same problem: the finding's own first_seen does not move
+        let mut cam2 = Asset::new(Mac([2, 0, 0, 0, 0, 2]), 10);
+        cam2.device_type = "camera".into();
+        cam2.last_seen = now_ts();
+        cam2.open_ports = cam.open_ports.clone();
+        store.save_asset(&mut cam2).unwrap();
+        let (_, v) = get_json(&app, "/api/findings", "localhost").await;
+        assert_eq!(v[0]["first_seen"].as_i64(), Some(first), "the same kind of finding keeps its original first_seen");
     }
 
     #[tokio::test]

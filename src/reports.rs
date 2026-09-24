@@ -156,7 +156,7 @@ pub fn compliance_now(store: &dyn Store, shared: &impl ReportStatus, now: i64) -
         }
     }
     let (open, accepted) = crate::findings::apply_acceptances(crate::findings::compute(&assets, &metas, now), &acceptances, now);
-    let eff = overrides.apply(&base);
+    let eff = overrides.apply(&base, now);
     let rules_enabled = crate::detect::RULES.iter().filter(|r| eff.weights.get(**r).copied().unwrap_or(1.0) > 0.0).count();
     let admins: Vec<&User> = users.iter().filter(|u| u.role == "admin" && !u.disabled).collect();
     let inputs = crate::compliance::Inputs {

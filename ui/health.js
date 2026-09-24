@@ -25,6 +25,15 @@ async function loadHealth() {
   $('health-warnings').replaceChildren(...(h.warnings.length
     ? h.warnings.map((w) => el('div', { class: 'banner-warn', text: tr(w.text, w.vars) }))
     : [el('p', { class: 'ok-text', text: tr('Everything looks fine.') })]));
+  $('mirror-ip-fix').replaceChildren(...(can('admin') ? h.mirror_ips.map(([name, ip]) => el('div', { class: 'row' },
+    el('span', { text: tr('{name}: {ip}', { name, ip }) + ' ' }),
+    el('button', { type: 'button', text: tr('Remove the address now'), onclick: async (ev) => {
+      if (!confirm(tr('Remove the IP address from {name} right now? If it comes from DHCP it may be reassigned — see the note above for the durable fix.', { name }))) return;
+      ev.target.disabled = true;
+      const r = await api('POST', '/api/interfaces/deconfigure-ip', { name });
+      if (!r.ok) { showMessage(tr('Remove the address'), el('p', { text: apiError(r) })); ev.target.disabled = false; return; }
+      loadHealth();
+    } }))) : []));
   const card = (title, big, small) => el('div', { class: 'measure' }, el('div', {}, el('b', { text: big }), ' ' + title), el('div', { class: 'muted small', text: small || '' }));
   const cards = [
     card(tr('Version'), h.version, tr('running for {span}', { span: span(h.uptime_secs) })),
