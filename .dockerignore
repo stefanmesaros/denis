@@ -1,0 +1,11 @@
+target/
+*.db
+*.db-wal
+*.db-shm
+.git/
+.github/
+docs/img/
+tls/
+backups/
+preview/
+node_modules/

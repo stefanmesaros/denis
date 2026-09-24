@@ -1,0 +1,60 @@
+# Two independent services -- pick one, do not run both against the same volume:
+#
+#   docker compose up demo       -- evaluation: the built-in demo data, no capture, bridge
+#                                    networking, nothing about your real network is touched.
+#   docker compose up -d denis   -- a real collector: needs the host's own network (see the
+#                                    "capture" comment below) and two Linux capabilities.
+#
+# See docs/docker.md for what each actually needs and what has (and has not) been verified.
+
+services:
+  demo:
+    build: .
+    image: denis:local
+    command: ["demo"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - denis-demo-data:/data
+    # The Dockerfile's own HEALTHCHECK (scheme-aware via DENIS_NO_TLS) applies here unchanged --
+    # an override was tried here and on "denis" below, hardcoding "http"/"https" respectively, and
+    # both were wrong the moment DENIS_NO_TLS's actual value differed from what each guessed.
+
+  denis:
+    build: .
+    image: denis:local
+    command: ["run"]
+    # A container's own bridge network is a different network namespace than the host's --
+    # capture would only ever see the container's own virtual interface, never the LAN a real
+    # collector needs to watch. `network_mode: host` shares the host's network stack instead (no
+    # port mapping needed or possible; the container listens on the host's own interfaces
+    # directly). This is a real trade-off, not a default to take lightly: the container loses
+    # network isolation from the host entirely.
+    network_mode: host
+    # root, plus CAP_NET_ADMIN (promiscuous mode) on top of Docker's own default capability set,
+    # which already includes CAP_NET_RAW (packet sockets/raw ICMP) -- listed anyway, for clarity,
+    # since adding an already-present capability is harmless. Far more scoped than `privileged:
+    # true` (no host devices, no CAP_SYS_ADMIN/CAP_SYS_MODULE, ...), but not as tightly scoped as
+    # dropping every other default capability too (CAP_DAC_OVERRIDE among them) -- tried that
+    # first (`cap_drop: [ALL]` + only NET_RAW/NET_ADMIN added back) and it broke even root's own
+    # ability to write to the data volume: the volume is first populated from the image's own
+    # /data directory, owned by the unprivileged `denis` user the image is non-root by default as
+    # (see Dockerfile), and CAP_DAC_OVERRIDE is exactly the capability that lets root bypass a
+    # file's own permissions -- drop it and root is just another uid facing the same permission
+    # check anyone else would. Confirmed by actually hitting "Permission denied" on `touch` as
+    # uid 0 with that capability dropped.
+    user: root
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    # With host networking the container sees the host's real interfaces and routing table, so
+    # auto-detection (the interface holding the default route) works the same way it does on a
+    # bare-metal install -- no --iface needed by default. To monitor a specific interface (or add
+    # a --mirror-iface for a SPAN/mirror port) instead, override the command, e.g.:
+    #   command: ["run", "--iface", "eth0"]
+    volumes:
+      - denis-data:/data
+
+volumes:
+  denis-demo-data:
+  denis-data:
