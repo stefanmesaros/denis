@@ -39,6 +39,7 @@ use crate::web_retention as retention_page;
 use crate::web_siem as siem_page;
 use crate::web_vuln as vuln_page;
 use crate::web_passkey as passkey;
+use crate::web_sso as sso_page;
 use crate::{report, trends};
 use crate::store::EventQuery;
 
@@ -110,6 +111,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/findings", get(findings))
         .route("/api/findings/{id}/verify", post(admin::finding_verify))
         .route("/api/siem", get(siem_page::get).put(siem_page::put))
+        .route("/api/sso", get(sso_page::get).put(sso_page::put))
+        .route("/api/auth/sso", get(sso_page::status))
+        .route("/api/auth/sso/login", get(sso_page::login))
+        .route("/api/auth/sso/callback", get(sso_page::callback))
         .route("/api/siem/test", post(siem_page::test))
         .route("/api/retention", get(retention_page::get).put(retention_page::put))
         .route("/api/vulndata", get(vuln_page::status).put(vuln_page::put))
@@ -193,7 +198,7 @@ pub fn router(state: AppState) -> Router {
 /// data), the login call and the liveness probe.
 fn is_public(method: &axum::http::Method, path: &str) -> bool {
     !(path.starts_with("/api/") || path.starts_with("/report") || path.starts_with("/docs") || path == "/metrics")
-        || matches!(path, "/api/auth/login" | "/api/health" | "/api/auth/methods" | "/api/auth/passkey/login/begin" | "/api/auth/passkey/login/finish" | "/api/auth/mfa")
+        || matches!(path, "/api/auth/login" | "/api/health" | "/api/auth/methods" | "/api/auth/passkey/login/begin" | "/api/auth/passkey/login/finish" | "/api/auth/mfa" | "/api/auth/sso" | "/api/auth/sso/login" | "/api/auth/sso/callback")
         // branding is read before anybody can sign in; changing it is admin-only
         || (path == "/api/branding" && method == axum::http::Method::GET)
         // a shared report link is the point of sharing it: no session, by a long random token
@@ -210,7 +215,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -1250,6 +1255,48 @@ mod tests {
 
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
         assert!(audit.contains("siem.settings") && audit.contains("siem.test"), "{audit}");
+    }
+
+    #[tokio::test]
+    async fn sso_is_off_by_default_configured_by_admins_only_and_never_echoes_the_secret() {
+        let (app, _store, [viewer, editor, admin]) = secured().await;
+
+        // signed out: the login page can tell there is nothing to offer yet
+        let (st, _, v) = send(&app, req("GET", "/api/auth/sso", None, None)).await;
+        assert_eq!((st, v["enabled"].as_bool()), (StatusCode::OK, Some(false)));
+
+        // any signed-in role can see the admin-facing config; the secret itself never comes back
+        let (st, _, v) = send(&app, req("GET", "/api/sso", Some(&viewer), None)).await;
+        assert_eq!((st, v["enabled"].as_bool(), v["secret_set"].as_bool(), v["client_secret"].as_str()), (StatusCode::OK, Some(false), Some(false), Some("")));
+
+        let body = serde_json::json!({"enabled": true, "issuer_url": "https://idp.example.com", "client_id": "abc", "client_secret": "s3cr3t", "button_label": "Sign in with Acme"});
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("PUT", "/api/sso", Some(c), Some(body.clone()))).await.0, StatusCode::FORBIDDEN);
+        }
+        // refused while incomplete (enabled with no client secret) and nothing is saved
+        let incomplete = serde_json::json!({"enabled": true, "issuer_url": "https://idp.example.com", "client_id": "abc", "client_secret": "", "button_label": ""});
+        assert_eq!(send(&app, req("PUT", "/api/sso", Some(&admin), Some(incomplete))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, req("GET", "/api/auth/sso", None, None)).await.2["enabled"], false);
+
+        let (st, _, v) = send(&app, req("PUT", "/api/sso", Some(&admin), Some(body))).await;
+        assert_eq!((st, v["enabled"].as_bool(), v["secret_set"].as_bool(), v["client_secret"].as_str()), (StatusCode::OK, Some(true), Some(true), Some("")), "{v}");
+        // now the signed-out login page offers it, with the administrator's own label
+        let (_, _, v) = send(&app, req("GET", "/api/auth/sso", None, None)).await;
+        assert_eq!((v["enabled"].as_bool(), v["button_label"].as_str()), (Some(true), Some("Sign in with Acme")));
+
+        // saving again with a blank secret keeps the one already stored, rather than clearing it
+        let keep_secret = serde_json::json!({"enabled": true, "issuer_url": "https://idp.example.com", "client_id": "abc", "client_secret": "", "button_label": "Sign in with Acme"});
+        assert_eq!(send(&app, req("PUT", "/api/sso", Some(&admin), Some(keep_secret))).await.2["secret_set"], true);
+
+        // starting a sign-in with a real (unreachable-in-tests) issuer fails cleanly, not a panic
+        let (st, ..) = send(&app, req("GET", "/api/auth/sso/login", None, None)).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST);
+        // a callback with no code/state at all is refused with a plain page, not a crash
+        let resp = app.clone().oneshot(req("GET", "/api/auth/sso/callback", None, None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("sso.update"), "{audit}");
     }
 
     #[tokio::test]

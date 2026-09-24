@@ -500,6 +500,32 @@ impl Auth {
         Ok((self.store.create_user(username, &hash_password(&pw)?, role, true, now)?, pw))
     }
 
+    /// Sign in via SSO: an existing local account whose username is this email is used as-is
+    /// (so moving an existing user to SSO needs nothing here); otherwise one is created, as a
+    /// `viewer` (an administrator raises it afterwards, same as any other account), with a
+    /// random password that is never revealed and never asked to be changed — no one signing in
+    /// this way ever has a usable local password. Returns the session, the user, and whether an
+    /// account was just created (so the caller can say so plainly instead of guessing from it).
+    pub fn sso_login(&self, email: &str, now: i64) -> Result<(String, User, bool), AuthError> {
+        let created = match self.store.find_user(email)? {
+            Some(rec) => {
+                if rec.user.disabled {
+                    return Err(AuthError::Invalid);
+                }
+                false
+            }
+            None => {
+                validate_username(email).map_err(AuthError::Rejected)?;
+                let pw = random_password()?;
+                self.store.create_user(email, &hash_password(&pw)?, "viewer", false, now)?;
+                true
+            }
+        };
+        let rec = self.store.find_user(email)?.ok_or(AuthError::Invalid)?;
+        let (token, user) = self.start_session_for(rec.user.id, now)?;
+        Ok((token, user, created))
+    }
+
     fn enabled_admins(&self) -> Result<usize> {
         Ok(self.store.list_users()?.iter().filter(|u| u.role == "admin" && !u.disabled).count())
     }
@@ -614,6 +640,28 @@ mod tests {
 
     fn admin_with(a: &Auth, pw: &str) -> User {
         a.store.create_user("admin", &hash_password(pw).unwrap(), "admin", false, 0).unwrap()
+    }
+
+    #[test]
+    fn sso_provisions_a_viewer_on_first_sign_in_and_reuses_an_existing_account_after() {
+        let a = auth();
+        let (token, user, created) = a.sso_login("new.person@example.com", 1).unwrap();
+        assert!(created && user.role == "viewer" && !user.must_change);
+        assert!(a.session_user(&token, 1).is_some(), "the session actually works");
+        // an SSO account has no password anyone can know or guess
+        assert!(a.login("new.person@example.com", "", 2).is_err());
+        // signing in again finds the same account, not a second one
+        let (_, user2, created2) = a.sso_login("new.person@example.com", 3).unwrap();
+        assert!(!created2 && user2.id == user.id);
+
+        // an existing local account with a matching username is used as-is (no new one made)
+        let existing = a.store.create_user("already.here@example.com", &hash_password("a-long-passphrase-1").unwrap(), "editor", false, 0).unwrap();
+        let (_, user3, created3) = a.sso_login("already.here@example.com", 4).unwrap();
+        assert!(!created3 && user3.id == existing.id && user3.role == "editor", "role is left alone, not reset to viewer");
+
+        // a disabled account, local or SSO-provisioned, cannot sign in either way
+        a.update_user(existing.id, None, Some(true)).unwrap();
+        assert!(a.sso_login("already.here@example.com", 5).is_err());
     }
 
     #[test]
