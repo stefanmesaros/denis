@@ -918,7 +918,7 @@ pub(crate) async fn maintenance_put(State(st): State<AppState>, Extension(AuthUs
 pub(crate) async fn rules_get(State(st): State<AppState>) -> Result<Json<Value>, ApiError> {
     let base = st.shared.detect_base().unwrap_or_default();
     let o = blocking(&st.store, |s| crate::rules::load(s)).await?;
-    Ok(Json(crate::rules::describe(&base, &o)))
+    Ok(Json(crate::rules::describe(&base, &o, now_ts())))
 }
 
 /// The raw overrides (weights, thresholds, exceptions, watches) as a file to save and
@@ -955,7 +955,7 @@ pub(crate) async fn rules_put(State(st): State<AppState>, Extension(AuthUser(me)
         Err(e) => err(StatusCode::BAD_REQUEST, e),
         Ok(o) => {
             audit(&st, &me.username, "rules.update", None, patch);
-            Json(crate::rules::describe(&base, &o)).into_response()
+            Json(crate::rules::describe(&base, &o, now_ts())).into_response()
         }
     })
 }
@@ -965,7 +965,103 @@ pub(crate) async fn rules_reset(State(st): State<AppState>, Extension(AuthUser(m
     let base = st.shared.detect_base().unwrap_or_default();
     blocking(&st.store, |s| crate::rules::save(s, &crate::rules::Overrides::default(), now_ts())).await?;
     audit(&st, &me.username, "rules.reset", None, json!({}));
-    Ok(Json(crate::rules::describe(&base, &crate::rules::Overrides::default())).into_response())
+    Ok(Json(crate::rules::describe(&base, &crate::rules::Overrides::default(), now_ts())).into_response())
+}
+
+// ------------------------------------------------------ restarted learning periods
+
+/// Load the overrides, let `f` change (or refuse to change) the learning override, and save
+/// if it agreed. `f`'s error is a plain sentence shown back as the reason it refused.
+async fn edit_learning(st: &AppState, f: impl FnOnce(&mut crate::rules::Overrides) -> Result<(), &'static str> + Send + 'static) -> Result<Result<crate::rules::Overrides, &'static str>, ApiError> {
+    blocking(&st.store, move |s| {
+        let mut o = crate::rules::load(s)?;
+        match f(&mut o) {
+            Ok(()) => {
+                crate::rules::save(s, &o, now_ts())?;
+                Ok(Ok(o))
+            }
+            Err(e) => Ok(Err(e)),
+        }
+    })
+    .await
+}
+
+async fn learning_response(st: &AppState, username: &str, action: &str, res: Result<crate::rules::Overrides, &'static str>) -> Result<Response, ApiError> {
+    let base = st.shared.detect_base().unwrap_or_default();
+    Ok(match res {
+        Ok(o) => {
+            audit(st, username, action, None, json!({}));
+            Json(crate::rules::describe(&base, &o, now_ts())).into_response()
+        }
+        Err(e) => err(StatusCode::CONFLICT, e),
+    })
+}
+
+#[derive(Deserialize)]
+pub struct LearningStartReq {
+    /// 1 to 7 days.
+    days: i64,
+}
+
+/// Restart network-wide learning for 1 to 7 days: while it runs, nothing anywhere raises an
+/// alert (every device is treated the way a brand new one already is) — for after a network
+/// change big enough that the existing baselines are no longer a fair comparison.
+pub(crate) async fn learning_start(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<LearningStartReq>) -> Result<Response, ApiError> {
+    if !(1..=7).contains(&b.days) {
+        return Ok(err(StatusCode::BAD_REQUEST, "choose between 1 and 7 days"));
+    }
+    let days = b.days;
+    let res = edit_learning(&st, move |o| {
+        o.learning_override = Some(crate::rules::LearningOverride { until: now_ts() + days * 86_400, paused_at: None });
+        Ok(())
+    })
+    .await?;
+    learning_response(&st, &me.username, "learning.start", res).await
+}
+
+/// Freeze the remaining time (does not count down while paused).
+pub(crate) async fn learning_pause(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Response, ApiError> {
+    let res = edit_learning(&st, |o| {
+        let now = now_ts();
+        match &mut o.learning_override {
+            Some(lo) if lo.active(now) && lo.paused_at.is_none() => {
+                lo.paused_at = Some(now);
+                Ok(())
+            }
+            Some(_) => Err("already paused, or already over"),
+            None => Err("no learning period is running"),
+        }
+    })
+    .await?;
+    learning_response(&st, &me.username, "learning.pause", res).await
+}
+
+/// Resume a paused learning period: the time it spent paused is added back, so the
+/// remaining time picks up where it left off instead of having quietly run out.
+pub(crate) async fn learning_resume(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Response, ApiError> {
+    let res = edit_learning(&st, |o| {
+        let now = now_ts();
+        match &mut o.learning_override {
+            Some(lo) if lo.paused_at.is_some() => {
+                let paused_at = lo.paused_at.take().unwrap();
+                lo.until += now - paused_at;
+                Ok(())
+            }
+            _ => Err("not paused"),
+        }
+    })
+    .await?;
+    learning_response(&st, &me.username, "learning.resume", res).await
+}
+
+/// End it now: back to ordinary, per-device judging immediately.
+pub(crate) async fn learning_end(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Response, ApiError> {
+    let res = edit_learning(&st, |o| match o.learning_override.take() {
+        Some(_) => Ok(()),
+        None => Err("no learning period is running"),
+    })
+    .await?;
+    learning_response(&st, &me.username, "learning.end", res).await
 }
 
 // ---------------------------------------------------------------- API tokens

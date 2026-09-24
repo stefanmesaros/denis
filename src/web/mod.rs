@@ -137,6 +137,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/risk-acceptances/{id}", delete(admin::risk_revoke))
         .route("/api/rules", get(admin::rules_get).put(admin::rules_put).delete(admin::rules_reset))
         .route("/api/rules/export", get(admin::rules_export))
+        .route("/api/learning/start", post(admin::learning_start))
+        .route("/api/learning/pause", post(admin::learning_pause))
+        .route("/api/learning/resume", post(admin::learning_resume))
+        .route("/api/learning/end", post(admin::learning_end))
         .route("/api/assets", get(assets).post(admin::create_asset))
         .route("/api/assets/import", post(admin::import_assets))
         .route("/api/assets/review", post(admin::review_assets))
@@ -206,7 +210,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -2084,6 +2088,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_restarted_learning_period_can_be_started_paused_resumed_and_ended_by_an_admin_only() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("POST", "/api/learning/start", Some(c), Some(serde_json::json!({"days": 3})))).await.0, StatusCode::FORBIDDEN);
+        }
+        // out of range is refused
+        for bad in [0, 8, -1] {
+            assert_eq!(send(&app, req("POST", "/api/learning/start", Some(&admin), Some(serde_json::json!({"days": bad})))).await.0, StatusCode::BAD_REQUEST);
+        }
+        assert_eq!(send(&app, req("POST", "/api/learning/pause", Some(&admin), None)).await.0, StatusCode::CONFLICT, "nothing running yet");
+        assert_eq!(send(&app, req("POST", "/api/learning/end", Some(&admin), None)).await.0, StatusCode::CONFLICT);
+
+        let (st, _, v) = send(&app, req("POST", "/api/learning/start", Some(&admin), Some(serde_json::json!({"days": 3})))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!((v["learning"]["active"].as_bool(), v["learning"]["paused"].as_bool()), (Some(true), Some(false)));
+        let saved = crate::rules::load(&*store).unwrap().learning_override.unwrap();
+        assert!(!saved.paused_at.is_some() && saved.until > now_ts() + 2 * 86_400, "3 days out");
+        // it took hold immediately: nothing can alert (an ordinary rules::apply check)
+        let base = crate::detect::DetectConfig::default();
+        assert_eq!(crate::rules::load(&*store).unwrap().apply(&base, now_ts()).min_score, 101);
+
+        assert_eq!(send(&app, req("POST", "/api/learning/pause", Some(&viewer), None)).await.0, StatusCode::FORBIDDEN);
+        let (st, _, v) = send(&app, req("POST", "/api/learning/pause", Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(v["learning"]["paused"].as_bool(), Some(true));
+        assert_eq!(send(&app, req("POST", "/api/learning/pause", Some(&admin), None)).await.0, StatusCode::CONFLICT, "already paused");
+        // still active (info-only) while paused, even though `until` itself does not move yet
+        assert_eq!(crate::rules::load(&*store).unwrap().apply(&base, now_ts()).min_score, 101);
+
+        assert_eq!(send(&app, req("POST", "/api/learning/resume", Some(&editor), None)).await.0, StatusCode::FORBIDDEN);
+        let before_until = crate::rules::load(&*store).unwrap().learning_override.unwrap().until;
+        let (st, _, v) = send(&app, req("POST", "/api/learning/resume", Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(v["learning"]["paused"].as_bool(), Some(false));
+        assert!(crate::rules::load(&*store).unwrap().learning_override.unwrap().until >= before_until, "paused time is added back, never lost");
+        assert_eq!(send(&app, req("POST", "/api/learning/resume", Some(&admin), None)).await.0, StatusCode::CONFLICT, "not paused");
+
+        let (st, _, v) = send(&app, req("POST", "/api/learning/end", Some(&admin), None)).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(v["learning"], serde_json::Value::Null);
+        assert!(crate::rules::load(&*store).unwrap().learning_override.is_none());
+        assert_eq!(crate::rules::load(&*store).unwrap().apply(&base, now_ts()).min_score, 30, "back to normal immediately");
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("learning.start") && audit.contains("learning.pause") && audit.contains("learning.resume") && audit.contains("learning.end"), "{audit}");
+    }
+
+    #[tokio::test]
     async fn watches_exceptions_and_per_rule_minimums_round_trip_and_reach_the_detector_settings() {
         let (app, store, [viewer, _editor, admin]) = secured().await;
         let watch = serde_json::json!({"id": "w1", "name": "S7 stop", "enabled": true, "proto": "s7", "controls": true, "commands": ["PLC stop"],
@@ -2099,7 +2151,7 @@ mod tests {
         let np = v["rules"].as_array().unwrap().iter().find(|r| r["id"] == "new_port").unwrap().clone();
         assert_eq!(np["min_score"], 45);
         // the detector's settings carry the watch and the per-rule minimum
-        let cfg = crate::rules::load(&*store).unwrap().apply(&crate::detect::DetectConfig::default());
+        let cfg = crate::rules::load(&*store).unwrap().apply(&crate::detect::DetectConfig::default(), 0);
         assert_eq!((cfg.ot_watches.len(), cfg.rule_min_scores["new_port"]), (1, 45));
         // a bad watch is refused and nothing changes
         let bad = serde_json::json!({"ot_watches": [{"id": "x", "name": "n", "enabled": true, "proto": "s7", "score": 50, "cooldown_minutes": 5}]});
@@ -2392,7 +2444,7 @@ mod tests {
         let (_, _, v) = send(&app, req("GET", "/api/rules", Some(&viewer), None)).await;
         assert_eq!((v["it_watches"][0]["name"].as_str(), v["it_watches"][0]["remotes"][0].as_str()), (Some("Cameras stay home"), Some("public")));
         assert!(v["rules"].as_array().unwrap().iter().any(|r| r["id"] == "it_watch" && r["group"] == "network"), "the rule behind the watches is listed, so its weight can be turned down");
-        let cfg = crate::rules::load(&*store).unwrap().apply(&crate::detect::DetectConfig::default());
+        let cfg = crate::rules::load(&*store).unwrap().apply(&crate::detect::DetectConfig::default(), 0);
         assert_eq!(cfg.it_watches.len(), 1);
         // nonsense is refused and nothing changes
         for bad in [
