@@ -188,6 +188,28 @@ $('rules-save').onclick = async () => {
   if (r.ok) loadRules();
 };
 
+// Export: the browser's normal download-a-link dance, so the file keeps its name and the
+// person is never navigated away from the console. Import reads the chosen file and PUTs it
+// as-is — it is already the exact shape /api/rules validates and applies (see rules_export).
+$('rules-export').onclick = () => el('a', { href: '/api/rules/export', download: 'denis-rules.json' }).click();
+$('rules-import').onclick = () => $('rules-import-file').click();
+$('rules-import-file').onchange = async (ev) => {
+  const file = ev.target.files[0];
+  ev.target.value = ''; // so choosing the same file again still fires onchange
+  if (!file) return;
+  let patch;
+  try {
+    patch = JSON.parse(await file.text());
+  } catch {
+    $('rules-status').textContent = tr('Not a valid rules file.');
+    return;
+  }
+  if (!confirm(tr('Import "{name}"? It replaces the settings it names (weights, thresholds, exceptions, watches) — anything not in the file is left as it is.', { name: file.name }))) return;
+  const r = await api('PUT', '/api/rules', patch);
+  $('rules-status').textContent = r.ok ? tr('Imported.') : apiError(r);
+  if (r.ok) loadRules();
+};
+
 $('rules-reset').onclick = async () => {
   if (!confirm(tr('Reset every weight, threshold and minimum score to its default? Your exceptions and OT watches are kept.'))) return;
   // null removes an override: send one for everything that is set

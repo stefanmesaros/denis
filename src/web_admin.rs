@@ -826,6 +826,21 @@ pub(crate) async fn rules_get(State(st): State<AppState>) -> Result<Json<Value>,
     Ok(Json(crate::rules::describe(&base, &o)))
 }
 
+/// The raw overrides (weights, thresholds, exceptions, watches) as a file to save and
+/// re-import elsewhere — handy with a large exceptions list. `PUT /api/rules` re-imports it
+/// unchanged: every field it names is applied exactly as `patch` already validates.
+pub(crate) async fn rules_export(State(st): State<AppState>) -> Result<Response, ApiError> {
+    let o = blocking(&st.store, |s| crate::rules::load(s)).await?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/json"),
+            (header::CONTENT_DISPOSITION, "attachment; filename=\"denis-rules.json\""),
+        ],
+        Json(o),
+    )
+        .into_response())
+}
+
 /// Change rule settings (admin). Takes effect within seconds, no restart.
 pub(crate) async fn rules_put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(patch): Json<Value>) -> Result<Response, ApiError> {
     let base = st.shared.detect_base().unwrap_or_default();

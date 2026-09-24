@@ -134,6 +134,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/risk-acceptances", get(admin::risk_list).post(admin::risk_accept))
         .route("/api/risk-acceptances/{id}", delete(admin::risk_revoke))
         .route("/api/rules", get(admin::rules_get).put(admin::rules_put).delete(admin::rules_reset))
+        .route("/api/rules/export", get(admin::rules_export))
         .route("/api/assets", get(assets).post(admin::create_asset))
         .route("/api/assets/import", post(admin::import_assets))
         .route("/api/assets/review", post(admin::review_assets))
@@ -2042,6 +2043,29 @@ mod tests {
         let (st, _, v) = send(&app, req("DELETE", "/api/rules", Some(&admin), None)).await;
         assert_eq!((st, v["any_override"].as_bool()), (StatusCode::OK, Some(false)));
         assert_eq!(v["min_score"]["value"], 30);
+    }
+
+    #[tokio::test]
+    async fn rules_can_be_exported_and_the_export_re_imports_unchanged() {
+        let (app, store, [viewer, _editor, admin]) = secured().await;
+        let patch = serde_json::json!({"min_score": 60, "weights": {"new_device": 0.5},
+            "exceptions": {"new_device": [{"kind": "type", "value": "printer"}]}});
+        assert_eq!(send(&app, req("PUT", "/api/rules", Some(&admin), Some(patch))).await.0, StatusCode::OK);
+        // anyone signed in can read the raw settings back out, as a file to keep
+        let resp = app.clone().oneshot(req("GET", "/api/rules/export", Some(&viewer), None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers()[header::CONTENT_DISPOSITION].to_str().unwrap().contains("denis-rules.json"));
+        let body = axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        let exported: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(exported["min_score"], 60);
+        assert_eq!(exported["exceptions"]["new_device"][0]["value"], "printer");
+        // reset, then feed the exported file straight back in as a PUT: it is a valid patch body
+        assert_eq!(send(&app, req("DELETE", "/api/rules", Some(&admin), None)).await.0, StatusCode::OK);
+        assert_eq!(crate::rules::load(&*store).unwrap(), crate::rules::Overrides::default());
+        let (st, _, v) = send(&app, req("PUT", "/api/rules", Some(&admin), Some(exported))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(crate::rules::load(&*store).unwrap().min_score, Some(60));
+        assert_eq!(crate::rules::load(&*store).unwrap().exceptions["new_device"][0].value, "printer");
     }
 
     #[tokio::test]

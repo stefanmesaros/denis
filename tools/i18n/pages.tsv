@@ -104,6 +104,8 @@ Every detection DENIS runs, and how it is set. Alerts are scored 0–100; anythi
 How each rule scores || Wie jede Regel bewertet || Comment chaque règle note || Cómo puntúa cada regla || Ako každé pravidlo hodnotí
 Save changes || Änderungen speichern || Enregistrer les modifications || Guardar cambios || Uložiť zmeny
 Reset everything to defaults || Alles auf Standard zurücksetzen || Tout rétablir par défaut || Restablecer todo a los valores predeterminados || Obnoviť všetko na predvolené
+Export as file || Als Datei exportieren || Exporter sous forme de fichier || Exportar como archivo || Exportovať ako súbor
+Import from file… || Aus Datei importieren … || Importer depuis un fichier… || Importar desde archivo… || Importovať zo súboru…
 Severity || Schweregrad || Gravité || Gravedad || Závažnosť
 Details || Details || Détails || Detalles || Podrobnosti
 ID || ID || ID || ID || ID

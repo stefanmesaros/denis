@@ -318,7 +318,7 @@
         <p class="muted">Every detection DENIS runs, and how it is set. Alerts are scored 0–100; anything below the minimum score is only logged. Turning a rule off, or its weight down, is safe: nothing is deleted. Changes apply within seconds and are written to the audit log. <a href="/docs/detection-rules" target="_blank" rel="noopener">How each rule scores</a></p>
         <div id="rules-global" class="rule-card"></div>
         <div id="rules-list"></div>
-        <div class="row" id="rules-actions" hidden><button id="rules-save" type="button" class="primary">Save changes</button><button id="rules-reset" type="button">Reset everything to defaults</button><span id="rules-status" class="muted"></span></div>
+        <div class="row" id="rules-actions" hidden><button id="rules-save" type="button" class="primary">Save changes</button><button id="rules-reset" type="button">Reset everything to defaults</button><button id="rules-export" type="button">Export as file</button><button id="rules-import" type="button">Import from file…</button><input id="rules-import-file" type="file" accept="application/json,.json" hidden><span id="rules-status" class="muted"></span></div>
       </section>
 
       <section id="view-events" hidden>
