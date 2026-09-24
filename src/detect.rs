@@ -99,6 +99,12 @@ const MAX_ARP_ALERTS_PER_WINDOW: usize = 5;
 /// Ports that carry so much ordinary traffic that "first time on 443" says nothing.
 const COMMON_PORTS: &[u16] = &[53, 80, 123, 443, 465, 587, 853, 993, 5228];
 
+/// Services that talk to a *different* server address by design (an NTP pool, a STUN
+/// server list) — a device using one will never stop generating "new destination"
+/// alerts if every one of those is treated as notable. `new_destination` still learns
+/// them normally, it just stops repeating the alert after `dest_port_churn_max` of them.
+const ROTATING_SERVICE_PORTS: &[u16] = &[123, 3478]; // NTP, STUN
+
 
 /// Volume statistics forget after roughly this many buckets (~1 day at 5 min).
 const VOLUME_WINDOW: u32 = 288;
@@ -131,6 +137,10 @@ pub struct DetectConfig {
     /// some conversations (a P2P/relay service handing out a fresh port per session) never
     /// settle into "an established set of ports", and repeating the alert forever adds nothing.
     pub port_churn_max: u32,
+    /// `new_destination`: after this many separate new-destination alerts on the same
+    /// `ROTATING_SERVICE_PORTS` port (NTP, STUN), stop — the server address always changes,
+    /// so "first contact" is never actually notable there.
+    pub dest_port_churn_max: u32,
     /// `unusual_hours`: observe a device this long before judging its daily pattern.
     pub hours_learning_secs: i64,
     pub hours_min_buckets: u32,
@@ -187,6 +197,7 @@ impl Default for DetectConfig {
             max_destinations: 2000,
             port_min_baseline: 3,
             port_churn_max: 3,
+            dest_port_churn_max: 3,
             hours_learning_secs: 7 * 24 * 3600,
             hours_min_buckets: 200,
             hours_max_share: 0.02,
@@ -582,9 +593,14 @@ impl Detector {
             let mature = r.window_start - b.observed_since >= self.cfg.learning_secs;
             let dest_known = b.typical_destinations.contains_key(&key);
             let mut churned_port = false;
-            if mature && !dest_known {
+            let rotating = ROTATING_SERVICE_PORTS.contains(&r.port);
+            let dest_churn = b.destination_port_churn.get(&port_key).copied().unwrap_or(0);
+            if mature && !dest_known && !(rotating && dest_churn >= self.cfg.dest_port_churn_max) {
                 let (raw, why) = score_new_destination(b, &self.global_dests, asset_id, r);
                 fresh.push((raw, why, r));
+                if rotating {
+                    *b.destination_port_churn.entry(port_key.clone()).or_default() += 1;
+                }
             } else if mature
                 && !b.typical_ports.contains_key(&port_key)
                 && b.typical_ports.len() >= self.cfg.port_min_baseline
@@ -1968,6 +1984,31 @@ mod tests {
         // A genuinely new port towards a *different*, well-behaved destination still alerts.
         let ev = d.ingest_flows(None, &[flow(MAC, [2, 2, 2, 2], 22, 1, 2600)], &s, 2610);
         assert_eq!(kinds(&ev), [(RULE_NEW_DESTINATION, 65)]); // new destination, not new_port
+    }
+
+    #[test]
+    fn ntp_style_destinations_that_keep_rotating_stop_alerting_after_a_few() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let mut d = Detector::new(cfg(), vec![], 0);
+        established(&s, &mut d);
+        fn ntp(remote: [u8; 4], ts: i64) -> FlowRecord {
+            FlowRecord { mac: MAC, remote: Ipv4Addr::from(remote), proto: PROTO_UDP, port: 123, bytes_out: 1, bytes_in: 1, packets: 1, window_start: ts, window_secs: 10 }
+        }
+        // An NTP pool hands out a different server every time: the first `dest_port_churn_max`
+        // (default 3) still alert as "new destination"...
+        for (i, ip) in [[10, 1, 0, 1], [20, 2, 0, 1], [30, 3, 0, 1]].into_iter().enumerate() {
+            let ts = 2000 + i as i64 * 100;
+            let ev = d.ingest_flows(None, &[ntp(ip, ts)], &s, ts + 10);
+            assert_eq!(kinds(&ev), [(RULE_NEW_DESTINATION, 50)], "alert #{i}");
+        }
+        // ...then DENIS gives up: the pool will never stop rotating addresses.
+        for (i, ip) in [[40, 4, 0, 1], [50, 5, 0, 1]].into_iter().enumerate() {
+            let ts = 2300 + i as i64 * 100;
+            assert!(d.ingest_flows(None, &[ntp(ip, ts)], &s, ts + 10).is_empty(), "ip #{i} should be suppressed");
+        }
+        // A genuinely new destination on an ordinary (non-rotating) service still alerts.
+        let ev = d.ingest_flows(None, &[flow(MAC, [9, 9, 9, 9], 443, 1, 2600)], &s, 2610);
+        assert_eq!(kinds(&ev), [(RULE_NEW_DESTINATION, 50)]);
     }
 
     #[test]

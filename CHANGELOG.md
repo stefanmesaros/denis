@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.2: `new_destination` no longer alerts forever on NTP/STUN's rotating server addresses
+
+* NTP (time sync) and STUN both contact a *different* server address on purpose (an NTP pool
+  rotates DNS answers; STUN server lists rotate too) — so `new_destination` alerted on "first
+  contact" again and again, forever, for any device that simply keeps its clock in sync. Now,
+  after a handful of these on the same service (tunable: Rules → New destination → "Stop
+  repeating after"), DENIS stops repeating it — the same treatment 2.0.1 gave the analogous
+  P2P/relay port problem, applied to the destination side.
+
 ## 2.0.1: `new_port` no longer alerts forever on a P2P/relay destination that hands out a new port every session
 
 * Some devices (several IP cameras were the case that surfaced this) talk to a cloud relay/P2P

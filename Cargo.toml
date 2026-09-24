@@ -1,6 +1,6 @@
 [package]
 name = "denis"
-version = "2.0.1"
+version = "2.0.2"
 edition = "2021"
 description = "DENIS: Device Enumeration & Network Inventory Security. Find every device on an IT or OT network, keep an editable asset register, and get alerted when behaviour changes."
 license-file = "LICENSE"

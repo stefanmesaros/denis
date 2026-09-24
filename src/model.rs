@@ -468,6 +468,10 @@ pub struct Baseline {
     pub observed_since: i64,
     pub buckets: u64,
     pub updated_at: i64,
+    /// `new_destination` alerts already raised per `proto/port`, for a service (NTP, STUN)
+    /// that talks to a different server address by design — see `dest_port_churn_max`.
+    #[serde(default)]
+    pub destination_port_churn: std::collections::BTreeMap<String, u32>,
 }
 
 impl Baseline {
@@ -481,6 +485,7 @@ impl Baseline {
             observed_since: now,
             buckets: 0,
             updated_at: now,
+            destination_port_churn: Default::default(),
         }
     }
 }
