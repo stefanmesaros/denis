@@ -15,7 +15,7 @@ Wants=network-online.target
 User=denis
 EnvironmentFile=/etc/denis/agent.env
 # Edit --master (the master's --ingest-listen address) and the id/name/site.
-ExecStart=/usr/local/bin/denis agent --master http://MASTER-HOST:8081 --id branch-1 --name "Branch office" --site Branch --flows --db /var/lib/denis-agent/agent.db
+ExecStart=/usr/local/lib/denis/denis agent --master http://MASTER-HOST:8081 --id branch-1 --name "Branch office" --site Branch --flows --db /var/lib/denis-agent/agent.db
 Restart=on-failure
 RestartSec=5
 StateDirectory=denis-agent

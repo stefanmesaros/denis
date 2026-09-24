@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.15.1: the console can update itself under the hardened systemd service
+
+* **Settings → Updates now actually works** for installations set up by `install.sh`. The program
+  moves from `/usr/local/bin/denis` (owned by root — unwritable by the `denis` service user, and
+  blocked again by `ProtectSystem=strict` even if it were not) to `/usr/local/lib/denis/denis`,
+  owned by the `denis` user, with `/usr/local/bin/denis` kept as a convenience symlink for
+  `denis backup`/`denis user reset`/etc. `ReadWritePaths=/usr/local/lib/denis` is the one exception
+  to the otherwise still fully read-only system. An installation from before this existed migrates
+  automatically the next time `sudo bash install.sh` is run (once, then every later update can be
+  the one-click kind).
+* An alert's **Acknowledge** and **Add exception** buttons no longer touch each other in the Alerts
+  table.
+
 ## 1.15.0: Telnet, MySQL/MariaDB, SMB and MSSQL banners
 
 Extends which services DENIS can read a product, version or build number from. Telnet and

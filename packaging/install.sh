@@ -11,7 +11,9 @@
 #   3. checks the Ed25519 signature on SHA256SUMS against the project's release key (built in below) and
 #      the program's SHA-256 against that signed list. Anything wrong: it stops before changing anything,
 #   4. installs the libpcap runtime library if it is missing,
-#   5. installs /usr/local/bin/denis, the "denis" service user, the systemd unit and /etc/denis/env,
+#   5. installs the program at /usr/local/lib/denis/denis (owned by the "denis" service user, so the
+#      console's own Settings -> Updates can update it later without root), a convenience symlink at
+#      /usr/local/bin/denis, the "denis" service user, the systemd unit and /etc/denis/env,
 #   6. picks a free port for the web console (8443, or the next free one; --port to choose),
 #   7. starts the service and tells you the address and the one-time administrator password.
 #
@@ -35,7 +37,9 @@ REPO="stefanmesaros/denis"
 # The Ed25519 public key release files are signed with (the same key is built into the program).
 RELEASE_PUBLIC_KEY_HEX="abe75462c8adfb1d4c5aa39d25e44377d00c77442f423c2f01cd51fec40e938e"
 MIN_VERSION="0.1.3"          # the first release this installer's service layout fits
-BIN=/usr/local/bin/denis
+LIBDIR=/usr/local/lib/denis  # owned by the service user, so it can update itself here (see below)
+BIN="$LIBDIR/denis"
+LINK=/usr/local/bin/denis    # a symlink to $BIN, for convenience (denis backup, denis user reset, ...)
 UNIT=/etc/systemd/system/denis.service
 ENVFILE=/etc/denis/env
 DATA=/var/lib/denis
@@ -80,7 +84,8 @@ port_in_use() {  # is something listening on TCP port $1?
 if [ "$UNINSTALL" = 1 ]; then
   say "Stopping and removing DENIS (data kept unless --purge)"
   systemctl disable --now denis 2>/dev/null || true
-  rm -f "$UNIT" "$BIN" "$BIN.previous"
+  rm -f "$UNIT" "$LINK" "$LINK.previous"
+  rm -rf "$LIBDIR"
   systemctl daemon-reload
   if [ "$PURGE" = 1 ]; then
     rm -rf "$DATA" /etc/denis
@@ -181,19 +186,36 @@ fi
 id "$SERVICE_USER" >/dev/null 2>&1 || { say "Creating the service user \"$SERVICE_USER\""; useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"; }
 
 UPGRADE=0
-if [ -x "$BIN" ]; then
+# An install from before this layout existed put the real binary straight at $LINK: a plain file
+# there (not a symlink) means this is one of those, and it is moved into $LIBDIR below so that, from
+# now on, the console's own Settings -> Updates can update it without root (ProtectSystem=strict
+# only allows writes under $LIBDIR, which is owned by the service user).
+OLD_LAYOUT=0
+[ -e "$LINK" ] && [ ! -L "$LINK" ] && OLD_LAYOUT=1
+CURRENT_BIN="$BIN"
+[ "$OLD_LAYOUT" = 1 ] && CURRENT_BIN="$LINK"
+if [ -x "$CURRENT_BIN" ]; then
   UPGRADE=1
   say "Existing installation found: updating (your data is backed up first)"
   systemctl stop denis 2>/dev/null || true
   if [ -f "$DATA/denis.db" ]; then
     mkdir -p "$DATA/backups" && chown "$SERVICE_USER" "$DATA/backups"
     B="$DATA/backups/denis-before-${VERSION#v}-$(date +%Y%m%d-%H%M%S).db"
-    runuser -u "$SERVICE_USER" -- "$BIN" backup --db "$DATA/denis.db" "$B" >/dev/null 2>&1 \
+    runuser -u "$SERVICE_USER" -- "$CURRENT_BIN" backup --db "$DATA/denis.db" "$B" >/dev/null 2>&1 \
       && say "Backup written to $B" || warn "could not back up the database with the old program; copy $DATA/denis.db yourself if it matters"
   fi
-  cp -p "$BIN" "$BIN.previous"
+  mkdir -p "$LIBDIR"
+  if [ "$OLD_LAYOUT" = 1 ]; then
+    say "Moving the program to $LIBDIR so it can update itself from the console from now on"
+    mv "$CURRENT_BIN" "$BIN.previous"
+  else
+    cp -p "$BIN" "$BIN.previous"
+  fi
 fi
+mkdir -p "$LIBDIR"  # a fresh install: $UPGRADE is 0, so the block above never ran
 install -m 755 "$TMP/denis-$TARGET" "$BIN"
+chown -R "$SERVICE_USER":"$SERVICE_USER" "$LIBDIR"
+ln -sf "$BIN" "$LINK"
 
 say "Writing the service ($UNIT)"
 # --- unit begin ---
@@ -210,7 +232,7 @@ StartLimitBurst=5
 User=denis
 Environment=DENIS_LISTEN=127.0.0.1:8080
 EnvironmentFile=-/etc/denis/env
-ExecStart=/usr/local/bin/denis run --db /var/lib/denis/denis.db
+ExecStart=/usr/local/lib/denis/denis run --db /var/lib/denis/denis.db
 Restart=on-failure
 RestartSec=5
 
@@ -223,6 +245,8 @@ AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 NoNewPrivileges=true
 ProtectSystem=strict
+# owned by the service user (see above): the one exception, so the program can update itself
+ReadWritePaths=/usr/local/lib/denis
 ProtectHome=true
 PrivateTmp=true
 ProtectKernelTunables=true

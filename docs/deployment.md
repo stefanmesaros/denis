@@ -37,9 +37,11 @@ Open the address in a browser. It warns once about the certificate (DENIS made i
 [HTTPS](#reaching-the-ui-securely-https-is-on-by-default) to trust or replace it), then sign in as `admin` with the
 one-time password and choose your own. Lost it? `sudo -u denis denis user reset admin --db /var/lib/denis/denis.db`.
 
-**What the installer changes**, and nothing else: `/usr/local/bin/denis`, the `denis` system user, the service
-`/etc/systemd/system/denis.service`, `/etc/denis/env` (your settings) and `/var/lib/denis` (the data). It does not
-touch firewalls or other services, and it never takes over a port that is in use.
+**What the installer changes**, and nothing else: the program at `/usr/local/lib/denis/denis` (owned by the `denis`
+user, so it can update itself later — see *Update* below) with a convenience symlink at `/usr/local/bin/denis`, the
+`denis` system user, the service `/etc/systemd/system/denis.service`, `/etc/denis/env` (your settings) and
+`/var/lib/denis` (the data). It does not touch firewalls or other services, and it never takes over a port that is
+in use.
 
 **Ports.** The console listens on **8443** on every address, or the next free port if that is taken (8080, the
 "usual" port, is often used by something else, so DENIS does not start there on a server). Choose yourself with
@@ -64,11 +66,15 @@ command that opens the port; it does not run it.
 `DENIS_LISTEN=0.0.0.0:9443`, `DENIS_TLS_NAMES=denis.example.lan`, `DENIS_WEBHOOK=…`, `DENIS_NO_UPDATE_CHECK=1`.
 The file is only readable by root.
 
-**Update.** Run the installer again (`sudo bash install.sh`, after downloading the newest one). It backs the
-database up to `/var/lib/denis/backups/`, replaces the program (keeping the old one as `/usr/local/bin/denis.previous`),
-keeps your settings and restarts. The console also tells administrators when a new version exists. It cannot install
-it itself under this service (the program folder is not writable by the service user; that is a safety choice), so
-the installer is the way.
+**Update.** The console tells administrators when a new version exists (Settings → Updates, or the banner under the
+header) and **installs it itself** with one click — no root needed, because `/usr/local/lib/denis` is owned by the
+`denis` user (`ReadWritePaths` is the one exception `ProtectSystem=strict` allows). It backs the database up to
+`/var/lib/denis/backups/` first and keeps the old program as `/usr/local/lib/denis/denis.previous`. Prefer to control
+it yourself, or air-gapped: run the installer again (`sudo bash install.sh`, after downloading the newest one) instead —
+same backup, same result. An installation from before this existed (the program straight at `/usr/local/bin/denis`,
+owned by root, not writable by the service user) needs `sudo bash install.sh` run **once** to move it into the new
+layout (it also updates the systemd unit's `ExecStart`/`ReadWritePaths`, which only root can do); every update after
+that can be the one-click kind.
 
 **If something is wrong.** `systemctl status denis` and `journalctl -u denis -n 30` say what happened. The usual one:
 
@@ -89,8 +95,10 @@ cd /tmp
 curl -fLO https://github.com/stefanmesaros/denis/releases/download/$V/denis-x86_64-unknown-linux-gnu
 curl -fLO https://github.com/stefanmesaros/denis/releases/download/$V/SHA256SUMS
 sha256sum -c --ignore-missing SHA256SUMS   # must say: denis-x86_64-unknown-linux-gnu: OK
-sudo install -m755 denis-x86_64-unknown-linux-gnu /usr/local/bin/denis
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin denis
+sudo install -d -o denis -g denis /usr/local/lib/denis
+sudo install -m755 -o denis -g denis denis-x86_64-unknown-linux-gnu /usr/local/lib/denis/denis
+sudo ln -sf /usr/local/lib/denis/denis /usr/local/bin/denis   # convenience: denis backup, denis user reset, ...
 sudo curl -fL -o /etc/systemd/system/denis.service https://raw.githubusercontent.com/stefanmesaros/denis/$V/packaging/denis.service
 sudo mkdir -p /etc/denis && sudo tee /etc/denis/env >/dev/null <<'EOF'
 DENIS_LISTEN=0.0.0.0:8443
@@ -105,7 +113,8 @@ sudo journalctl -u denis | grep -A4 "FIRST START"
 To check it yourself: the key is in `src/update_key.rs`, and `openssl pkeyutl -verify -rawin` verifies it.)
 
 Or **build from source** (needs [Rust](https://rustup.rs)): `sudo apt install build-essential libpcap-dev`,
-`cargo build --release`, `sudo install -m755 target/release/denis /usr/local/bin/denis`, then the service steps above.
+`cargo build --release`, `sudo install -m755 -o denis -g denis target/release/denis /usr/local/lib/denis/denis`
+(after the `useradd`/`install -d` steps above), then the service steps above.
 
 The service runs as the unprivileged `denis` user with only the capabilities packet capture needs
 (`CAP_NET_RAW`, `CAP_NET_ADMIN`; no `setcap` is needed) and keeps its data in `/var/lib/denis`. The unit's syntax is

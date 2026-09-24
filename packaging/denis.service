@@ -2,9 +2,13 @@
 #   systemd-analyze verify denis.service
 # Install:
 #   sudo useradd --system --no-create-home --shell /usr/sbin/nologin denis
-#   sudo install -m755 target/release/denis /usr/local/bin/denis
+#   sudo install -d -o denis -g denis /usr/local/lib/denis
+#   sudo install -m755 -o denis -g denis target/release/denis /usr/local/lib/denis/denis
+#   sudo ln -sf /usr/local/lib/denis/denis /usr/local/bin/denis   # convenience: denis backup, denis user reset, ...
 #   sudo cp packaging/denis.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now denis
+# /usr/local/lib/denis is owned by the denis user on purpose: with ReadWritePaths below, the console's
+# own Settings -> Updates can then update the program without root (install.sh's installs do this too).
 # The console uses HTTPS with a certificate DENIS creates (sign-in required). From your laptop either open
 # https://<server>:<port> (after DENIS_LISTEN=0.0.0.0:<port>), or tunnel:
 #   ssh -L 8080:localhost:8080 you@homeserver   then open https://localhost:8080
@@ -31,7 +35,7 @@ StartLimitBurst=5
 User=denis
 Environment=DENIS_LISTEN=127.0.0.1:8080
 EnvironmentFile=-/etc/denis/env
-ExecStart=/usr/local/bin/denis run --db /var/lib/denis/denis.db
+ExecStart=/usr/local/lib/denis/denis run --db /var/lib/denis/denis.db
 Restart=on-failure
 RestartSec=5
 
@@ -44,6 +48,8 @@ AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 NoNewPrivileges=true
 ProtectSystem=strict
+# owned by the service user (see above): the one exception, so the program can update itself
+ReadWritePaths=/usr/local/lib/denis
 ProtectHome=true
 PrivateTmp=true
 ProtectKernelTunables=true

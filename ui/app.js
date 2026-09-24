@@ -372,7 +372,7 @@ function renderAlerts() {
       el('td', { text: deviceLabel(a, '#' + e.asset_id) + site }),
       el('td', { class: 'wrap' }, el('div', { text: d.summary || '' }),
         (d.reasons || []).length ? el('div', { class: 'why', text: d.reasons.join(' · ') }) : null),
-      el('td', {}, el('button', {
+      el('td', { class: 'row-actions' }, el('button', {
         type: 'button', text: e.acked ? tr('Undo') : tr('Acknowledge'),
         onclick: (ev) => { ev.stopPropagation(); ack(e.id, !e.acked); },
       }), can('admin') ? el('button', {
