@@ -408,7 +408,14 @@ pub struct FlowRecord {
 pub struct DestStat {
     pub first_seen: i64,
     pub last_seen: i64,
+    /// `bytes_out + bytes_in` (kept for the device panel's "known destinations" list).
     pub bytes: u64,
+    /// The same total, split by direction (Settings → Trends → Top talkers). Added later than
+    /// `bytes`, so a record from an older version has zero here until it is next updated.
+    #[serde(default)]
+    pub bytes_out: u64,
+    #[serde(default)]
+    pub bytes_in: u64,
 }
 
 /// Exponentially-weighted mean/variance of outbound bytes per bucket.

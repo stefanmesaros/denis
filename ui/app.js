@@ -28,6 +28,7 @@ const can = (role) => !!(state.me && RANK[state.me.role] >= RANK[role]);
 const state = {
   assets: [], events: [], alerts: [], agents: [], status: null, me: null, options: null,
   tab: 'assets', sort: 'last_seen', asc: false, selected: null, groupBy: 'none',
+  alertSort: 'time', alertAsc: false,
   filters: { device_type: '', location: '', vendor: '', owner: '', os_guess: '' },
 };
 
@@ -359,7 +360,25 @@ const sevTag = (e) => el('span', { class: 'sev ' + e.severity, text: tr(e.severi
 
 function renderAlerts() {
   const showAcked = $('show-acked').checked;
-  const rows = state.alerts.filter((e) => showAcked || !e.acked);
+  let rows = state.alerts.filter((e) => showAcked || !e.acked);
+  const key = {
+    time: (e) => e.timestamp,
+    score: (e) => e.score,
+    type: (e) => e.type,
+    device: (e) => (deviceLabel(assetById(e.asset_id), '#' + e.asset_id) || '').toLowerCase(),
+    summary: (e) => ((e.raw_details || {}).summary || '').toLowerCase(),
+  }[state.alertSort];
+  if (key) {
+    rows = [...rows].sort((a, b) => {
+      const ka = key(a), kb = key(b);
+      const cmp = ka < kb ? -1 : ka > kb ? 1 : 0;
+      return state.alertAsc ? cmp : -cmp;
+    });
+  }
+  for (const th of $('alerts-table').tHead.rows[0].cells) {
+    th.classList.toggle('sorted', !!th.dataset.sort && th.dataset.sort === state.alertSort);
+    th.classList.toggle('asc', !!th.dataset.sort && th.dataset.sort === state.alertSort && state.alertAsc);
+  }
   const body = $('alerts-table').tBodies[0];
   body.replaceChildren(...rows.map((e) => {
     const a = assetById(e.asset_id);
@@ -394,7 +413,11 @@ function renderAlerts() {
 
   const s = state.status;
   const banner = $('learning');
-  if (s && s.learning_ends_at && s.learning_ends_at > s.now) {
+  // this banner is alerts-specific content, but it sits above the shared toolbar (not inside
+  // #view-alerts) so it can appear above the whole page instead of below the toolbar row
+  if (state.tab !== 'alerts') {
+    banner.hidden = true;
+  } else if (s && s.learning_ends_at && s.learning_ends_at > s.now) {
     banner.hidden = false;
     banner.textContent = tr('Learning: new devices and destinations are learned, not alerted on, for another {time}. Unusually large transfers are only flagged once a device has enough history.', { time: span(s.learning_ends_at - s.now) });
   } else if (s && s.mode !== 'agent' && s.mode !== 'viewer') {
@@ -927,6 +950,44 @@ function chart(title, big, points, key, kind, fmt) {
 
 const fmtBytes = (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : b >= 1e3 ? (b / 1e3).toFixed(0) + ' kB' : b + ' B');
 
+/**
+ * A "Top talkers" leaderboard: horizontal bars, longest first, each labelled with the device and
+ * an "×" to hide it from every leaderboard (persisted server-side, not just this browser — the
+ * point is to get the gateway/monitoring host out of the way for everyone who looks at this page).
+ * `talkers` already has the automatic gateway/self exclusion applied by the server; this only
+ * handles the administrator's own manual picks via `onExclude`.
+ */
+function talkersChart(title, talkers, key, onExclude) {
+  const top = talkers.filter((t) => t[key] > 0).sort((a, b) => b[key] - a[key]).slice(0, 8);
+  const max = Math.max(1, ...top.map((t) => t[key]));
+  const rows = top.map((t) => {
+    const a = assetById(t.asset_id);
+    return el('div', { class: 'talker-row' },
+      onExclude ? el('button', { type: 'button', class: 'talker-x', title: tr('Hide this device from Top talkers'), text: '×', onclick: () => onExclude(t.asset_id) }) : null,
+      el('div', { class: 'talker-label', text: deviceLabel(a, tr('device #{id}', { id: t.asset_id })) }),
+      el('div', { class: 'talker-bar-track' }, el('div', { class: 'talker-bar', style: `width:${(100 * t[key]) / max}%` })),
+      el('div', { class: 'talker-value', text: fmtBytes(t[key]) }));
+  });
+  return el('div', { class: 'chart talkers' }, el('h3', { text: title }),
+    rows.length ? el('div', { class: 'talker-rows' }, ...rows) : el('div', { class: 'muted', text: tr('No traffic recorded yet. Needs --flows.') }));
+}
+
+async function loadTopTalkers() {
+  let data;
+  try {
+    data = await apiFetch('/api/top-talkers').then((r) => r.json());
+  } catch (e) { return; }
+  const talkers = data.talkers || [];
+  const exclude = can('editor') ? async (id) => {
+    await api('PUT', '/api/top-talkers/excluded', { excluded: [...data.excluded, id] });
+    loadTopTalkers();
+  } : null;
+  $('top-talkers').replaceChildren(
+    talkersChart(tr('Most received'), talkers, 'bytes_in', exclude),
+    talkersChart(tr('Most sent'), talkers, 'bytes_out', exclude),
+    talkersChart(tr('Total traffic'), talkers.map((t) => ({ asset_id: t.asset_id, total: t.bytes_out + t.bytes_in })), 'total', exclude));
+}
+
 async function loadTrends() {
   const site = $('site').value;
   const agent = !site || site === '__all' ? '' : '&agent=' + encodeURIComponent(site === '__local' ? 'local' : site);
@@ -955,6 +1016,7 @@ async function loadTrends() {
     chart(tr('Total traffic'), fmtBytes(sum('bytes_out') + sum('bytes_in')), withNew, 'total_bytes', 'bars', fmtBytes),
     chart(tr('Alerts raised'), String(sum('alerts')), pts, 'alerts', 'bars', String));
   $('trends-note').textContent = pts.length ? tr('{n} points, {step} each.', { n: pts.length, step: span(data.step_secs) }) + (state.status && !state.status.flows_enabled ? ' ' + tr('Traffic is only counted with --flows.') : '') : '';
+  loadTopTalkers();
 }
 
 // ------------------------------------------------------------------ shell
@@ -1007,8 +1069,10 @@ function setTab(t) {
   $('exports-assets').hidden = t !== 'assets';
   $('exports-alerts').hidden = t !== 'alerts';
   $('acked-label').hidden = t !== 'alerts';
+  if (t !== 'alerts') $('learning').hidden = true; // renderAlerts() sets it back on the next refresh once alerts is active
   $('range').hidden = t !== 'trends';
   renderSiteFilter();
+  if (t === 'alerts') renderAlerts();
   if (t === 'overview') renderOverview();
   if (t === 'topology') { if (topoMode === 'physical') renderPhysical(); else renderTopology(); }
   if (t === 'trends') loadTrends();
@@ -1063,6 +1127,16 @@ for (const th of $('assets-table').tHead.rows[0].cells) {
     state.asc = state.sort === k ? !state.asc : k === 'ip' || k === 'name' || k === 'vendor' || k === 'site';
     state.sort = k;
     renderAssets();
+  };
+}
+for (const th of $('alerts-table').tHead.rows[0].cells) {
+  if (!th.dataset.sort) continue;
+  th.onclick = () => {
+    const k = th.dataset.sort;
+    // newest/highest first the first time a column is clicked; text columns start A-Z
+    state.alertAsc = state.alertSort === k ? !state.alertAsc : k === 'type' || k === 'device' || k === 'summary';
+    state.alertSort = k;
+    renderAlerts();
   };
 }
 $('search').oninput = renderAssets;

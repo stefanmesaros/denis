@@ -244,7 +244,7 @@ pub fn load(store: &dyn Store, now: i64) -> Result<Loaded> {
     // ------------------------------------------------------------ a learned traffic baseline
     let mut base = Baseline::new(b.id("nas"), now - 10 * DAY);
     for (ip, bytes) in [("52.98.10.4", 812_000_000u64), ("142.250.74.14", 96_000_000), ("13.107.42.14", 45_000_000), ("17.253.144.10", 8_000_000)] {
-        base.typical_destinations.insert(ip.into(), DestStat { first_seen: now - 10 * DAY, last_seen: now - 600, bytes });
+        base.typical_destinations.insert(ip.into(), DestStat { first_seen: now - 10 * DAY, last_seen: now - 600, bytes, bytes_out: bytes * 8 / 10, bytes_in: bytes * 2 / 10 });
     }
     base.typical_ports = [("tcp/443".to_string(), 2600u64), ("udp/443".into(), 900), ("tcp/22".into(), 40)].into();
     base.volume = crate::model::VolumeStats { n: 288, mean: 4_200_000.0, var: (4_200_000.0f64 * 0.3).powi(2) };

@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.16.0: Top talkers leaderboards, and Alerts sorting/layout fixes
+
+* **Trends → Top talkers**: three leaderboards ("Most received", "Most sent", "Total traffic")
+  showing which devices have moved the most data, built from each device's existing traffic
+  baseline (`--flows`) rather than a new time series — a live snapshot, not a chart over time. The
+  gateway and this monitoring host are left out automatically, since they naturally funnel
+  everyone else's traffic and would otherwise dominate every list; click **×** on any device to
+  hide it from all three lists too (remembered server-side, not just in this browser).
+* The **Alerts table can now be sorted** by clicking Time, Score, Type, Device or What happened —
+  it was the one table on the console without this.
+* The **"Detecting…"/"Learning…" banner now sits at the top of the Alerts page**, above the
+  toolbar, and **Alerts CSV now sits next to the Columns button** instead of in a separate row —
+  both were awkwardly placed below other controls.
+* A rule's **Network/type/tag exceptions now render the same way as device exceptions** — one row
+  with a **×** to remove it at the start — instead of a small inline chip that read differently
+  from everything else in the same list.
+* The generated **HTTPS certificate's "Download the CA certificate" link is now a button** like
+  its neighbours, instead of a plain text link.
+
 ## 1.15.2: fixed a spacing regression that misaligned several button/label rows
 
 1.14.1 added extra vertical spacing between the unrelated blocks Settings and Health stack (a

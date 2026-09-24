@@ -1,9 +1,10 @@
 //! Historical trends: 5-minute samples of network health, and their
 //! downsampling for charts. Pure functions; the engine owns the schedule.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::model::{Asset, Event, Metric};
+use crate::model::{Asset, Baseline, Event, Metric};
+use crate::store::Store;
 
 pub const SAMPLE_SECS: i64 = 300;
 
@@ -108,6 +109,51 @@ pub fn downsample(samples: &[Metric], max_points: usize) -> (Vec<Point>, i64) {
     (pts, step)
 }
 
+// --------------------------------------------------------------------------------- top talkers
+
+/// One device's share of `top_talkers`: a live snapshot, not a time series.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct TopTalker {
+    pub asset_id: i64,
+    pub bytes_out: u64,
+    pub bytes_in: u64,
+}
+
+/// Every device's traffic so far, from its baseline (`--flows` only: without it every
+/// `typical_destinations` map is empty and this returns nothing). Unlike `Metric`/`Point`
+/// this is cumulative since each destination was first learned, not a period total — it is a
+/// leaderboard of who talks the most, not a chart of when. A device's own gateway and the
+/// monitoring host itself (`is_gateway`/`is_self`) are left out by default, since traffic
+/// naturally funnels through them and they would otherwise dominate every list; `excluded`
+/// (asset ids an administrator picked by hand) is removed the same way. Devices with no
+/// recorded traffic are dropped rather than shown as a zero-length bar.
+pub fn top_talkers(baselines: &[Baseline], assets: &[Asset], excluded: &HashSet<i64>) -> Vec<TopTalker> {
+    let auto_excluded: HashSet<i64> = assets.iter().filter(|a| a.is_gateway || a.is_self).map(|a| a.id).collect();
+    baselines
+        .iter()
+        .filter(|b| !auto_excluded.contains(&b.asset_id) && !excluded.contains(&b.asset_id))
+        .map(|b| {
+            let (bytes_out, bytes_in) = b.typical_destinations.values().fold((0u64, 0u64), |(o, i), d| (o + d.bytes_out, i + d.bytes_in));
+            TopTalker { asset_id: b.asset_id, bytes_out, bytes_in }
+        })
+        .filter(|t| t.bytes_out > 0 || t.bytes_in > 0)
+        .collect()
+}
+
+const TOP_TALKERS_EXCLUDED_KEY: &str = "top_talkers_excluded";
+
+/// Asset ids an administrator excluded from the Top talkers leaderboards by hand, on top of the
+/// automatic gateway/self exclusion `top_talkers` always applies.
+pub fn load_excluded(store: &dyn Store) -> anyhow::Result<HashSet<i64>> {
+    Ok(store.get_setting(TOP_TALKERS_EXCLUDED_KEY)?.and_then(|b| serde_json::from_slice::<Vec<i64>>(&b).ok()).unwrap_or_default().into_iter().collect())
+}
+
+pub fn save_excluded(store: &dyn Store, ids: &HashSet<i64>, now: i64) -> anyhow::Result<()> {
+    let mut list: Vec<i64> = ids.iter().copied().collect();
+    list.sort_unstable();
+    store.set_setting(TOP_TALKERS_EXCLUDED_KEY, &serde_json::to_vec(&list)?, now)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +218,63 @@ mod tests {
     #[test]
     fn empty_input_is_fine() {
         assert_eq!(downsample(&[], 50).0.len(), 0);
+    }
+
+    fn dest(bytes_out: u64, bytes_in: u64) -> crate::model::DestStat {
+        crate::model::DestStat { first_seen: 0, last_seen: 0, bytes: bytes_out + bytes_in, bytes_out, bytes_in }
+    }
+
+    fn baseline_with(asset_id: i64, dests: &[(&str, u64, u64)]) -> Baseline {
+        let mut b = Baseline::new(asset_id, 0);
+        for (ip, out, inb) in dests {
+            b.typical_destinations.insert((*ip).to_string(), dest(*out, *inb));
+        }
+        b
+    }
+
+    #[test]
+    fn top_talkers_sums_each_devices_destinations() {
+        let b = baseline_with(1, &[("1.1.1.1", 100, 10), ("2.2.2.2", 50, 5)]);
+        let a = asset(1, None, 0);
+        let out = top_talkers(&[b], &[a], &HashSet::new());
+        assert_eq!(out, vec![TopTalker { asset_id: 1, bytes_out: 150, bytes_in: 15 }]);
+    }
+
+    #[test]
+    fn top_talkers_leaves_out_gateway_self_and_hand_picked_devices() {
+        let mut gw = asset(1, None, 0);
+        gw.id = 1;
+        gw.is_gateway = true;
+        let mut me = asset(2, None, 0);
+        me.id = 2;
+        me.is_self = true;
+        let mut picked = asset(3, None, 0);
+        picked.id = 3;
+        let mut normal = asset(4, None, 0);
+        normal.id = 4;
+        let baselines = vec![
+            baseline_with(1, &[("1.1.1.1", 100, 0)]),
+            baseline_with(2, &[("1.1.1.1", 100, 0)]),
+            baseline_with(3, &[("1.1.1.1", 100, 0)]),
+            baseline_with(4, &[("1.1.1.1", 100, 0)]),
+        ];
+        let excluded = HashSet::from([3]);
+        let out = top_talkers(&baselines, &[gw, me, picked, normal], &excluded);
+        assert_eq!(out, vec![TopTalker { asset_id: 4, bytes_out: 100, bytes_in: 0 }]);
+    }
+
+    #[test]
+    fn top_talkers_drops_devices_with_no_recorded_traffic() {
+        let b = baseline_with(1, &[]);
+        let out = top_talkers(&[b], &[asset(1, None, 0)], &HashSet::new());
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn excluded_list_round_trips_through_settings() {
+        let store = crate::store::sqlite::SqliteStore::open_in_memory().unwrap();
+        assert!(load_excluded(&store).unwrap().is_empty());
+        save_excluded(&store, &HashSet::from([3, 1, 2]), 1).unwrap();
+        assert_eq!(load_excluded(&store).unwrap(), HashSet::from([1, 2, 3]));
     }
 }

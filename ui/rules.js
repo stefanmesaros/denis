@@ -79,7 +79,9 @@ function exceptionsEditor(list, onChange, editable) {
   const remove = (i) => onChange(list.filter((_, j) => j !== i));
   const rows = list.map((s, i) => {
     const removeBtn = editable ? el('button', { type: 'button', class: 'exception-remove', title: tr('Remove'), text: '×', onclick: () => remove(i) }) : null;
-    if (s.kind !== 'device') return el('span', { class: 'chip' }, scopeText(s), editable ? el('button', { type: 'button', class: 'chip-x', title: tr('Remove'), text: '×', onclick: () => remove(i) }) : null);
+    if (s.kind !== 'device') {
+      return el('div', { class: 'exception-row' }, removeBtn, el('div', { class: 'exception-row-body' }, el('div', {}, el('b', { text: scopeText(s) }))));
+    }
     const a = assetById(Number(s.value));
     return el('div', { class: 'exception-row' },
       removeBtn,

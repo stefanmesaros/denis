@@ -177,6 +177,13 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 .chart .bar { fill: var(--accent); }
 .chart .bar.alert { fill: #dc2626; }
 .chart .grid { stroke: var(--line); stroke-width: 1; }
+.talker-rows { margin-top: 8px; display: flex; flex-direction: column; gap: 7px; }
+.talker-row { display: grid; grid-template-columns: auto minmax(0, 1fr) 2fr auto; align-items: center; gap: 8px; }
+.talker-x { flex: none; width: 20px; height: 20px; line-height: 1; padding: 0; border-radius: 50%; }
+.talker-label { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.talker-bar-track { background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 4px; height: 10px; overflow: hidden; }
+.talker-bar { background: var(--accent); height: 100%; border-radius: 4px; }
+.talker-value { font-size: 12px; color: var(--muted); white-space: nowrap; text-align: right; }
 
 /* ------------------------------------------------------------- brand, login */
 .brand { display: flex; align-items: center; gap: 8px; }

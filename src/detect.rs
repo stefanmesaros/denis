@@ -594,9 +594,13 @@ impl Detector {
                 first_seen: r.window_start,
                 last_seen: r.window_start,
                 bytes: 0,
+                bytes_out: 0,
+                bytes_in: 0,
             });
             e.last_seen = e.last_seen.max(r.window_start);
             e.bytes += r.bytes_out + r.bytes_in;
+            e.bytes_out += r.bytes_out;
+            e.bytes_in += r.bytes_in;
             *b.typical_ports.entry(port_key).or_default() += 1;
             self.global_dests.entry(r.remote).or_default().insert(asset_id);
 

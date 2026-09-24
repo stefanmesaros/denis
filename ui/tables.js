@@ -172,8 +172,13 @@ function enhanceTable(table) {
   // (the path is taken when the click happens: a button that redrew the menu is no longer inside it afterwards)
   document.addEventListener('click', (ev) => { if (!menu.hidden && !ev.composedPath().includes(menu)) menu.hidden = true; });
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') menu.hidden = true; });
-  const tools = el('div', { class: 'table-tools' }, button, menu);
-  wrap.parentNode.insertBefore(tools, wrap);
+  // a page can already have a `.table-tools` row right before the table (e.g. to hold its own
+  // export button) — share that row instead of stacking a second one, with the Columns button
+  // first so whatever else is in that row (an export link, say) reads as being to its right
+  const prev = wrap.previousElementSibling;
+  const tools = prev && prev.classList.contains('table-tools') ? prev : el('div', { class: 'table-tools' });
+  tools.prepend(button, menu);
+  if (!tools.parentNode) wrap.parentNode.insertBefore(tools, wrap);
   apply();
 }
 

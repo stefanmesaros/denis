@@ -147,6 +147,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/agents", get(agents))
         .route("/api/conversations", get(conversations))
         .route("/api/trends", get(trend_points))
+        .route("/api/top-talkers", get(top_talkers_get))
+        .route("/api/top-talkers/excluded", put(top_talkers_excluded_put))
         .route("/api/export/assets.csv", get(export_assets))
         .route("/api/export/alerts.csv", get(export_alerts))
         .route("/report", get(report_page))
@@ -653,6 +655,36 @@ async fn trend_points(State(st): State<AppState>, Extension(AuthUser(me)): Exten
     let samples = blocking(&st.store, move |s| s.list_metrics(now - hours * 3600, now + 1, agent.as_deref())).await?;
     let (points, step) = trends::downsample(&samples, 240);
     Ok(Json(serde_json::json!({ "hours": hours, "step_secs": step, "points": points })).into_response())
+}
+
+/// Who talked the most since their traffic baseline started (`--flows` only — `talkers` is empty
+/// without it): a live snapshot for "Most received / most sent / total" leaderboards, not a time
+/// series. `excluded` lists the asset ids an administrator picked by hand, on top of the automatic
+/// gateway/self exclusion, so the settings UI can show which devices are already hidden.
+async fn top_talkers_get(State(st): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+    let (talkers, excluded) = blocking(&st.store, |s| {
+        let baselines = s.load_baselines()?;
+        let assets = s.load_assets()?;
+        let excluded = trends::load_excluded(s)?;
+        let talkers = trends::top_talkers(&baselines, &assets, &excluded);
+        Ok((talkers, excluded))
+    })
+    .await?;
+    let mut excluded: Vec<i64> = excluded.into_iter().collect();
+    excluded.sort_unstable();
+    Ok(Json(serde_json::json!({ "talkers": talkers, "excluded": excluded })))
+}
+
+#[derive(Deserialize)]
+struct TopTalkersExcludedPut {
+    excluded: Vec<i64>,
+}
+
+async fn top_talkers_excluded_put(State(st): State<AppState>, Json(b): Json<TopTalkersExcludedPut>) -> Result<Response, ApiError> {
+    let now = now_ts();
+    let excluded: std::collections::HashSet<i64> = b.excluded.into_iter().collect();
+    blocking(&st.store, move |s| trends::save_excluded(s, &excluded, now)).await?;
+    Ok(Json(serde_json::json!({"ok": true})).into_response())
 }
 
 #[derive(Deserialize)]
@@ -1254,8 +1286,8 @@ mod tests {
         let (code, v) = get_json(&app, &format!("/api/assets/{}/baseline", a.id), "localhost").await;
         assert_eq!((code, v.is_null()), (StatusCode::OK, true));
         let mut b = Baseline::new(a.id, 1);
-        b.typical_destinations.insert("1.1.1.1".into(), DestStat { first_seen: 1, last_seen: 5, bytes: 9 });
-        b.typical_destinations.insert("2.2.2.2".into(), DestStat { first_seen: 1, last_seen: 50, bytes: 9 });
+        b.typical_destinations.insert("1.1.1.1".into(), DestStat { first_seen: 1, last_seen: 5, bytes: 9, bytes_out: 9, bytes_in: 0 });
+        b.typical_destinations.insert("2.2.2.2".into(), DestStat { first_seen: 1, last_seen: 50, bytes: 9, bytes_out: 9, bytes_in: 0 });
         store.save_baseline(&b).unwrap();
         let (code, v) = get_json(&app, &format!("/api/assets/{}/baseline", a.id), "localhost").await;
         assert_eq!((code, v["destinations"][0]["ip"].as_str(), v["destination_count"].as_i64()), (StatusCode::OK, Some("2.2.2.2"), Some(2)));
@@ -1328,6 +1360,44 @@ mod tests {
         // the normal UI keeps the strict default policy
         let idx = app.oneshot(req("/")).await.unwrap();
         assert!(idx.headers()[header::CONTENT_SECURITY_POLICY].to_str().unwrap().contains("default-src 'self'"));
+    }
+
+    #[tokio::test]
+    async fn top_talkers_leaves_out_the_gateway_and_a_hand_picked_device() {
+        use crate::model::{Baseline, DestStat};
+        let (app, store) = app(true);
+        let mut gw = Asset::new(Mac([0, 0, 0, 0, 0, 1]), 0);
+        gw.is_gateway = true;
+        store.save_asset(&mut gw).unwrap();
+        let mut noisy = Asset::new(Mac([0, 0, 0, 0, 0, 2]), 0);
+        store.save_asset(&mut noisy).unwrap();
+        let mut quiet = Asset::new(Mac([0, 0, 0, 0, 0, 3]), 0);
+        store.save_asset(&mut quiet).unwrap();
+        for (id, out) in [(gw.id, 900), (noisy.id, 500), (quiet.id, 10)] {
+            let mut b = Baseline::new(id, 1);
+            b.typical_destinations.insert("1.1.1.1".into(), DestStat { first_seen: 1, last_seen: 1, bytes: out, bytes_out: out, bytes_in: 0 });
+            store.save_baseline(&b).unwrap();
+        }
+
+        // before any manual exclusion: the gateway is already left out automatically
+        let (code, v) = get_json(&app, "/api/top-talkers", "localhost").await;
+        assert_eq!(code, StatusCode::OK);
+        let ids: Vec<i64> = v["talkers"].as_array().unwrap().iter().map(|t| t["asset_id"].as_i64().unwrap()).collect();
+        assert!(ids.contains(&noisy.id) && ids.contains(&quiet.id) && !ids.contains(&gw.id));
+        assert_eq!(v["excluded"], serde_json::json!([]));
+
+        // excluding "noisy" by hand removes it too, and the list is remembered
+        let put = axum::http::Request::put("/api/top-talkers/excluded")
+            .header("host", "localhost")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("x-denis", "1")
+            .body(Body::from(serde_json::json!({ "excluded": [noisy.id] }).to_string()))
+            .unwrap();
+        assert_eq!(app.clone().oneshot(put).await.unwrap().status(), StatusCode::OK);
+        let (_, v) = get_json(&app, "/api/top-talkers", "localhost").await;
+        let ids: Vec<i64> = v["talkers"].as_array().unwrap().iter().map(|t| t["asset_id"].as_i64().unwrap()).collect();
+        assert!(!ids.contains(&noisy.id) && ids.contains(&quiet.id));
+        assert_eq!(v["excluded"], serde_json::json!([noisy.id]));
     }
 
     // ------------------------------------------------------------ auth / RBAC

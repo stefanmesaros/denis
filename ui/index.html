@@ -71,6 +71,7 @@
         </nav>
       </aside>
       <div class="content">
+        <div id="learning" class="banner" hidden></div>
         <div class="toolbar">
           <input id="search" type="search" placeholder="Filter by IP, MAC, name, owner, serial, tag…" aria-label="Filter devices">
           <select id="site" aria-label="Filter by site" hidden></select>
@@ -95,9 +96,6 @@
             <button id="import-assets" type="button" hidden>Import CSV</button>
             <input id="import-file" type="file" accept=".csv,text/csv" hidden>
             <a id="export-assets" class="button" href="/api/export/assets.csv?days=7" download>Devices CSV</a>
-          </span>
-          <span class="exports" id="exports-alerts" hidden>
-            <a id="export-alerts" class="button" href="/api/export/alerts.csv?days=30" download>Alerts CSV</a>
           </span>
           <label class="check" id="online-label"><input id="only-online" type="checkbox"> online only</label>
           <label class="check" id="review-label"><input id="only-review" type="checkbox"> needs review <span id="review-count" class="muted"></span></label>
@@ -137,10 +135,14 @@
       </section>
 
       <section id="view-alerts" hidden>
-        <div id="learning" class="banner" hidden></div>
+        <div class="table-tools" id="alerts-tools">
+          <span class="exports" id="exports-alerts" hidden>
+            <a id="export-alerts" class="button" href="/api/export/alerts.csv?days=30" download>Alerts CSV</a>
+          </span>
+        </div>
         <div class="table-wrap">
           <table id="alerts-table">
-            <thead><tr><th>Time</th><th>Score</th><th>Type</th><th>Device</th><th>What happened</th><th></th></tr></thead>
+            <thead><tr><th data-sort="time">Time</th><th data-sort="score">Score</th><th data-sort="type">Type</th><th data-sort="device">Device</th><th data-sort="summary">What happened</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -178,6 +180,9 @@
       <section id="view-trends" hidden>
         <div id="trends" class="trends"></div>
         <p class="muted" id="trends-note"></p>
+        <h3 class="section">Top talkers</h3>
+        <p class="muted">Who has sent and received the most since their traffic baseline started — a live leaderboard, not a chart over time. The gateway and this monitoring host are left out automatically; click × on a device to hide it from these three lists too.</p>
+        <div id="top-talkers" class="trends"></div>
       </section>
 
       <section id="view-findings" hidden>
@@ -400,7 +405,7 @@
         <div id="tls-box" hidden>
           <h3 class="section">HTTPS certificate</h3>
           <div id="tls-status" class="muted"></div>
-          <div class="row"><a id="tls-ca" href="/tls/ca.pem" download="denis-local-ca.pem" hidden>Download the CA certificate</a><button id="tls-ca-copy" type="button" hidden>Copy for --master-ca-pem</button><button id="tls-replace" type="button">Use my own certificate…</button><button id="tls-reset" type="button" hidden>Go back to the generated certificate</button><span id="tls-msg" class="muted"></span></div>
+          <div class="row"><a id="tls-ca" class="button" href="/tls/ca.pem" download="denis-local-ca.pem" hidden>Download the CA certificate</a><button id="tls-ca-copy" type="button" hidden>Copy for --master-ca-pem</button><button id="tls-replace" type="button">Use my own certificate…</button><button id="tls-reset" type="button" hidden>Go back to the generated certificate</button><span id="tls-msg" class="muted"></span></div>
           <p id="tls-ca-copy-hint" class="muted small" hidden>For more than a couple of agents, this is usually simpler than copying the CA file to every machine: paste it as one value, e.g. DENIS_MASTER_CA_PEM, wherever you already push each agent's token.</p>
         </div>
         <div id="update-box" hidden>
