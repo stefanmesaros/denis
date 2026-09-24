@@ -1664,6 +1664,7 @@
 "{t} ago": "vor {t}",
 "{users} people can sign in.": "{users} Personen können sich anmelden.",
 "{vendor} has an open ICS-CERT advisory, {id} ({name}), published {date}.": "{vendor} hat eine offene ICS-CERT-Empfehlung, {id} ({name}), veröffentlicht am {date}.",
+"×{n}, recurring since {time}": "×{n}, wiederholt seit {time}",
 "×σ": "×σ",
 "… starting the new version": "… neue Version startet",
 "− Remove from selected": "− Aus Auswahl entfernen"

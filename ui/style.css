@@ -143,6 +143,10 @@ select:hover { border-color: var(--accent); }
 td.wrap { white-space: normal; min-width: 260px; max-width: 520px; }
 td.wrap .why { color: var(--muted); font-size: 12px; margin-top: 2px; }
 tr.acked td { opacity: .55; }
+.alert-group-head { cursor: pointer; }
+.alert-group-head:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.alert-group-item td:first-child { padding-left: 28px; }
+.expand-caret { color: var(--muted); font-size: 11px; }
 code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 .hours { display: flex; align-items: flex-end; gap: 2px; height: 34px; }
 .hours i { flex: 1; background: var(--accent); min-height: 1px; border-radius: 1px; opacity: .8; }

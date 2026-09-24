@@ -12,6 +12,7 @@ Clear selection || Auswahl aufheben || Effacer la sélection || Borrar selecció
 Also takes type:printer, port:9100, vendor:hp, owner:, tag:, room:, os:, status: — combine several, separated by a space || Akzeptiert auch type:printer, port:9100, vendor:hp, owner:, tag:, room:, os:, status: — mehrere kombinierbar, getrennt durch ein Leerzeichen || Accepte aussi type:printer, port:9100, vendor:hp, owner:, tag:, room:, os:, status: — combinables, séparés par un espace || También admite type:printer, port:9100, vendor:hp, owner:, tag:, room:, os:, status: — se pueden combinar, separados por un espacio || Prijíma aj type:printer, port:9100, vendor:hp, owner:, tag:, room:, os:, status: — dá sa skombinovať viac, oddelené medzerou
 tag name || Tag-Name || nom de l'étiquette || nombre de la etiqueta || názov štítku
 Select all shown || Alle angezeigten auswählen || Sélectionner tout ce qui est affiché || Seleccionar todo lo mostrado || Vybrať všetky zobrazené
+×{n}, recurring since {time} || ×{n}, wiederholt seit {time} || ×{n}, se répète depuis {time} || ×{n}, se repite desde {time} || ×{n}, opakuje sa od {time}
 Could not save || Speichern nicht möglich || Enregistrement impossible || No se pudo guardar || Nepodarilo sa uložiť
 online || online || en ligne || en línea || online
 not seen recently || zuletzt nicht gesehen || pas vu récemment || no visto recientemente || nedávno nevidené

@@ -1664,6 +1664,7 @@
 "{t} ago": "hace {t}",
 "{users} people can sign in.": "{users} personas pueden iniciar sesión.",
 "{vendor} has an open ICS-CERT advisory, {id} ({name}), published {date}.": "{vendor} tiene un aviso ICS-CERT abierto, {id} ({name}), publicado el {date}.",
+"×{n}, recurring since {time}": "×{n}, se repite desde {time}",
 "×σ": "×σ",
 "… starting the new version": "… iniciando la nueva versión",
 "− Remove from selected": "− Quitar de la selección"
