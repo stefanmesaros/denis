@@ -143,6 +143,14 @@ Schedule || Planen || Planifier || Programar || Naplánovať
 Remind me in 3 days || In 3 Tagen erinnern || Me le rappeler dans 3 jours || Recordármelo en 3 días || Pripomenúť o 3 dni
 Skip this version || Diese Version überspringen || Ignorer cette version || Omitir esta versión || Preskočiť túto verziu
 Scheduled for {time}. || Geplant für {time}. || Planifiée pour {time}. || Programada para {time}. || Naplánované na {time}.
+Restarting… reload this page in a few seconds. || Wird neu gestartet … diese Seite in ein paar Sekunden neu laden. || Redémarrage… rechargez cette page dans quelques secondes. || Reiniciando… vuelva a cargar esta página en unos segundos. || Reštartuje sa… o pár sekúnd túto stránku znova načítajte.
+Shutting down. || Wird heruntergefahren. || Arrêt en cours. || Apagando. || Vypína sa.
+Restart DENIS || DENIS neu starten || Redémarrer DENIS || Reiniciar DENIS || Reštartovať DENIS
+The console is unreachable for a few seconds while it restarts. Nothing in the register is lost. || Die Konsole ist während des Neustarts einige Sekunden lang nicht erreichbar. Im Geräteregister geht nichts verloren. || La console est inaccessible pendant quelques secondes le temps du redémarrage. Rien n'est perdu dans le registre. || La consola no está disponible durante unos segundos mientras se reinicia. No se pierde nada del registro. || Konzola je počas reštartu na pár sekúnd nedostupná. V registri sa nič nestratí.
+Restart || Neu starten || Redémarrer || Reiniciar || Reštartovať
+Shut down DENIS || DENIS herunterfahren || Arrêter DENIS || Apagar DENIS || Vypnúť DENIS
+DENIS stops capturing and serving the console, and does not come back on its own: someone needs physical or remote access to start it again. || DENIS beendet die Erfassung und die Konsole und startet nicht von selbst wieder: jemand braucht physischen oder Fernzugriff, um es erneut zu starten. || DENIS arrête la capture et la console, et ne redémarre pas de lui-même : il faut un accès physique ou distant pour le relancer. || DENIS deja de capturar y de servir la consola, y no vuelve a arrancar por sí solo: alguien necesita acceso físico o remoto para volver a iniciarlo. || DENIS prestane zachytávať aj obsluhovať konzolu a sám sa už nespustí: niekto potrebuje fyzický alebo vzdialený prístup, aby ho znova spustil.
+Shut down || Herunterfahren || Arrêter || Apagar || Vypnúť
 Update available || Aktualisierung verfügbar || Mise à jour disponible || Actualización disponible || Dostupná aktualizácia
 Please keep this page open. || Bitte lassen Sie diese Seite geöffnet. || Veuillez garder cette page ouverte. || Mantenga esta página abierta. || Nechajte túto stránku otvorenú.
 Updating DENIS || DENIS wird aktualisiert || Mise à jour de DENIS || Actualizando DENIS || Aktualizuje sa DENIS

@@ -215,6 +215,7 @@ async function start() {
   $('tab-alerting').hidden = !can('admin');
   $('data-box').hidden = !can('admin');
   $('update-box').hidden = !can('admin');
+  $('system-box').hidden = !can('admin');
   $('overview-box').hidden = !can('admin');
   $('license-box').hidden = !can('admin');
   $('interfaces-box').hidden = !can('admin');
@@ -987,7 +988,7 @@ function applyHash() {
   if (what === 'rules' && arg === 'watches') setTimeout(() => $('watches')?.scrollIntoView({ block: 'start' }), 700);
   // #settings/tls, #settings/updates ...: scroll to that section
   if (what === 'settings' && arg && !$('tab-settings').hidden) {
-    const box = { branding: 'branding-box', overview: 'overview-box', license: 'license-box', interfaces: 'interfaces-box', tls: 'tls-box', updates: 'update-box', data: 'data-box', setup: 'setup-box', security: 'security-box', switches: 'switches-box', vulndata: 'vuln-box', siem: 'siem-box', retention: 'retention-box' }[arg];
+    const box = { branding: 'branding-box', overview: 'overview-box', license: 'license-box', interfaces: 'interfaces-box', tls: 'tls-box', updates: 'update-box', system: 'system-box', data: 'data-box', setup: 'setup-box', security: 'security-box', switches: 'switches-box', vulndata: 'vuln-box', siem: 'siem-box', retention: 'retention-box' }[arg];
     if (box) setTimeout(() => $(box).scrollIntoView({ block: 'start' }), 50);
   }
   if (what === 'passkeys') { location.hash = '#account'; return; }
@@ -1170,6 +1171,28 @@ $('update-check').onclick = async () => {
   loadUpdateBanner();
 };
 $('update-open').onclick = () => openUpdateDialog();
+
+/** "Restart…" / "Shut down…": the password again, then the action. Both stop serving for a
+ * few seconds; a restart comes back on its own, a shutdown does not (see the note in the box). */
+function openSystemActionForm(action, title, warning, confirmLabel) {
+  const pw = el('input', { type: 'password', autocomplete: 'current-password', required: true });
+  openForm(title, [
+    el('p', { class: 'form-error', text: warning }),
+    field(tr('Current password'), pw),
+  ], {
+    submitLabel: confirmLabel,
+    onSubmit: async () => {
+      const r = await api('POST', '/api/system/' + action, { password: pw.value });
+      if (!r.ok) return apiError(r);
+      $('system-msg').textContent = action === 'restart' ? tr('Restarting… reload this page in a few seconds.') : tr('Shutting down.');
+      return null;
+    },
+  });
+}
+$('system-restart').onclick = () => openSystemActionForm('restart', tr('Restart DENIS'),
+  tr('The console is unreachable for a few seconds while it restarts. Nothing in the register is lost.'), tr('Restart'));
+$('system-shutdown').onclick = () => openSystemActionForm('shutdown', tr('Shut down DENIS'),
+  tr('DENIS stops capturing and serving the console, and does not come back on its own: someone needs physical or remote access to start it again.'), tr('Shut down'));
 
 // ------------------------------------------------------------------- sidebar
 

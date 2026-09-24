@@ -140,6 +140,10 @@ Go back to the generated certificate || Zurück zum erzeugten Zertifikat || Reve
 Updates || Aktualisierungen || Mises à jour || Actualizaciones || Aktualizácie
 Check for updates now || Jetzt nach Aktualisierungen suchen || Rechercher des mises à jour maintenant || Buscar actualizaciones ahora || Skontrolovať aktualizácie teraz
 Update available… || Aktualisierung verfügbar … || Mise à jour disponible… || Actualización disponible… || Dostupná aktualizácia…
+System || System || Système || Sistema || Systém
+Restarting picks up any configuration change that needs one, without losing the register. Both ask for your password again. || Ein Neustart übernimmt alle Konfigurationsänderungen, die einen benötigen, ohne das Geräteregister zu verlieren. Beides fragt erneut nach Ihrem Passwort. || Un redémarrage applique tout changement de configuration qui en a besoin, sans perdre le registre. Les deux demandent à nouveau votre mot de passe. || Reiniciar aplica cualquier cambio de configuración que lo necesite, sin perder el registro. Ambas acciones piden de nuevo su contraseña. || Reštart uplatní každú zmenu nastavenia, ktorá to potrebuje, bez straty registra zariadení. Obe akcie si znova vypýtajú vaše heslo.
+Restart… || Neu starten … || Redémarrer… || Reiniciar… || Reštartovať…
+Shut down… || Herunterfahren … || Arrêter… || Apagar… || Vypnúť…
 Demo data and reset || Demodaten und Zurücksetzen || Données de démonstration et réinitialisation || Datos de demostración y restablecimiento || Demo údaje a obnovenie
 New here? || Neu hier? || Nouveau ici ? || ¿Es nuevo? || Ste tu noví?
 Load demo data || Demodaten laden || Charger les données de démonstration || Cargar datos de demostración || Načítať demo údaje
