@@ -1330,6 +1330,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ai_explain_offers_nothing_until_an_admin_sets_a_key_and_never_echoes_it() {
+        let (app, _store, [viewer, editor, admin]) = secured().await;
+
+        // nothing configured: the button has nothing to offer, for anyone
+        let (st, _, v) = send(&app, req("GET", "/api/ai", Some(&viewer), None)).await;
+        assert_eq!((st, v["providers"].as_array().unwrap().len()), (StatusCode::OK, 0));
+        let (_, _, v) = send(&app, req("GET", "/api/ai/settings", Some(&viewer), None)).await;
+        assert_eq!(v["keys_set"].as_array().unwrap().len(), 0);
+
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("PUT", "/api/ai/settings", Some(c), Some(serde_json::json!({"keys": {"claude": "sk-x"}})))).await.0, StatusCode::FORBIDDEN);
+        }
+        assert_eq!(send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"keys": {"nonsense": "x"}})))).await.0, StatusCode::BAD_REQUEST);
+
+        let (st, _, v) = send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"keys": {"claude": "sk-ant-x"}, "default_provider": "claude"})))).await;
+        assert_eq!((st, v.get("claude"), v["keys_set"].as_array().unwrap().len(), v["default_provider"].as_str()), (StatusCode::OK, None, 1, Some("claude")), "{v}");
+
+        // now the button has something to offer, and the key itself was never sent back
+        let (_, _, v) = send(&app, req("GET", "/api/ai", Some(&viewer), None)).await;
+        assert_eq!((v["providers"][0]["id"].as_str(), v["default_provider"].as_str()), (Some("claude"), Some("claude")));
+
+        // asking to explain something that does not exist fails plainly, not a panic (a real
+        // provider call needs a live network egress this test suite deliberately does not have)
+        assert_eq!(send(&app, req("POST", "/api/ai/explain", Some(&editor), Some(serde_json::json!({"kind": "alert", "id": "999999"})))).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(send(&app, req("POST", "/api/ai/explain", Some(&editor), Some(serde_json::json!({"kind": "bogus", "id": "1"})))).await.0, StatusCode::BAD_REQUEST);
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("ai.update"), "{audit}");
+    }
+
+    #[tokio::test]
     async fn data_retention_is_admin_only_defaults_sensibly_and_is_validated() {
         let (app, _store, [viewer, editor, admin]) = secured().await;
         for u in [&viewer, &editor] {

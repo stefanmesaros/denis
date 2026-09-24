@@ -228,6 +228,7 @@ async function start() {
   $('vuln-box').hidden = !can('admin');
   $('siem-box').hidden = !can('admin');
   $('sso-box').hidden = !can('admin');
+  $('ai-box').hidden = !can('admin');
   $('retention-box').hidden = !can('admin');
   for (const b of document.querySelectorAll('#topo-mode button')) b.onclick = () => setTopoMode(b.dataset.mode);
   $('setup-open').onclick = openSetupGuide;
@@ -236,6 +237,7 @@ async function start() {
   $('import-assets').hidden = !can('editor');
   $('scan').hidden = !can('editor');
   await loadOptions();
+  loadAiStatus();
   initReports();
   initHealth();
   loadHealthBadge();
@@ -339,6 +341,39 @@ async function loadOptions() {
   const o = await api('GET', '/api/meta/options');
   if (o.ok) state.options = o.json;
   return state.options;
+}
+
+/** Which "Explain with AI" providers, if any, an administrator has set a key for. */
+async function loadAiStatus() {
+  const r = await api('GET', '/api/ai');
+  state.ai = r.ok ? r.json : { providers: [], default_provider: '' };
+}
+
+/** The "Explain with AI" button for one alert or finding, or null when nothing is configured. */
+function aiExplainButton(kind, id) {
+  if (!state.ai || !state.ai.providers.length) return null;
+  const providers = state.ai.providers;
+  const pick = providers.length > 1
+    ? el('select', {}, ...providers.map((p) => el('option', { value: p.id, text: p.name, selected: p.id === state.ai.default_provider })))
+    : null;
+  const out = el('div', { class: 'ai-explain' });
+  const button = el('button', {
+    type: 'button', text: tr('Explain with AI'),
+    onclick: async (ev) => {
+      ev.stopPropagation();
+      button.disabled = true;
+      button.textContent = tr('Asking…');
+      const provider = pick ? pick.value : providers[0].id;
+      const r = await api('POST', '/api/ai/explain', { kind, id: String(id), provider });
+      button.hidden = true;
+      if (pick) pick.hidden = true;
+      out.append(r.ok
+        ? el('p', { class: 'ai-answer' }, el('div', { class: 'muted small', text: tr('{provider} says:', { provider: providers.find((p) => p.id === provider)?.name || provider }) }), el('div', { text: r.json.text }))
+        : el('p', { class: 'form-error', text: apiError(r) }));
+    },
+  });
+  out.append(pick, button);
+  return out;
 }
 
 /** The words shown for an icon or type name: "smart_plug" -> "smart plug", in the chosen language. */
@@ -993,7 +1028,7 @@ function applyHash() {
   if (what === 'rules' && arg === 'watches') setTimeout(() => $('watches')?.scrollIntoView({ block: 'start' }), 700);
   // #settings/tls, #settings/updates ...: scroll to that section
   if (what === 'settings' && arg && !$('tab-settings').hidden) {
-    const box = { branding: 'branding-box', overview: 'overview-box', license: 'license-box', interfaces: 'interfaces-box', tls: 'tls-box', updates: 'update-box', system: 'system-box', data: 'data-box', setup: 'setup-box', security: 'security-box', switches: 'switches-box', vulndata: 'vuln-box', siem: 'siem-box', sso: 'sso-box', retention: 'retention-box' }[arg];
+    const box = { branding: 'branding-box', overview: 'overview-box', license: 'license-box', interfaces: 'interfaces-box', tls: 'tls-box', updates: 'update-box', system: 'system-box', data: 'data-box', setup: 'setup-box', security: 'security-box', switches: 'switches-box', vulndata: 'vuln-box', siem: 'siem-box', sso: 'sso-box', ai: 'ai-box', retention: 'retention-box' }[arg];
     if (box) setTimeout(() => $(box).scrollIntoView({ block: 'start' }), 50);
   }
   if (what === 'passkeys') { location.hash = '#account'; return; }
@@ -1324,6 +1359,28 @@ $('sso-save').onclick = async () => {
   const r = await api('PUT', '/api/sso', body);
   $('sso-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
   if (r.ok) loadSsoBox();
+};
+
+async function loadAiBox() {
+  if (!can('admin')) return;
+  const r = await api('GET', '/api/ai/settings');
+  if (!r.ok) return;
+  const d = r.json;
+  for (const p of ['claude', 'openai', 'gemini', 'grok']) {
+    $('ai-key-' + p).value = '';
+    $('ai-key-' + p).placeholder = d.keys_set.includes(p) ? tr('(unchanged)') : '';
+  }
+  $('ai-default').value = d.keys_set.includes(d.default_provider) ? d.default_provider : '';
+}
+$('ai-save').onclick = async () => {
+  const keys = {};
+  for (const p of ['claude', 'openai', 'gemini', 'grok']) {
+    const v = $('ai-key-' + p).value;
+    if (v) keys[p] = v; // blank means "leave alone"; there is no way to clear one from this form
+  }
+  const r = await api('PUT', '/api/ai/settings', { keys, default_provider: $('ai-default').value });
+  $('ai-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
+  if (r.ok) loadAiBox();
 };
 
 function siemForm() {

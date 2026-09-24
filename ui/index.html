@@ -454,6 +454,22 @@
           <p class="muted small" id="sso-redirect-hint"></p>
           <div class="row"><button id="sso-save" type="button" class="primary">Save</button><span id="sso-msg" class="muted"></span></div>
         </div>
+        <div id="ai-box" hidden>
+          <h3 class="section">Explain with AI</h3>
+          <p class="muted">Optional, bring-your-own-key: adds an "Explain with AI" button to alerts and findings, one plain-language summary per click — never automatic, never sent anywhere unless someone clicks it. Each call is billed to your own account with the provider you choose; DENIS runs none of this itself. Only what the console already shows for that one alert or finding is sent — nothing else about your network.</p>
+          <div class="row">
+            <label>Claude (Anthropic)<input id="ai-key-claude" type="password" autocomplete="off"></label>
+            <label>ChatGPT (OpenAI)<input id="ai-key-openai" type="password" autocomplete="off"></label>
+          </div>
+          <div class="row">
+            <label>Gemini (Google)<input id="ai-key-gemini" type="password" autocomplete="off"></label>
+            <label>Grok (xAI)<input id="ai-key-grok" type="password" autocomplete="off"></label>
+          </div>
+          <div class="row">
+            <label>Default provider<select id="ai-default"><option value="">(none configured)</option><option value="claude">Claude</option><option value="openai">ChatGPT</option><option value="gemini">Gemini</option><option value="grok">Grok</option></select></label>
+          </div>
+          <div class="row"><button id="ai-save" type="button" class="primary">Save</button><span id="ai-msg" class="muted"></span></div>
+        </div>
         <div id="vuln-box" hidden>
           <h3 class="section">Software versions: end of support and known exploits</h3>
           <div id="vuln-body"></div>
