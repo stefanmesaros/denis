@@ -98,6 +98,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/tls/certificate", post(admin::tls_upload).delete(admin::tls_reset))
         .route("/tls/ca.pem", get(admin::tls_ca))
         .route("/api/update", get(admin::update_get))
+        .route("/api/system/restart", post(admin::system_restart))
+        .route("/api/system/shutdown", post(admin::system_shutdown))
         .route("/api/update/check", post(admin::update_check))
         .route("/api/update/install", post(admin::update_install))
         .route("/api/update/snooze", post(admin::update_snooze))
@@ -203,7 +205,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -2735,6 +2737,36 @@ mod tests {
         // this test console has no updater: an administrator is told so, not crashed on
         let (st, ..) = send(&app, req("POST", "/api/update/install", Some(&admin), Some(serde_json::json!({})))).await;
         assert_eq!(st, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn restart_and_shutdown_need_an_administrator_and_the_password_again() {
+        // no updater configured: told so plainly, not crashed on
+        let (app, _, [_, _, admin]) = secured().await;
+        assert_eq!(send(&app, req("POST", "/api/system/restart", Some(&admin), Some(serde_json::json!({"password": "a-long-passphrase-1"})))).await.0, StatusCode::BAD_REQUEST);
+
+        // wire one up, same as `run` does, but pointed at a fake exe path so a real
+        // restart never touches the process-wide flag from a test
+        let shared = crate::engine::test_shared();
+        let mut cfg = crate::update::UpdateConfig::new(Some(String::new()), false, std::path::PathBuf::new()).unwrap();
+        cfg.exe_path = Some(std::path::PathBuf::from("/nonexistent-test-exe"));
+        shared.set_updater_for_test(crate::update::Updater::new(cfg, Arc::new(SqliteStore::open_in_memory().unwrap())));
+        let (app, _store, [viewer, editor, admin]) = secured_with(shared).await;
+
+        for (m, u) in [("POST", "/api/system/restart"), ("POST", "/api/system/shutdown")] {
+            for c in [&viewer, &editor] {
+                assert_eq!(send(&app, req(m, u, Some(c), Some(serde_json::json!({"password": "a-long-passphrase-1"})))).await.0, StatusCode::FORBIDDEN, "{m} {u}");
+            }
+            let (st, ..) = send(&app, req(m, u, Some(&admin), Some(serde_json::json!({"password": "wrong password entirely"})))).await;
+            assert_eq!(st, StatusCode::UNAUTHORIZED, "{m} {u}: {st}");
+        }
+        // the administrator's real password, given again, is accepted
+        let (st, _, v) = send(&app, req("POST", "/api/system/restart", Some(&admin), Some(serde_json::json!({"password": "a-long-passphrase-1"})))).await;
+        assert_eq!((st, v["status"].as_str()), (StatusCode::OK, Some("restarting")));
+        assert!(!crate::update::restart_wanted(), "the fake exe_path keeps this out of the real process-wide flag");
+        let (st, _, v) = send(&app, req("POST", "/api/system/shutdown", Some(&admin), Some(serde_json::json!({"password": "a-long-passphrase-1"})))).await;
+        assert_eq!((st, v["status"].as_str()), (StatusCode::OK, Some("shutting down")));
+        assert!(send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string().contains("system.restart"));
     }
 
     #[tokio::test]

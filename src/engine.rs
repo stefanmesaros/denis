@@ -278,6 +278,11 @@ impl Shared {
         *self.tls.lock().unwrap_or_else(|e| e.into_inner()) = Some(h);
     }
 
+    #[cfg(test)]
+    pub fn set_updater_for_test(&self, u: Arc<crate::update::Updater>) {
+        *self.updater.lock().unwrap_or_else(|e| e.into_inner()) = Some(u);
+    }
+
     /// The updater, when this process runs one.
     pub fn updater(&self) -> Option<Arc<crate::update::Updater>> {
         self.updater.lock().unwrap_or_else(|e| e.into_inner()).clone()

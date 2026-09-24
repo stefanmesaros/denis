@@ -605,6 +605,53 @@ pub(crate) async fn update_install(State(st): State<AppState>, Extension(AuthUse
     })
 }
 
+// ---------------------------------------------------------------- restart / shutdown
+
+#[derive(Deserialize)]
+pub struct SystemActionReq {
+    /// The administrator's own password, checked again: a mistaken click here stops the
+    /// service, so it needs more than an open session to trigger.
+    password: String,
+}
+
+/// Restart the running program in place (same binary, no update). Only available where
+/// self-update is (the same background mechanism does the restart).
+pub(crate) async fn system_restart(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<SystemActionReq>) -> Result<Response, ApiError> {
+    if b.password.len() > 256 {
+        return Ok(err(StatusCode::BAD_REQUEST, "that password is not right"));
+    }
+    let auth = st.auth.clone();
+    let (u, pw) = (me.clone(), b.password);
+    match tokio::task::spawn_blocking(move || auth.confirm_password(&u, &pw, now_ts())).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return Ok(map_auth_err(e)),
+        Err(_) => return Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),
+    }
+    let u = match updater(&st) { Ok(u) => u, Err(r) => return Ok(*r) };
+    audit(&st, &me.username, "system.restart", None, json!({}));
+    u.request_restart();
+    Ok(Json(json!({"status": "restarting"})).into_response())
+}
+
+/// Stop the program. It does not come back on its own: the shipped systemd unit
+/// (`Restart=on-failure`) leaves a clean, deliberate exit stopped.
+pub(crate) async fn system_shutdown(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<SystemActionReq>) -> Result<Response, ApiError> {
+    if b.password.len() > 256 {
+        return Ok(err(StatusCode::BAD_REQUEST, "that password is not right"));
+    }
+    let auth = st.auth.clone();
+    let (u, pw) = (me.clone(), b.password);
+    match tokio::task::spawn_blocking(move || auth.confirm_password(&u, &pw, now_ts())).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return Ok(map_auth_err(e)),
+        Err(_) => return Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),
+    }
+    let u = match updater(&st) { Ok(u) => u, Err(r) => return Ok(*r) };
+    audit(&st, &me.username, "system.shutdown", None, json!({}));
+    u.request_shutdown();
+    Ok(Json(json!({"status": "shutting down"})).into_response())
+}
+
 #[derive(Deserialize)]
 pub struct SnoozeReq {
     days: i64,
