@@ -1,32 +1,60 @@
 # A Windows build: what exists, what does not, and the plan
 
-DENIS has no Windows build today (see README's Status section and ROADMAP.md). This document is
-the groundwork for one: an honest audit of what already works, what is missing, and a phased plan
-— written without touching any code, because there is no Windows machine in this environment to
-build or run anything on. Writing untested platform-specific code and calling it a "Windows agent"
-would be exactly the kind of unverified claim this project's own README explicitly refuses to make
-elsewhere (self-update, ARP-conflict detection, the SMB/MSSQL banner readers all carry a stated
-verification bar before they are called done — a Windows build deserves the same bar).
+DENIS has no Windows build today (see README's Status section and ROADMAP.md). This document
+tracks the groundwork for one: an honest audit of what already works, what is missing, and a
+phased plan. There is still no Windows machine in this environment, so nothing here has been *run*
+on Windows — but as of the second pass below, the parts that can be checked by actually
+cross-compiling (installed a real `x86_64-w64-mingw32` toolchain via Homebrew rather than guessing)
+have been, and this document only claims what that real compiler output actually showed. Writing
+untested platform-specific code and calling it a "Windows agent" would be exactly the kind of
+unverified claim this project's own README explicitly refuses to make elsewhere (self-update,
+ARP-conflict detection, the SMB/MSSQL banner readers all carry a stated verification bar before
+they are called done — a Windows build deserves the same bar, not a lower one because it's harder
+to check).
 
-## What is already fine
+## Verified by actually cross-compiling (`--target x86_64-pc-windows-gnu`)
 
-Several of the small platform-specific helpers already have a Windows-safe fallback, because they
-were written defensively rather than Unix-only from the start:
+* `cargo check --all-targets` (lib, both binaries, and every test) **passes cleanly**, as does
+  `cargo clippy --all-targets` — zero warnings. This covers everything in the previous version of
+  this document's "already fine" list, plus the interface-discovery and local-time/hostname code
+  below that turned out **not** to be fine (see next section): the whole non-capture codebase now
+  actually type-checks and lints for Windows, not just "looks like it probably would."
+* `cargo build` (which additionally *links* a real `.exe`) **fails**: the linker cannot find
+  `wpcap.lib`/`libwpcap.a` — `pcap`'s Windows backend needs the **Npcap SDK's import library at
+  link time**, not just at runtime. This confirms bullet 1 below is a real, immediate blocker, not
+  a theoretical one: even a Windows build of DENIS that never opens a capture handle still needs
+  the Npcap SDK present just to produce a binary, unless capture is made an optional Cargo feature
+  (not done — see "Suggested order").
 
-* `src/net.rs::default_gateway` — macOS and Linux each have a real implementation; anything else
-  (including Windows) returns `None` today, which is a correct, honest "not detected" rather than
-  a wrong answer. A Windows implementation (`GetIpForwardTable`/`route print`, or the `windows`
-  crate) is additive, not a rewrite.
+## Fixed this pass (previously Unix-only, now has a real `#[cfg(windows)]` implementation)
+
+`src/net.rs` used `nix`/`libc` APIs with **no Windows equivalent at all** — this was not "probably
+fine," it flatly failed to compile until fixed:
+
+* `list_interfaces` / `list_all_up` (`nix::ifaddrs::getifaddrs`, POSIX-only) now have a Windows
+  implementation via `GetAdaptersAddresses` (the Win32 API Npcap's own examples use for this).
+  **Unverified beyond compiling and linting clean**: the linked-list/buffer-retry handling follows
+  Microsoft's documented pattern, but nothing has run it against a real adapter list.
+* `local_utc_offset_secs` (`libc::localtime_r`/`tm_gmtoff`, which does not exist on Windows' CRT)
+  now uses `GetTimeZoneInformation` instead. Same caveat: written against documented behaviour
+  (including its inverted sign convention versus the Unix version), not run for real.
+* `local_hostname` (`nix::unistd::gethostname`) now reads the `COMPUTERNAME` environment variable
+  on Windows, which needs no unsafe FFI at all.
+
+New dependency: `windows-sys`, scoped to `[target.'cfg(windows)'.dependencies]` so it affects
+nothing on macOS/Linux.
+
+## What is already fine (unchanged from before, still true)
+
 * `src/update.rs::has_file_capabilities` / `make_executable` — both already compile to a no-op
-  outside their relevant platform (`#[cfg(not(target_os = "linux"))]` / `#[cfg(not(unix))]`).
-  Self-update's actual logic (download, verify signature, atomic rename, roll back on failure) is
-  not Unix-specific; only these two small checks are.
+  outside their relevant platform. Self-update's actual logic (download, verify signature, atomic
+  rename, roll back on failure) is not Unix-specific; only these two small checks are.
 * `src/certs.rs::private_file` (chmod 0600 on the TLS private key) and `src/health.rs::disk_space`
   are `#[cfg(unix)]`-gated but narrow: a `#[cfg(windows)]` sibling for each (an ACL restricting the
-  key to the running user; `GetDiskFreeSpaceExW`) is a bounded, separate piece of work each.
+  key to the running user; `GetDiskFreeSpaceExW`) is a bounded, separate piece of work each — not
+  yet done, but confirmed not to be *breaking* a Windows check the way `net.rs` was.
 * The core pipeline (`parse.rs`, `detect.rs`, `inventory.rs`, `fingerprint.rs`, the web/API layer,
-  the SQLite store) has no OS-specific code at all — it is why the collector already builds and
-  runs on both macOS and Linux without a fork.
+  the SQLite store) has no OS-specific code at all.
 
 ## What is genuinely missing, and why each is its own step
 
@@ -51,9 +79,10 @@ were written defensively rather than Unix-only from the start:
 4. **File permissions throughout.** Anywhere the code assumes POSIX mode bits (the TLS private key,
    the SQLite database file, the one-time admin password file) needs a Windows ACL equivalent so a
    secret is not left world-readable there either.
-5. **CI.** `.github/workflows/ci.yml` builds and tests on `ubuntu-latest`/`macos-latest` only; a
-   Windows build target needs its own CI job before "it compiles on Windows" can be trusted at all,
-   let alone "it captures and detects correctly on Windows."
+5. **CI.** `.github/workflows/ci.yml` builds and tests on `ubuntu-latest`/`macos-latest` only. A
+   `cargo check`/`clippy` job for `x86_64-pc-windows-gnu` can be added today (it already passes —
+   see above) and would catch a future change that breaks Windows portability again. A real
+   `cargo build`/`cargo test` job needs the Npcap SDK available in CI first (bullet 1).
 
 ## What this deliberately does not attempt yet
 
@@ -65,17 +94,23 @@ kind of "should work" code this project's own testing standard exists to prevent
 
 ## Suggested order
 
-1. A Windows CI job that just builds the existing code (no capture yet) — cheap, and it converts
-   "probably fine" for the OS-agnostic core into a real, continuously-checked fact rather than an
-   assumption.
-2. Fill in the small `#[cfg(windows)]` gaps this document lists (net.rs, certs.rs, health.rs,
-   update.rs) — narrow, additive, each independently testable once (1) exists.
-3. Decide the capture/privilege story (Npcap licensing, which account the service runs as) — a
-   decision, not code, and probably worth external advice given the licensing question.
-4. A minimal `denis.exe` that can `run` interactively (no service yet) against Npcap, verified on a
+1. ~~A Windows CI job that just builds the existing code~~ — done for `cargo check`/`clippy` (see
+   above); a real `cargo build` needs step 2 first.
+2. Get the Npcap SDK's import library into the build, one way or another: either check in a
+   pre-converted `.a` (mingw-compatible) copy for CI/cross-builds, or make `pcap`/capture an
+   optional Cargo feature so a Windows build can at least link *without* capture until this is
+   resolved for real. Either is a real decision (licensing of redistributing a converted SDK
+   artifact; whether a capture-less Windows build is worth shipping as an interim step) that this
+   document flags rather than picks unilaterally.
+3. Fill in the remaining small `#[cfg(windows)]` gaps (certs.rs, health.rs) — narrow, additive,
+   each independently checkable with `cargo check --target x86_64-pc-windows-gnu` the same way
+   net.rs's were.
+4. Decide the capture/privilege story (Npcap *runtime* licensing for end users, which account the
+   service runs as) — a product decision, not code.
+5. A minimal `denis.exe` that can `run` interactively (no service yet) against Npcap, verified on a
    real Windows machine with real traffic — the same bar `docs/security.md`'s "not yet verified"
    list already holds every other platform-sensitive capability to.
-5. The service wrapper and installer, once (4) has actually been run for real.
+6. The service wrapper and installer, once (5) has actually been run for real.
 
 ## For IPv6
 
