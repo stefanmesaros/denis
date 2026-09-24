@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.1.0: rules export/import, restart/shutdown, restartable learning mode, mirror-port and DNS checks
+
+* **Export and import detection rules** as a JSON file (Rules → "Export as file" / "Import from
+  file…") — the same shape the server already validates, so a large exceptions list, or a tuned
+  set of thresholds, moves to another DENIS instance or comes back after a reinstall.
+* **Restart, network-wide, one alert-free learning period, for 1 to 7 days** (Rules → "Restart
+  learning mode"), for after a change big enough that the existing baselines are not a fair
+  comparison any more — a new switch, a re-addressed subnet, a batch of new devices. Every
+  device is treated the way a brand new one already is for the time you choose; pause and
+  resume freeze and restore the remaining time, or end it early at any point.
+* **Restart / Shut down DENIS from Settings**, admin-only, the administrator's own password
+  asked again before either — a mistaken click here stops the service.
+* **A mirror/SPAN interface with an IP address of its own is now flagged** on the Health page:
+  one caused a real outage (an address conflict) on the network being watched, not just this
+  machine. "Remove the address now" (Linux) offers an immediate fix.
+* **DNS resolution is checked** and flagged on the Health page if this machine cannot resolve a
+  domain name — pointing at either this machine's own DNS settings or its router's.
+* Alerts and findings now show an exact date/time next to the relative one ("7m ago" alone does
+  not say which day), and findings show "since" the date DENIS first saw that kind of problem.
+* Alerts: a repeated alert's group can be acknowledged all at once instead of one occurrence at
+  a time, and its expanded rows are set off more clearly from an ordinary row right below them.
+
 ## 2.0.2: `new_destination` no longer alerts forever on NTP/STUN's rotating server addresses
 
 * NTP (time sync) and STUN both contact a *different* server address on purpose (an NTP pool
