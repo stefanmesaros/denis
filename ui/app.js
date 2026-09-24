@@ -584,6 +584,13 @@ async function ack(id, acked) {
   refresh();
 }
 
+$('ack-all-alerts').onclick = async () => {
+  if (!confirm(tr('Acknowledge every unacknowledged alert, including any older backlog this page does not show?'))) return;
+  const r = await api('POST', '/api/alerts/ack-all');
+  if (!r.ok) { showMessage(tr('Acknowledge all'), el('p', { text: apiError(r) })); return; }
+  refresh();
+};
+
 /** What clicking "Create exception" on this alert would do, in one line — shown as the button's
  * label so an administrator knows what they are about to change before they click it. */
 function exceptionLabel(e) {

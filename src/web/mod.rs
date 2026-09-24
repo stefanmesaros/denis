@@ -39,6 +39,7 @@ use crate::web_retention as retention_page;
 use crate::web_siem as siem_page;
 use crate::web_vuln as vuln_page;
 use crate::web_passkey as passkey;
+use crate::web_ai as ai_page;
 use crate::web_sso as sso_page;
 use crate::{report, trends};
 use crate::store::EventQuery;
@@ -112,6 +113,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/findings/{id}/verify", post(admin::finding_verify))
         .route("/api/siem", get(siem_page::get).put(siem_page::put))
         .route("/api/sso", get(sso_page::get).put(sso_page::put))
+        .route("/api/ai", get(ai_page::status))
+        .route("/api/ai/settings", get(ai_page::get).put(ai_page::put))
+        .route("/api/ai/explain", post(ai_page::explain))
         .route("/api/auth/sso", get(sso_page::status))
         .route("/api/auth/sso/login", get(sso_page::login))
         .route("/api/auth/sso/callback", get(sso_page::callback))
@@ -157,6 +161,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/assets/{id}/merged", get(merged_into_this))
         .route("/api/events", get(events))
         .route("/api/alerts", get(alerts))
+        .route("/api/alerts/ack-all", post(ack_all))
         .route("/api/alerts/{id}/ack", post(ack))
         .route("/api/alerts/{id}/unack", post(unack))
         .route("/api/agents", get(agents))
@@ -215,7 +220,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path.starts_with("/api/ai/settings") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -571,6 +576,31 @@ async fn ack(State(st): State<AppState>, Extension(AuthUser(me)): Extension<Auth
 
 async fn unack(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
     set_ack(st, &me, id, false).await
+}
+
+/// Acknowledge every alert the caller can write to, unacked or not — the Alerts page itself only
+/// ever fetches a page of the most recent ones, so a backlog older than that page (typically from
+/// before a noisy rule was tuned down) has no other way to reach zero. Site-scoped exactly like
+/// acknowledging one at a time; a site this account cannot write to is left untouched.
+async fn ack_all(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Json<serde_json::Value>, ApiError> {
+    let q = EventQuery { limit: 100_000, alerts_only: true, unacked_only: true, ..Default::default() };
+    let unacked = blocking(&st.store, move |s| s.list_events(&q)).await?;
+    let mut acked = 0usize;
+    let mut skipped = 0usize;
+    for e in unacked {
+        if !site_writable(&st, &me, &e.agent_id) {
+            skipped += 1;
+            continue;
+        }
+        let id = e.id;
+        if blocking(&st.store, move |s| s.set_event_acked(id, true)).await? {
+            acked += 1;
+        }
+    }
+    if acked > 0 {
+        admin::audit(&st, &me.username, "alerts.ack_all", None, serde_json::json!({"count": acked}));
+    }
+    Ok(Json(serde_json::json!({"acked": acked, "skipped": skipped})))
 }
 
 /// The industrial communications matrix, joined with device names so the UI
@@ -1423,6 +1453,32 @@ mod tests {
         assert!(get_json(&app, "/api/agents", "localhost").await.1.as_array().unwrap().is_empty());
         store.upsert_agent(&AgentInfo { id: "site-b".into(), name: "Office".into(), site: None, version: "t".into(), subnet: "10.0.0.0/24".into(), first_seen: 1, last_report_at: 2, last_run_id: "r".into(), last_seq: 1 }).unwrap();
         assert_eq!(get_json(&app, "/api/agents", "localhost").await.1[0]["id"], "site-b");
+    }
+
+    #[tokio::test]
+    async fn ack_all_clears_a_backlog_the_alerts_page_would_never_scroll_to() {
+        use crate::model::Event;
+        let (app, store) = app(true);
+        let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 4, 5, 6]), 10);
+        store.save_asset(&mut a).unwrap();
+        // far more than any single page fetch would ever show
+        for i in 0..250 {
+            let mut e = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: i, severity: "low".into(), score: 40, acked: false, raw_details: serde_json::json!({}) };
+            store.insert_event(&mut e).unwrap();
+        }
+        assert_eq!(get_json(&app, "/api/status", "localhost").await.1["alerts_unacked"], 250);
+        let resp = app.clone().oneshot(axum::http::Request::post("/api/alerts/ack-all").header("host", "localhost").header("x-denis", "1").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!((v["acked"].as_i64(), v["skipped"].as_i64()), (Some(250), Some(0)));
+        assert_eq!(get_json(&app, "/api/status", "localhost").await.1["alerts_unacked"], 0);
+        // idempotent: nothing left to ack a second time
+        let resp = app.clone().oneshot(axum::http::Request::post("/api/alerts/ack-all").header("host", "localhost").header("x-denis", "1").body(Body::empty()).unwrap()).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(&body).unwrap()["acked"], 0);
+        let audit = get_json(&app, "/api/audit", "localhost").await.1.to_string();
+        assert!(audit.contains("alerts.ack_all"), "{audit}");
     }
 
     #[tokio::test]
