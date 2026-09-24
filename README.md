@@ -186,6 +186,7 @@ Only what is actually implemented is listed above — see [ROADMAP.md](ROADMAP.m
 ## Who it's for
 
 * **Small IT teams** who need a real device inventory without buying an enterprise platform.
+* **Small and medium-sized businesses** who want to know what is on their network without hiring a security team.
 * **MSPs** managing several customer sites from one place (per-site access, white-label).
 * **Manufacturing / building automation** that needs OT visibility without touching production traffic.
 * **Security-conscious teams** who want explainable detection they can audit, not a black box.
@@ -199,15 +200,16 @@ DENIS is security software; its own trustworthiness matters. Here is the honest 
 pipeline; fuzz tests of every parser; `cargo audit` clean; a master and agent talking over HTTP; the UI exercised
 in a browser (sign-in, forced password change, editing, users, OT, topology, trends, reports); a real Linux server
 running DENIS as a permanent `systemd` service, including a real one-click self-update (backup, verified
-signature, atomic swap, automatic rollback on failure).
+signature, atomic swap, automatic rollback on failure); ARP-conflict detection on a real, live network (confirmed
+in production, not only against hand-built frames and replay).
 
 **Not yet independently verified:**
 
 * Agent ↔ master **across a real network** (loopback only so far). Built-in TLS (`--tls-cert/--tls-key`, agent
   `--master-ca`) was verified on loopback with a private CA, not yet with a public certificate authority or a
   reverse proxy in front.
-* ARP-conflict and industrial detections on **real** wire traffic (tested with hand-built frames and replay; no
-  forged or industrial traffic generated on a live network).
+* Industrial (OT) detections on **real** industrial traffic (tested with hand-built frames and replay; no real
+  OT traffic generated on a live network yet — ARP-conflict detection itself is confirmed in production, see above).
 * The OpenObserve and SIEM (syslog: CEF/LEEF/JSON) exports against a real endpoint, not a simulated one.
 * The SMB and MSSQL banner readers against a real Windows Server or SQL Server (fuzz-tested and verified against
   hand-built packets matching each protocol's specification only).
