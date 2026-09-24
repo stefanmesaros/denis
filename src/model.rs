@@ -88,6 +88,24 @@ pub struct IpRecord {
     pub last_seen: i64,
 }
 
+/// The IPv6 equivalent of `IpRecord`. Kept as its own list, not folded into `ip_history`, because
+/// a device typically carries several IPv6 addresses at once (a link-local `fe80::` one always,
+/// plus one or more SLAAC/DHCPv6 global ones) rather than one that changes over time the way an
+/// IPv4 lease does — "current address" is not a meaningful idea for IPv6 the way it is for v4.
+/// Nothing populates this yet (see `src/ipv6.rs`): it exists so the storage and API shape is
+/// already in place before capture/detection grow IPv6 support, and reads as `[]` for every
+/// device until then.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Ipv6Record {
+    pub ip: std::net::Ipv6Addr,
+    /// Link-local (`fe80::/10`): identifies the interface, not the device's place on the network,
+    /// and is never routable off-segment. Kept apart so the UI/detection can prefer a global
+    /// address when one exists, without re-deriving this from the address itself each time.
+    pub link_local: bool,
+    pub first_seen: i64,
+    pub last_seen: i64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpenPort {
     pub port: u16,
@@ -150,6 +168,10 @@ pub struct Asset {
     /// True when the MAC is locally administered (randomised / virtual).
     pub randomized_mac: bool,
     pub ip_history: Vec<IpRecord>,
+    /// Always empty today (see `Ipv6Record`); `#[serde(default)]` so a database written before
+    /// this field existed still loads.
+    #[serde(default)]
+    pub ipv6_history: Vec<Ipv6Record>,
     pub hostnames: Vec<String>,
     pub device_type: String,
     pub os_guess: Option<String>,
@@ -174,6 +196,7 @@ impl Asset {
             vendor: None,
             randomized_mac: mac.is_locally_administered(),
             ip_history: Vec::new(),
+            ipv6_history: Vec::new(),
             hostnames: Vec::new(),
             device_type: "unknown".into(),
             os_guess: None,

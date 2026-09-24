@@ -12,7 +12,7 @@ use super::{
 };
 use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, ReportMeta, RiskAcceptance, User};
 
-const SCHEMA_VERSION: i64 = 14;
+const SCHEMA_VERSION: i64 = 15;
 
 /// Phase 1 schema.
 const V1: &str = "CREATE TABLE assets (
@@ -221,6 +221,12 @@ const V14: &str = "CREATE TABLE site_access (
         PRIMARY KEY (user_id, site)
      ) WITHOUT ROWID;";
 
+/// IPv6 groundwork (see `model::Ipv6Record`, `src/ipv6.rs`): a device's IPv6 addresses, alongside
+/// `ip_history`. Nothing populates it yet, so every existing row gets `'[]'`, the same empty list
+/// `ASSET_COLS`/`row_to_asset` already treat a device's IPv6 history as before this column
+/// existed.
+const V15: &str = "ALTER TABLE assets ADD COLUMN ipv6_history TEXT NOT NULL DEFAULT '[]';";
+
 /// Phase 3.8: API tokens for scripts and integrations.
 const V7: &str = "CREATE TABLE api_tokens (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -317,7 +323,7 @@ impl SqliteStore {
         }
         // Each step runs in its own transaction and bumps user_version, so a
         // crash mid-migration leaves the database at a consistent older version.
-        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13), (14, V14)] {
+        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13), (14, V14), (15, V15)] {
             if version < target {
                 let tx = conn.unchecked_transaction()?;
                 tx.execute_batch(sql)?;
@@ -354,7 +360,7 @@ impl SqliteStore {
 
 const ASSET_COLS: &str = "id, agent_id, mac, vendor, randomized_mac, ip_history, hostnames, \
     device_type, os_guess, guess_reasons, open_ports, ports_scanned_at, fingerprint, \
-    is_self, is_gateway, first_seen, last_seen";
+    is_self, is_gateway, first_seen, last_seen, ipv6_history";
 
 fn json<T: serde::Serialize>(v: &T) -> String {
     serde_json::to_string(v).expect("serialisable")
@@ -397,6 +403,7 @@ fn row_to_asset(r: &Row) -> rusqlite::Result<Asset> {
         is_gateway: r.get(14)?,
         first_seen: r.get(15)?,
         last_seen: r.get(16)?,
+        ipv6_history: from_json(r, 17)?,
     })
 }
 
@@ -471,13 +478,14 @@ impl AssetStore for SqliteStore {
             a.is_gateway,
             a.first_seen,
             a.last_seen,
+            json(&a.ipv6_history),
         ];
         if a.id == 0 {
             conn.execute(
                 "INSERT INTO assets (agent_id, mac, vendor, randomized_mac, ip_history, hostnames,
                     device_type, os_guess, guess_reasons, open_ports, ports_scanned_at, fingerprint,
-                    is_self, is_gateway, first_seen, last_seen)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+                    is_self, is_gateway, first_seen, last_seen, ipv6_history)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
                 values,
             )?;
             a.id = conn.last_insert_rowid();
@@ -486,8 +494,8 @@ impl AssetStore for SqliteStore {
                 "UPDATE assets SET agent_id=?1, mac=?2, vendor=?3, randomized_mac=?4, ip_history=?5,
                     hostnames=?6, device_type=?7, os_guess=?8, guess_reasons=?9, open_ports=?10,
                     ports_scanned_at=?11, fingerprint=?12, is_self=?13, is_gateway=?14,
-                    first_seen=?15, last_seen=?16
-                 WHERE id=?17",
+                    first_seen=?15, last_seen=?16, ipv6_history=?17
+                 WHERE id=?18",
                 rusqlite::params_from_iter(
                     values
                         .iter()
@@ -1342,6 +1350,21 @@ mod tests {
         a.hostnames.push("mac".into());
         a.open_ports.push(OpenPort { port: 22, proto: "tcp".into(), service: Some("ssh".into()) });
         a
+    }
+
+    #[test]
+    fn ipv6_history_round_trips_and_defaults_to_empty() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        assert_eq!(store.stats(false).unwrap().schema_version, 15);
+        let mut a = sample();
+        assert!(a.ipv6_history.is_empty(), "nothing sets this yet");
+        store.save_asset(&mut a).unwrap();
+        assert!(store.get_asset(a.id).unwrap().unwrap().ipv6_history.is_empty());
+        a.ipv6_history.push(crate::model::Ipv6Record { ip: "fe80::1".parse().unwrap(), link_local: true, first_seen: 1, last_seen: 2 });
+        a.ipv6_history.push(crate::model::Ipv6Record { ip: "2001:db8::1".parse().unwrap(), link_local: false, first_seen: 1, last_seen: 2 });
+        store.save_asset(&mut a).unwrap();
+        let back = store.get_asset(a.id).unwrap().unwrap().ipv6_history;
+        assert_eq!(back, a.ipv6_history);
     }
 
     #[test]
