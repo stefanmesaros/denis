@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.15.2: fixed a spacing regression that misaligned several button/label rows
+
+1.14.1 added extra vertical spacing between the unrelated blocks Settings and Health stack (a
+checkbox list touching the button below it, etc.). Its selector reached one level too far in some
+cases and put a stray `margin-top` on individual children *inside* a `.row`/`.chips`/`.form-grid` —
+containers that already lay out their own children with `gap`. The one-sided margin then broke
+`align-items: center`, so the second item in a few flex rows sat a few pixels lower than the first:
+**Save license** vs **Remove license**, the SIEM **Save** vs **Send a test message**, and the SIEM
+**Transport/Host/Port/Format** labels. All fixed; nothing else changed.
+
 ## 1.15.1: the console can update itself under the hardened systemd service
 
 * **Settings → Updates now actually works** for installations set up by `install.sh`. The program

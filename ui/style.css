@@ -252,9 +252,12 @@ tr.row-warn td { background: color-mix(in srgb, var(--warn) 10%, transparent); }
 /* Settings and Health list several unrelated controls, hints and tables one under another;
    give them consistent breathing room instead of relying on each box remembering its own margins.
    Two levels deep because several of these boxes fill an inner container (e.g. #backup-schedule-form)
-   with a .form-grid followed by a .row of buttons. */
+   with a .form-grid followed by a .row of buttons. Excludes .row/.chips/.form-grid/.toolbar as the
+   *container* being spaced-inside: those already lay out their own children with `gap`, and adding
+   margin-top there too only pushes later flex items down (breaking vertical centering, not helping it). */
 #view-settings > div > * + *, #view-health > div > * + *,
-#view-settings > div > div > * + *, #view-health > div > div > * + * { margin-top: 10px; }
+#view-settings > div > div:not(.row):not(.chips):not(.form-grid):not(.toolbar) > * + *,
+#view-health > div > div:not(.row):not(.chips):not(.form-grid):not(.toolbar) > * + * { margin-top: 10px; }
 input[type=color] { padding: 0; width: 44px; height: 30px; }
 #br-preview img { max-height: 40px; max-width: 160px; display: block; background: var(--bg); }
 .login-message { text-align: center; }
