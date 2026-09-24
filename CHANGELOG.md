@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.0: single sign-on (OpenID Connect)
+
+* **Sign in through an identity provider** (Entra ID, Okta, Google Workspace, Keycloak, anything
+  speaking OIDC) instead of a local password — Settings → Single sign-on. The first sign-in for
+  an email creates a `viewer` account for it automatically; raise its role afterwards like any
+  other account. Local accounts, including the initial admin password, keep working unchanged
+  alongside it.
+* Built on the `openidconnect` crate (authorization code + PKCE), not hand-rolled JWT
+  verification. **What is and is not verified is written up plainly in
+  [SSO.md](SSO.md)** — in short: configuration, account provisioning, permissions and secret
+  handling all have real tests; the live exchange with an actual identity provider does not yet,
+  and should be confirmed against one (a free Google or Keycloak client both work) before relying
+  on it for anything that matters.
+
 ## 2.1.0: rules export/import, restart/shutdown, restartable learning mode, mirror-port and DNS checks
 
 * **Export and import detection rules** as a JSON file (Rules → "Export as file" / "Import from
