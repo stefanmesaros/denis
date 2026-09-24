@@ -450,7 +450,7 @@ async fn assets(State(st): State<AppState>, Extension(AuthUser(me)): Extension<A
 }
 
 /// Standing weaknesses and housekeeping problems, with what to do about each.
-async fn findings(State(st): State<AppState>) -> Result<Json<Vec<crate::findings::Finding>>, ApiError> {
+async fn findings(State(st): State<AppState>) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     let now = now_ts();
     let (mut list, metas) = blocking(&st.store, |s| Ok((s.load_assets()?, s.load_all_meta()?))).await?;
     // the same corrections the asset list applies, so both views agree
@@ -461,7 +461,27 @@ async fn findings(State(st): State<AppState>) -> Result<Json<Vec<crate::findings
     }
     let acceptances = blocking(&st.store, |s| s.list_risk_acceptances()).await?;
     // what is still open: a decision to live with a risk takes that device out of the finding
-    Ok(Json(crate::findings::apply_acceptances(crate::findings::compute(&list, &metas, now), &acceptances, now).0))
+    let open = crate::findings::apply_acceptances(crate::findings::compute(&list, &metas, now), &acceptances, now).0;
+    // "since when": findings are recomputed fresh every time, so the first-seen date per kind
+    // is tracked separately, here, rather than on `Finding` itself.
+    let mut seen = blocking(&st.store, |s| crate::findings::load_first_seen(s)).await?;
+    let mut changed = false;
+    let out: Vec<serde_json::Value> = open
+        .iter()
+        .map(|f| {
+            let ts = *seen.entry(f.id.to_string()).or_insert_with(|| {
+                changed = true;
+                now
+            });
+            let mut v = serde_json::to_value(f).unwrap_or_default();
+            v["first_seen"] = serde_json::json!(ts);
+            v
+        })
+        .collect();
+    if changed {
+        blocking(&st.store, move |s| crate::findings::save_first_seen(s, &seen, now)).await?;
+    }
+    Ok(Json(out))
 }
 
 async fn asset(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
@@ -2782,6 +2802,27 @@ mod tests {
         // marking the device as spare takes it out of the list
         store.save_meta(cam.id, &crate::model::AssetMeta { status: Some("spare".into()), ..Default::default() }, "t", 1).unwrap();
         assert!(get_json(&app, "/api/findings", "localhost").await.1.as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_finding_carries_when_it_was_first_seen_and_that_date_does_not_move() {
+        let (app, store) = app(true);
+        let mut cam = Asset::new(Mac([2, 0, 0, 0, 0, 1]), 10);
+        cam.device_type = "camera".into();
+        cam.last_seen = now_ts();
+        cam.open_ports = vec![crate::model::OpenPort { port: 23, proto: "tcp".into(), service: None }];
+        store.save_asset(&mut cam).unwrap();
+        let (_, v) = get_json(&app, "/api/findings", "localhost").await;
+        let first = v[0]["first_seen"].as_i64().unwrap();
+        assert!(first > 0 && (now_ts() - first).abs() < 5, "recorded as of now, the first time it is seen");
+        // a second device with the same problem: the finding's own first_seen does not move
+        let mut cam2 = Asset::new(Mac([2, 0, 0, 0, 0, 2]), 10);
+        cam2.device_type = "camera".into();
+        cam2.last_seen = now_ts();
+        cam2.open_ports = cam.open_ports.clone();
+        store.save_asset(&mut cam2).unwrap();
+        let (_, v) = get_json(&app, "/api/findings", "localhost").await;
+        assert_eq!(v[0]["first_seen"].as_i64(), Some(first), "the same kind of finding keeps its original first_seen");
     }
 
     #[tokio::test]

@@ -11,13 +11,29 @@
 //! matching from a banner). Every finding is a plain fact about data the
 //! collector or a person entered.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
+use anyhow::Result;
 use serde::Serialize;
 
 use crate::fingerprint::is_ot_device;
 use crate::model::{Asset, AssetMeta, RiskAcceptance};
+use crate::store::SettingsStore;
 use crate::tracking::warranty_state;
+
+/// Settings key holding, per finding kind, the first time DENIS ever saw it (so the
+/// console can say "since <date>" instead of just "7m ago" — see `load_first_seen`).
+const FIRST_SEEN_KEY: &str = "finding_first_seen";
+
+/// When each *kind* of finding was first observed (not per device: the register already
+/// lists which devices currently have it). Read once per `/api/findings` request.
+pub fn load_first_seen(store: &dyn SettingsStore) -> Result<BTreeMap<String, i64>> {
+    Ok(store.get_setting(FIRST_SEEN_KEY)?.and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default())
+}
+
+pub fn save_first_seen(store: &dyn SettingsStore, seen: &BTreeMap<String, i64>, now: i64) -> Result<()> {
+    store.set_setting(FIRST_SEEN_KEY, &serde_json::to_vec(seen)?, now)
+}
 
 /// A device not seen for this long is considered gone, so its problems are not listed.
 const RECENT_SECS: i64 = 7 * 86_400;

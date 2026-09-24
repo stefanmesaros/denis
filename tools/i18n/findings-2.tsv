@@ -1,4 +1,6 @@
 # Findings page: verify a fix, accept a risk, the accepted-risks list, and what the server says about them.
+When DENIS first saw this kind of finding || Wann DENIS diese Art von Befund zum ersten Mal gesehen hat || Quand DENIS a vu ce type de constat pour la première fois || Cuándo vio DENIS por primera vez este tipo de hallazgo || Kedy DENIS prvýkrát videl tento druh zistenia
+since {date} || seit {date} || depuis le {date} || desde {date} || od {date}
 until withdrawn || bis zum Widerruf || jusqu'au retrait || hasta que se retire || kým sa nezruší
 {date} (in {n} days) || {date} (in {n} Tagen) || {date} (dans {n} jours) || {date} (en {n} días) || {date} (o {n} dní)
 Verify fix || Behebung prüfen || Vérifier la correction || Verificar la corrección || Overiť opravu

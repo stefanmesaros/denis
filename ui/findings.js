@@ -28,7 +28,8 @@ async function loadFindings() {
   const editor = can('editor');
   box.replaceChildren(...list.map((f) => el('div', { class: 'finding', id: 'finding-' + f.id },
     el('div', { class: 'finding-head' }, el('span', { class: 'sev ' + (f.severity === 'info' ? 'info' : f.severity), text: tr(f.severity) }),
-      el('b', { text: ' ' + tr(f.title) }), el('span', { class: 'muted', text: ' · ' + (f.assets.length === 1 ? tr('1 device') : tr('{n} devices', { n: f.assets.length })) })),
+      el('b', { text: ' ' + tr(f.title) }), el('span', { class: 'muted', text: ' · ' + (f.assets.length === 1 ? tr('1 device') : tr('{n} devices', { n: f.assets.length })) }),
+      el('span', { class: 'muted small', title: tr('When DENIS first saw this kind of finding'), text: ' · ' + tr('since {date}', { date: fmtExact(f.first_seen) }) })),
     el('p', { class: 'muted', text: tr(f.why) }),
     el('p', {}, el('b', { text: tr('What to do:') + ' ' }), tr(f.fix)),
     (f.evidence || []).length ? el('ul', { class: 'evidence' }, ...f.evidence.map((e) => el('li', {}, el('b', { text: deviceLabel(assetById(e.asset_id) || {}, '#' + e.asset_id) + ': ' }), evidenceText(e)))) : null,

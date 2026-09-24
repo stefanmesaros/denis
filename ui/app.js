@@ -45,6 +45,15 @@ function el(tag, props = {}, ...kids) {
 
 const now = () => (state.status ? state.status.now : Date.now() / 1000);
 const fmtTime = (ts) => ts ? new Date(ts * 1000).toLocaleString(locale()) : '—';
+/** An exact, unambiguous local timestamp ("2026-09-24 15:01:40"): "7m ago" alone does not
+ * say which day, and a locale format can read day-first or month-first depending on who
+ * is looking. Used next to the relative time on alerts and findings. */
+const fmtExact = (ts) => {
+  if (!ts) return '—';
+  const d = new Date(ts * 1000);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+};
 function span(secs) {
   secs = Math.max(0, secs);
   if (secs < 60) return Math.floor(secs) + 's';
@@ -440,7 +449,7 @@ function alertRow(e, extraClass) {
   const d = e.raw_details || {};
   const site = e.agent_id ? ' · ' + siteName(e.agent_id) : '';
   return el('tr', { class: (e.acked ? 'acked ' : '') + (extraClass || ''), onclick: () => showAlert(e, a) },
-    el('td', { text: ago(e.timestamp), title: fmtTime(e.timestamp) }),
+    el('td', { class: 'time-cell', title: fmtTime(e.timestamp) }, el('div', { text: ago(e.timestamp) }), el('div', { class: 'muted small', text: fmtExact(e.timestamp) })),
     el('td', {}, sevTag(e), ' ' + e.score),
     el('td', {}, el('span', { class: 'tag', text: e.type })),
     el('td', { text: deviceLabel(a, '#' + e.asset_id) + site }),
@@ -519,7 +528,7 @@ function renderAlerts() {
     const d = newest.raw_details || {};
     const site = newest.agent_id ? ' · ' + siteName(newest.agent_id) : '';
     const header = el('tr', { class: 'alert-group-head' + (newest.acked ? ' acked' : ''), onclick: () => { open ? state.expandedAlertGroups.delete(gkey) : state.expandedAlertGroups.add(gkey); renderAlerts(); } },
-      el('td', { text: ago(newest.timestamp), title: fmtTime(newest.timestamp) }),
+      el('td', { class: 'time-cell', title: fmtTime(newest.timestamp) }, el('div', { text: ago(newest.timestamp) }), el('div', { class: 'muted small', text: fmtExact(newest.timestamp) })),
       el('td', {}, sevTag(newest), ' ' + newest.score),
       el('td', {}, el('span', { class: 'tag', text: newest.type })),
       el('td', { text: deviceLabel(a, '#' + newest.asset_id) + site }),
