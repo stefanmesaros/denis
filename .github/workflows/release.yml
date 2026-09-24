@@ -90,7 +90,7 @@ jobs:
           v="${GITHUB_REF_NAME#v}"
           awk -v v="$v" '$0 ~ "^## " v {f=1; next} /^## / {f=0} f' CHANGELOG.md > notes.md
           test -s notes.md || echo "See CHANGELOG.md" > notes.md
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           # a tag with a hyphen (v0.2.0-rc.1) is a pre-release: never offered by install.sh or the update check
           prerelease: ${{ contains(github.ref_name, '-') }}
