@@ -534,7 +534,15 @@ function renderAlerts() {
       el('td', { text: deviceLabel(a, '#' + newest.asset_id) + site }),
       el('td', { class: 'wrap' }, el('div', {}, el('span', { class: 'expand-caret', text: open ? '▾ ' : '▸ ' }), d.summary || ''),
         el('div', { class: 'muted small', text: tr('×{n}, recurring since {time}', { n: g.length, time: ago(oldest.timestamp) }) })),
-      el('td', { class: 'row-actions' }, can('admin') ? el('button', {
+      el('td', { class: 'row-actions' }, g.some((e) => !e.acked) ? el('button', {
+        type: 'button', text: tr('Acknowledge all ({n})', { n: g.filter((e) => !e.acked).length }),
+        onclick: async (ev) => {
+          ev.stopPropagation();
+          ev.target.disabled = true;
+          await Promise.all(g.filter((e) => !e.acked).map((e) => apiFetch('/api/alerts/' + e.id + '/ack', { method: 'POST', headers: { 'X-Denis': '1' } })));
+          refresh();
+        },
+      }) : null, can('admin') ? el('button', {
         type: 'button', text: tr('Add exception'), title: exceptionLabel(newest),
         onclick: async (ev) => {
           ev.stopPropagation();
@@ -543,6 +551,10 @@ function renderAlerts() {
           if (err) { ev.target.disabled = false; showMessage(tr('Alert'), el('p', { text: err })); }
         },
       }) : null));
+    // acknowledging some occurrences (individually, in the expanded list, or with the button
+    // above) can shrink this below 2 unacked members; once it does, `groupRepeatingAlerts`
+    // stops calling this a group at all, and the caller falls back to a plain `alertRow` —
+    // this branch only ever runs for 2 or more, so there is nothing further to reconcile here.
     return open ? [header, ...g.map((e) => alertRow(e, 'alert-group-item'))] : [header];
   }));
   $('no-alerts').hidden = rows.length > 0;

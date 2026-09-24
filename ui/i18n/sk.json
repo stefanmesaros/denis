@@ -76,6 +76,7 @@
 "Accepted risks": "Akceptované riziká",
 "Access token (optional)": "Prístupový token (voliteľné)",
 "Acknowledge": "Potvrdiť",
+"Acknowledge all ({n})": "Potvrdiť všetky ({n})",
 "Action": "Akcia",
 "Activated {date}, valid {days} days from then.": "Aktivované {date}, platné {days} dní odvtedy.",
 "Active discovery is on.": "Aktívne zisťovanie je zapnuté.",

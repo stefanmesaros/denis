@@ -76,6 +76,7 @@
 "Accepted risks": "Risques acceptés",
 "Access token (optional)": "Jeton d'accès (facultatif)",
 "Acknowledge": "Acquitter",
+"Acknowledge all ({n})": "Tout confirmer ({n})",
 "Action": "Action",
 "Activated {date}, valid {days} days from then.": "Activée le {date}, valable {days} jours à partir de cette date.",
 "Active discovery is on.": "La découverte active est activée.",
