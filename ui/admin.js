@@ -227,6 +227,7 @@ async function start() {
   $('switches-box').hidden = !can('admin');
   $('vuln-box').hidden = !can('admin');
   $('siem-box').hidden = !can('admin');
+  $('sso-box').hidden = !can('admin');
   $('retention-box').hidden = !can('admin');
   for (const b of document.querySelectorAll('#topo-mode button')) b.onclick = () => setTopoMode(b.dataset.mode);
   $('setup-open').onclick = openSetupGuide;
@@ -881,6 +882,10 @@ async function loadSignInMethods() {
   const r = await api('GET', '/api/auth/methods');
   state.methods = r.ok ? r.json : { passkey: false };
   $('login-passkey').hidden = !(state.methods.passkey && passkeysSupported());
+  const sso = await api('GET', '/api/auth/sso');
+  const el_ = $('login-sso');
+  el_.hidden = !(sso.ok && sso.json.enabled);
+  if (sso.ok && sso.json.enabled) el_.textContent = sso.json.button_label;
 }
 
 /** Turn the browser's error into a sentence a person can act on. */
@@ -988,7 +993,7 @@ function applyHash() {
   if (what === 'rules' && arg === 'watches') setTimeout(() => $('watches')?.scrollIntoView({ block: 'start' }), 700);
   // #settings/tls, #settings/updates ...: scroll to that section
   if (what === 'settings' && arg && !$('tab-settings').hidden) {
-    const box = { branding: 'branding-box', overview: 'overview-box', license: 'license-box', interfaces: 'interfaces-box', tls: 'tls-box', updates: 'update-box', system: 'system-box', data: 'data-box', setup: 'setup-box', security: 'security-box', switches: 'switches-box', vulndata: 'vuln-box', siem: 'siem-box', retention: 'retention-box' }[arg];
+    const box = { branding: 'branding-box', overview: 'overview-box', license: 'license-box', interfaces: 'interfaces-box', tls: 'tls-box', updates: 'update-box', system: 'system-box', data: 'data-box', setup: 'setup-box', security: 'security-box', switches: 'switches-box', vulndata: 'vuln-box', siem: 'siem-box', sso: 'sso-box', retention: 'retention-box' }[arg];
     if (box) setTimeout(() => $(box).scrollIntoView({ block: 'start' }), 50);
   }
   if (what === 'passkeys') { location.hash = '#account'; return; }
@@ -1296,6 +1301,29 @@ $('interfaces-save').onclick = async () => {
   const r = await api('PUT', '/api/interfaces', { iface, mirror_ifaces });
   $('interfaces-msg').textContent = r.ok ? tr('Saved. Restart DENIS to apply.') : apiError(r);
   if (r.ok) loadInterfacesBox();
+};
+
+async function loadSsoBox() {
+  if (!can('admin')) return;
+  const r = await api('GET', '/api/sso');
+  if (!r.ok) return;
+  const d = r.json;
+  $('sso-enabled').checked = d.enabled;
+  $('sso-issuer').value = d.issuer_url;
+  $('sso-client-id').value = d.client_id;
+  $('sso-client-secret').value = '';
+  $('sso-client-secret').placeholder = d.secret_set ? tr('(unchanged)') : '';
+  $('sso-button-label').value = d.button_label;
+  $('sso-redirect-hint').textContent = tr('Give the identity provider this redirect URL: {url}', { url: location.origin + '/api/auth/sso/callback' });
+}
+$('sso-save').onclick = async () => {
+  const body = {
+    enabled: $('sso-enabled').checked, issuer_url: $('sso-issuer').value.trim(), client_id: $('sso-client-id').value.trim(),
+    client_secret: $('sso-client-secret').value, button_label: $('sso-button-label').value.trim(),
+  };
+  const r = await api('PUT', '/api/sso', body);
+  $('sso-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
+  if (r.ok) loadSsoBox();
 };
 
 function siemForm() {

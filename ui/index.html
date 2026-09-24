@@ -23,6 +23,7 @@
       <div id="login-error" class="form-error" role="alert" hidden></div>
       <button type="submit" class="primary">Sign in</button>
       <button type="button" id="login-passkey" class="passkey-btn" hidden>Sign in with a passkey</button>
+      <a id="login-sso" class="passkey-btn" href="/api/auth/sso/login" hidden></a>
       <select id="login-lang" class="lang-select" aria-label="Language"></select>
     </form>
   </div>
@@ -436,6 +437,21 @@
           <h3 class="section">System</h3>
           <p class="muted">Restarting picks up any configuration change that needs one, without losing the register. Both ask for your password again.</p>
           <div class="row"><button id="system-restart" type="button">Restart…</button><button id="system-shutdown" type="button" class="danger">Shut down…</button><span id="system-msg" class="muted"></span></div>
+        </div>
+        <div id="sso-box" hidden>
+          <h3 class="section">Single sign-on (OIDC)</h3>
+          <p class="muted">Let people sign in through an identity provider (Entra ID, Okta, Google Workspace, Keycloak, anything speaking OpenID Connect) instead of a local password. The first sign-in for an email creates a viewer account for it automatically; raise its role afterwards like any other account. Local accounts, including the initial admin password, keep working alongside this.</p>
+          <label class="check"><input id="sso-enabled" type="checkbox"> Enabled</label>
+          <div class="row">
+            <label class="field-wide">Issuer URL<input id="sso-issuer" placeholder="https://login.microsoftonline.com/&lt;tenant&gt;/v2.0"></label>
+          </div>
+          <div class="row">
+            <label>Client ID<input id="sso-client-id"></label>
+            <label>Client secret<input id="sso-client-secret" type="password" autocomplete="off"></label>
+            <label>Button text<input id="sso-button-label" placeholder="Sign in with…"></label>
+          </div>
+          <p class="muted small" id="sso-redirect-hint"></p>
+          <div class="row"><button id="sso-save" type="button" class="primary">Save</button><span id="sso-msg" class="muted"></span></div>
         </div>
         <div id="vuln-box" hidden>
           <h3 class="section">Software versions: end of support and known exploits</h3>
