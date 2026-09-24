@@ -439,6 +439,11 @@ pub struct DestStat {
     pub bytes_out: u64,
     #[serde(default)]
     pub bytes_in: u64,
+    /// How many separate `new_port` alerts this destination has already caused. Some
+    /// conversations (a P2P/relay service that allocates a fresh port per session) never
+    /// settle into "an established set of ports" — see `port_churn_max` in `detect.rs`.
+    #[serde(default)]
+    pub port_churn: u32,
 }
 
 /// Exponentially-weighted mean/variance of outbound bytes per bucket.

@@ -224,7 +224,7 @@ mod tests {
     }
 
     fn dest(bytes_out: u64, bytes_in: u64) -> crate::model::DestStat {
-        crate::model::DestStat { first_seen: 0, last_seen: 0, bytes: bytes_out + bytes_in, bytes_out, bytes_in }
+        crate::model::DestStat { first_seen: 0, last_seen: 0, bytes: bytes_out + bytes_in, bytes_out, bytes_in, port_churn: 0 }
     }
 
     fn baseline_with(asset_id: i64, dests: &[(&str, u64, u64)]) -> Baseline {

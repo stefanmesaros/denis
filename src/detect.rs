@@ -127,6 +127,10 @@ pub struct DetectConfig {
     pub max_destinations: usize,
     /// `new_port`: a device needs at least this many known ports before a new one is notable.
     pub port_min_baseline: usize,
+    /// `new_port`: after this many separate new-port alerts to the *same* destination, stop —
+    /// some conversations (a P2P/relay service handing out a fresh port per session) never
+    /// settle into "an established set of ports", and repeating the alert forever adds nothing.
+    pub port_churn_max: u32,
     /// `unusual_hours`: observe a device this long before judging its daily pattern.
     pub hours_learning_secs: i64,
     pub hours_min_buckets: u32,
@@ -182,6 +186,7 @@ impl Default for DetectConfig {
             min_samples: 12,
             max_destinations: 2000,
             port_min_baseline: 3,
+            port_churn_max: 3,
             hours_learning_secs: 7 * 24 * 3600,
             hours_min_buckets: 200,
             hours_max_share: 0.02,
@@ -576,6 +581,7 @@ impl Detector {
             let port_key = format!("{}/{}", proto_name(r.proto), r.port);
             let mature = r.window_start - b.observed_since >= self.cfg.learning_secs;
             let dest_known = b.typical_destinations.contains_key(&key);
+            let mut churned_port = false;
             if mature && !dest_known {
                 let (raw, why) = score_new_destination(b, &self.global_dests, asset_id, r);
                 fresh.push((raw, why, r));
@@ -584,11 +590,13 @@ impl Detector {
                 && b.typical_ports.len() >= self.cfg.port_min_baseline
                 && r.port < EPHEMERAL_START
                 && !COMMON_PORTS.contains(&r.port)
+                && b.typical_destinations.get(&key).is_none_or(|d| d.port_churn < self.cfg.port_churn_max)
             {
                 // A known destination on a port the device has never used. (A
                 // new destination already scores an unusual port itself.)
                 let (raw, why) = score_new_port(r);
                 newport.push((raw, why, r));
+                churned_port = true;
             }
             let e = b.typical_destinations.entry(key).or_insert(DestStat {
                 first_seen: r.window_start,
@@ -596,7 +604,11 @@ impl Detector {
                 bytes: 0,
                 bytes_out: 0,
                 bytes_in: 0,
+                port_churn: 0,
             });
+            if churned_port {
+                e.port_churn += 1;
+            }
             e.last_seen = e.last_seen.max(r.window_start);
             e.bytes += r.bytes_out + r.bytes_in;
             e.bytes_out += r.bytes_out;
@@ -1930,6 +1942,32 @@ mod tests {
         established(&s, &mut d);
         let ev = d.ingest_flows(None, &[flow(MAC, [9, 9, 9, 9], 4444, 100, 2000)], &s, 2010);
         assert_eq!(kinds(&ev), [(RULE_NEW_DESTINATION, 65)]); // 35 + 15 nobody else + 15 unusual port
+    }
+
+    #[test]
+    fn a_destination_that_keeps_handing_out_new_ports_stops_alerting_after_a_few() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let mut d = Detector::new(cfg(), vec![], 0);
+        established(&s, &mut d);
+        // A P2P/relay-style destination that uses a fresh port on every single
+        // conversation: the first `port_churn_max` (default 3) are still notable...
+        for (i, port) in [7001u16, 7002, 7003].into_iter().enumerate() {
+            let ts = 2000 + i as i64 * 100;
+            let ev = d.ingest_flows(None, &[flow(MAC, [1, 1, 1, 1], port, 1, ts)], &s, ts + 10);
+            assert_eq!(kinds(&ev), [(RULE_NEW_PORT, 40)], "alert #{i} for port {port}");
+        }
+        // ...but DENIS gives up on this one being ever "learnable" and stops repeating it,
+        // instead of alerting forever on every new random port this destination hands out.
+        for (i, port) in [7004u16, 7005, 7006].into_iter().enumerate() {
+            let ts = 2300 + i as i64 * 100;
+            assert!(
+                d.ingest_flows(None, &[flow(MAC, [1, 1, 1, 1], port, 1, ts)], &s, ts + 10).is_empty(),
+                "port {port} should be suppressed as churn"
+            );
+        }
+        // A genuinely new port towards a *different*, well-behaved destination still alerts.
+        let ev = d.ingest_flows(None, &[flow(MAC, [2, 2, 2, 2], 22, 1, 2600)], &s, 2610);
+        assert_eq!(kinds(&ev), [(RULE_NEW_DESTINATION, 65)]); // new destination, not new_port
     }
 
     #[test]

@@ -1534,7 +1534,7 @@ mod tests {
         let mut a = sample();
         s.save_asset(&mut a).unwrap();
         let mut b = Baseline::new(a.id, 1000);
-        b.typical_destinations.insert("1.1.1.1".into(), crate::model::DestStat { first_seen: 1, last_seen: 2, bytes: 3, bytes_out: 2, bytes_in: 1 });
+        b.typical_destinations.insert("1.1.1.1".into(), crate::model::DestStat { first_seen: 1, last_seen: 2, bytes: 3, bytes_out: 2, bytes_in: 1, port_churn: 0 });
         b.volume = crate::model::VolumeStats { n: 4, mean: 5.5, var: 6.25 };
         b.active_hours[13] = 7;
         s.save_baseline(&b).unwrap();

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.1: `new_port` no longer alerts forever on a P2P/relay destination that hands out a new port every session
+
+* Some devices (several IP cameras were the case that surfaced this) talk to a cloud relay/P2P
+  service that allocates a different UDP port for every single session. Because that port never
+  settles into "an established set of ports", `new_port` alerted on it again and again — for one
+  busy camera, dozens of times a day, forever. `new_port` now stops repeating for a given
+  destination after a handful of alerts (tunable: Rules → New service port → "Stop repeating
+  after"), rather than raising it every time that destination hands out yet another new port.
+
 ## 2.0.0: Docker image, software inventory, bulk tagging, shared reports, alert grouping
 
 * **Docker.** An official image (`docker compose up demo` for the no-install demo, or a `denis`

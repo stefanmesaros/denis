@@ -1326,8 +1326,8 @@ mod tests {
         let (code, v) = get_json(&app, &format!("/api/assets/{}/baseline", a.id), "localhost").await;
         assert_eq!((code, v.is_null()), (StatusCode::OK, true));
         let mut b = Baseline::new(a.id, 1);
-        b.typical_destinations.insert("1.1.1.1".into(), DestStat { first_seen: 1, last_seen: 5, bytes: 9, bytes_out: 9, bytes_in: 0 });
-        b.typical_destinations.insert("2.2.2.2".into(), DestStat { first_seen: 1, last_seen: 50, bytes: 9, bytes_out: 9, bytes_in: 0 });
+        b.typical_destinations.insert("1.1.1.1".into(), DestStat { first_seen: 1, last_seen: 5, bytes: 9, bytes_out: 9, bytes_in: 0, port_churn: 0 });
+        b.typical_destinations.insert("2.2.2.2".into(), DestStat { first_seen: 1, last_seen: 50, bytes: 9, bytes_out: 9, bytes_in: 0, port_churn: 0 });
         store.save_baseline(&b).unwrap();
         let (code, v) = get_json(&app, &format!("/api/assets/{}/baseline", a.id), "localhost").await;
         assert_eq!((code, v["destinations"][0]["ip"].as_str(), v["destination_count"].as_i64()), (StatusCode::OK, Some("2.2.2.2"), Some(2)));
@@ -1415,7 +1415,7 @@ mod tests {
         store.save_asset(&mut quiet).unwrap();
         for (id, out) in [(gw.id, 900), (noisy.id, 500), (quiet.id, 10)] {
             let mut b = Baseline::new(id, 1);
-            b.typical_destinations.insert("1.1.1.1".into(), DestStat { first_seen: 1, last_seen: 1, bytes: out, bytes_out: out, bytes_in: 0 });
+            b.typical_destinations.insert("1.1.1.1".into(), DestStat { first_seen: 1, last_seen: 1, bytes: out, bytes_out: out, bytes_in: 0, port_churn: 0 });
             store.save_baseline(&b).unwrap();
         }
 
