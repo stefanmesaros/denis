@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.13.1: Three toolbar placements corrected after a first look at 2.13.0
+
+* Devices: "needs review" and Columns are now pinned to the right edge of the toolbar (they had
+  landed on their own line, at the left, once the row wrapped).
+* Alerts: a bigger gap between "show acknowledged" and Columns.
+* Sites: Columns is flush right on the "Issue token" row, not sitting right next to the button
+  (that placement is now Users' "Add user" only).
+
 ## 2.13.0: Consistent per-page toolbars — the Columns button always lands somewhere sensible
 
 * Every page's own controls (an "add" form, an export link, a heading) and its **Columns** button
