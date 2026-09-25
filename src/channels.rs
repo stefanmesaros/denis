@@ -816,15 +816,23 @@ fn post_json(url: &str, body: &Value, extra: &[(&str, String)]) -> Result<()> {
 }
 
 fn send_email(s: &Smtp, n: &Notification) -> Result<()> {
+    let subject: String = format!("[DENIS] {}: {}", n.headline(), n.summary).chars().filter(|c| !c.is_control()).take(200).collect();
+    send_smtp(s, &s.to, &subject, &n.plain())
+}
+
+/// The actual SMTP send, shared by the e-mail notification channel and anything else in DENIS
+/// that sends mail (scheduled reports) — `to` is separate from `s.to` so a caller can mail
+/// different recipients than the channel's own, using the same server settings.
+pub(crate) fn send_smtp(s: &Smtp, to: &[String], subject: &str, body: &str) -> Result<()> {
     use lettre::message::Mailbox;
     use lettre::transport::smtp::authentication::Credentials;
     use lettre::{Message, SmtpTransport, Transport};
     let mut b = Message::builder().from(s.from.parse::<Mailbox>()?);
-    for to in &s.to {
-        b = b.to(to.parse::<Mailbox>()?);
+    for addr in to {
+        b = b.to(addr.parse::<Mailbox>()?);
     }
-    let subject: String = format!("[DENIS] {}: {}", n.headline(), n.summary).chars().filter(|c| !c.is_control()).take(200).collect();
-    let msg = b.subject(subject).body(n.plain())?;
+    let subject: String = subject.chars().filter(|c| !c.is_control()).take(200).collect();
+    let msg = b.subject(subject).body(body.to_string())?;
     let builder = match s.security.as_str() {
         "tls" => SmtpTransport::relay(&s.host)?,
         "starttls" => SmtpTransport::starttls_relay(&s.host)?,

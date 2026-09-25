@@ -896,7 +896,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     }
 
     // saved reports on a schedule
-    tasks.push(tokio::spawn(crate::reports::run(store.clone(), coll.shared.clone())));
+    tasks.push(tokio::spawn(crate::reports::run(store.clone(), coll.shared.clone(), cfg.public_url.clone())));
     // accepted risks: announce their end, scan them again, notice when the problem is gone
     tasks.push(tokio::spawn(crate::reverify::run(store.clone(), coll.shared.clone(), alerts.clone())));
     // support dates and known-exploited vulnerabilities (bundled data, optionally refreshed)

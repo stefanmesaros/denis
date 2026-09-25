@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.10.0: Scheduled reports can now e-mail themselves
+
+* **Scheduled reports → optional e-mail delivery** (Reports page, under the schedule): when a
+  weekly/monthly report is made, DENIS can now e-mail a share link to a list of addresses instead
+  of only keeping it in the console for someone to remember to check. Reuses whichever e-mail
+  notification channel is already enabled (Settings → Alerting) — no separate SMTP setup — and
+  needs `--public-url` configured so the link actually resolves. Leave the recipients blank to
+  keep the previous behaviour exactly as it was.
+
 ## 2.9.0: Elasticsearch/OpenSearch export, a reorganised Settings page, and two UI fixes
 
 * **Elasticsearch/OpenSearch export** (Settings → SIEM / Log export → Elasticsearch (Bulk API)):

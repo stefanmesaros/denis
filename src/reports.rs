@@ -32,6 +32,9 @@ pub const SETTINGS_KEY: &str = "reports";
 /// Never keep more than this many scheduled reports, whatever is asked for.
 pub const MAX_KEEP: u32 = 200;
 
+/// Never e-mail more than this many recipients for one scheduled report.
+const MAX_EMAIL_TO: usize = 20;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
     /// `off`, `weekly` or `monthly`.
@@ -40,11 +43,17 @@ pub struct Settings {
     pub keep: u32,
     /// The period each scheduled report covers.
     pub days: i64,
+    /// Who to e-mail a share link to when a scheduled report is made. Empty (the default): nobody
+    /// — it is only saved in the console, same as before this existed. Sent through whichever
+    /// e-mail notification channel is enabled (Settings → Alerting); with none configured, the
+    /// report still gets made and kept, just not mailed.
+    #[serde(default)]
+    pub email_to: Vec<String>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { schedule: "off".into(), keep: 12, days: 7 }
+        Settings { schedule: "off".into(), keep: 12, days: 7, email_to: Vec::new() }
     }
 }
 
@@ -58,6 +67,12 @@ impl Settings {
         }
         if !(1..=365).contains(&self.days) {
             return Err("days must be between 1 and 365");
+        }
+        if self.email_to.len() > MAX_EMAIL_TO {
+            return Err("at most 20 e-mail addresses");
+        }
+        if self.email_to.iter().any(|a| a.parse::<lettre::message::Mailbox>().is_err()) {
+            return Err("give only valid e-mail addresses");
         }
         Ok(())
     }
@@ -207,14 +222,36 @@ pub fn is_due(s: &Settings, last_scheduled: Option<i64>, now: i64) -> bool {
     }
 }
 
+/// A link to a shared report, e-mailed to `settings.email_to` through whichever e-mail channel is
+/// enabled — nothing is sent (and nothing is an error) when there are no recipients, no e-mail
+/// channel, or no `public_url` to build a working link from.
+fn email_report(store: &dyn Store, settings: &Settings, meta: &ReportMeta, public_url: Option<&str>, now: i64) -> Result<()> {
+    if settings.email_to.is_empty() {
+        return Ok(());
+    }
+    let Some(base) = public_url else {
+        tracing::warn!("scheduled report: {} recipient(s) configured, but no --public-url is set, so no link can be sent", settings.email_to.len());
+        return Ok(());
+    };
+    let Some(smtp) = crate::channels::load(store)?.into_iter().find(|c| c.enabled && c.kind == "email").and_then(|c| c.smtp) else {
+        tracing::warn!("scheduled report: {} recipient(s) configured, but no e-mail channel is enabled (Settings → Alerting)", settings.email_to.len());
+        return Ok(());
+    };
+    let token = share(store, meta.id, now)?;
+    let link = format!("{}/api/reports/shared/{token}", base.trim_end_matches('/'));
+    let subject = format!("[DENIS] {}", meta.title);
+    let body = format!("Your scheduled DENIS report is ready:\n\n{link}\n\nThis link needs no sign-in. Settings → Reports turns scheduled e-mail off.");
+    crate::channels::send_smtp(&smtp, &settings.email_to, &subject, &body)
+}
+
 /// Background task: once a while, make the scheduled report if one is due.
-pub async fn run<S: ReportStatus + Send + Sync + 'static>(store: std::sync::Arc<dyn Store>, shared: std::sync::Arc<S>) {
+pub async fn run<S: ReportStatus + Send + Sync + 'static>(store: std::sync::Arc<dyn Store>, shared: std::sync::Arc<S>, public_url: Option<String>) {
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(600));
     // do not start before the collector has had a moment to look around
     tokio::time::sleep(std::time::Duration::from_secs(90)).await;
     loop {
         tick.tick().await;
-        let (s, sh) = (store.clone(), shared.clone());
+        let (s, sh, url) = (store.clone(), shared.clone(), public_url.clone());
         let done = tokio::task::spawn_blocking(move || -> Result<Option<ReportMeta>> {
             let settings = load(&*s)?;
             let last = s.list_reports()?.iter().filter(|r| r.kind == "scheduled").map(|r| r.created_at).max();
@@ -222,7 +259,11 @@ pub async fn run<S: ReportStatus + Send + Sync + 'static>(store: std::sync::Arc<
             if !is_due(&settings, last, now) {
                 return Ok(None);
             }
-            generate(&*s, &sh, "scheduled", settings.days, "schedule", now).map(Some)
+            let meta = generate(&*s, &sh, "scheduled", settings.days, "schedule", now)?;
+            if let Err(e) = email_report(&*s, &settings, &meta, url.as_deref(), now) {
+                tracing::warn!("scheduled report: could not e-mail it: {e:#}");
+            }
+            Ok(Some(meta))
         })
         .await;
         match done {
@@ -277,5 +318,87 @@ mod tests {
         assert!(Settings { keep: 201, ..Default::default() }.validate().is_err());
         assert!(Settings { days: 0, ..Default::default() }.validate().is_err());
         assert!(Settings { days: 366, ..Default::default() }.validate().is_err());
+        assert!(Settings { email_to: vec!["not-an-address".into()], ..Default::default() }.validate().is_err());
+        assert!(Settings { email_to: vec!["a@example.com".into(); 21], ..Default::default() }.validate().is_err());
+        assert!(Settings { email_to: vec!["ops@example.com".into(), "a@example.com".into()], ..Default::default() }.validate().is_ok());
+    }
+
+    fn report_meta(id: i64) -> ReportMeta {
+        ReportMeta { id, kind: "scheduled".into(), title: "DENIS report, 7 day(s), 2026-09-25".into(), period_days: 7, created_at: 1, created_by: "schedule".into(), size: 10 }
+    }
+
+    #[test]
+    fn no_recipients_no_public_url_or_no_email_channel_is_a_quiet_no_op() {
+        let store = crate::store::sqlite::SqliteStore::open_in_memory().unwrap();
+        // no recipients configured: nothing to do, not even a share
+        email_report(&store, &Settings::default(), &report_meta(1), Some("https://denis.example.com"), 1).unwrap();
+        assert_eq!(share_token_of(&store, 1).unwrap(), None);
+
+        let with_to = Settings { email_to: vec!["ops@example.com".into()], ..Default::default() };
+        // recipients, but no --public-url: warns and returns Ok, no share made (nothing useful to link to)
+        email_report(&store, &with_to, &report_meta(2), None, 1).unwrap();
+        assert_eq!(share_token_of(&store, 2).unwrap(), None);
+        // recipients and a public URL, but no e-mail channel enabled: same, quietly does nothing
+        email_report(&store, &with_to, &report_meta(3), Some("https://denis.example.com"), 1).unwrap();
+        assert_eq!(share_token_of(&store, 3).unwrap(), None);
+    }
+
+    #[test]
+    fn a_due_report_is_shared_and_mailed_with_a_working_link() {
+        // a tiny SMTP server: greeting, EHLO, MAIL, RCPT, DATA, QUIT (same shape as channels.rs's own test)
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let got = std::thread::spawn(move || {
+            use std::io::{BufRead, Write};
+            let (mut c, _) = l.accept().unwrap();
+            let mut data = String::new();
+            let mut r = std::io::BufReader::new(c.try_clone().unwrap());
+            let mut line = String::new();
+            let mut in_data = false;
+            let _ = c.write_all(b"220 test ESMTP\r\n");
+            while r.read_line(&mut line).unwrap_or(0) > 0 {
+                let l = line.trim_end().to_string();
+                line.clear();
+                if in_data {
+                    if l == "." {
+                        in_data = false;
+                        let _ = c.write_all(b"250 queued\r\n");
+                    } else {
+                        data.push_str(&l);
+                        data.push('\n');
+                    }
+                    continue;
+                }
+                let up = l.to_uppercase();
+                let reply: &[u8] = if up.starts_with("EHLO") || up.starts_with("HELO") { b"250 test\r\n" }
+                    else if up.starts_with("MAIL") || up.starts_with("RCPT") || up.starts_with("RSET") { b"250 ok\r\n" }
+                    else if up.starts_with("DATA") { in_data = true; b"354 go\r\n" }
+                    else if up.starts_with("QUIT") { let _ = c.write_all(b"221 bye\r\n"); break }
+                    else { b"250 ok\r\n" };
+                let _ = c.write_all(reply);
+            }
+            data
+        });
+
+        let store = crate::store::sqlite::SqliteStore::open_in_memory().unwrap();
+        let mut channels = crate::channels::load(&store).unwrap();
+        let ch = crate::channels::from_body(
+            &serde_json::json!({"name": "ops", "kind": "email", "smtp": {"host": "127.0.0.1", "port": port, "security": "none", "from": "DENIS <denis@example.com>", "to": ["fallback@example.com"]}}),
+            None,
+        )
+        .unwrap();
+        crate::channels::add(&mut channels, ch).unwrap();
+        crate::channels::save(&store, &channels, 1).unwrap();
+
+        let settings = Settings { email_to: vec!["a@example.com".into(), "b@example.com".into()], ..Default::default() };
+        email_report(&store, &settings, &report_meta(9), Some("https://denis.example.com/"), 5).unwrap();
+
+        let token = share_token_of(&store, 9).unwrap().expect("the report was shared so the link works");
+        // the body is quoted-printable, which soft-wraps a long line with a trailing "=\n": undo just that
+        let mail = got.join().unwrap().replace("=\r\n", "").replace("=\n", "");
+        assert!(mail.contains(&format!("https://denis.example.com/api/reports/shared/{token}")), "{mail}");
+        assert!(mail.contains("a@example.com") && mail.contains("b@example.com"), "mailed to the report's own recipients, not the channel's own To: {mail}");
+        assert!(!mail.contains("fallback@example.com"), "{mail}");
+        assert!(mail.contains("Subject:") && mail.contains(&report_meta(9).title), "{mail}");
     }
 }
