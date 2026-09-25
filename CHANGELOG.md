@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.1: fixed the Devices "select all" checkbox silently breaking the whole page
+
+* Clicking it set the sort state to something invalid (its column has no sort of its own, and the
+  header-click handler had no guard against that), which broke every redraw of the Devices list
+  afterwards — including the row checkboxes' own selection — until the page was reloaded. Found
+  from a real report; a new automated check clicks the real checkbox so this fails loudly again
+  if it recurs, instead of shipping unnoticed.
+
 ## 2.3.0: "Explain with AI" (bring-your-own-key), and a fix for a stuck alerts badge
 
 * **"Explain with AI"** on any alert or finding (Settings → Explain with AI): an administrator
