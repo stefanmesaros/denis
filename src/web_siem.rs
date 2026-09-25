@@ -13,11 +13,16 @@ use crate::syslog::{self, Settings, Streams};
 use crate::web::common::{blocking, ApiError, AppState, AuthUser};
 use crate::web_admin::{audit, err};
 
-pub(crate) async fn get(State(st): State<AppState>) -> Result<Json<Settings>, ApiError> {
-    Ok(Json(blocking(&st.store, |s| syslog::load(s)).await?))
+pub(crate) async fn get(State(st): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+    Ok(Json(blocking(&st.store, |s| syslog::load(s)).await?.masked()))
 }
 
-pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<Settings>) -> Result<Response, ApiError> {
+pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(body): Json<serde_json::Value>) -> Result<Response, ApiError> {
+    let existing = blocking(&st.store, |s| syslog::load(s)).await?;
+    let b = match syslog::from_body(&body, &existing) {
+        Ok(b) => b,
+        Err(e) => return Ok(err(StatusCode::BAD_REQUEST, e)),
+    };
     if let Err(e) = b.validate() {
         return Ok(err(StatusCode::BAD_REQUEST, e));
     }
@@ -35,12 +40,20 @@ pub(crate) struct TestReq {
     format: String,
     #[serde(default)]
     insecure_tls: bool,
+    #[serde(default)]
+    api_key: Option<String>,
+    #[serde(default)]
+    index: String,
 }
 
 /// Send one message right now with whatever is in the form, bypassing settings entirely — so an
 /// administrator can check a target before saving it (or without ever saving it).
 pub(crate) async fn test(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<TestReq>) -> Result<Response, ApiError> {
-    let probe = Settings { enabled: true, transport: b.transport, host: b.host, port: b.port, format: b.format, streams: Streams { events: true, findings: false, audit: false }, insecure_tls: b.insecure_tls };
+    let probe = Settings {
+        enabled: true, transport: b.transport, host: b.host, port: b.port, format: b.format,
+        streams: Streams { events: true, findings: false, audit: false }, insecure_tls: b.insecure_tls,
+        api_key: b.api_key, index: b.index,
+    };
     if let Err(e) = probe.validate() {
         return Ok(err(StatusCode::BAD_REQUEST, e));
     }

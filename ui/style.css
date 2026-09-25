@@ -265,6 +265,9 @@ tr.row-warn td { background: color-mix(in srgb, var(--warn) 10%, transparent); }
 .brand-form { display: grid; gap: 10px; max-width: 460px; margin-bottom: 14px; }
 .brand-logo-box { display: grid; gap: 8px; max-width: 460px; margin-bottom: 14px; }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* Two `.row`s stacked directly (a dialog with several button groups, e.g. Settings → Updates)
+   otherwise touch: `.row` only sets gap *between* its own children, nothing above itself. */
+.row + .row { margin-top: 10px; }
 .bulk-bar { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 0 0 10px; display: grid; gap: 8px; }
 .bulk-bar .row { margin: 0; }
 /* Settings and Health list several unrelated controls, hints and tables one under another;
@@ -296,6 +299,10 @@ input[type=color] { padding: 0; width: 44px; height: 30px; }
   box-shadow: 0 1px 1px rgba(0,0,0,.02); transition: border-color .1s, box-shadow .1s;
 }
 .subnav a:hover { border-color: var(--accent); box-shadow: 0 1px 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.subnav a.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); font-weight: 600; }
+.settings-nav { display: flex; flex-wrap: wrap; gap: 4px 28px; margin: 10px 0 20px; }
+.settings-navgroup .navgroup { padding: 0 0 4px; }
+.settings-navgroup .subnav { margin: 0; }
 #accepted-table td { white-space: normal; vertical-align: top; }
 #accepted-table td:last-child { white-space: nowrap; }
 #accepted-table td:last-child button + button { margin-left: 6px; }

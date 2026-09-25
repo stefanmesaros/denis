@@ -76,7 +76,7 @@
         <div id="learning" class="banner" hidden></div>
         <div class="toolbar">
           <input id="search" type="search" placeholder="Filter by IP, MAC, name, owner, serial, tag…" aria-label="Filter devices">
-          <span class="filters-box">
+          <span class="filters-box" id="search-help-box">
             <button id="search-help-btn" type="button" class="icon-btn" aria-haspopup="dialog" aria-label="Search syntax" title="Search syntax">ⓘ</button>
             <div id="search-help-menu" class="cols-menu" hidden role="dialog" aria-label="Search syntax"></div>
           </span>
@@ -395,8 +395,35 @@
 
       <section id="view-settings" hidden>
         <p class="muted">Settings for the whole installation. Only administrators see this page; every change is written to the <a href="#audit">audit log</a>.</p>
-        <nav class="subnav" aria-label="Settings sections">
-          <a href="#settings/branding">Branding (white label)</a><a href="#settings/overview">MSP view</a><a href="#settings/license">License</a><a href="#settings/interfaces">Network interfaces</a><a href="#settings/tls">HTTPS certificate</a><a href="#settings/updates">Updates</a><a href="#settings/vulndata">Software data</a><a href="#settings/switches">Switches (SNMP)</a><a href="#settings/security">Sign-in security</a><a href="#settings/siem">SIEM / Log export</a><a href="#settings/retention">Data retention</a><a href="#settings/setup">Setup guide</a><a href="#settings/data">Demo data and reset</a>
+        <nav class="settings-nav" aria-label="Settings sections">
+          <div class="settings-navgroup">
+            <div class="navgroup">Get started</div>
+            <div class="subnav"><a href="#settings/setup" data-box="setup">Setup guide</a></div>
+          </div>
+          <div class="settings-navgroup">
+            <div class="navgroup">Network</div>
+            <div class="subnav"><a href="#settings/interfaces" data-box="interfaces">Network interfaces</a><a href="#settings/switches" data-box="switches">Switches (SNMP)</a></div>
+          </div>
+          <div class="settings-navgroup">
+            <div class="navgroup">Sign-in &amp; security</div>
+            <div class="subnav"><a href="#settings/security" data-box="security">Sign-in security</a><a href="#settings/sso" data-box="sso">Single sign-on (OIDC)</a><a href="#settings/tls" data-box="tls">HTTPS certificate</a></div>
+          </div>
+          <div class="settings-navgroup">
+            <div class="navgroup">Data</div>
+            <div class="subnav"><a href="#settings/retention" data-box="retention">Data retention</a><a href="#settings/vulndata" data-box="vulndata">Software data</a><a href="#settings/data" data-box="data">Demo data and reset</a></div>
+          </div>
+          <div class="settings-navgroup">
+            <div class="navgroup">Integrations</div>
+            <div class="subnav"><a href="#settings/siem" data-box="siem">SIEM / Log export</a><a href="#settings/ai" data-box="ai">Explain with AI</a></div>
+          </div>
+          <div class="settings-navgroup">
+            <div class="navgroup">System</div>
+            <div class="subnav"><a href="#settings/license" data-box="license">License</a><a href="#settings/updates" data-box="updates">Updates</a><a href="#settings/system" data-box="system">System</a></div>
+          </div>
+          <div class="settings-navgroup">
+            <div class="navgroup">Branding &amp; MSP</div>
+            <div class="subnav"><a href="#settings/branding" data-box="branding">Branding (white label)</a><a href="#settings/overview" data-box="overview">MSP view</a></div>
+          </div>
         </nav>
         <div id="branding-box" hidden>
           <h3 class="section">Branding (white label)</h3>
@@ -505,14 +532,18 @@
         </div>
         <div id="siem-box" hidden>
           <h3 class="section">SIEM / Log export</h3>
-          <p class="muted">Send events, standing findings and the audit log to a SIEM as syslog, in CEF, LEEF or plain
-            JSON, over UDP, TCP or TLS. Takes effect within seconds — no restart.</p>
+          <p class="muted">Send events, standing findings and the audit log to a SIEM as syslog (CEF, LEEF or plain
+            JSON over UDP, TCP or TLS), or straight to Elasticsearch/OpenSearch as ECS documents over its Bulk API.
+            Takes effect within seconds — no restart.</p>
           <label class="check"><input id="siem-enabled" type="checkbox"> Enabled</label>
           <div class="row">
-            <label>Transport<select id="siem-transport"><option value="udp">UDP</option><option value="tcp">TCP</option><option value="tls">TLS (encrypted)</option></select></label>
-            <label>Host<input id="siem-host" placeholder="siem.example.com"></label>
-            <label>Port<input id="siem-port" type="number" min="1" max="65535" value="514"></label>
-            <label>Format<select id="siem-format"><option value="cef">CEF</option><option value="leef">LEEF</option><option value="json">JSON</option></select></label>
+            <label>Transport<select id="siem-transport"><option value="udp">UDP</option><option value="tcp">TCP</option><option value="tls">TLS (encrypted)</option><option value="elastic">Elasticsearch (Bulk API)</option></select></label>
+            <label id="siem-host-row">Host<input id="siem-host" placeholder="siem.example.com"></label>
+            <label id="siem-port-row">Port<input id="siem-port" type="number" min="1" max="65535" value="514"></label>
+            <label id="siem-format-row">Format<select id="siem-format"><option value="cef">CEF</option><option value="leef">LEEF</option><option value="json">JSON</option></select></label>
+            <label id="siem-url-row" hidden>Elastic URL<input id="siem-url" type="url" autocomplete="off" placeholder="https://es.example.com:9200"></label>
+            <label id="siem-index-row" hidden>Index or data stream<input id="siem-index" autocomplete="off" placeholder="denis-events"></label>
+            <label id="siem-apikey-row" hidden>API key (optional)<input id="siem-apikey" type="password" autocomplete="off"></label>
           </div>
           <label class="check" id="siem-insecure-row" hidden><input id="siem-insecure" type="checkbox"> Do not verify the server's TLS certificate (a self-signed collector)</label>
           <p class="muted">What to send:</p>

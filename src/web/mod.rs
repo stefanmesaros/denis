@@ -1289,6 +1289,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn elastic_export_never_echoes_its_api_key_and_an_unsent_key_keeps_the_stored_one() {
+        let (app, _store, [_viewer, _editor, admin]) = secured().await;
+        let body = serde_json::json!({"enabled": true, "transport": "elastic", "host": "https://es.example.com:9200", "port": 0, "format": "ecs", "streams": {"events": true, "findings": false, "audit": false}, "insecure_tls": false, "api_key": "TOPSECRET", "index": "denis-events"});
+        assert_eq!(send(&app, req("PUT", "/api/siem", Some(&admin), Some(body))).await.0, StatusCode::NO_CONTENT);
+
+        let (_, _, v) = send(&app, req("GET", "/api/siem", Some(&admin), None)).await;
+        assert!(!v.to_string().contains("TOPSECRET"), "{v}");
+        assert_eq!((v["has_api_key"].as_bool(), v["index"].as_str()), (Some(true), Some("denis-events")));
+
+        // saving again without api_key (e.g. only changing the index) keeps the stored key
+        let update = serde_json::json!({"enabled": true, "transport": "elastic", "host": "https://es.example.com:9200", "port": 0, "format": "ecs", "streams": {"events": true, "findings": false, "audit": false}, "insecure_tls": false, "index": "denis-events-v2"});
+        assert_eq!(send(&app, req("PUT", "/api/siem", Some(&admin), Some(update))).await.0, StatusCode::NO_CONTENT);
+        let (_, _, v) = send(&app, req("GET", "/api/siem", Some(&admin), None)).await;
+        assert_eq!((v["has_api_key"].as_bool(), v["index"].as_str()), (Some(true), Some("denis-events-v2")), "the key survives an update that does not mention it");
+
+        // an explicit empty string clears it
+        let clear = serde_json::json!({"enabled": true, "transport": "elastic", "host": "https://es.example.com:9200", "port": 0, "format": "ecs", "streams": {"events": true, "findings": false, "audit": false}, "insecure_tls": false, "api_key": "", "index": "denis-events-v2"});
+        assert_eq!(send(&app, req("PUT", "/api/siem", Some(&admin), Some(clear))).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(send(&app, req("GET", "/api/siem", Some(&admin), None)).await.2["has_api_key"], false);
+
+        // format and transport must agree: ecs only with elastic, elastic only with ecs
+        let mismatched = serde_json::json!({"enabled": true, "transport": "elastic", "host": "https://es.example.com:9200", "port": 0, "format": "cef", "streams": {"events": true, "findings": false, "audit": false}, "insecure_tls": false, "index": "x"});
+        assert_eq!(send(&app, req("PUT", "/api/siem", Some(&admin), Some(mismatched))).await.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
     async fn sso_is_off_by_default_configured_by_admins_only_and_never_echoes_the_secret() {
         let (app, _store, [viewer, editor, admin]) = secured().await;
 

@@ -42,7 +42,7 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 
 use crate::model::{AuditEntry, Event};
 use crate::sink::ExportStatus;
@@ -66,6 +66,9 @@ pub enum Transport {
     /// TCP wrapped in TLS (RFC 5425): plaintext syslog crosses more networks than it should, so
     /// this is offered as a first-class transport, not an afterthought.
     Tls,
+    /// Not syslog at all: an HTTPS `POST .../_bulk` to Elasticsearch/OpenSearch. `SyslogConfig.addr`
+    /// holds the full base URL for this transport, not a `host:port` pair.
+    Elastic,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,6 +77,8 @@ pub enum Format {
     Cef,
     Leef,
     Json,
+    /// Elastic Common Schema. Only meaningful with `Transport::Elastic`, validated together.
+    Ecs,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -92,7 +97,8 @@ impl Streams {
 #[derive(Clone, Debug)]
 pub struct SyslogConfig {
     pub transport: Transport,
-    /// `host:port`
+    /// `host:port` for Udp/Tcp/Tls; the full base URL (e.g. `https://es.example.com:9200`) for
+    /// `Transport::Elastic`.
     pub addr: String,
     pub format: Format,
     pub streams: Streams,
@@ -101,6 +107,10 @@ pub struct SyslogConfig {
     /// better than the system's own trust roots or "trust nothing".
     pub insecure_tls: bool,
     pub interval: Duration,
+    /// `Transport::Elastic` only: sent as `Authorization: ApiKey <key>`.
+    pub api_key: Option<String>,
+    /// `Transport::Elastic` only: the index (or data stream) documents are written to.
+    pub index: String,
 }
 
 impl SyslogConfig {
@@ -120,7 +130,7 @@ impl SyslogConfig {
         if host.is_empty() || port.parse::<u16>().is_err() || rest.contains('/') {
             bail!("the syslog target must look like udp://host:514, tcp://host:514 or tls://host:6514");
         }
-        Ok(SyslogConfig { transport, addr: rest.to_string(), format: Format::Cef, streams: Streams { events: true, findings: false, audit: false }, insecure_tls: false, interval })
+        Ok(SyslogConfig { transport, addr: rest.to_string(), format: Format::Cef, streams: Streams { events: true, findings: false, audit: false }, insecure_tls: false, interval, api_key: None, index: String::new() })
     }
 }
 
@@ -129,36 +139,62 @@ impl SyslogConfig {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
     pub enabled: bool,
-    /// `"udp"`, `"tcp"` or `"tls"`.
+    /// `"udp"`, `"tcp"`, `"tls"` or `"elastic"`.
     pub transport: String,
+    /// `host` for Udp/Tcp/Tls; the full base URL (`https://es.example.com:9200`) for `"elastic"`.
     pub host: String,
+    /// Ignored for `"elastic"` (the port, if any, is part of `host`'s URL).
     pub port: u16,
-    /// `"cef"`, `"leef"` or `"json"`.
+    /// `"cef"`, `"leef"`, `"json"` or `"ecs"` (only valid with transport `"elastic"`).
     pub format: String,
     pub streams: Streams,
     pub insecure_tls: bool,
+    /// `"elastic"` only: an Elasticsearch/OpenSearch API key, sent as `Authorization: ApiKey`.
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// `"elastic"` only: the index or data stream to write documents to.
+    #[serde(default)]
+    pub index: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { enabled: false, transport: "udp".into(), host: String::new(), port: 514, format: "cef".into(), streams: Streams { events: true, findings: false, audit: false }, insecure_tls: false }
+        Settings { enabled: false, transport: "udp".into(), host: String::new(), port: 514, format: "cef".into(), streams: Streams { events: true, findings: false, audit: false }, insecure_tls: false, api_key: None, index: String::new() }
     }
 }
 
 impl Settings {
     pub fn validate(&self) -> Result<(), &'static str> {
-        if !matches!(self.transport.as_str(), "udp" | "tcp" | "tls") {
-            return Err("transport must be udp, tcp or tls");
+        if !matches!(self.transport.as_str(), "udp" | "tcp" | "tls" | "elastic") {
+            return Err("transport must be udp, tcp, tls or elastic");
         }
-        if !matches!(self.format.as_str(), "cef" | "leef" | "json") {
-            return Err("format must be cef, leef or json");
+        if !matches!(self.format.as_str(), "cef" | "leef" | "json" | "ecs") {
+            return Err("format must be cef, leef, json or ecs");
+        }
+        if (self.transport == "elastic") != (self.format == "ecs") {
+            return Err("the elastic transport always uses the ecs format, and ecs is only for the elastic transport");
         }
         if self.enabled {
-            if self.host.trim().is_empty() {
-                return Err("a host is required");
-            }
-            if self.port == 0 {
-                return Err("a port is required");
+            if self.transport == "elastic" {
+                if !(self.host.starts_with("https://") || self.host.starts_with("http://")) {
+                    return Err("the Elastic URL must start with http:// or https://");
+                }
+                if self.host.len() > 1024 || self.host.chars().any(|c| c.is_whitespace() || c.is_control()) {
+                    return Err("that does not look like a valid Elastic URL");
+                }
+                if self.index.trim().is_empty() || self.index.chars().count() > 200 || self.index.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | '*' | '\\' | '<' | '|' | ',' | '#' | '/')) {
+                    return Err("give a valid index or data stream name (no spaces or \"*\\<|,#/)");
+                }
+                if self.index.starts_with(['-', '_', '+', '.']) {
+                    return Err("an index name cannot start with -, _, + or .");
+                }
+            } else {
+                if self.host.trim().is_empty() {
+                    return Err("a host is required");
+                }
+                if self.port == 0 {
+                    return Err("a port is required");
+                }
             }
             if !self.streams.any() {
                 return Err("choose at least one stream to send: events, findings or the audit log");
@@ -171,6 +207,7 @@ impl Settings {
         match self.transport.as_str() {
             "tcp" => Transport::Tcp,
             "tls" => Transport::Tls,
+            "elastic" => Transport::Elastic,
             _ => Transport::Udp,
         }
     }
@@ -179,13 +216,52 @@ impl Settings {
         match self.format.as_str() {
             "leef" => Format::Leef,
             "json" => Format::Json,
+            "ecs" => Format::Ecs,
             _ => Format::Cef,
         }
     }
 
-    pub fn config(&self) -> SyslogConfig {
-        SyslogConfig { transport: self.transport(), addr: format!("{}:{}", self.host, self.port), format: self.format(), streams: self.streams, insecure_tls: self.insecure_tls, interval: Duration::from_secs(15) }
+    /// The settings as the API shows them: everything except `api_key` (a secret), replaced with
+    /// whether one is set. Mirrors `channels::Channel::masked`.
+    pub fn masked(&self) -> Value {
+        json!({
+            "enabled": self.enabled, "transport": self.transport, "host": self.host, "port": self.port,
+            "format": self.format, "streams": self.streams, "insecure_tls": self.insecure_tls,
+            "has_api_key": self.api_key.is_some(), "index": self.index,
+        })
     }
+
+    pub fn config(&self) -> SyslogConfig {
+        let addr = if self.transport == "elastic" { self.host.trim_end_matches('/').to_string() } else { format!("{}:{}", self.host, self.port) };
+        SyslogConfig {
+            transport: self.transport(),
+            addr,
+            format: self.format(),
+            streams: self.streams,
+            insecure_tls: self.insecure_tls,
+            interval: Duration::from_secs(15),
+            api_key: self.api_key.clone(),
+            index: self.index.clone(),
+        }
+    }
+}
+
+/// Build `Settings` from an API body, keeping `api_key` when the request does not send a new one
+/// (an omitted field keeps it; an explicit `null` or `""` clears it) — the same "a secret is only
+/// ever replaced, never silently dropped by a save that did not mean to touch it" rule
+/// `channels::from_body` uses.
+pub fn from_body(body: &Value, existing: &Settings) -> Result<Settings, String> {
+    let obj = body.as_object().ok_or("expected a JSON object")?;
+    let api_key = match obj.get("api_key") {
+        None => existing.api_key.clone(),
+        Some(Value::Null) => None,
+        Some(Value::String(s)) if s.is_empty() => None,
+        Some(Value::String(s)) => Some(s.clone()),
+        Some(_) => return Err("api_key must be text".into()),
+    };
+    let mut s: Settings = serde_json::from_value(body.clone()).map_err(|e| e.to_string())?;
+    s.api_key = api_key;
+    Ok(s)
 }
 
 pub fn load(store: &dyn Store) -> Result<Settings> {
@@ -213,6 +289,7 @@ pub fn seed_from_cli(store: &dyn Store, cli: &SyslogConfig, now: i64) -> Result<
             Transport::Udp => "udp",
             Transport::Tcp => "tcp",
             Transport::Tls => "tls",
+            Transport::Elastic => "elastic", // unreachable: the CLI flag never parses to this
         }
         .into(),
         host: host.to_string(),
@@ -220,6 +297,8 @@ pub fn seed_from_cli(store: &dyn Store, cli: &SyslogConfig, now: i64) -> Result<
         format: "cef".into(),
         streams: Streams { events: true, findings: false, audit: false },
         insecure_tls: false,
+        api_key: None,
+        index: String::new(),
     };
     save(store, &s, now)
 }
@@ -319,11 +398,48 @@ fn render_json(r: &Rec) -> String {
     serde_json::to_string(&serde_json::Value::Object(obj)).unwrap_or_default()
 }
 
-fn render(r: &Rec, format: Format, version: &str) -> String {
+/// [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html): the handful
+/// of top-level field groups DENIS actually has data for (`event`, `source`, `host`, `user`,
+/// `observer`), plus DENIS-specific extras under `labels` — ECS's own place for free-form,
+/// non-standard fields, rather than inventing new top-level field groups of our own.
+fn render_ecs(r: &Rec, host: &str, version: &str) -> String {
+    let severity_num = match r.severity.as_str() {
+        "high" => 3,
+        "medium" => 2,
+        "low" => 1,
+        _ => 0,
+    };
+    let mut ecs = json!({
+        "@timestamp": crate::report::iso(r.timestamp),
+        "ecs": { "version": "8.11" },
+        "event": { "kind": "event", "category": ["network"], "action": clean(&r.kind), "reason": clean(&r.summary), "severity": severity_num },
+        "message": clean(&r.summary),
+        "observer": { "product": "DENIS", "vendor": "DENIS", "type": "network-monitor", "version": version, "hostname": clean(host) },
+        "labels": {},
+    });
+    if let Some(sc) = r.score {
+        ecs["event"]["risk_score"] = json!(sc);
+    }
+    for (k, v) in &r.fields {
+        let v = clean(v);
+        match *k {
+            "src" => ecs["source"]["ip"] = json!(v),
+            "smac" => ecs["source"]["mac"] = json!(v),
+            "shost" => ecs["host"]["name"] = json!(v),
+            "site" => ecs["observer"]["name"] = json!(v),
+            "user" => ecs["user"]["name"] = json!(v),
+            _ => ecs["labels"][*k] = json!(v),
+        }
+    }
+    ecs.to_string()
+}
+
+fn render(r: &Rec, format: Format, version: &str, host: &str) -> String {
     match format {
         Format::Cef => render_cef(r, version),
         Format::Leef => render_leef(r, version),
         Format::Json => render_json(r),
+        Format::Ecs => render_ecs(r, host, version),
     }
 }
 
@@ -449,8 +565,9 @@ impl Syslog {
             Transport::Udp => "udp",
             Transport::Tcp => "tcp",
             Transport::Tls => "tls",
+            Transport::Elastic => "",
         };
-        let target = format!("{scheme}://{}", cfg.addr);
+        let target = if cfg.transport == Transport::Elastic { format!("{}/_bulk", cfg.addr) } else { format!("{scheme}://{}", cfg.addr) };
         Syslog { cfg, host: crate::net::local_hostname().unwrap_or_default(), status: Arc::new(Mutex::new(ExportStatus { target, ..Default::default() })) }
     }
 
@@ -458,7 +575,17 @@ impl Syslog {
         self.cfg.interval
     }
 
+    /// One record, rendered and ready to send: syslog-enveloped for Udp/Tcp/Tls, a bare ECS JSON
+    /// document (the bulk body adds its own framing) for `Transport::Elastic`.
+    fn message(&self, r: &Rec, msgid: &str) -> String {
+        let body = render(r, self.cfg.format, env!("CARGO_PKG_VERSION"), &self.host);
+        if self.cfg.transport == Transport::Elastic { body } else { envelope(&body, r.timestamp, &self.host, msgid, &r.severity) }
+    }
+
     fn send(&self, msgs: &[String]) -> Result<()> {
+        if self.cfg.transport == Transport::Elastic {
+            return self.send_elastic(msgs);
+        }
         let addr = self.cfg.addr.to_socket_addrs().with_context(|| format!("resolving {}", self.cfg.addr))?.next().context("no address")?;
         match self.cfg.transport {
             Transport::Udp => {
@@ -483,6 +610,33 @@ impl Syslog {
                 tls.write_all(&framed(msgs))?;
                 tls.flush()?;
             }
+            Transport::Elastic => unreachable!("handled by the early return above"),
+        }
+        Ok(())
+    }
+
+    /// `POST .../_bulk` (NDJSON: one `{"index":{"_index":...}}` action line per document, already
+    /// ECS-rendered in `msgs`). Elasticsearch's bulk endpoint reports per-document errors inside a
+    /// 200 response body (`"errors": true`), which is deliberately not inspected here: a
+    /// malformed/rejected single document must not make the whole SIEM export retry forever, and
+    /// the failure is visible in Elasticsearch's own logs.
+    fn send_elastic(&self, msgs: &[String]) -> Result<()> {
+        let mut body = String::new();
+        for m in msgs {
+            body.push_str(&json!({"index": {"_index": self.cfg.index}}).to_string());
+            body.push('\n');
+            body.push_str(m);
+            body.push('\n');
+        }
+        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(20))).http_status_as_error(false).build().into();
+        let mut req = agent.post(format!("{}/_bulk", self.cfg.addr)).header("Content-Type", "application/x-ndjson");
+        if let Some(key) = &self.cfg.api_key {
+            req = req.header("Authorization", format!("ApiKey {key}"));
+        }
+        let resp = req.send(body.as_bytes()).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let code = resp.status().as_u16();
+        if !(200..300).contains(&code) {
+            anyhow::bail!("Elasticsearch answered HTTP {code}");
         }
         Ok(())
     }
@@ -537,7 +691,7 @@ impl Syslog {
                         mac: a.map(|a| a.mac.to_string()),
                     };
                     let r = event_rec(e, &subject);
-                    envelope(&render(&r, self.cfg.format, env!("CARGO_PKG_VERSION")), r.timestamp, &self.host, &e.kind, &r.severity)
+                    self.message(&r, &e.kind)
                 })
                 .collect();
             if !msgs.is_empty() {
@@ -558,7 +712,7 @@ impl Syslog {
             let after = cursor(store, "syslog.cursor.audit")?;
             let batch = store.audit_after(after, BATCH)?;
             let Some(last) = batch.last().map(|a| a.id) else { break };
-            let msgs: Vec<String> = batch.iter().map(|a| { let r = audit_rec(a); envelope(&render(&r, self.cfg.format, env!("CARGO_PKG_VERSION")), r.timestamp, &self.host, "audit", &r.severity) }).collect();
+            let msgs: Vec<String> = batch.iter().map(|a| { let r = audit_rec(a); self.message(&r, "audit") }).collect();
             if !msgs.is_empty() {
                 self.send(&msgs)?;
             }
@@ -594,7 +748,7 @@ impl Syslog {
                     mac: a.map(|a| a.mac.to_string()),
                 };
                 let r = finding_rec(f.id, f.title, f.why, f.severity, asset_id, &subject, now);
-                msgs.push(envelope(&render(&r, self.cfg.format, env!("CARGO_PKG_VERSION")), r.timestamp, &self.host, f.id, &r.severity));
+                msgs.push(self.message(&r, f.id));
                 new_keys.push(key);
             }
         }
@@ -633,7 +787,7 @@ fn cursor(store: &dyn Store, key: &str) -> Result<i64> {
 pub fn send_test(cfg: &SyslogConfig, host: &str) -> Result<()> {
     let sl = Syslog::new(cfg.clone());
     let r = Rec { kind: "test".into(), summary: "DENIS SIEM export test message".into(), severity: "info".into(), score: None, timestamp: crate::model::now_ts(), fields: vec![("host", host.to_string())] };
-    sl.send(&[envelope(&render(&r, cfg.format, env!("CARGO_PKG_VERSION")), r.timestamp, &sl.host, "test", &r.severity)])
+    sl.send(&[sl.message(&r, "test")])
 }
 
 /// Run until aborted; log each distinct failure once. Reads `Settings` fresh every cycle, so a
@@ -852,5 +1006,99 @@ mod tests {
 
         // a second cycle with nothing new resends neither
         assert_eq!(sl.sync_once(&s, 110).unwrap(), 0);
+    }
+
+    #[test]
+    fn an_ecs_message_maps_our_fields_onto_the_right_ecs_groups() {
+        let s = Subject { name: Some("Reception printer".into()), ip: Some("10.0.0.5".into()), mac: Some("00:11:22:33:44:55".into()) };
+        let r = event_rec(&event("new_port", "high", 91, "Port 23 first used"), &s);
+        let v: serde_json::Value = serde_json::from_str(&render_ecs(&r, "denis-host", "1.2.3")).unwrap();
+        assert_eq!(v["event"]["action"], "new_port");
+        assert_eq!(v["event"]["reason"], "Port 23 first used");
+        assert_eq!(v["event"]["severity"], 3);
+        assert_eq!(v["event"]["risk_score"], 91);
+        assert_eq!(v["source"]["ip"], "10.0.0.5");
+        assert_eq!(v["source"]["mac"], "00:11:22:33:44:55");
+        assert_eq!(v["host"]["name"], "Reception printer");
+        assert_eq!(v["observer"]["hostname"], "denis-host");
+        assert_eq!(v["observer"]["version"], "1.2.3");
+        assert_eq!(v["ecs"]["version"], "8.11");
+        // a field with no ECS home of its own lands under labels, not invented as a new top-level group
+        assert_eq!(v["labels"]["eventId"], "7");
+        assert!(v.get("eventId").is_none());
+        assert!(v["@timestamp"].as_str().unwrap().starts_with("2026-"));
+    }
+
+    #[test]
+    fn elastic_transport_and_ecs_format_are_required_together_and_validated_together() {
+        let d = Settings::default();
+        // ecs without the elastic transport, and elastic without ecs, are both refused
+        assert!(Settings { format: "ecs".into(), ..d.clone() }.validate().is_err());
+        assert!(Settings { transport: "elastic".into(), format: "cef".into(), ..d.clone() }.validate().is_err());
+        for bad in [
+            Settings { enabled: true, transport: "elastic".into(), format: "ecs".into(), host: "es.example.com".into(), index: "denis-events".into(), ..d.clone() }, // no scheme
+            Settings { enabled: true, transport: "elastic".into(), format: "ecs".into(), host: "https://es.example.com".into(), index: "".into(), ..d.clone() },     // no index
+            Settings { enabled: true, transport: "elastic".into(), format: "ecs".into(), host: "https://es.example.com".into(), index: "-bad".into(), ..d.clone() }, // leading -
+            Settings { enabled: true, transport: "elastic".into(), format: "ecs".into(), host: "https://es.example.com".into(), index: "bad*name".into(), ..d.clone() },
+        ] {
+            assert!(bad.validate().is_err(), "{bad:?}");
+        }
+        let good = Settings { enabled: true, transport: "elastic".into(), format: "ecs".into(), host: "https://es.example.com:9200/".into(), index: "denis-events".into(), ..d };
+        assert!(good.validate().is_ok());
+        assert_eq!(good.config().addr, "https://es.example.com:9200", "a trailing slash is trimmed once, not carried into every _bulk URL");
+    }
+
+    #[test]
+    fn elastic_delivery_posts_ndjson_bulk_with_the_api_key_and_never_syslog_envelopes_it() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let h = std::thread::spawn(move || {
+            let (mut c, _) = l.accept().unwrap();
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 8192];
+            let (head_end, len) = loop {
+                let n = std::io::Read::read(&mut c, &mut chunk).unwrap_or(0);
+                if n == 0 {
+                    break (0, 0);
+                }
+                buf.extend_from_slice(&chunk[..n]);
+                if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let head = String::from_utf8_lossy(&buf[..p]).to_lowercase();
+                    let len = head.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse().ok()).unwrap_or(0usize);
+                    break (p + 4, len);
+                }
+            };
+            while buf.len() < head_end + len {
+                let n = std::io::Read::read(&mut c, &mut chunk).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n]);
+            }
+            let req = String::from_utf8_lossy(&buf).to_string();
+            let _ = std::io::Write::write_all(&mut c, b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
+            req
+        });
+        let mut cfg = SyslogConfig { transport: Transport::Elastic, addr: format!("http://{addr}"), format: Format::Ecs, streams: Streams { events: true, findings: false, audit: false }, insecure_tls: false, interval: Duration::from_secs(5), api_key: Some("sekret-key".into()), index: "denis-events".into() };
+        cfg.streams = Streams { events: true, findings: false, audit: false };
+        let sl = Syslog::new(cfg);
+        let s = SqliteStore::open_in_memory().unwrap();
+        let mut a = Asset::new(Mac([2, 0, 0, 0, 0, 1]), 1);
+        s.save_asset(&mut a).unwrap();
+        let mut e = Event { asset_id: a.id, ..event("new_port", "high", 80, "x") };
+        s.insert_event(&mut e).unwrap();
+        assert_eq!(sl.sync_once(&s, 100).unwrap(), 1);
+        let got = h.join().unwrap();
+        assert!(got.contains("POST /_bulk"), "{got}");
+        assert!(got.contains("authorization: ApiKey sekret-key") || got.contains("Authorization: ApiKey sekret-key"), "{got}");
+        assert!(got.contains("content-type: application/x-ndjson") || got.contains("Content-Type: application/x-ndjson"), "{got}");
+        let body = got.split("\r\n\r\n").nth(1).unwrap();
+        let mut lines = body.lines();
+        let action: serde_json::Value = serde_json::from_str(lines.next().unwrap()).unwrap();
+        assert_eq!(action["index"]["_index"], "denis-events");
+        let doc: serde_json::Value = serde_json::from_str(lines.next().unwrap()).unwrap();
+        assert_eq!(doc["event"]["action"], "new_port");
+        // no RFC 5424 syslog envelope (`<pri>1 timestamp host ...`) leaks into an HTTP bulk body
+        assert!(!body.starts_with('<'), "{body}");
     }
 }
