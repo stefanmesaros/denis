@@ -78,8 +78,8 @@ fn parse_hello(p: &[u8], client: bool) -> Option<Hello> {
                     // supported_groups (elliptic curves)
                     10 if body.len() >= 2 => {
                         let n = (u16::from_be_bytes([body[0], body[1]]) as usize).min(body.len().saturating_sub(2));
-                        for c in body[2..2 + n].chunks_exact(2) {
-                            let g = u16::from_be_bytes([c[0], c[1]]);
+                        for c in body[2..2 + n].as_chunks::<2>().0 {
+                            let g = u16::from_be_bytes(*c);
                             if !is_grease(g) {
                                 curves.push(g);
                             }
