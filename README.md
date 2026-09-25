@@ -166,16 +166,16 @@ your actual register — three of the console's 20-odd pages ([more screenshots 
 |---|---|
 | Discovery | Passive (ARP, DHCP, mDNS, SSDP, LLDP/CDP, PROFINET) + active (ARP sweep, ping, port scan) |
 | Asset inventory | Owner, location, serial, tag, warranty, criticality, tags, custom fields, history, CSV import/export |
-| Fingerprinting | Vendor (IEEE OUI), device type & OS with weighted, listed evidence; product/version from 9 service banners |
+| Fingerprinting | Vendor (IEEE OUI), device type & OS with weighted, listed evidence; product/version from 9 service banners; JA3/JA3S TLS client & server fingerprints |
 | Anomaly detection | New device, rogue DHCP, ARP hijack/gateway takeover, new destination/port, unusual volume/hour, silent device, known-bad addresses — each with an explainable 0–100 score |
 | OT protocols | Modbus, S7comm, EtherNet/IP-CIP, DNP3, BACnet, OPC UA, IEC 60870-5-104 (passive decode) |
 | Communications matrix | Who talks to whom, which protocol, reads/writes/control commands |
 | SNMP topology | Switch ports, LLDP neighbours, MAC-to-port physical map |
 | Vulnerability & EOL findings | Live CISA/NVD known-exploited feed (+ EPSS score) and end-of-support dates, matched per device |
-| Alerts | Slack, Teams, Discord, PagerDuty, Pushover, ntfy, e-mail, signed webhook — per-channel threshold, digests, maintenance mode |
+| Alerts | Slack, Teams, Discord, PagerDuty, Pushover, ntfy, e-mail, Jira, ServiceNow, signed webhook — per-channel threshold, digests, maintenance mode |
 | Compliance | CIS v8, NIST CSF 2.0, IEC 62443-3-3, NIST SP 800-82, ISO 27001 Annex A, NIS2, DORA, PCI DSS v4.0, HIPAA, SOC 2, CMMC 2.0 (evidence, not certification) |
 | Reports | Saved, scheduled, viewable/downloadable/printable |
-| SIEM export | CEF, LEEF or JSON over UDP/TCP/TLS |
+| SIEM export | CEF, LEEF or JSON over UDP/TCP/TLS; ECS over Elasticsearch/OpenSearch's Bulk API |
 | OpenObserve | Cursor-based, at-least-once export |
 | Prometheus | `/metrics` exposition |
 | REST API | Read the register and alerts, manage assets, API tokens |
@@ -213,7 +213,8 @@ in production, not only against hand-built frames and replay).
   reverse proxy in front.
 * Industrial (OT) detections on **real** industrial traffic (tested with hand-built frames and replay; no real
   OT traffic generated on a live network yet — ARP-conflict detection itself is confirmed in production, see above).
-* The OpenObserve and SIEM (syslog: CEF/LEEF/JSON) exports against a real endpoint, not a simulated one.
+* The OpenObserve, SIEM (syslog: CEF/LEEF/JSON; ECS over Elasticsearch/OpenSearch's Bulk API) and Jira/ServiceNow
+  ticketing exports against a real endpoint, not a simulated one.
 * The SMB and MSSQL banner readers against a real Windows Server or SQL Server (fuzz-tested and verified against
   hand-built packets matching each protocol's specification only).
 * German, French and Spanish translations (complete — a test fails if a string is missing — but only Slovak has
@@ -267,10 +268,10 @@ not addressed at all — so you and your auditor can decide. Print the Complianc
 
 ## Integrations
 
-**Notifications:** Slack, Microsoft Teams, Discord, PagerDuty, Pushover, ntfy, e-mail (SMTP), a signed generic
-webhook.
-**Export:** SIEM in CEF, LEEF or JSON over UDP/TCP/TLS; OpenObserve; Prometheus `/metrics`; a REST API;
-`denis backup` for the database itself.
+**Notifications:** Slack, Microsoft Teams, Discord, PagerDuty, Pushover, ntfy, e-mail (SMTP), Jira, ServiceNow, a
+signed generic webhook.
+**Export:** SIEM in CEF, LEEF or JSON over UDP/TCP/TLS; Elasticsearch/OpenSearch (ECS over the Bulk API);
+OpenObserve; Prometheus `/metrics`; a REST API; `denis backup` for the database itself.
 
 Only integrations that exist today are listed; see [docs/export.md](docs/export.md) and
 [docs/alerting.md](docs/alerting.md) for how to set each one up.
@@ -352,8 +353,9 @@ src/update.rs       one-click self-update: signed release check, download, verif
 src/engine.rs       collector + detector + web wiring (`run`, `run_agent`)
 src/store/          `Store` trait (split into focused sub-traits) + SQLite (schema v14, transactional migrations)
 src/branding.rs     white-label settings and safe logo handling
-src/channels.rs     notification channels (Slack/Teams/Discord/PagerDuty/Pushover/ntfy/e-mail/webhook)
-src/syslog.rs       SIEM export: syslog in CEF, LEEF or JSON, over UDP/TCP/TLS
+src/channels.rs     notification channels (Slack/Teams/Discord/PagerDuty/Pushover/ntfy/e-mail/Jira/ServiceNow/webhook)
+src/syslog.rs       log export: syslog (CEF/LEEF/JSON) or Elasticsearch/OpenSearch (ECS over the Bulk API)
+src/ja3.rs          JA3/JA3S TLS client & server fingerprinting
 src/sink.rs         OpenObserve exporter (cursor-based, at-least-once)
 src/report.rs       CSV / printable HTML (escaping, formula-injection guard)
 ui/                 the web UI (plain JS, no build step, strict CSP)

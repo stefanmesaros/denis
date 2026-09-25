@@ -12,7 +12,9 @@ watch the console. Add as many channels as you like; each one has its own minimu
 | **Pushover** | an application token (pushover.net/apps) and your user or group key | push notifications to phones. *High* alerts go as high priority (they bypass quiet hours), medium as normal, low as low; nothing asks for an acknowledgement |
 | **ntfy** | the address of your topic, like `https://ntfy.sh/your-topic` (or a topic on your own ntfy server); an access token if the topic is protected | push notifications without an account. Priority follows severity (urgent for a score of 90 and up). On the public server the topic name is the only secret: make it long and random. A token is never sent over plain `http://` |
 | **E-mail** | an SMTP server (STARTTLS or TLS), From and To addresses | plain-text mail with the same content |
-| **Generic webhook** | any URL that accepts a JSON POST | ServiceNow, Mattermost, Zapier, your own code. Optional signing secret |
+| **Jira** | your Jira site address, account e-mail, an API token and a project key | files one real issue per alert via the Cloud REST API. DENIS never updates or closes it afterwards — that happens in Jira like any other ticket |
+| **ServiceNow** | your instance address, a username and password | files one real incident per alert via the Table API. Severity maps to urgency/impact; repeats about the same device correlate on ServiceNow's own `correlation_id`, the same idea as PagerDuty's dedup key |
+| **Generic webhook** | any URL that accepts a JSON POST | Mattermost, Zapier, your own code. Optional signing secret |
 
 Press **Test** on a channel to send a test message and see straight away whether it works.
 

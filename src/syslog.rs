@@ -1,5 +1,13 @@
-//! Syslog export of events, findings and the audit log to a SIEM (Splunk, QRadar, Wazuh,
-//! Sentinel, ...), in **CEF**, **LEEF** or plain **JSON**, over **UDP**, **TCP** or **TLS**.
+//! Log export of events, findings and the audit log to a SIEM or log/search backend, over **two**
+//! delivery mechanisms that share everything except how a rendered record actually leaves the
+//! process:
+//!
+//! * **Syslog** (Splunk, QRadar, Wazuh, Sentinel, ...): **CEF**, **LEEF** or plain **JSON**, over
+//!   **UDP**, **TCP** or **TLS** — `Transport::Udp`/`Tcp`/`Tls`, RFC 5424-enveloped.
+//! * **Elasticsearch/OpenSearch**: **ECS**-shaped documents pushed straight to an index or data
+//!   stream over the Bulk API (`POST .../_bulk`) — `Transport::Elastic`, no syslog envelope, no
+//!   Logstash/Filebeat in between. The `ecs` format is only ever paired with this transport
+//!   (`Settings::validate` enforces that); see `render_ecs`.
 //!
 //! Fully configurable from the console (Settings → SIEM / Log export, see `Settings` below):
 //! pick a format, a transport, a target, and which streams to send, independently:
@@ -14,8 +22,8 @@
 //! * **audit** — who changed what in the console.
 //!
 //! Like the OpenObserve exporter this is a *puller* driven by a cursor kept in the database (see
-//! `sink.rs`): a dead SIEM never affects detection, and after an outage the backlog is sent in
-//! order. Delivery is at-least-once.
+//! `sink.rs`): a dead target never affects detection, and after an outage the backlog is sent in
+//! order. Delivery is at-least-once, for both mechanisms.
 //!
 //! ```text
 //! <164>1 2026-09-20T21:00:00Z denis-host denis - new_port - CEF:0|DENIS|DENIS|0.1.0|new_port|Port 23 first used|8|rt=... src=10.0.0.5 ...
@@ -25,8 +33,15 @@
 //!
 //! Hostnames, device names and other text in a record come from the network or from users. In a
 //! CEF/LEEF record an unescaped delimiter lets the sender forge fields, and a newline would forge
-//! a whole extra record. All such characters are escaped or replaced in `render`, and the tests
-//! attack exactly this.
+//! a whole extra record; in an ECS document, an unbounded string could bloat a document or (if it
+//! contained a raw `"`) corrupt the JSON. All such characters are escaped, replaced or length-cut
+//! in `render`/`clean`, and the tests attack exactly this.
+//!
+//! # Secrets
+//!
+//! `Settings.api_key` (Elastic only) is masked like every other secret in DENIS: `Settings::get`
+//! never returns it (see `masked`), and `from_body` keeps the stored key when an update does not
+//! resend one, clearing it only on an explicit empty string or `null`.
 //!
 //! # Configuration
 //!

@@ -13,7 +13,7 @@ It works on office and home networks (IT) and on industrial networks (OT).
 | Know exactly which detections exist and how to tune them | [Detection rules](detection-rules.md) |
 | Use it on an industrial (OT/ICS) network | [OT guide](ot-guide.md) |
 | Run it for a client: users, agents, TLS, backups | [Deployment & administration](deployment.md) |
-| Send alerts to Slack, Teams, e-mail, PagerDuty, Pushover, ntfy or a webhook; maintenance mode | [Alerting](alerting.md) |
+| Send alerts to Slack, Teams, e-mail, PagerDuty, Pushover, ntfy, Jira, ServiceNow or a webhook; maintenance mode | [Alerting](alerting.md) |
 | Send events, audit log and inventory to OpenObserve, or events/findings/audit to a SIEM (syslog: CEF/LEEF/JSON) | [Export](export.md) |
 | Put the customer's logo, colours and day/night mode on the portal | [Branding](branding.md) |
 | Keep DENIS up to date (changelog, install now or later, automatic backup) | [Updates](updates.md) |
