@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.6.0: Jira ticketing
+
+* **Jira** joins the notification channels (Settings → Alerting → Add a channel): files one real
+  Jira issue per alert, authenticated with an API token against the Cloud REST API (v3), under a
+  project key you choose. Same delivery machinery every other channel already gets — per-channel
+  cursor, storms fold into one digest issue, backoff on an outage, a device's mute and maintenance
+  mode both apply. DENIS never updates or closes the issue afterwards; that happens in Jira like
+  any other ticket.
+
 ## 2.5.0: TLS client/server fingerprinting (JA3/JA3S)
 
 * **TLS fingerprinting**: DENIS now reads the cleartext ClientHello/ServerHello of any TLS

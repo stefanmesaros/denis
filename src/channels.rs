@@ -4,8 +4,9 @@
 //! Supported: **Slack**, **Microsoft Teams** (a Workflows "webhook request"
 //! trigger; Adaptive Card), **Discord**, **PagerDuty** (Events API v2), **Pushover**,
 //! **ntfy** (ntfy.sh or your own server), **e-mail**
-//! (SMTP) and a **generic signed webhook** (JSON, HMAC-SHA256 signature) for
-//! anything else (Mattermost, Zapier, ServiceNow, your own code).
+//! (SMTP), **Jira** (a real issue per alert, via the Cloud REST API) and a **generic signed
+//! webhook** (JSON, HMAC-SHA256 signature) for anything else (Mattermost, Zapier, ServiceNow,
+//! your own code).
 //!
 //! # How delivery works
 //!
@@ -44,7 +45,7 @@ use crate::store::{Store};
 
 pub const KEY: &str = "channels";
 pub const MAINTENANCE_KEY: &str = "maintenance";
-pub const KINDS: &[&str] = &["slack", "teams", "discord", "pagerduty", "pushover", "ntfy", "email", "webhook"];
+pub const KINDS: &[&str] = &["slack", "teams", "discord", "pagerduty", "pushover", "ntfy", "email", "webhook", "jira"];
 /// More waiting alerts than this for one channel are sent as a single digest.
 pub const DIGEST_ABOVE: usize = 5;
 /// Alerts older than this are not sent.
@@ -83,11 +84,15 @@ pub struct Channel {
     /// PagerDuty routing (integration) key, the webhook's signing secret, Pushover's application token, or ntfy's access token.
     #[serde(default)]
     pub secret: Option<String>,
-    /// Pushover: the user (or group) key the message goes to.
+    /// Pushover: the user (or group) key the message goes to; Jira: the account e-mail (Basic
+    /// auth is `email:api_token` for Jira Cloud).
     #[serde(default)]
     pub user: Option<String>,
     #[serde(default)]
     pub smtp: Option<Smtp>,
+    /// Jira: the project key an issue is filed under (e.g. `OPS`).
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 fn is_loopback_host(host: &str) -> bool {
@@ -198,6 +203,29 @@ impl Channel {
                     return Err("give 1-20 valid recipient addresses".into());
                 }
             }
+            "jira" => {
+                let url = self.url.as_deref().ok_or("the Jira site URL is required, like https://yourorg.atlassian.net")?;
+                let (scheme, host) = split_url(url)?;
+                if scheme == "http" && !is_loopback_host(host) {
+                    return Err("the Jira site URL must use https://".into());
+                }
+                let email = self.user.as_deref().ok_or("the Jira account e-mail is required")?;
+                if email.parse::<lettre::message::Mailbox>().is_err() {
+                    return Err("that does not look like a valid Jira account e-mail".into());
+                }
+                let token = self.secret.as_deref().ok_or("the Jira API token is required (id.atlassian.com/manage-profile/security/api-tokens)")?;
+                if token.len() < 10 || token.len() > 300 || token.chars().any(char::is_whitespace) {
+                    return Err("that does not look like a Jira API token".into());
+                }
+                let project = self.project.as_deref().ok_or("the Jira project key is required, like OPS")?;
+                let key_ok = project.len() >= 2
+                    && project.len() <= 10
+                    && project.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+                    && project.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
+                if !key_ok {
+                    return Err("the Jira project key must be 2-10 uppercase letters/digits, like OPS".into());
+                }
+            }
             _ => unreachable!(),
         }
         Ok(())
@@ -213,6 +241,7 @@ impl Channel {
         json!({
             "id": self.id, "name": self.name, "kind": self.kind, "enabled": self.enabled, "min_score": self.min_score,
             "url": url_shown, "has_url": self.url.is_some(), "has_secret": self.secret.is_some(), "has_user": self.user.is_some(),
+            "project": self.project,
             "smtp": self.smtp.as_ref().map(|s| json!({
                 "host": s.host, "port": s.port, "security": s.security, "username": s.username,
                 "has_password": s.password.is_some(), "from": s.from, "to": s.to,
@@ -256,12 +285,12 @@ impl Channel {
 /// secrets are kept when the body does not send new ones).
 pub fn from_body(body: &Value, existing: Option<&Channel>) -> Result<Channel, String> {
     let obj = body.as_object().ok_or("expected a JSON object")?;
-    const ALLOWED: &[&str] = &["name", "kind", "enabled", "min_score", "url", "secret", "user", "smtp"];
+    const ALLOWED: &[&str] = &["name", "kind", "enabled", "min_score", "url", "secret", "user", "smtp", "project"];
     if let Some(k) = obj.keys().find(|k| !ALLOWED.contains(&k.as_str())) {
         return Err(format!("unknown field {k:?}"));
     }
     let mut c = existing.cloned().unwrap_or(Channel {
-        id: String::new(), name: String::new(), kind: String::new(), enabled: true, min_score: 50, url: None, secret: None, user: None, smtp: None,
+        id: String::new(), name: String::new(), kind: String::new(), enabled: true, min_score: 50, url: None, secret: None, user: None, smtp: None, project: None,
     });
     if let Some(k) = obj.get("kind") {
         let k = k.as_str().ok_or("kind must be text")?;
@@ -298,6 +327,9 @@ pub fn from_body(body: &Value, existing: Option<&Channel>) -> Result<Channel, St
     }
     if let Some(v) = text("user")? {
         c.user = v;
+    }
+    if let Some(v) = text("project")? {
+        c.project = v.map(|p| p.to_ascii_uppercase());
     }
     if let Some(s) = obj.get("smtp") {
         let o = s.as_object().ok_or("smtp must be an object")?;
@@ -612,6 +644,44 @@ pub fn pushover_payload(n: &Notification, token: &str, user: &str) -> Value {
     json!({ "token": token, "user": user, "title": cut(&n.headline(), 250), "message": cut(&msg, 1024), "priority": priority, "timestamp": n.ts.max(0) })
 }
 
+/// One Atlassian Document Format paragraph of plain text (Jira Cloud's REST API v3 requires ADF
+/// for a rich-text field, even for what is really just a few lines of text).
+fn adf_paragraph(text: &str) -> Value {
+    json!({ "type": "paragraph", "content": [{ "type": "text", "text": text }] })
+}
+
+/// Jira Cloud issue-create payload (REST API v3): one issue per notification, filed under
+/// `project`. DENIS never updates or transitions the issue afterwards — closing it is the same
+/// manual step as acknowledging any other alert, just done in Jira's own workflow instead.
+pub fn jira_payload(n: &Notification, project: &str) -> Value {
+    let mut content = vec![adf_paragraph(&cut(&n.summary, 2000))];
+    if let Some(d) = n.device() {
+        content.push(adf_paragraph(&format!("Device: {d}")));
+    }
+    if let Some(s) = &n.site {
+        content.push(adf_paragraph(&format!("Site: {s}")));
+    }
+    if !n.reasons.is_empty() {
+        content.push(adf_paragraph(&format!("Why: {}", n.reasons.iter().map(|r| short(r, 300)).collect::<Vec<_>>().join("; "))));
+    }
+    if let Some(a) = &n.advice {
+        content.push(adf_paragraph(&format!("What to do: {a}")));
+    }
+    let mut labels = vec!["denis".to_string()];
+    if !n.test {
+        labels.push(n.kind.replace(['_', ' '], "-"));
+    }
+    json!({
+        "fields": {
+            "project": { "key": project },
+            "issuetype": { "name": "Task" },
+            "summary": cut(&format!("{} - {}", n.headline(), n.summary), 250),
+            "description": { "type": "doc", "version": 1, "content": content },
+            "labels": labels,
+        },
+    })
+}
+
 /// Split an ntfy topic address into the server (`https://ntfy.sh`) and the topic (`your-topic`).
 pub fn ntfy_target(url: &str) -> Result<(String, String), String> {
     let (scheme, _) = split_url(url)?;
@@ -736,6 +806,11 @@ pub fn send(ch: &Channel, n: &Notification, host: &str, now: i64) -> Result<()> 
             post_json(ch.url.as_deref().unwrap_or(""), &body, &extra)
         }
         "email" => send_email(ch.smtp.as_ref().context("no SMTP settings")?, n),
+        "jira" => {
+            let base = ch.url.as_deref().unwrap_or("").trim_end_matches('/');
+            let auth = format!("Basic {}", crate::report::base64(format!("{}:{}", ch.user.as_deref().unwrap_or(""), ch.secret.as_deref().unwrap_or("")).as_bytes()));
+            post_json(&format!("{base}/rest/api/3/issue"), &jira_payload(n, ch.project.as_deref().unwrap_or("")), &[("Authorization", auth)])
+        }
         other => Err(anyhow!("unknown channel kind {other}")),
     };
     r.map_err(|e| anyhow!(ch.scrub(format!("{e:#}"))))
@@ -979,9 +1054,18 @@ mod tests {
             json!({"name": "x", "kind": "email", "smtp": {"host": "smtp.example.com", "from": "a@example.com", "to": []}}),
             json!({"name": "x", "kind": "email", "smtp": {"host": "smtp.example.com", "from": "not an address", "to": ["b@example.com"]}}),
             json!({"name": "x", "kind": "email", "smtp": {"host": "smtp.example.com", "security": "none", "username": "u", "password": "p", "from": "a@example.com", "to": ["b@example.com"]}}),
+            json!({"name": "x", "kind": "jira", "url": "https://a.atlassian.net"}),
+            json!({"name": "x", "kind": "jira", "url": "https://a.atlassian.net", "user": "not-an-email", "secret": "0123456789abcdef", "project": "OPS"}),
+            json!({"name": "x", "kind": "jira", "url": "https://a.atlassian.net", "user": "a@example.com", "secret": "short", "project": "OPS"}),
+            json!({"name": "x", "kind": "jira", "url": "https://a.atlassian.net", "user": "a@example.com", "secret": "0123456789abcdef", "project": "O"}),
+            json!({"name": "x", "kind": "jira", "url": "http://a.atlassian.net", "user": "a@example.com", "secret": "0123456789abcdef", "project": "OPS"}),
         ] {
             assert!(from_body(&bad, None).is_err(), "{bad}");
         }
+        let jira = from_body(&json!({"name": "tix", "kind": "jira", "url": "https://a.atlassian.net", "user": "bot@example.com", "secret": "0123456789abcdefTOKEN", "project": "ops"}), None).unwrap();
+        assert_eq!(jira.project.as_deref(), Some("OPS"), "the project key is upper-cased");
+        let jshown = jira.masked().to_string();
+        assert!(!jshown.contains("TOKEN") && !jshown.contains("bot@example.com") && jshown.contains("\"project\":\"OPS\""), "{jshown}");
         assert!(from_body(&json!({"name": "x", "kind": "webhook", "url": "http://10.0.0.5/hook", "secret": "0123456789abcdef"}), None).is_ok(), "plain http is fine for a generic webhook");
         let c = from_body(&json!({"name": "ops", "kind": "slack", "url": "https://hooks.slack.com/services/T000/B000/SECRETSECRET"}), None).unwrap();
         let shown = c.masked().to_string();
@@ -1143,6 +1227,38 @@ mod tests {
         assert_eq!(sig, format!("sha256={}", hmac_sha256_hex(b"0123456789abcdef0123", w.2.to_string().as_bytes())));
         let p = seen.iter().find(|x| x.0 == "/v2/enqueue").unwrap();
         assert_eq!((p.2["routing_key"].as_str(), p.2["payload"]["severity"].as_str(), p.2["payload"]["source"].as_str()), (Some("R0UTINGKEY12345"), Some("critical"), Some("denis-host")));
+    }
+
+    #[test]
+    fn jira_files_one_issue_authenticated_and_the_summary_stays_under_the_field_limit() {
+        let f = fake();
+        let (s, id) = world();
+        let mut ch = from_body(
+            &json!({"name": "tix", "kind": "jira", "url": f.url, "user": "bot@example.com", "secret": "s3cr3t-api-token", "project": "OPS", "min_score": 0}),
+            None,
+        )
+        .unwrap();
+        ch.id = "cj".into();
+        save(&s, std::slice::from_ref(&ch), 1).unwrap();
+        let d = Dispatcher::new(Arc::default(), "denis-host".into(), Duration::ZERO);
+        d.cycle(&s, 100);
+        event(&s, id, "new_port", 80, 150);
+        d.cycle(&s, 160);
+        let seen = f.seen.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(seen.len(), 1);
+        let (path, headers, body) = &seen[0];
+        assert_eq!(path, "/rest/api/3/issue");
+        let auth = headers.iter().find(|(k, _)| k == "authorization").map(|(_, v)| v.clone()).unwrap();
+        assert_eq!(auth, format!("Basic {}", crate::report::base64(b"bot@example.com:s3cr3t-api-token")));
+        assert_eq!(body["fields"]["project"]["key"], "OPS");
+        assert_eq!(body["fields"]["issuetype"]["name"], "Task");
+        assert!(body["fields"]["summary"].as_str().unwrap().contains("new_port"));
+        assert_eq!(body["fields"]["description"]["type"], "doc");
+        assert!(body["fields"]["labels"].as_array().unwrap().iter().any(|l| l == "denis"));
+        // a huge summary/reasons stays inside Jira's ~255-char summary field
+        let mut big = notif("high", 95);
+        big.summary = "x".repeat(5000);
+        assert!(jira_payload(&big, "OPS")["fields"]["summary"].as_str().unwrap().chars().count() <= 255);
     }
 
     #[test]
