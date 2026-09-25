@@ -187,7 +187,7 @@ administrator issues and revokes one **token per agent** here. See [Deployment](
 
 ![Alerting](img/alerting.png)
 
-Where alerts go outside the console: Slack, Microsoft Teams, Discord, PagerDuty, Pushover, ntfy, e-mail and a signed webhook, each
+Where alerts go outside the console: Slack, Microsoft Teams, Discord, PagerDuty, Pushover, ntfy, e-mail, Jira, ServiceNow and a signed webhook, each
 with its own minimum score, a **Test** button and live delivery status. **Maintenance mode** silences everything for
 30 minutes to 7 days ([details](alerting.md)).
 

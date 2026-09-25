@@ -1,4 +1,4 @@
-# Exporting data: OpenObserve and SIEM (syslog: CEF/LEEF/JSON)
+# Exporting data: OpenObserve, SIEM (syslog) and Elasticsearch/OpenSearch
 
 DENIS can push its data to [OpenObserve](https://openobserve.ai) so a customer who already runs it (for
 logs, deep-packet-inspection output, etc.) can see network inventory, alerts and trends in the same console.
@@ -66,8 +66,9 @@ before saving it.
 
 * **Format**: **CEF** (ArcSight; Splunk, QRadar, Wazuh, Microsoft Sentinel, Graylog and others parse it
   natively), **LEEF** (IBM QRadar's own format), or plain **JSON** (one object per message, for anything
-  else — Elastic, a custom collector, …). All three share the same RFC 5424 syslog envelope; only the body
-  differs.
+  else — a custom collector, …). All three share the same RFC 5424 syslog envelope; only the body
+  differs. For Elasticsearch/OpenSearch specifically, use the **Elasticsearch (Bulk API)** transport below
+  instead of routing JSON through a syslog collector.
 * **Transport**: **UDP** (one datagram per message, fire and forget), **TCP** (newline-framed, retried after
   a failure so the backlog arrives in order), or **TLS** (TCP wrapped in encryption — the usual choice
   crossing anything but a trusted LAN or a VPN). A self-signed collector's certificate can be trusted without
@@ -104,3 +105,34 @@ denis run --syslog udp://siem.example.com:514        # or tcp://…:6514, or tls
 Still works, for a headless install or a config-management script: CEF, the events stream only, exactly as
 before. It only **seeds** the console's own setting, once, the first time nothing has been saved there yet —
 after that, Settings → SIEM / Log export is authoritative, and the flag is ignored on every later start.
+
+---
+
+# Elasticsearch / OpenSearch export (ECS over the Bulk API)
+
+The same **Settings → SIEM / Log export** page, transport **Elasticsearch (Bulk API)**: documents go straight
+to an index or data stream via `POST .../_bulk`, shaped as [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html)
+— no Logstash or Filebeat in between, and no syslog envelope. Selecting this transport switches the format to
+`ecs` automatically; it is the only format this transport accepts.
+
+* **Elastic URL**: the full base address, e.g. `https://es.example.com:9200`. Must be `https://` (or a
+  loopback address, for local testing).
+* **Index or data stream**: where documents are written, e.g. `denis-events`.
+* **API key** (optional): sent as `Authorization: ApiKey <key>`. Like every other secret in DENIS, the
+  console never shows it back to you; saving the form again without retyping it keeps the one already stored,
+  and an explicitly empty field clears it.
+* **Streams** (events/findings/audit) work exactly as for syslog, independently toggled, same cursor-based
+  at-least-once delivery, same health line in the header.
+
+A document's ECS field groups: `event.*` (kind, action, reason, severity 0–3, risk_score), `source.ip`/`mac`,
+`host.name`, `observer.*` (DENIS itself, plus `observer.name` for the reporting agent/site), `user.name`, and
+`labels.*` for anything else DENIS carries that has no dedicated ECS field (`eventId`, `assetId`, …) — ECS's
+own place for free-form extension data, rather than inventing new top-level field groups.
+
+```json
+{"@timestamp":"2026-09-20T21:42:48Z","ecs":{"version":"8.11"},"event":{"kind":"event","category":["network"],"action":"arp_conflict","reason":"192.0.2.10 claimed by two devices","severity":3,"risk_score":85},"message":"192.0.2.10 claimed by two devices","source":{"ip":"192.0.2.130","mac":"02:00:5e:10:00:01"},"host":{"name":"Laptop-42"},"observer":{"product":"DENIS","vendor":"DENIS","type":"network-monitor","version":"2.9.0","hostname":"denis-host"},"labels":{"eventId":"7"}}
+```
+
+Elasticsearch's own per-document bulk errors (a malformed or rejected single document inside an otherwise-200
+response) are not inspected — a bad document must not make the whole export retry forever; check
+Elasticsearch's own logs if documents seem to be missing despite the exporter reporting `ok`.

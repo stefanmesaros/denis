@@ -1,5 +1,6 @@
-//! SIEM / log export settings (Settings → SIEM / Log export): syslog in CEF, LEEF or JSON, over
-//! UDP, TCP or TLS, with events/findings/audit sent independently. See `syslog.rs`.
+//! SIEM / log export settings (Settings → SIEM / Log export): syslog (CEF/LEEF/JSON over
+//! UDP/TCP/TLS) or Elasticsearch/OpenSearch (ECS over its Bulk API), with events/findings/audit
+//! sent independently. See `syslog.rs`.
 
 use axum::extract::{Extension, State};
 use axum::http::StatusCode;
