@@ -821,6 +821,7 @@
 "Permanently delete {user}? This cannot be undone.": "¿Eliminar permanentemente a {user}? Esto no se puede deshacer.",
 "Person or entity authentication": "Autenticación de personas o entidades",
 "Physical topology": "Topología física",
+"Pick a date and time first.": "Elija primero una fecha y hora.",
 "Plan the update now, while it is still supported.": "Planifique la actualización ahora, mientras aún está soportada.",
 "Please keep this page open.": "Mantenga esta página abierta.",
 "Polite ARP sweep, ping and light port scan (never used on industrial devices).": "Barrido ARP cortés, ping y escaneo de puertos ligero (nunca en dispositivos industriales).",
