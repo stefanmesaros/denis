@@ -2354,7 +2354,11 @@ mod tests {
         assert!(login().await.2["user"]["username"] == "vera", "a set-up that was never confirmed changes nothing");
         // confirming needs a right code
         assert_eq!(send(&app, req("POST", "/api/auth/totp/confirm", Some(&viewer), Some(serde_json::json!({"code": "000000"})))).await.0, StatusCode::BAD_REQUEST);
-        let (st, _, v) = send(&app, req("POST", "/api/auth/totp/confirm", Some(&viewer), Some(serde_json::json!({"code": now_code(0)})))).await;
+        // captured once and reused below: recomputing from the wall clock a second time could
+        // land on a different 30s step if the two calls straddle a boundary, which would make
+        // the "already used" replay check flake instead of testing what it means to.
+        let confirming_code = now_code(0);
+        let (st, _, v) = send(&app, req("POST", "/api/auth/totp/confirm", Some(&viewer), Some(serde_json::json!({"code": confirming_code})))).await;
         assert_eq!(st, StatusCode::OK, "{v}");
         let recovery: Vec<String> = v["recovery_codes"].as_array().unwrap().iter().map(|c| c.as_str().unwrap().to_string()).collect();
         assert_eq!(recovery.len(), 10);
@@ -2366,7 +2370,7 @@ mod tests {
         let ticket = v["ticket"].as_str().unwrap().to_string();
         // wrong codes are refused; the confirming code cannot be replayed; the next one works
         assert_eq!(mfa(ticket.clone(), "123456".into()).await.0, StatusCode::UNAUTHORIZED);
-        assert_eq!(mfa(ticket.clone(), now_code(0)).await.0, StatusCode::UNAUTHORIZED, "the code that confirmed the set-up was used already");
+        assert_eq!(mfa(ticket.clone(), confirming_code).await.0, StatusCode::UNAUTHORIZED, "the code that confirmed the set-up was used already");
         assert_eq!(mfa("f".repeat(64), now_code(1)).await.0, StatusCode::UNAUTHORIZED, "an invented ticket is nothing");
         let (st, h, v) = mfa(ticket.clone(), now_code(1)).await;
         assert_eq!((st, v["user"]["username"].as_str()), (StatusCode::OK, Some("vera")), "{v}");
