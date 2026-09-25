@@ -791,17 +791,18 @@ const CHANNEL_HELP = {
   email: () => tr('Any SMTP server. Use STARTTLS or TLS whenever you use a password.'),
   webhook: () => tr('Your own system receives a JSON POST. If you set a signing secret (16+ characters) each request carries X-Denis-Signature: sha256=<HMAC of the body>, so the receiver can verify it came from DENIS.'),
   jira: () => tr('Files one Jira issue per alert. Paste your Jira site address, the account e-mail, an API token (id.atlassian.com/manage-profile/security/api-tokens) and the project key to file under. DENIS never updates or closes the issue afterwards — that happens in Jira like any other ticket.'),
+  servicenow: () => tr('Files one ServiceNow incident per alert. Paste your instance address, a username and password with the incident table\'s write role. DENIS never updates or closes the incident afterwards — that happens in ServiceNow like any other ticket.'),
 };
 
 function syncChannelForm() {
   const k = $('ch-kind').value;
-  $('ch-url-row').hidden = !['slack', 'teams', 'discord', 'webhook', 'ntfy', 'jira'].includes(k);
-  $('ch-url-row').firstChild.textContent = k === 'ntfy' ? tr('Topic address') : k === 'jira' ? tr('Jira site address') : tr('Webhook URL');
-  $('ch-url').placeholder = k === 'ntfy' ? 'https://ntfy.sh/your-topic' : k === 'jira' ? 'https://yourorg.atlassian.net' : 'https://…';
-  $('ch-secret-row').hidden = !['pagerduty', 'webhook', 'pushover', 'ntfy', 'jira'].includes(k);
-  $('ch-secret-row').firstChild.textContent = { webhook: tr('Signing secret (optional)'), pushover: tr('Application token'), ntfy: tr('Access token (optional)'), jira: tr('API token') }[k] || tr('Integration key');
-  $('ch-user-row').hidden = !['pushover', 'jira'].includes(k);
-  $('ch-user-row').firstChild.textContent = k === 'jira' ? tr('Account e-mail') : tr('User or group key');
+  $('ch-url-row').hidden = !['slack', 'teams', 'discord', 'webhook', 'ntfy', 'jira', 'servicenow'].includes(k);
+  $('ch-url-row').firstChild.textContent = k === 'ntfy' ? tr('Topic address') : k === 'jira' ? tr('Jira site address') : k === 'servicenow' ? tr('Instance address') : tr('Webhook URL');
+  $('ch-url').placeholder = k === 'ntfy' ? 'https://ntfy.sh/your-topic' : k === 'jira' ? 'https://yourorg.atlassian.net' : k === 'servicenow' ? 'https://yourinstance.service-now.com' : 'https://…';
+  $('ch-secret-row').hidden = !['pagerduty', 'webhook', 'pushover', 'ntfy', 'jira', 'servicenow'].includes(k);
+  $('ch-secret-row').firstChild.textContent = { webhook: tr('Signing secret (optional)'), pushover: tr('Application token'), ntfy: tr('Access token (optional)'), jira: tr('API token'), servicenow: tr('Password') }[k] || tr('Integration key');
+  $('ch-user-row').hidden = !['pushover', 'jira', 'servicenow'].includes(k);
+  $('ch-user-row').firstChild.textContent = k === 'jira' ? tr('Account e-mail') : k === 'servicenow' ? tr('Username') : tr('User or group key');
   $('ch-project-row').hidden = k !== 'jira';
   $('ch-smtp').hidden = k !== 'email';
   $('ch-min').value = k === 'pagerduty' ? 70 : 50;
@@ -821,7 +822,7 @@ async function loadAlerting() {
   }
   if (!c.ok) return;
   $('no-channels').hidden = c.json.length > 0;
-  const kindName = { slack: 'Slack', teams: 'Microsoft Teams', discord: 'Discord', pagerduty: 'PagerDuty', pushover: 'Pushover', ntfy: 'ntfy', email: 'E-mail', webhook: 'Webhook', jira: 'Jira' };
+  const kindName = { slack: 'Slack', teams: 'Microsoft Teams', discord: 'Discord', pagerduty: 'PagerDuty', pushover: 'Pushover', ntfy: 'ntfy', email: 'E-mail', webhook: 'Webhook', jira: 'Jira', servicenow: 'ServiceNow' };
   $('channels-table').tBodies[0].replaceChildren(...c.json.map((ch) => {
     const st = ch.status || {};
     const target = ch.kind === 'email' ? ch.smtp.to.join(', ') : ch.kind === 'jira' ? (ch.url || '') + ' (' + ch.project + ')' : (ch.url || (ch.kind === 'pagerduty' ? 'events.pagerduty.com' : ch.kind === 'pushover' ? 'api.pushover.net' : ''));
@@ -863,9 +864,9 @@ $('channel-form').onsubmit = async (ev) => {
   ev.preventDefault();
   const k = $('ch-kind').value;
   const body = { kind: k, name: $('ch-name').value.trim(), min_score: Number($('ch-min').value) };
-  if (['slack', 'teams', 'discord', 'webhook', 'ntfy', 'jira'].includes(k)) body.url = $('ch-url').value.trim();
-  if (['pagerduty', 'webhook', 'pushover', 'ntfy', 'jira'].includes(k) && $('ch-secret').value) body.secret = $('ch-secret').value;
-  if (k === 'pushover' || k === 'jira') body.user = $('ch-user').value;
+  if (['slack', 'teams', 'discord', 'webhook', 'ntfy', 'jira', 'servicenow'].includes(k)) body.url = $('ch-url').value.trim();
+  if (['pagerduty', 'webhook', 'pushover', 'ntfy', 'jira', 'servicenow'].includes(k) && $('ch-secret').value) body.secret = $('ch-secret').value;
+  if (k === 'pushover' || k === 'jira' || k === 'servicenow') body.user = $('ch-user').value;
   if (k === 'jira') body.project = $('ch-project').value.trim();
   if (k === 'email') {
     body.smtp = {
@@ -1017,6 +1018,32 @@ function renderAccount() {
 $('account').onclick = () => { location.hash = '#account'; setTab('account'); };
 $('account-logout').onclick = () => $('logout').click();
 
+// ------------------------------------------------------------ settings nav
+
+/** `#settings/<key>` -> the box it shows. Kept stable across releases: other pages (the setup
+ * guide, the switches page) deep-link to these keys. */
+const SETTINGS_BOX = {
+  setup: 'setup-box', interfaces: 'interfaces-box', switches: 'switches-box', security: 'security-box', sso: 'sso-box',
+  tls: 'tls-box', retention: 'retention-box', vulndata: 'vuln-box', data: 'data-box', siem: 'siem-box', ai: 'ai-box',
+  license: 'license-box', updates: 'update-box', system: 'system-box', branding: 'branding-box', overview: 'overview-box',
+};
+const SETTINGS_DEFAULT = 'setup';
+
+/** Show exactly one settings section (like the console's main tabs do), and mark its link active.
+ * Role-based visibility (admin-only) is decided once at sign-in and untouched here. */
+function settingsSelect(key) {
+  if (!SETTINGS_BOX[key]) key = SETTINGS_DEFAULT;
+  for (const [k, id] of Object.entries(SETTINGS_BOX)) {
+    const box = $(id);
+    if (box && !box.dataset.noAdmin) box.hidden = k !== key;
+  }
+  for (const a of document.querySelectorAll('.settings-nav a')) a.classList.toggle('active', a.dataset.box === key);
+  return key;
+}
+for (const a of document.querySelectorAll('.settings-nav a')) {
+  a.onclick = (ev) => { ev.preventDefault(); location.hash = '#settings/' + a.dataset.box; settingsSelect(a.dataset.box); };
+}
+
 // -------------------------------------------------------------- deep links
 
 /**
@@ -1030,11 +1057,8 @@ function applyHash() {
   if (what === 'account' && state.me) setTab('account');
   // #rules/watches: scroll to the OT command watches
   if (what === 'rules' && arg === 'watches') setTimeout(() => $('watches')?.scrollIntoView({ block: 'start' }), 700);
-  // #settings/tls, #settings/updates ...: scroll to that section
-  if (what === 'settings' && arg && !$('tab-settings').hidden) {
-    const box = { branding: 'branding-box', overview: 'overview-box', license: 'license-box', interfaces: 'interfaces-box', tls: 'tls-box', updates: 'update-box', system: 'system-box', data: 'data-box', setup: 'setup-box', security: 'security-box', switches: 'switches-box', vulndata: 'vuln-box', siem: 'siem-box', sso: 'sso-box', ai: 'ai-box', retention: 'retention-box' }[arg];
-    if (box) setTimeout(() => $(box).scrollIntoView({ block: 'start' }), 50);
-  }
+  // #settings/tls, #settings/updates ...: setTab('settings') above already reads the hash and
+  // calls settingsSelect for it; nothing further to do here for a settings deep link.
   if (what === 'passkeys') { location.hash = '#account'; return; }
   if (what === 'review') { setTab('assets'); $('only-review').checked = true; renderAssets(); }
   const id = Number(arg);
@@ -1388,13 +1412,23 @@ $('ai-save').onclick = async () => {
 };
 
 function siemForm() {
+  const elastic = $('siem-transport').value === 'elastic';
   return {
     transport: $('siem-transport').value,
-    host: $('siem-host').value.trim(),
-    port: Number($('siem-port').value) || 0,
-    format: $('siem-format').value,
+    host: elastic ? $('siem-url').value.trim() : $('siem-host').value.trim(),
+    port: elastic ? 0 : Number($('siem-port').value) || 0,
+    format: elastic ? 'ecs' : $('siem-format').value,
     insecure_tls: $('siem-insecure').checked,
+    api_key: elastic ? ($('siem-apikey').value || undefined) : undefined,
+    index: elastic ? $('siem-index').value.trim() : undefined,
   };
+}
+/** Elastic swaps host/port/format for a URL/index/API key; the others share host/port/format. */
+function syncSiemForm() {
+  const elastic = $('siem-transport').value === 'elastic';
+  $('siem-host-row').hidden = $('siem-port-row').hidden = $('siem-format-row').hidden = elastic;
+  $('siem-url-row').hidden = $('siem-index-row').hidden = $('siem-apikey-row').hidden = !elastic;
+  $('siem-insecure-row').hidden = $('siem-transport').value !== 'tls';
 }
 async function loadSiemBox() {
   if (!can('admin')) return;
@@ -1403,18 +1437,26 @@ async function loadSiemBox() {
   const d = r.json;
   $('siem-enabled').checked = d.enabled;
   $('siem-transport').value = d.transport;
-  $('siem-host').value = d.host;
-  $('siem-port').value = d.port;
-  $('siem-format').value = d.format;
+  $('siem-host').value = d.transport === 'elastic' ? '' : d.host;
+  $('siem-port').value = d.transport === 'elastic' ? 514 : d.port;
+  $('siem-format').value = d.transport === 'elastic' ? 'cef' : d.format;
   $('siem-insecure').checked = d.insecure_tls;
-  $('siem-insecure-row').hidden = d.transport !== 'tls';
+  $('siem-url').value = d.transport === 'elastic' ? d.host : '';
+  $('siem-index').value = d.index || '';
+  $('siem-apikey').value = '';
+  syncSiemForm();
   $('siem-events').checked = d.streams.events;
   $('siem-findings').checked = d.streams.findings;
   $('siem-audit').checked = d.streams.audit;
-  $('siem-status').textContent = d.enabled ? tr('Sending to {target} as {format}.', { target: d.transport + '://' + d.host + ':' + d.port, format: d.format.toUpperCase() }) : '';
+  $('siem-status').textContent = d.enabled
+    ? (d.transport === 'elastic'
+      ? tr('Sending to {target} (index {index}) as ECS.', { target: d.host, index: d.index })
+      : tr('Sending to {target} as {format}.', { target: d.transport + '://' + d.host + ':' + d.port, format: d.format.toUpperCase() }))
+    : '';
 }
-$('siem-transport').onchange = () => { $('siem-insecure-row').hidden = $('siem-transport').value !== 'tls'; };
+$('siem-transport').onchange = syncSiemForm;
 $('siem-save').onclick = async () => {
+  // an empty API key field is left out of the request entirely, so the server keeps whatever was stored
   const body = { enabled: $('siem-enabled').checked, ...siemForm(), streams: { events: $('siem-events').checked, findings: $('siem-findings').checked, audit: $('siem-audit').checked } };
   const r = await api('PUT', '/api/siem', body);
   $('siem-msg').textContent = r.ok ? tr('Saved.') : apiError(r);

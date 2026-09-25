@@ -4,9 +4,9 @@
 //! Supported: **Slack**, **Microsoft Teams** (a Workflows "webhook request"
 //! trigger; Adaptive Card), **Discord**, **PagerDuty** (Events API v2), **Pushover**,
 //! **ntfy** (ntfy.sh or your own server), **e-mail**
-//! (SMTP), **Jira** (a real issue per alert, via the Cloud REST API) and a **generic signed
-//! webhook** (JSON, HMAC-SHA256 signature) for anything else (Mattermost, Zapier, ServiceNow,
-//! your own code).
+//! (SMTP), **Jira** and **ServiceNow** (a real issue/incident per alert, via each one's REST
+//! API) and a **generic signed webhook** (JSON, HMAC-SHA256 signature) for anything else
+//! (Mattermost, Zapier, your own code).
 //!
 //! # How delivery works
 //!
@@ -45,7 +45,7 @@ use crate::store::{Store};
 
 pub const KEY: &str = "channels";
 pub const MAINTENANCE_KEY: &str = "maintenance";
-pub const KINDS: &[&str] = &["slack", "teams", "discord", "pagerduty", "pushover", "ntfy", "email", "webhook", "jira"];
+pub const KINDS: &[&str] = &["slack", "teams", "discord", "pagerduty", "pushover", "ntfy", "email", "webhook", "jira", "servicenow"];
 /// More waiting alerts than this for one channel are sent as a single digest.
 pub const DIGEST_ABOVE: usize = 5;
 /// Alerts older than this are not sent.
@@ -224,6 +224,21 @@ impl Channel {
                     && project.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
                 if !key_ok {
                     return Err("the Jira project key must be 2-10 uppercase letters/digits, like OPS".into());
+                }
+            }
+            "servicenow" => {
+                let url = self.url.as_deref().ok_or("the ServiceNow instance URL is required, like https://yourinstance.service-now.com")?;
+                let (scheme, host) = split_url(url)?;
+                if scheme == "http" && !is_loopback_host(host) {
+                    return Err("the ServiceNow instance URL must use https://".into());
+                }
+                let user = self.user.as_deref().ok_or("the ServiceNow username is required")?;
+                if user.is_empty() || user.chars().count() > 100 || user.chars().any(char::is_control) {
+                    return Err("that does not look like a valid ServiceNow username".into());
+                }
+                let pass = self.secret.as_deref().ok_or("the ServiceNow password is required")?;
+                if pass.chars().count() < 4 || pass.chars().count() > 300 || pass.chars().any(char::is_control) {
+                    return Err("that does not look like a valid ServiceNow password".into());
                 }
             }
             _ => unreachable!(),
@@ -682,6 +697,45 @@ pub fn jira_payload(n: &Notification, project: &str) -> Value {
     })
 }
 
+/// HTTP Basic auth header value (`Basic base64(user:pass)`), shared by Jira and ServiceNow.
+fn basic_auth(user: &str, pass: &str) -> String {
+    format!("Basic {}", crate::report::base64(format!("{user}:{pass}").as_bytes()))
+}
+
+/// ServiceNow Table API incident-create payload (`POST .../api/now/table/incident`). The
+/// `correlation_id` is ServiceNow's own convention for an external monitoring tool's dedup key —
+/// the same idea as PagerDuty's `dedup_key` — so a re-sent alert about the same device correlates
+/// in ServiceNow's own UI instead of opening a new incident every time.
+pub fn servicenow_payload(n: &Notification) -> Value {
+    let (urgency, impact) = match n.severity.as_str() {
+        _ if n.test => ("3", "3"),
+        "high" => ("1", "2"),
+        "medium" => ("2", "2"),
+        _ => ("3", "3"),
+    };
+    let mut description = n.summary.clone();
+    if let Some(d) = n.device() {
+        description.push_str(&format!("\nDevice: {d}"));
+    }
+    if let Some(s) = &n.site {
+        description.push_str(&format!("\nSite: {s}"));
+    }
+    if !n.reasons.is_empty() {
+        description.push_str(&format!("\nWhy: {}", n.reasons.iter().map(|r| short(r, 300)).collect::<Vec<_>>().join("; ")));
+    }
+    if let Some(a) = &n.advice {
+        description.push_str(&format!("\nWhat to do: {a}"));
+    }
+    json!({
+        "short_description": cut(&format!("{} - {}", n.headline(), n.summary), 160),
+        "description": cut(&description, 4000),
+        "urgency": urgency,
+        "impact": impact,
+        "category": "network",
+        "correlation_id": match n.asset_id { Some(a) if !n.test => format!("denis-{}-{a}", n.kind), _ => format!("denis-{}", n.kind) },
+    })
+}
+
 /// Split an ntfy topic address into the server (`https://ntfy.sh`) and the topic (`your-topic`).
 pub fn ntfy_target(url: &str) -> Result<(String, String), String> {
     let (scheme, _) = split_url(url)?;
@@ -808,8 +862,13 @@ pub fn send(ch: &Channel, n: &Notification, host: &str, now: i64) -> Result<()> 
         "email" => send_email(ch.smtp.as_ref().context("no SMTP settings")?, n),
         "jira" => {
             let base = ch.url.as_deref().unwrap_or("").trim_end_matches('/');
-            let auth = format!("Basic {}", crate::report::base64(format!("{}:{}", ch.user.as_deref().unwrap_or(""), ch.secret.as_deref().unwrap_or("")).as_bytes()));
+            let auth = basic_auth(ch.user.as_deref().unwrap_or(""), ch.secret.as_deref().unwrap_or(""));
             post_json(&format!("{base}/rest/api/3/issue"), &jira_payload(n, ch.project.as_deref().unwrap_or("")), &[("Authorization", auth)])
+        }
+        "servicenow" => {
+            let base = ch.url.as_deref().unwrap_or("").trim_end_matches('/');
+            let auth = basic_auth(ch.user.as_deref().unwrap_or(""), ch.secret.as_deref().unwrap_or(""));
+            post_json(&format!("{base}/api/now/table/incident"), &servicenow_payload(n), &[("Authorization", auth)])
         }
         other => Err(anyhow!("unknown channel kind {other}")),
     };
@@ -1059,6 +1118,10 @@ mod tests {
             json!({"name": "x", "kind": "jira", "url": "https://a.atlassian.net", "user": "a@example.com", "secret": "short", "project": "OPS"}),
             json!({"name": "x", "kind": "jira", "url": "https://a.atlassian.net", "user": "a@example.com", "secret": "0123456789abcdef", "project": "O"}),
             json!({"name": "x", "kind": "jira", "url": "http://a.atlassian.net", "user": "a@example.com", "secret": "0123456789abcdef", "project": "OPS"}),
+            json!({"name": "x", "kind": "servicenow", "user": "bot", "secret": "hunter2hunter2"}),
+            json!({"name": "x", "kind": "servicenow", "url": "https://a.service-now.com", "secret": "hunter2hunter2"}),
+            json!({"name": "x", "kind": "servicenow", "url": "https://a.service-now.com", "user": "bot", "secret": "abc"}),
+            json!({"name": "x", "kind": "servicenow", "url": "http://a.service-now.com", "user": "bot", "secret": "hunter2hunter2"}),
         ] {
             assert!(from_body(&bad, None).is_err(), "{bad}");
         }
@@ -1066,6 +1129,9 @@ mod tests {
         assert_eq!(jira.project.as_deref(), Some("OPS"), "the project key is upper-cased");
         let jshown = jira.masked().to_string();
         assert!(!jshown.contains("TOKEN") && !jshown.contains("bot@example.com") && jshown.contains("\"project\":\"OPS\""), "{jshown}");
+        let sn = from_body(&json!({"name": "tix2", "kind": "servicenow", "url": "https://a.service-now.com", "user": "denis-bot", "secret": "hunter2hunter2"}), None).unwrap();
+        let sshown = sn.masked().to_string();
+        assert!(!sshown.contains("hunter2") && !sshown.contains("denis-bot") && sshown.contains("service-now.com"), "{sshown}");
         assert!(from_body(&json!({"name": "x", "kind": "webhook", "url": "http://10.0.0.5/hook", "secret": "0123456789abcdef"}), None).is_ok(), "plain http is fine for a generic webhook");
         let c = from_body(&json!({"name": "ops", "kind": "slack", "url": "https://hooks.slack.com/services/T000/B000/SECRETSECRET"}), None).unwrap();
         let shown = c.masked().to_string();
@@ -1259,6 +1325,28 @@ mod tests {
         let mut big = notif("high", 95);
         big.summary = "x".repeat(5000);
         assert!(jira_payload(&big, "OPS")["fields"]["summary"].as_str().unwrap().chars().count() <= 255);
+    }
+
+    #[test]
+    fn servicenow_files_one_incident_authenticated_with_a_correlation_id_for_dedup() {
+        let f = fake();
+        let (s, id) = world();
+        let mut ch = from_body(&json!({"name": "sn", "kind": "servicenow", "url": f.url, "user": "denis-bot", "secret": "hunter2hunter2", "min_score": 0}), None).unwrap();
+        ch.id = "csn".into();
+        save(&s, std::slice::from_ref(&ch), 1).unwrap();
+        let d = Dispatcher::new(Arc::default(), "denis-host".into(), Duration::ZERO);
+        d.cycle(&s, 100);
+        event(&s, id, "new_port", 95, 150);
+        d.cycle(&s, 160);
+        let seen = f.seen.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(seen.len(), 1);
+        let (path, headers, body) = &seen[0];
+        assert_eq!(path, "/api/now/table/incident");
+        let auth = headers.iter().find(|(k, _)| k == "authorization").map(|(_, v)| v.clone()).unwrap();
+        assert_eq!(auth, format!("Basic {}", crate::report::base64(b"denis-bot:hunter2hunter2")));
+        assert_eq!((body["urgency"].as_str(), body["impact"].as_str()), (Some("1"), Some("2")), "score 95 is high urgency");
+        assert!(body["short_description"].as_str().unwrap().contains("new_port"));
+        assert_eq!(body["correlation_id"], format!("denis-new_port-{id}"), "repeats of the same alert about the same device correlate in ServiceNow");
     }
 
     #[test]

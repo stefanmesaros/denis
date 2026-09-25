@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.9.0: Elasticsearch/OpenSearch export, a reorganised Settings page, and two UI fixes
+
+* **Elasticsearch/OpenSearch export** (Settings → SIEM / Log export → Elasticsearch (Bulk API)):
+  events, findings and the audit log as ECS-shaped documents, pushed straight to an index or data
+  stream over the Bulk API — no Logstash/Filebeat in between. Same cursor-driven, at-least-once
+  delivery every other SIEM target already has. The API key is a secret like any other in DENIS:
+  never echoed back by the API, and an update that does not mention it keeps the one already
+  stored instead of silently dropping it.
+* **Settings, reorganised**: the page was one long scroll of 16 unrelated sections with a flat,
+  un-grouped list of jump links — and three of those sections (System, Single sign-on, Explain
+  with AI) had no link in that list at all, reachable only by typing the URL by hand. Replaced
+  with real sub-tabs (only one section shown at a time), grouped into Get started / Network /
+  Sign-in & security / Data / Integrations / System / Branding & MSP. Existing `#settings/...`
+  links (the setup guide, the Switches page) keep working unchanged.
+* **Fixed**: the search-syntax ⓘ button stayed visible on every page instead of only Devices — two
+  unrelated toolbar elements shared the same CSS class, and only one had the `id` the page-switch
+  code actually looked for.
+* **Fixed**: dialogs with two stacked button rows (Settings → Updates is the one most people hit)
+  had them touching — `.row` only spaces its own children, nothing above itself when two rows
+  sit directly one after another.
+
+## 2.8.0: ServiceNow ticketing
+
+* **ServiceNow** joins the notification channels alongside Jira: files one real incident per
+  alert against the Table API (`/api/now/table/incident`), Basic-auth authenticated. Severity
+  maps to urgency/impact, and a `correlation_id` (ServiceNow's own convention, the same idea as
+  PagerDuty's dedup key) means repeats of the same alert about the same device correlate in
+  ServiceNow's UI instead of opening a new incident every time. Same dispatcher, digesting,
+  backoff, mute and maintenance-mode machinery every other channel already has.
+
 ## 2.7.0: JA3 now also covers a device's outbound TLS (not just LAN-to-LAN)
 
 * **JA3 for outbound TLS**: 2.5.0's JA3 fingerprinting only ever saw TLS between two local

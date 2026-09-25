@@ -1327,7 +1327,7 @@ function setTab(t) {
   state.tab = t;
   for (const b of document.querySelectorAll('.tab')) b.classList.toggle('active', b.dataset.tab === t);
   for (const v of ['overview', 'assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'health', 'alerting', 'topology', 'ot', 'software', 'trends', 'events', 'agents', 'users', 'settings', 'audit', 'account']) $('view-' + v).hidden = t !== v;
-  $('search').hidden = $('online-label').hidden = $('review-label').hidden = $('group-by').hidden = $('filters-box').hidden = t !== 'assets';
+  $('search').hidden = $('online-label').hidden = $('review-label').hidden = $('group-by').hidden = $('filters-box').hidden = $('search-help-box').hidden = t !== 'assets';
   if (t !== 'assets') $('filters-menu').hidden = true;
   if (t !== 'assets') $('review-all').hidden = true;
   // export and import links belong to the lists they export
@@ -1350,7 +1350,10 @@ function setTab(t) {
   if (t === 'health') loadHealth();
   if (t === 'alerting') loadAlerting();
   if (t === 'users') { renderUsers(); renderApiTokens(); }
-  if (t === 'settings') { initBrandingForm(); initOverviewBox(); loadLicenseBox(); loadInterfacesBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); loadSiemBox(); loadSsoBox(); loadAiBox(); loadRetentionBox(); }
+  if (t === 'settings') {
+    initBrandingForm(); initOverviewBox(); loadLicenseBox(); loadInterfacesBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); loadSiemBox(); loadSsoBox(); loadAiBox(); loadRetentionBox();
+    settingsSelect(location.hash.startsWith('#settings/') ? location.hash.split('/')[1] : SETTINGS_DEFAULT);
+  }
   if (t === 'audit') renderAudit();
   if (t === 'account') renderAccount();
   if (t === 'agents') renderTokens();
