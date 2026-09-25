@@ -1327,13 +1327,13 @@ function setTab(t) {
   state.tab = t;
   for (const b of document.querySelectorAll('.tab')) b.classList.toggle('active', b.dataset.tab === t);
   for (const v of ['overview', 'assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'health', 'alerting', 'topology', 'ot', 'software', 'trends', 'events', 'agents', 'users', 'settings', 'audit', 'account']) $('view-' + v).hidden = t !== v;
-  $('search').hidden = $('online-label').hidden = $('review-label').hidden = $('group-by').hidden = $('filters-box').hidden = $('search-help-box').hidden = t !== 'assets';
+  $('search').hidden = $('online-label').hidden = $('review-label').hidden = $('group-by').hidden = $('filters-box').hidden = $('search-help-box').hidden = $('assets-table-cols-btn').hidden = t !== 'assets';
   if (t !== 'assets') $('filters-menu').hidden = true;
   if (t !== 'assets') $('review-all').hidden = true;
+  if (t !== 'assets') $('assets-table-cols-menu').hidden = true;
   // export and import links belong to the lists they export
   $('exports-assets').hidden = t !== 'assets';
   $('exports-alerts').hidden = t !== 'alerts';
-  $('acked-label').hidden = t !== 'alerts';
   if (t !== 'alerts') $('learning').hidden = true; // renderAlerts() sets it back on the next refresh once alerts is active
   $('range').hidden = t !== 'trends';
   $('settings-cats').hidden = t !== 'settings';

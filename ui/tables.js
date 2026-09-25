@@ -143,8 +143,8 @@ function enhanceTable(table) {
 
   // ---- the Columns menu
   const wrap = table.closest('.table-wrap') || table;
-  const menu = el('div', { class: 'cols-menu', hidden: true, role: 'dialog', 'aria-label': tr('Columns') });
-  const button = el('button', { type: 'button', class: 'cols-btn', title: tr('Show or hide columns and change their order'), text: tr('Columns'), 'aria-haspopup': 'dialog' });
+  const menu = el('div', { id: id + '-cols-menu', class: 'cols-menu', hidden: true, role: 'dialog', 'aria-label': tr('Columns') });
+  const button = el('button', { id: id + '-cols-btn', type: 'button', class: 'cols-btn', title: tr('Show or hide columns and change their order'), text: tr('Columns'), 'aria-haspopup': 'dialog' });
   const drawMenu = () => {
     sane();
     const movable = layout.order.filter((ci) => !byCi.get(ci).locked && !byCi.get(ci).th.hidden);
@@ -172,13 +172,27 @@ function enhanceTable(table) {
   // (the path is taken when the click happens: a button that redrew the menu is no longer inside it afterwards)
   document.addEventListener('click', (ev) => { if (!menu.hidden && !ev.composedPath().includes(menu)) menu.hidden = true; });
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') menu.hidden = true; });
-  // a page can already have a `.table-tools` row right before the table (e.g. to hold its own
-  // export button) — share that row instead of stacking a second one, with the Columns button
-  // first so whatever else is in that row (an export link, say) reads as being to its right
-  const prev = wrap.previousElementSibling;
-  const tools = prev && prev.classList.contains('table-tools') ? prev : el('div', { class: 'table-tools' });
-  tools.prepend(button, menu);
-  if (!tools.parentNode) wrap.parentNode.insertBefore(tools, wrap);
+  // a page can already have a row to hold the Columns button: either `data-cols-host` names the
+  // element to use directly (for a row that is not right before the table, e.g. a page's own
+  // toolbar or heading), or a `.table-tools`/`.inline-form` row already sits right before the
+  // table (e.g. to hold an export link or an "add" form) and is reused instead of stacking a
+  // second one. Either way the button goes at the end — right of whatever is already there — or,
+  // with `data-cols-after`, right after one specific element in that row (e.g. a checkbox it
+  // belongs next to, when the row holds more than just this table's own controls).
+  let tools;
+  if (table.dataset.colsHost) {
+    tools = document.getElementById(table.dataset.colsHost);
+  } else {
+    const prev = wrap.previousElementSibling;
+    tools = prev && (prev.classList.contains('table-tools') || prev.classList.contains('inline-form')) ? prev : el('div', { class: 'table-tools' });
+    if (!tools.parentNode) wrap.parentNode.insertBefore(tools, wrap);
+  }
+  // the dropdown menu positions itself relative to this row; give it one if it does not have one
+  if (getComputedStyle(tools).position === 'static') tools.style.position = 'relative';
+  const afterId = table.dataset.colsAfter;
+  const after = afterId && document.getElementById(afterId);
+  if (after) after.after(button, menu);
+  else tools.append(button, menu);
   apply();
 }
 
