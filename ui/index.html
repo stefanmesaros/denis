@@ -33,6 +33,7 @@
       <button id="menu-toggle" type="button" class="menu-toggle" aria-label="Show or hide the menu" aria-expanded="true">☰</button>
       <div class="brand"><span class="brand-logo" id="brand-logo"></span><b class="brand-name" id="brand-name">DENIS</b></div>
       <div id="status" class="status" aria-live="polite"></div>
+      <button id="scan" type="button">Scan now</button>
       <select id="lang" class="lang-select" aria-label="Language"></select>
       <button id="theme" type="button" title="Colour theme: auto / light / dark">◐</button>
       <span class="userbox">
@@ -40,7 +41,6 @@
         <a class="help-link" href="/docs/" target="_blank" rel="noopener">Help</a>
         <button id="logout" type="button">Sign out</button>
       </span>
-      <button id="scan" type="button">Scan now</button>
     </header>
     <div id="maint-banner" class="banner-warn" hidden></div>
     <div id="demo-banner" class="banner-info" hidden></div>
@@ -82,7 +82,7 @@
       </aside>
       <div class="content">
         <div id="learning" class="banner" hidden></div>
-        <div class="toolbar">
+        <div class="toolbar" id="assets-toolbar">
           <input id="search" type="search" placeholder="Filter by IP, MAC, name, owner, serial, tag…" aria-label="Filter devices">
           <span class="filters-box" id="search-help-box">
             <button id="search-help-btn" type="button" class="icon-btn" aria-haspopup="dialog" aria-label="Search syntax" title="Search syntax">ⓘ</button>
@@ -114,7 +114,6 @@
           <label class="check" id="online-label"><input id="only-online" type="checkbox"> online only</label>
           <label class="check" id="review-label"><input id="only-review" type="checkbox"> needs review <span id="review-count" class="muted"></span></label>
           <button id="review-all" type="button" hidden title="Accept every device shown in the list as known">Mark all shown as known</button>
-          <label class="check" id="acked-label" hidden><input id="show-acked" type="checkbox"> show acknowledged</label>
         </div>
 
 
@@ -149,7 +148,7 @@
           </div>
         </div>
         <div class="table-wrap" id="assets-scroll">
-          <table id="assets-table">
+          <table id="assets-table" data-cols-host="assets-toolbar" data-cols-after="review-label">
             <thead><tr>
               <th id="select-all-th"><input id="select-all-assets" type="checkbox" aria-label="Select all shown" title="Select all shown"></th>
               <th data-sort="online"></th>
@@ -176,6 +175,7 @@
           <span class="exports" id="exports-alerts" hidden>
             <button id="ack-all-alerts" type="button" title="Also clears any older backlog this page does not show">Acknowledge all</button>
             <a id="export-alerts" class="button" href="/api/export/alerts.csv?days=30" download>Alerts CSV</a>
+            <label class="check" id="acked-label"><input id="show-acked" type="checkbox"> show acknowledged</label>
           </span>
         </div>
         <div class="table-wrap">
@@ -206,8 +206,8 @@
 
       <section id="view-ot" hidden>
         <div id="ot-cards" class="cards"></div>
-        <h3 class="section">Industrial devices</h3>
-        <div class="table-wrap"><table id="ot-devices"><thead><tr><th>Device</th><th>IP</th><th>Purdue</th><th>Zone</th><th>Type</th><th>Protocols</th><th>Identity</th><th>Last seen</th></tr></thead><tbody></tbody></table></div>
+        <div class="row section-row" id="ot-devices-toolbar"><h3 class="section">Industrial devices</h3><span class="spacer"></span></div>
+        <div class="table-wrap"><table id="ot-devices" data-cols-host="ot-devices-toolbar"><thead><tr><th>Device</th><th>IP</th><th>Purdue</th><th>Zone</th><th>Type</th><th>Protocols</th><th>Identity</th><th>Last seen</th></tr></thead><tbody></tbody></table></div>
         <p id="ot-empty" class="muted" hidden>No industrial devices identified yet. Industrial protocols are decoded passively from traffic that reaches this collector: run with <code>--profile ot</code> on a mirror/SPAN port or tap. Purdue level and zone can be set per device.</p>
         <h3 class="section">Communications matrix</h3>
         <div class="inline-form"><select id="ot-proto" aria-label="Protocol"></select><label class="check"><input id="ot-risky" type="checkbox"> only writes / control commands</label></div>
@@ -252,8 +252,8 @@
           <button type="submit" class="primary">Silence all notifications</button>
           <button type="button" id="maint-end">End silence</button>
         </form>
-        <h3 class="section">Channels</h3>
-        <div class="table-wrap"><table id="channels-table"><thead><tr><th>Name</th><th>Type</th><th>Target</th><th>Min score</th><th>Status</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="row section-row" id="channels-toolbar"><h3 class="section">Channels</h3><span class="spacer"></span></div>
+        <div class="table-wrap"><table id="channels-table" data-cols-host="channels-toolbar"><thead><tr><th>Name</th><th>Type</th><th>Target</th><th>Min score</th><th>Status</th><th></th></tr></thead><tbody></tbody></table></div>
         <p id="no-channels" class="muted" hidden>No channels yet: alerts appear only in the console. Add one below.</p>
         <h3 class="section">Add a channel</h3>
         <form id="channel-form" class="brand-form">
@@ -302,15 +302,15 @@
 
       <section id="view-reports" hidden>
         <p class="muted">A report is a snapshot of your network at one moment: devices, findings, accepted risks, alerts, trends and the compliance overview. Reports are kept here on the DENIS server, so you can open, download or print last month's again, for an auditor or a customer.</p>
-        <div class="row">
+        <div class="row" id="reports-toolbar">
           <select id="report-days" aria-label="Period the report covers"></select>
           <button id="make-report" type="button" class="primary">Make a report now</button>
           <span id="reports-total" class="muted"></span>
           <span class="spacer"></span>
-          <a href="/report?days=7" target="_blank" rel="noopener" class="muted small">Open a live report without saving it</a>
+          <a href="/report?days=7" target="_blank" rel="noopener" class="button">Open a live report without saving it</a>
         </div>
         <p id="no-reports" class="muted" hidden>No reports yet. Make one now, or switch the schedule on below.</p>
-        <div class="table-wrap"><table id="reports-table"><thead><tr><th>Made</th><th>How</th><th>Covers</th><th>Size</th><th></th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="table-wrap"><table id="reports-table" data-cols-host="reports-toolbar"><thead><tr><th>Made</th><th>How</th><th>Covers</th><th>Size</th><th></th><th></th></tr></thead><tbody></tbody></table></div>
         <h3 class="section">Schedule</h3>
         <div id="reports-schedule"></div>
       </section>
@@ -397,6 +397,7 @@
           <input id="apitoken-label" placeholder="what is it for? e.g. Grafana" maxlength="60" required>
           <select id="apitoken-role"><option>viewer</option><option>editor</option></select>
           <button type="submit" class="primary">Create token</button>
+          <span class="spacer"></span>
         </form>
         <div class="table-wrap"><table id="apitokens-table"><thead><tr><th>Label</th><th>Role</th><th>State</th><th>Created by</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody></tbody></table></div>
       </section>
@@ -555,7 +556,7 @@
 
       <section id="view-audit" hidden>
         <p class="muted">Every sign-in, change, user, token, channel and rule edit, with who did it. Kept until you erase all data (the audit log itself is never erased by that).</p>
-        <div class="inline-form"><input id="audit-filter" type="search" placeholder="Filter by user, action or detail…" aria-label="Filter the audit log"><select id="audit-limit" aria-label="How many entries"><option value="100">Last 100</option><option value="500">Last 500</option><option value="1000">Last 1000</option></select><span id="audit-count" class="muted"></span></div>
+        <div class="inline-form"><input id="audit-filter" type="search" placeholder="Filter by user, action or detail…" aria-label="Filter the audit log"><select id="audit-limit" aria-label="How many entries"><option value="100">Last 100</option><option value="500">Last 500</option><option value="1000">Last 1000</option></select><span id="audit-count" class="muted"></span><span class="spacer"></span></div>
         <div class="table-wrap"><table id="audit-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th></tr></thead><tbody></tbody></table></div>
       </section>
 

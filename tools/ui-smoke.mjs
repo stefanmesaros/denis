@@ -589,10 +589,16 @@ await check('table columns can be hidden, reordered and resized, stay so when th
   if (!start.includes('Vendor') || !start.includes('Name')) return 'unexpected headings: ' + JSON.stringify(start);
   const row0 = await firstRow();
   if (row0.length !== start.length) return `a row has ${row0.length} cells for ${start.length} headings`;
+  // the Columns button now shares its toolbar with the Filters button, which happens to reuse the
+  // same .cols-btn/.cols-menu/.cols-reset styling classes — so every lookup below is by text
+  // ("Columns", never "Filters") or scoped to the Columns button's own menu (its next sibling),
+  // never to a bare class name that both buttons could match
+  const colsBtn = "[...document.querySelectorAll('#assets-toolbar .cols-btn')].find((b) => b.textContent.trim() === 'Columns')";
+  const colsRows = `[...(${colsBtn}).nextElementSibling.querySelectorAll('.cols-row')]`;
   // hide Vendor from the Columns menu
-  await evaluate("document.querySelector('#view-assets .cols-btn').click(); 0");
+  await evaluate(`(${colsBtn}).click(); 0`);
   await sleep(200);
-  await evaluate("[...document.querySelectorAll('#view-assets .cols-row')].find((r) => r.textContent.includes('Vendor')).querySelector('input').click(); 0");
+  await evaluate(`${colsRows}.find((r) => r.textContent.includes('Vendor')).querySelector('input').click(); 0`);
   await sleep(300);
   let now_ = await heads();
   if (now_.includes('Vendor') || now_.length !== start.length - 1) return 'Vendor was not hidden: ' + JSON.stringify(now_);
@@ -600,7 +606,7 @@ await check('table columns can be hidden, reordered and resized, stay so when th
   // move columns several times: after each move every heading must still sit over its own data
   const pairs = () => evaluate("(() => { const t = document.getElementById('assets-table'); const vis = (c) => getComputedStyle(c).display !== 'none'; const hs = [...t.tHead.rows[0].cells].filter(vis).map((c) => c.textContent.trim()); const r = [...t.tBodies[0].rows[0].cells].filter(vis); return hs.map((h, i) => [h, r[i].textContent.trim(), r[i].className]); })()");
   for (const name of ['MAC', 'Name', 'IP', 'Name']) {
-    await evaluate(`[...document.querySelectorAll('#view-assets .cols-row')].find((r) => r.textContent.trim().startsWith(${JSON.stringify(name)})).querySelector('.cols-up').click(); 0`);
+    await evaluate(`${colsRows}.find((r) => r.textContent.trim().startsWith(${JSON.stringify(name)})).querySelector('.cols-up').click(); 0`);
     await sleep(250);
     const p = await pairs();
     const ip = p.find((x) => x[0] === 'IP'), mac = p.find((x) => x[0] === 'MAC'), nm = p.find((x) => x[0] === 'Name'), ty = p.find((x) => x[0] === 'Type');
@@ -609,25 +615,25 @@ await check('table columns can be hidden, reordered and resized, stay so when th
   now_ = await heads();
   const before = now_.indexOf('Name');
   // hide a column after the moves, then let the page redraw its rows (it does every few seconds): still the right data, still hidden
-  await evaluate("[...document.querySelectorAll('#view-assets .cols-row')].find((r) => r.textContent.trim().startsWith('MAC')).querySelector('input').click(); 0");
+  await evaluate(`${colsRows}.find((r) => r.textContent.trim().startsWith('MAC')).querySelector('input').click(); 0`);
   await sleep(250);
   for (const again of [false, true]) {
     if (again) { await evaluate("renderAssets(); 0"); await sleep(300); }
     const p = await pairs();
     if (p.some((x) => x[0] === 'MAC') || p.some((x) => /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/.test(x[1])) || !/^\d+\.\d+\.\d+\.\d+$/.test(p.find((x) => x[0] === 'IP')[1])) return (again ? 'after the page redrew its rows: ' : 'after hiding MAC: ') + JSON.stringify(p);
   }
-  await evaluate("[...document.querySelectorAll('#view-assets .cols-row')].find((r) => r.textContent.trim().startsWith('MAC')).querySelector('input').click(); 0");
+  await evaluate(`${colsRows}.find((r) => r.textContent.trim().startsWith('MAC')).querySelector('input').click(); 0`);
   await sleep(250);
   // move Name one place to the left
-  await evaluate("[...document.querySelectorAll('#view-assets .cols-row')].find((r) => r.textContent.includes('Name')).querySelector('.cols-up').click(); 0");
+  await evaluate(`${colsRows}.find((r) => r.textContent.includes('Name')).querySelector('.cols-up').click(); 0`);
   await sleep(300);
   now_ = await heads();
   if (now_.indexOf('Name') !== before - 1) return `Name did not move left: ${JSON.stringify(now_)}`;
   const nameCell = await evaluate("(() => { const i = [...document.querySelectorAll('#assets-table thead th')].filter((t) => getComputedStyle(t).display !== 'none').findIndex((t) => t.textContent.trim() === 'Name'); return [...document.querySelector('#assets-table tbody tr').cells].filter((c) => getComputedStyle(c).display !== 'none')[i].classList.contains('namecell'); })()");
   if (!nameCell) return 'the cells did not move with their heading';
   // (the menu stays open while columns are moved; close it, and resize: drag the edge of the Name heading 80 px to the right)
-  if (!(await evaluate("!document.querySelector('#view-assets .cols-menu').hidden"))) return 'the Columns menu closed by itself when a column was moved';
-  await evaluate("document.querySelector('#view-assets .cols-btn').click(); 0");
+  if (!(await evaluate(`!(${colsBtn}).nextElementSibling.hidden`))) return 'the Columns menu closed by itself when a column was moved';
+  await evaluate(`(${colsBtn}).click(); 0`);
   const box = await evaluate("(() => { const th = [...document.querySelectorAll('#assets-table thead th')].find((t) => t.textContent.trim() === 'Name'); const r = th.querySelector('.col-resize').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: th.getBoundingClientRect().width }; })()");
   await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: box.x, y: box.y });
   await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: box.x, y: box.y, button: 'left', clickCount: 1 });
@@ -649,9 +655,9 @@ await check('table columns can be hidden, reordered and resized, stay so when th
   const w2 = await evaluate("[...document.querySelectorAll('#assets-table thead th')].find((t) => t.textContent.trim() === 'Name').getBoundingClientRect().width");
   if (JSON.stringify(reloaded) !== JSON.stringify(now_) || Math.abs(w2 - w1) > 6) return `after a reload: ${JSON.stringify(reloaded)}, width ${Math.round(w2)} instead of ${Math.round(w1)}`;
   // reset
-  await evaluate("document.querySelector('#view-assets .cols-btn').click(); 0");
+  await evaluate(`(${colsBtn}).click(); 0`);
   await sleep(200);
-  await evaluate("document.querySelector('#view-assets .cols-reset').click(); 0");
+  await evaluate(`(${colsBtn}).nextElementSibling.querySelector('.cols-reset').click(); 0`);
   await sleep(300);
   const reset = await heads();
   const stored = await evaluate("localStorage.getItem('denis.table.assets-table')");

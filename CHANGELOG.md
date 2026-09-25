@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.13.0: Consistent per-page toolbars — the Columns button always lands somewhere sensible
+
+* Every page's own controls (an "add" form, an export link, a heading) and its **Columns** button
+  now share one row, laid out on purpose instead of wherever the button happened to be auto-inserted:
+  Devices has it right after "needs review"; Alerts reads Acknowledge all → Alerts CSV → show
+  acknowledged → Columns; OT's "Industrial devices" and Alerting's "Channels" headings sit flush
+  left with Columns flush right; Reports has "Open a live report without saving it" as a real
+  button immediately left of a flush-right Columns; Sites and Users' "Add user" keep Columns right
+  next to their own button, not pushed to the edge, while Users' "Create token" and the Audit log
+  put it flush right like the rest. `ui/tables.js` gained `data-cols-host`/`data-cols-after` on a
+  table to name that row explicitly, for the pages where it is not simply the row right before the
+  table.
+* The header's **Scan now** button moved from the far right to the front of that button group:
+  Scan now, language, theme, account, Help, Sign out.
+
 ## 2.12.0: Settings navigation, take two — a sidebar sub-menu instead of page tabs
 
 * 2.9.0 turned Settings' one long scroll into real sub-tabs, but grouped into 7 categories shown

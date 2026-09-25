@@ -252,6 +252,10 @@ dialog h3 { margin: 0 0 10px; }
 .secret { display: block; padding: 10px; margin: 10px 0; background: var(--bg); border: 1px dashed var(--line); border-radius: 6px; word-break: break-all; font-size: 13px; user-select: all; }
 .inline-form { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 14px; align-items: center; }
 h3.section { margin: 20px 0 6px; font-size: 14px; }
+/* A `.row` that carries a `h3.section` heading instead of the usual plain text: the row itself
+   takes the heading's own vertical margin, so wrapping it changes nothing about the spacing. */
+.section-row { margin: 20px 0 6px; }
+.section-row h3.section { margin: 0; }
 
 .card.bad { border-color: #dc2626; }
 .card.bad b { color: #dc2626; }
