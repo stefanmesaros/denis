@@ -154,6 +154,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/assets/import", post(admin::import_assets))
         .route("/api/assets/review", post(admin::review_assets))
         .route("/api/assets/bulk-tags", post(admin::bulk_tags))
+        .route("/api/assets/bulk-edit", post(admin::bulk_edit))
         .route("/api/assets/{id}", get(asset).delete(admin::delete_asset))
         .route("/api/assets/{id}/meta", patch(admin::patch_meta))
         .route("/api/assets/{id}/history", get(admin::history))
@@ -2756,6 +2757,35 @@ mod tests {
         let (_, _, v) = send(&app, req("POST", "/api/assets/bulk-tags", Some(&editor), Some(serde_json::json!({"all": true, "add": "fleet"})))).await;
         assert_eq!(v["changed"].as_i64(), Some(3));
         assert!(ids.iter().all(|&id| tags_of(id) == vec!["fleet".to_string()]));
+    }
+
+    #[tokio::test]
+    async fn bulk_edit_sets_one_field_across_many_devices_validated_like_a_single_edit() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let mut ids = Vec::new();
+        for n in 1..=3u8 {
+            let mut a = Asset::new(Mac([3, 0, 0, 1, 0, n]), 1);
+            store.save_asset(&mut a).unwrap();
+            ids.push(a.id);
+        }
+        assert_eq!(send(&app, req("POST", "/api/assets/bulk-edit", Some(&viewer), Some(serde_json::json!({"ids": ids, "field": "owner", "value": "IT"})))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("POST", "/api/assets/bulk-edit", Some(&editor), Some(serde_json::json!({"ids": ids, "field": "notes", "value": "x"})))).await.0, StatusCode::BAD_REQUEST, "notes is not a bulk field");
+        assert_eq!(send(&app, req("POST", "/api/assets/bulk-edit", Some(&editor), Some(serde_json::json!({"ids": ids, "field": "criticality", "value": "not-a-real-level"})))).await.0, StatusCode::BAD_REQUEST);
+
+        let owner_of = |id: i64| store.get_meta(id).unwrap().unwrap_or_default().owner;
+        let (st, _, v) = send(&app, req("POST", "/api/assets/bulk-edit", Some(&editor), Some(serde_json::json!({"ids": ids, "field": "owner", "value": "IT Team"})))).await;
+        assert_eq!((st, v["changed"].as_i64()), (StatusCode::OK, Some(3)), "{v}");
+        assert!(ids.iter().all(|&id| owner_of(id).as_deref() == Some("IT Team")));
+        // setting the same value again changes nothing
+        let (_, _, v) = send(&app, req("POST", "/api/assets/bulk-edit", Some(&editor), Some(serde_json::json!({"ids": ids, "field": "owner", "value": "IT Team"})))).await;
+        assert_eq!(v["changed"].as_i64(), Some(0));
+        // a blank value clears the field, same as a single-device edit
+        let (_, _, v) = send(&app, req("POST", "/api/assets/bulk-edit", Some(&editor), Some(serde_json::json!({"ids": ids, "field": "owner", "value": ""})))).await;
+        assert_eq!(v["changed"].as_i64(), Some(3));
+        assert!(ids.iter().all(|&id| owner_of(id).is_none()));
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("assets.bulk_edit"), "{audit}");
     }
 
     /// A console with passkeys on for `http://localhost:8080`, and one signed-in viewer "vera".

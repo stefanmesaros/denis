@@ -1,0 +1,26 @@
+# Devices page: bulk-edit bar and the search-syntax help panel.
+e.g. type:printer || z. B. type:printer || ex. type:printer || p. ej. type:printer || napr. type:printer
+device type || Gerätetyp || type d'appareil || tipo de dispositivo || typ zariadenia
+e.g. vendor:hp || z. B. vendor:hp || ex. vendor:hp || p. ej. vendor:hp || napr. vendor:hp
+manufacturer || Hersteller || fabricant || fabricante || výrobca
+e.g. port:9100 || z. B. port:9100 || ex. port:9100 || p. ej. port:9100 || napr. port:9100
+an open port || ein offener Port || un port ouvert || un puerto abierto || otvorený port
+e.g. owner:jane || z. B. owner:jane || ex. owner:jane || p. ej. owner:jane || napr. owner:jane
+who it is assigned to || wem es zugewiesen ist || à qui il est attribué || a quién está asignado || komu je pridelené
+e.g. tag:rack-2 || z. B. tag:rack-2 || ex. tag:rack-2 || p. ej. tag:rack-2 || napr. tag:rack-2
+a tag || ein Tag || une étiquette || una etiqueta || štítok
+e.g. room:server-room || z. B. room:server-room || ex. room:server-room || p. ej. room:server-room || napr. room:server-room
+where it is || wo es sich befindet || où il se trouve || dónde está || kde sa nachádza
+e.g. os:windows || z. B. os:windows || ex. os:windows || p. ej. os:windows || napr. os:windows
+e.g. status:spare || z. B. status:spare || ex. status:spare || p. ej. status:spare || napr. status:spare
+active/spare/retired/… || active/spare/retired/… || active/spare/retired/… || active/spare/retired/… || active/spare/retired/…
+Combine several, separated by a space (type:printer port:9100 matches both). Plain text still matches IP, MAC, name, owner, serial and tags, like before. || Mehrere lassen sich kombinieren, durch ein Leerzeichen getrennt (type:printer port:9100 trifft auf beides zu). Reiner Text passt weiterhin auf IP, MAC, Name, Besitzer, Seriennummer und Tags, wie bisher. || Combinez-en plusieurs, séparés par un espace (type:printer port:9100 correspond aux deux). Le texte brut correspond toujours à l'IP, la MAC, le nom, le propriétaire, le numéro de série et les étiquettes, comme avant. || Combine varios, separados por un espacio (type:printer port:9100 coincide con ambos). El texto simple sigue coincidiendo con IP, MAC, nombre, propietario, número de serie y etiquetas, como antes. || Dá sa skombinovať viac, oddelené medzerou (type:printer port:9100 sedí na oboje). Obyčajný text stále sedí na IP, MAC, meno, vlastníka, sériové číslo a štítky, tak ako doteraz.
+new value (blank clears it) || neuer Wert (leer löscht ihn) || nouvelle valeur (vide pour l'effacer) || nuevo valor (en blanco lo borra) || nová hodnota (prázdne ju vymaže)
+(clear it) || (löschen) || (l'effacer) || (borrarlo) || (vymazať)
+Set {field} to "{value}" for {n} selected device(s)? || {field} für {n} ausgewählte Geräte auf "{value}" setzen? || Définir {field} sur « {value} » pour {n} appareil(s) sélectionné(s) ? || ¿Establecer {field} en "{value}" para {n} dispositivo(s) seleccionado(s)? || Nastaviť {field} na "{value}" pre {n} vybraných zariadení?
+(cleared) || (gelöscht) || (effacé) || (borrado) || (vymazané)
+? Search syntax || ? Suchsyntax || ? Syntaxe de recherche || ? Sintaxis de búsqueda || ? Syntax vyhľadávania
+Tag: || Tag: || Étiquette : || Etiqueta: || Štítok:
+Set for all selected: || Für alle Ausgewählten setzen: || Définir pour tous les sélectionnés : || Establecer para todos los seleccionados: || Nastaviť pre všetky vybrané:
+Apply to selected || Auf Ausgewählte anwenden || Appliquer à la sélection || Aplicar a la selección || Použiť na vybrané
+Search syntax || Suchsyntax || Syntaxe de recherche || Sintaxis de búsqueda || Syntax vyhľadávania

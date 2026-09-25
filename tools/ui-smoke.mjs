@@ -57,18 +57,40 @@ const base = `http://127.0.0.1:${appPort}`;
 for (let i = 0; i < 50; i++) { try { if ((await fetch(base + '/api/status')).ok) break; } catch { /* not yet */ } await sleep(200); }
 
 // ------------------------------------------------------------------ headless Chrome over CDP
-const dbgPort = await freePort();
-const chrome = spawn(chromePath, [
-  '--headless=new', '--disable-gpu', '--no-sandbox', `--remote-debugging-port=${dbgPort}`, `--user-data-dir=${join(tmp, 'chrome')}`,
-  '--window-size=1280,900', '--hide-scrollbars', 'about:blank',
-], { stdio: 'ignore' });
-procs.push(chrome);
-let target;
-for (let i = 0; i < 50 && !target; i++) {
-  try { target = (await (await fetch(`http://127.0.0.1:${dbgPort}/json/list`)).json()).find((t) => t.type === 'page'); } catch { /* not yet */ }
-  if (!target) await sleep(200);
+//
+// A shared CI runner occasionally fails to launch Chrome at all on the first try (seen as this
+// step failing within a couple of seconds, before the retry loop below would even matter) —
+// contention with other jobs starting at the same moment, not anything about this page. Rather
+// than fail the whole release on that, launch attempts are retried a few times, each with its
+// own fresh process and a caught exit/error so a dead process is noticed immediately instead of
+// only after the polling loop times out.
+async function launchChrome(attempt) {
+  const dbgPort = await freePort();
+  let stderr = '';
+  const chrome = spawn(chromePath, [
+    '--headless=new', '--disable-gpu', '--no-sandbox', `--remote-debugging-port=${dbgPort}`, `--user-data-dir=${join(tmp, `chrome-${attempt}`)}`,
+    '--window-size=1280,900', '--hide-scrollbars', 'about:blank',
+  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  chrome.stderr.on('data', (d) => { stderr += d; });
+  let exited = false;
+  chrome.once('exit', () => { exited = true; });
+  procs.push(chrome);
+  let target;
+  for (let i = 0; i < 50 && !target && !exited; i++) {
+    try { target = (await (await fetch(`http://127.0.0.1:${dbgPort}/json/list`)).json()).find((t) => t.type === 'page'); } catch { /* not yet */ }
+    if (!target) await sleep(200);
+  }
+  if (!target) {
+    console.error(`Chrome launch attempt ${attempt} did not come up (exited: ${exited})${stderr ? `: ${stderr.trim().slice(-500)}` : ''}`);
+    try { chrome.kill('SIGKILL'); } catch { /* already gone */ }
+    return null;
+  }
+  return { target, chrome };
 }
-if (!target) { console.error('could not start Chrome'); process.exit(2); }
+let launched = null;
+for (let attempt = 1; attempt <= 3 && !launched; attempt++) launched = await launchChrome(attempt);
+if (!launched) { console.error('could not start Chrome after 3 attempts'); process.exit(2); }
+const { target } = launched;
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
 let nextId = 1;

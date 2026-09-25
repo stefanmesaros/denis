@@ -75,7 +75,11 @@
       <div class="content">
         <div id="learning" class="banner" hidden></div>
         <div class="toolbar">
-          <input id="search" type="search" placeholder="Filter by IP, MAC, name, owner, serial, tag…" aria-label="Filter devices" title="Also takes type:printer, port:9100, vendor:hp, owner:, tag:, room:, os:, status: — combine several, separated by a space">
+          <input id="search" type="search" placeholder="Filter by IP, MAC, name, owner, serial, tag…" aria-label="Filter devices">
+          <span class="filters-box">
+            <button id="search-help-btn" type="button" class="cols-btn" aria-haspopup="dialog" title="Search syntax">? Search syntax</button>
+            <div id="search-help-menu" class="cols-menu" hidden role="dialog" aria-label="Search syntax"></div>
+          </span>
           <select id="site" aria-label="Filter by site" hidden></select>
           <select id="group-by" aria-label="Group devices by" hidden>
             <option value="none">Not grouped</option>
@@ -114,13 +118,27 @@
 
       <section id="view-assets">
         <div id="license-banner" class="banner" hidden></div>
-        <div id="bulk-tag-bar" class="row" hidden>
-          <span id="bulk-tag-count" class="muted"></span>
-          <input id="bulk-tag-name" placeholder="tag name" maxlength="32">
-          <button id="bulk-tag-add" type="button">+ Add to selected</button>
-          <button id="bulk-tag-remove" type="button">− Remove from selected</button>
-          <button id="bulk-tag-clear" type="button">Clear selection</button>
-          <span id="bulk-tag-msg" class="muted"></span>
+        <div id="bulk-tag-bar" class="bulk-bar" hidden>
+          <div class="row"><b id="bulk-tag-count"></b><button id="bulk-tag-clear" type="button">Clear selection</button><span id="bulk-tag-msg" class="muted"></span></div>
+          <div class="row">
+            <span class="muted small">Tag:</span>
+            <input id="bulk-tag-name" placeholder="tag name" maxlength="32">
+            <button id="bulk-tag-add" type="button">+ Add to selected</button>
+            <button id="bulk-tag-remove" type="button">− Remove from selected</button>
+          </div>
+          <div class="row">
+            <span class="muted small">Set for all selected:</span>
+            <select id="bulk-edit-field">
+              <option value="owner">Owner</option>
+              <option value="location">Room</option>
+              <option value="department">Department</option>
+              <option value="type_override">Device type</option>
+              <option value="criticality">Criticality</option>
+              <option value="status">Status</option>
+            </select>
+            <input id="bulk-edit-value" placeholder="new value (blank clears it)" maxlength="120">
+            <button id="bulk-edit-apply" type="button">Apply to selected</button>
+          </div>
         </div>
         <div class="table-wrap" id="assets-scroll">
           <table id="assets-table">

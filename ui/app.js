@@ -215,6 +215,28 @@ $('filters-btn').onclick = (ev) => {
 document.addEventListener('click', (ev) => { if (!$('filters-menu').hidden && !ev.composedPath().includes($('filters-menu')) && ev.target !== $('filters-btn')) $('filters-menu').hidden = true; });
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') $('filters-menu').hidden = true; });
 
+/** Power-user search keys, always visible on click — not a hover tooltip, easy to miss and
+ * unusable on a phone. Mirrors SEARCH_KEYS above; a typo in a key still falls back to plain
+ * text search (see `matches`), so this is a convenience, not something to get exactly right. */
+function drawSearchHelp() {
+  const rows = [
+    ['type:', tr('e.g. type:printer'), tr('device type')], ['vendor:', tr('e.g. vendor:hp'), tr('manufacturer')],
+    ['port:', tr('e.g. port:9100'), tr('an open port')], ['owner:', tr('e.g. owner:jane'), tr('who it is assigned to')],
+    ['tag:', tr('e.g. tag:rack-2'), tr('a tag')], ['room:', tr('e.g. room:server-room'), tr('where it is')],
+    ['os:', tr('e.g. os:windows'), tr('OS guess')], ['status:', tr('e.g. status:spare'), tr('active/spare/retired/…')],
+  ];
+  $('search-help-menu').replaceChildren(
+    el('p', { class: 'muted small', text: tr('Combine several, separated by a space (type:printer port:9100 matches both). Plain text still matches IP, MAC, name, owner, serial and tags, like before.') }),
+    ...rows.map(([k, ex, what]) => el('div', { class: 'search-help-row' }, el('code', { text: k }), el('span', { class: 'muted small', text: what + ' — ' + ex }))));
+}
+$('search-help-btn').onclick = (ev) => {
+  ev.stopPropagation();
+  const menu = $('search-help-menu');
+  menu.hidden = !menu.hidden;
+  if (!menu.hidden) drawSearchHelp();
+};
+document.addEventListener('click', (ev) => { if (!$('search-help-menu').hidden && !ev.composedPath().includes($('search-help-menu')) && ev.target !== $('search-help-btn')) $('search-help-menu').hidden = true; });
+
 /** How the Devices list is currently grouped: `none`, `device_type`, `location` or `owner`. */
 const GROUP_LABEL = () => ({
   device_type: (a) => tr(a.device_type),
@@ -420,6 +442,28 @@ $('bulk-tag-add').onclick = () => bulkTag('add');
 $('bulk-tag-remove').onclick = () => bulkTag('remove');
 $('bulk-tag-clear').onclick = () => { state.selectedAssets.clear(); renderAssets(); };
 $('bulk-tag-name').onkeydown = (ev) => { if (ev.key === 'Enter') bulkTag('add'); };
+
+/** Criticality and status are a fixed list (a free-text value would just get refused by the
+ * server); everything else bulk-editable is a plain value, same as the single-device editor. */
+function bulkEditValueInput() {
+  const field = $('bulk-edit-field').value;
+  const options = { criticality: state.options && state.options.criticalities, status: state.options && state.options.statuses }[field];
+  const current = $('bulk-edit-value');
+  if (!options) { if (current.tagName !== 'INPUT') current.replaceWith(el('input', { id: 'bulk-edit-value', placeholder: tr('new value (blank clears it)'), maxLength: 120 })); return; }
+  const sel = el('select', { id: 'bulk-edit-value' }, el('option', { value: '', text: tr('(clear it)') }), ...options.map((o) => el('option', { value: o, text: tr(o) })));
+  current.replaceWith(sel);
+}
+$('bulk-edit-field').onchange = bulkEditValueInput;
+$('bulk-edit-apply').onclick = async () => {
+  const field = $('bulk-edit-field').value;
+  const value = $('bulk-edit-value').value;
+  if (!confirm(tr('Set {field} to "{value}" for {n} selected device(s)?', { field: $('bulk-edit-field').selectedOptions[0].text, value: value || tr('(cleared)'), n: state.selectedAssets.size }))) return;
+  const r = await api('POST', '/api/assets/bulk-edit', { ids: [...state.selectedAssets], field, value });
+  $('bulk-tag-msg').textContent = r.ok
+    ? tr('{n} device{s} changed.', { n: r.json.changed, s: r.json.changed === 1 ? '' : 's' })
+    : apiError(r);
+  if (r.ok) refresh();
+};
 
 function renderSiteFilter() {
   const sel = $('site');

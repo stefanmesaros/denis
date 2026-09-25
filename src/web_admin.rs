@@ -1445,6 +1445,73 @@ pub(crate) async fn bulk_tags(State(st): State<AppState>, Extension(AuthUser(me)
     Ok(Json(json!({ "changed": n })).into_response())
 }
 
+/// Fields a bulk edit may set — the common CMDB-style ones an owner actually wants to batch;
+/// `tags` has its own endpoint (add/remove, not overwrite) and everything else on `AssetMeta`
+/// stays a one-device-at-a-time edit.
+const BULK_EDIT_FIELDS: &[&str] = &["owner", "department", "location", "type_override", "criticality", "status"];
+
+#[derive(Deserialize)]
+pub struct BulkEditReq {
+    #[serde(default)]
+    ids: Vec<i64>,
+    #[serde(default)]
+    all: bool,
+    field: String,
+    /// `None`/empty clears the field back to "not set".
+    #[serde(default)]
+    value: Option<String>,
+}
+
+/// Set one field to the same value across many devices at once — "select some devices, set
+/// their owner/room/type/criticality/status in one go", the bulk-tag bar's other half. Goes
+/// through the exact same validation a single-device edit would (`tracking::apply_patch`), so
+/// this cannot set anything a normal edit could not; a device this user cannot write to is
+/// silently skipped, like `bulk_tags`.
+pub(crate) async fn bulk_edit(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<BulkEditReq>) -> Result<Response, ApiError> {
+    if !BULK_EDIT_FIELDS.contains(&b.field.as_str()) {
+        return Ok(err(StatusCode::BAD_REQUEST, format!("field must be one of {}", BULK_EDIT_FIELDS.join(", "))));
+    }
+    if !b.all && (b.ids.is_empty() || b.ids.len() > 5000) {
+        return Ok(err(StatusCode::BAD_REQUEST, "give 1-5000 device ids, or {\"all\": true}"));
+    }
+    let by = me.username.clone();
+    let (user_id, role) = (me.id, me.role.clone());
+    let (field, value) = (b.field.clone(), b.value.clone());
+    let (field_task, value_task) = (field.clone(), value.clone());
+    let res = blocking(&st.store, move |s| {
+        let now = now_ts();
+        let ids: Vec<i64> = if b.all { s.load_assets()?.into_iter().map(|a| a.id).collect() } else { b.ids };
+        let mut patch = serde_json::Map::new();
+        patch.insert(field_task, json!(value_task.filter(|v| !v.trim().is_empty())));
+        let patch = Value::Object(patch);
+        let mut changed = 0usize;
+        for id in ids {
+            let Some(a) = s.get_asset(id)? else { continue };
+            if !crate::access::writable(s, user_id, &role, &a.agent_id) {
+                continue;
+            }
+            let mut meta = s.get_meta(id)?.unwrap_or_default();
+            match tracking::apply_patch(&mut meta, &patch) {
+                Ok(changes) if !changes.is_empty() => {
+                    s.save_meta(id, &meta, &by, now)?;
+                    changed += 1;
+                }
+                Ok(_) => {}
+                Err(e) => return Ok(Err(e)),
+            }
+        }
+        Ok(Ok(changed))
+    })
+    .await?;
+    Ok(match res {
+        Ok(n) => {
+            audit(&st, &me.username, "assets.bulk_edit", None, json!({ "count": n, "field": field, "value": value }));
+            Json(json!({ "changed": n })).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    })
+}
+
 /// Outcome of creating a manual asset: `(id, changes)` or an HTTP-ready error.
 type Created = Result<(i64, Vec<crate::model::Change>), (StatusCode, String)>;
 

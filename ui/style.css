@@ -264,6 +264,8 @@ tr.row-warn td { background: color-mix(in srgb, var(--warn) 10%, transparent); }
 .brand-form { display: grid; gap: 10px; max-width: 460px; margin-bottom: 14px; }
 .brand-logo-box { display: grid; gap: 8px; max-width: 460px; margin-bottom: 14px; }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bulk-bar { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 0 0 10px; display: grid; gap: 8px; }
+.bulk-bar .row { margin: 0; }
 /* Settings and Health list several unrelated controls, hints and tables one under another;
    give them consistent breathing room instead of relying on each box remembering its own margins.
    Two levels deep because several of these boxes fill an inner container (e.g. #backup-schedule-form)
@@ -412,6 +414,8 @@ table.sized td, table.sized th { overflow: hidden; text-overflow: ellipsis; }
 .cols-row label { flex: 1; }
 .cols-row button { padding: 0 8px; font-size: 12px; }
 .filters-box { position: relative; }
+.search-help-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; }
+.search-help-row code { flex: none; min-width: 52px; }
 .filters-box .cols-menu { display: flex; flex-direction: column; gap: 8px; min-width: 220px; }
 .filters-box .cols-menu label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
 .filters-box .cols-menu select, .filters-box .cols-menu input { width: 100%; }
