@@ -1,6 +1,6 @@
 [package]
 name = "denis"
-version = "2.4.0"
+version = "2.5.0"
 edition = "2021"
 description = "DENIS: Device Enumeration & Network Inventory Security. Find every device on an IT or OT network, keep an editable asset register, and get alerted when behaviour changes."
 license-file = "LICENSE"
@@ -24,6 +24,7 @@ getrandom = "0.4.3"
 ipnet = "2.12.2"
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "builder", "rustls-tls"] }
 libc = "0.2.189"
+md-5 = "0.10.6"
 mime_guess = "2.0.5"
 nix = { version = "0.31.3", features = ["hostname", "net"] }
 openidconnect = { version = "4.0.1", default-features = false, features = ["ureq", "rustls-tls"] }

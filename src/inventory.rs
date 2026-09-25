@@ -267,13 +267,21 @@ impl Inventory {
         let proto = s.pdu.proto.to_string();
         // a path whose content is not read says nothing about what either device is
         if s.pdu.class == crate::model::OtClass::Opaque {
-            // Unread content is a path, not evidence about what either device is: both are devices that exist and have
-            // an address, and that is all.
+            // Unread content is a path, not evidence about what either device is, beyond one
+            // exception: identity the message's own sender announced about *itself* (a TLS
+            // ClientHello/ServerHello's JA3/JA3S fingerprint), same as LLDP or EtherNet/IP.
             for (mac, ip) in [(s.src_mac, s.src_ip), (s.dst_mac, s.dst_ip)] {
-                if mac.is_valid() {
-                    self.entry(mac, now);
-                    self.finish(mac, Some(ip), false, now);
+                if !mac.is_valid() {
+                    continue;
                 }
+                let a = self.entry(mac, now);
+                let mut changed = false;
+                if mac == s.src_mac {
+                    for (k, v) in &s.pdu.identity {
+                        changed |= a.fingerprint.identity.insert(format!("{proto}.{k}"), v.clone()).as_ref() != Some(v);
+                    }
+                }
+                self.finish(mac, Some(ip), changed, now);
             }
             return;
         }

@@ -135,6 +135,7 @@ pub fn parse_opaque(is_tcp: bool, sport: u16, dport: u16, payload: &[u8]) -> Opt
                 None => (sport < dport, String::new()), // the server is on the lower (well-known) port
             };
             let mut version = tls_version(u16::from_be_bytes([*payload.get(1)?, *payload.get(2)?]));
+            let mut identity = BTreeMap::new();
             if t == 0x16 && payload.len() > 9 {
                 match payload[5] {
                     1 | 2 => {
@@ -143,6 +144,11 @@ pub fn parse_opaque(is_tcp: bool, sport: u16, dport: u16, payload: &[u8]) -> Opt
                         let (v, sni) = tls_hello(payload, client);
                         version = v.or(version);
                         detail = format!("TLS {} handshake{}", version.unwrap_or("?"), sni.map(|s| format!(" (server name {s})")).unwrap_or_default());
+                        // JA3/JA3S: who is talking, not what is said. The fingerprint belongs to
+                        // this message's sender (the client for a ClientHello, the server for a
+                        // ServerHello) and is attached below via `identity`, same as any other
+                        // self-announced identity (LLDP, EtherNet/IP, BACnet).
+                        identity = crate::ja3::identity(payload, client);
                     }
                     _ => detail = "TLS handshake".into(),
                 }
@@ -158,7 +164,7 @@ pub fn parse_opaque(is_tcp: bool, sport: u16, dport: u16, payload: &[u8]) -> Opt
                 Some((p, n)) if SECURE_OT_PORTS.iter().any(|(q, _)| *q == p) => (p, n),
                 _ => (if src_is_server { sport } else { dport }, "tls"),
             };
-            return Some(pdu(proto, src_is_server, OtClass::Opaque, detail, port));
+            return Some(OtPdu { identity, ..pdu(proto, src_is_server, OtClass::Opaque, detail, port) });
         }
     }
     // Nothing else is named from a port alone: a port number is not evidence, only a hint at where to look, and a
@@ -1405,8 +1411,11 @@ mod tests {
             let c = parse_opaque(true, 51_000, 8443, &unhex(ch)).unwrap();
             assert_eq!((c.proto, c.server_is_src, c.class, c.port), ("tls", false, OtClass::Opaque, 8443));
             assert_eq!(c.detail, format!("TLS {version} handshake (server name plc1.plant.local)"));
+            assert_eq!(c.identity["ja3"].len(), 32, "a real ClientHello yields a JA3 hash");
+            assert_eq!(c.identity["ja3"], crate::ja3::client_ja3(&unhex(ch)).unwrap().1);
             let s = parse_opaque(true, 8443, 51_000, &unhex(sh)).unwrap();
             assert_eq!((s.proto, s.server_is_src, s.detail.as_str()), ("tls", true, format!("TLS {version} handshake").as_str()));
+            assert_eq!(s.identity["ja3s"].len(), 32, "a real ServerHello yields a JA3S hash");
         }
         // application data and alerts carry no names, only the direction the ports give
         let data = [0x17, 3, 3, 0, 5, 1, 2, 3, 4, 5];

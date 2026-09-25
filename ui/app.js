@@ -934,6 +934,8 @@ async function showDetail(id) {
       row(tr('Database server banner'), fp.identity && fp.identity['banner.mysql']),
       row(tr('Windows build (from SMB)'), fp.identity && fp.identity['banner.smb']),
       row(tr('SQL Server build'), fp.identity && fp.identity['banner.mssql']),
+      row(tr('TLS client fingerprint (JA3)'), fp.identity && fp.identity['tls.ja3']),
+      row(tr('TLS server fingerprint (JA3S)'), fp.identity && fp.identity['tls.ja3s']),
       row(tr('Hostnames'), a.hostnames),
       row(tr('First seen'), fmtTime(a.first_seen)),
       row(tr('Last seen'), a.last_seen ? fmtTime(a.last_seen) : tr('never (entered by hand)')),

@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.5.0: TLS client/server fingerprinting (JA3/JA3S)
+
+* **TLS fingerprinting**: DENIS now reads the cleartext ClientHello/ServerHello of any TLS
+  handshake it sees (mirror port only, same as every other passive decoder — nothing is ever
+  decrypted or intercepted) and computes the client's **JA3** and the server's **JA3S**
+  fingerprint, shown on the device's Identity panel. This is the original 2017 method (public
+  domain, no known patent, freely reimplemented by nmap/Zeek/Suricata/Wireshark and most other
+  network tools) — deliberately not FoxIO's newer JA4+ family, which is patent-pending and
+  license-restricted. Same idea, same value: a device whose TLS stack doesn't match what it
+  claims to be, or an anonymous device that shares a fingerprint with a known client, is now
+  visible without opening a single packet's payload.
+* New `md-5` dependency (RustCrypto, MIT/Apache-2.0) for the JA3 hash itself.
+
 ## 2.4.0: bulk-edit owner/room/type/criticality/status, and a visible search-syntax guide
 
 * **Bulk-edit** owner, room, department, device type, criticality or status across every selected
