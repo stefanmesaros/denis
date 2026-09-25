@@ -1341,7 +1341,9 @@ async function refresh() {
 }
 
 for (const b of document.querySelectorAll('.tab')) b.onclick = () => setTab(b.dataset.tab);
+$('select-all-th').onclick = (ev) => ev.stopPropagation(); // belt and braces: never reach the sort handler below
 for (const th of $('assets-table').tHead.rows[0].cells) {
+  if (!th.dataset.sort) continue; // the leading checkbox column has no sort of its own
   th.onclick = () => {
     const k = th.dataset.sort;
     state.asc = state.sort === k ? !state.asc : k === 'ip' || k === 'name' || k === 'vendor' || k === 'site';

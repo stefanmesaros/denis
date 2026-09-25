@@ -431,6 +431,31 @@ await check('Selecting devices and adding/removing a tag in bulk updates just th
   return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
 });
 
+// The header checkbox is inside a <th>, and the assets table's other <th>s sort the list on
+// click — a real bug once had that click bubble up and corrupt the sort state, breaking
+// rendering silently until reload. This clicks the real checkbox (not just sets .checked), so a
+// regression here fails loudly instead of shipping unnoticed again.
+await check('the header "select all" checkbox selects every shown device without breaking the list', async () => {
+  takeProblems();
+  await evaluate("location.hash = '#assets'; setTab('assets'); 0");
+  await sleep(400);
+  const shown = await evaluate("document.querySelectorAll('#assets-table tbody tr').length");
+  await evaluate("document.getElementById('select-all-assets').click(); 0");
+  await sleep(200);
+  const countText = await evaluate("document.getElementById('bulk-tag-count').textContent");
+  const checkedRows = await evaluate("document.querySelectorAll('#assets-table tbody input[type=checkbox]:checked').length");
+  if (checkedRows !== shown) return `expected all ${shown} shown rows checked, got ${checkedRows} (bar says: ${countText})`;
+  // unchecking it must clear the selection just as cleanly, and the sort must still work
+  await evaluate("document.getElementById('select-all-assets').click(); 0");
+  await sleep(200);
+  if (await evaluate("document.getElementById('bulk-tag-bar').hidden") !== true) return 'the bulk-tag bar should hide again once nothing is selected';
+  await evaluate("document.querySelector('#assets-table thead th[data-sort=\"name\"]').click(); 0");
+  await sleep(200);
+  const bad = await evaluate(BAD_TEXT);
+  const p = takeProblems();
+  return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
+});
+
 // ------------------------------------------------------------------ Reports: sharing a report by link
 await check('A report can be shared by link (no session needed to view it) and unshared again', async () => {
   takeProblems();
