@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.4.0: bulk-edit owner/room/type/criticality/status, and a visible search-syntax guide
+
+* **Bulk-edit** owner, room, department, device type, criticality or status across every selected
+  device at once (Devices → select some → "Set for all selected") — the bulk-tag bar's other
+  half, validated exactly the way a single-device edit already is.
+* **The power-user search syntax** (`type:printer port:9100 vendor:hp …`) now has a small ⓘ
+  button that opens a real, always-clickable panel listing every key with an example — not just
+  a hover tooltip, which was easy to miss entirely.
+* CI: hardened `tools/ui-smoke.mjs` against a shared runner occasionally failing to launch Chrome
+  at all (unrelated to this project) — launch now retries up to 3 times with real diagnostics.
+
 ## 2.3.1: fixed the Devices "select all" checkbox silently breaking the whole page
 
 * Clicking it set the sort state to something invalid (its column has no sort of its own, and the
