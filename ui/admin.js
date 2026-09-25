@@ -1163,7 +1163,14 @@ function openUpdateDialog() {
     if (!r.ok) showMessage(tr('Update'), el('p', { class: 'form-error', text: apiError(r) }));
     return r;
   };
-  const when = el('input', { type: 'datetime-local' });
+  // defaults to an hour from now, not left empty: an empty datetime-local input still shows
+  // today's date as a greyed-out placeholder, which reads as already filled in, so "Schedule"
+  // was silently doing nothing for anyone who clicked it without first opening the picker
+  const defaultWhen = new Date(Date.now() + 3600_000);
+  defaultWhen.setSeconds(0, 0);
+  const localValue = new Date(defaultWhen.getTime() - defaultWhen.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  const when = el('input', { type: 'datetime-local', value: localValue, min: localValue.slice(0, 10) + 'T00:00' });
+  const scheduleErr = el('span', { class: 'form-error small' });
   const nodes = [
     el('p', {}, el('b', { text: 'DENIS ' + u.latest.version }), el('span', { class: 'muted', text: '  (' + tr('you have {current}', { current: u.current }) + (u.latest.published_at ? ' · ' + tr('released {date}', { date: u.latest.published_at.slice(0, 10) }) : '') + ')' })),
     el('h4', { text: tr('What\'s new') }),
@@ -1176,10 +1183,11 @@ function openUpdateDialog() {
       el('button', { type: 'button', class: 'primary', text: tr('Install now'), onclick: async () => { if ((await post('/api/update/install', {})).ok) watchInstall(); } }),
       el('span', { class: 'muted', text: tr('or at') }), when,
       el('button', { type: 'button', text: tr('Schedule'), onclick: async () => {
-        if (!when.value) return;
+        if (!when.value) { scheduleErr.textContent = tr('Pick a date and time first.'); return; }
+        scheduleErr.textContent = '';
         const r = await post('/api/update/install', { when: Math.floor(new Date(when.value).getTime() / 1000) });
         if (r.ok) { close(); loadUpdateBanner(); loadUpdateBox(); }
-      } })) : null,
+      } }), scheduleErr) : null,
     admin ? el('div', { class: 'row' },
       el('button', { type: 'button', text: tr('Remind me in 3 days'), onclick: async () => { await post('/api/update/snooze', { days: 3 }); close(); loadUpdateBanner(); } }),
       el('button', { type: 'button', text: tr('Skip this version'), onclick: async () => { await post('/api/update/skip', {}); close(); loadUpdateBanner(); } })) : null,

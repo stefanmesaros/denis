@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.13.2: Fix the Update dialog's "Schedule" button doing nothing
+
+* An empty `datetime-local` input still renders today's date as a greyed-out placeholder, which
+  reads as already filled in — so "Schedule" was silently a no-op for anyone who clicked it
+  without first opening the picker themselves (the code checked for a real value and returned
+  early otherwise, with no message). The field now defaults to an hour from now, a real value,
+  and a missing one is called out next to the button instead of failing silently.
+* Also closed the matching gap server-side: `POST /api/update/install` with a `when` that isn't
+  at least 30 seconds out now answers 400 ("choose a time at least 30 seconds from now") instead
+  of silently installing immediately, as it used to when a chosen time didn't clear that margin.
+
 ## 2.13.1: Three toolbar placements corrected after a first look at 2.13.0
 
 * Devices: "needs review" and Columns are now pinned to the right edge of the toolbar (they had

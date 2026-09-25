@@ -640,9 +640,12 @@ pub(crate) async fn update_install(State(st): State<AppState>, Extension(AuthUse
         return Ok(err(StatusCode::CONFLICT, "this installation cannot update itself (no release key in this build, or the program folder is not writable): update by hand"));
     }
     let now = now_ts();
-    let res = match b.when.filter(|t| *t > now + 30) {
-        Some(t) => u.schedule(Some(t), now).map(|_| "scheduled"),
+    let res = match b.when {
         None => u.install_in_background().map(|_| "started"),
+        Some(t) if t > now + 30 => u.schedule(Some(t), now).map(|_| "scheduled"),
+        // a `when` too close to now (or in the past) is a mistake to report, not a silent
+        // "install now" — the two buttons behave differently on purpose
+        Some(_) => return Ok(err(StatusCode::BAD_REQUEST, "choose a time at least 30 seconds from now")),
     };
     Ok(match res {
         Ok(what) => {

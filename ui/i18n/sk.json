@@ -821,6 +821,7 @@
 "Permanently delete {user}? This cannot be undone.": "Natrvalo odstrániť používateľa {user}? Toto nie je možné vrátiť späť.",
 "Person or entity authentication": "Autentifikácia osoby alebo entity",
 "Physical topology": "Fyzická topológia",
+"Pick a date and time first.": "Najprv vyberte dátum a čas.",
 "Plan the update now, while it is still supported.": "Naplánujte aktualizáciu teraz, kým je ešte podporovaná.",
 "Please keep this page open.": "Nechajte túto stránku otvorenú.",
 "Polite ARP sweep, ping and light port scan (never used on industrial devices).": "Šetrný ARP sken, ping a ľahký sken portov (nikdy sa nepoužíva na priemyselných zariadeniach).",
