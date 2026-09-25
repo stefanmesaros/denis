@@ -1336,6 +1336,7 @@ function setTab(t) {
   $('acked-label').hidden = t !== 'alerts';
   if (t !== 'alerts') $('learning').hidden = true; // renderAlerts() sets it back on the next refresh once alerts is active
   $('range').hidden = t !== 'trends';
+  $('settings-cats').hidden = t !== 'settings';
   renderSiteFilter();
   if (t === 'alerts') renderAlerts();
   if (t === 'overview') renderOverview();

@@ -1020,28 +1020,43 @@ $('account-logout').onclick = () => $('logout').click();
 
 // ------------------------------------------------------------ settings nav
 
-/** `#settings/<key>` -> the box it shows. Kept stable across releases: other pages (the setup
- * guide, the switches page) deep-link to these keys. */
-const SETTINGS_BOX = {
-  setup: 'setup-box', interfaces: 'interfaces-box', switches: 'switches-box', security: 'security-box', sso: 'sso-box',
-  tls: 'tls-box', retention: 'retention-box', vulndata: 'vuln-box', data: 'data-box', siem: 'siem-box', ai: 'ai-box',
-  license: 'license-box', updates: 'update-box', system: 'system-box', branding: 'branding-box', overview: 'overview-box',
-};
-const SETTINGS_DEFAULT = 'setup';
+/** Six categories, shown as a sub-menu under "Settings" in the sidebar (not tabs on the page
+ * itself — that was the whole problem: too many at once, wrapping to several rows). Each groups
+ * the `#settings/<key>` items it covers; kept stable across releases, since other pages (the
+ * setup guide, the switches page) deep-link to these keys directly, independent of grouping. */
+const SETTINGS_CATS = [
+  ['security', [['security', 'security-box'], ['sso', 'sso-box'], ['tls', 'tls-box']]],
+  ['network', [['setup', 'setup-box'], ['interfaces', 'interfaces-box'], ['switches', 'switches-box']]],
+  ['data', [['retention', 'retention-box'], ['vulndata', 'vuln-box'], ['data', 'data-box']]],
+  ['integrations', [['siem', 'siem-box'], ['ai', 'ai-box']]],
+  ['branding', [['branding', 'branding-box'], ['overview', 'overview-box']]],
+  ['system', [['license', 'license-box'], ['updates', 'update-box'], ['system', 'system-box']]],
+];
+const SETTINGS_DEFAULT = 'security';
 
-/** Show exactly one settings section (like the console's main tabs do), and mark its link active.
- * Role-based visibility (admin-only) is decided once at sign-in and untouched here. */
+const settingsCatOf = (key) => SETTINGS_CATS.find(([, items]) => items.some(([k]) => k === key))?.[0];
+
+/** Show one settings category: it becomes active in the sidebar sub-menu, and every box it
+ * covers is shown together on the page (no further per-item breakdown). `key` may name either
+ * the category itself or one of the individual items it covers (old deep links, e.g.
+ * `#settings/tls`, still resolve to their category this way). Role-based visibility (admin-only)
+ * is decided once at sign-in and untouched here. */
 function settingsSelect(key) {
-  if (!SETTINGS_BOX[key]) key = SETTINGS_DEFAULT;
-  for (const [k, id] of Object.entries(SETTINGS_BOX)) {
-    const box = $(id);
-    if (box && !box.dataset.noAdmin) box.hidden = k !== key;
+  const cat = SETTINGS_CATS.some(([c]) => c === key) ? key : (settingsCatOf(key) || SETTINGS_DEFAULT);
+  for (const [k, items] of SETTINGS_CATS) {
+    document.querySelector(`#settings-cats [data-cat="${k}"]`).classList.toggle('active', k === cat);
+    for (const [, id] of items) {
+      const box = $(id);
+      if (box && !box.dataset.noAdmin) box.hidden = k !== cat;
+    }
   }
-  for (const a of document.querySelectorAll('.settings-nav a')) a.classList.toggle('active', a.dataset.box === key);
-  return key;
+  return cat;
 }
-for (const a of document.querySelectorAll('.settings-nav a')) {
-  a.onclick = (ev) => { ev.preventDefault(); location.hash = '#settings/' + a.dataset.box; settingsSelect(a.dataset.box); };
+for (const b of document.querySelectorAll('#settings-cats .subtab')) {
+  b.onclick = () => {
+    location.hash = '#settings/' + b.dataset.cat;
+    settingsSelect(b.dataset.cat);
+  };
 }
 
 // -------------------------------------------------------------- deep links

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.12.0: Settings navigation, take two — a sidebar sub-menu instead of page tabs
+
+* 2.9.0 turned Settings' one long scroll into real sub-tabs, but grouped into 7 categories shown
+  all at once on the page — which wrapped across 3 lines, the opposite of the fix. Replaced with a
+  sidebar sub-menu (Sign-in & security, Network, Data, Integrations, Branding & MSP, System — 6
+  entries, always one line, shown under "Settings" only while that page is open); picking one
+  shows everything it covers directly on the page, with no further breakdown into per-item tabs.
+  Every `#settings/...` deep link (the setup guide, the Switches page) keeps working unchanged,
+  resolving to its category.
+
 ## 2.11.0: Windows groundwork — the last two `#[cfg(unix)]`-only gaps filled
 
 * `src/certs.rs::private_file` (the TLS private key) and `src/health.rs::disk_space` now have

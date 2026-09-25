@@ -69,6 +69,14 @@
           <button class="tab" data-tab="agents" type="button"><span class="label">Sites</span> <span id="count-agents" class="count"></span></button>
           <button class="tab" data-tab="users" type="button" id="tab-users" hidden><span class="label">Users</span></button>
           <button class="tab" data-tab="settings" type="button" id="tab-settings" hidden><span class="label">Settings</span></button>
+          <div id="settings-cats" class="subtabs" hidden>
+            <button type="button" class="subtab" data-cat="security">Sign-in &amp; security</button>
+            <button type="button" class="subtab" data-cat="network">Network</button>
+            <button type="button" class="subtab" data-cat="data">Data</button>
+            <button type="button" class="subtab" data-cat="integrations">Integrations</button>
+            <button type="button" class="subtab" data-cat="branding">Branding &amp; MSP</button>
+            <button type="button" class="subtab" data-cat="system">System</button>
+          </div>
           <button class="tab" data-tab="audit" type="button" id="tab-audit" hidden><span class="label">Audit log</span></button>
         </nav>
       </aside>
@@ -395,36 +403,6 @@
 
       <section id="view-settings" hidden>
         <p class="muted">Settings for the whole installation. Only administrators see this page; every change is written to the <a href="#audit">audit log</a>.</p>
-        <nav class="settings-nav" aria-label="Settings sections">
-          <div class="settings-navgroup">
-            <div class="navgroup">Get started</div>
-            <div class="subnav"><a href="#settings/setup" data-box="setup">Setup guide</a></div>
-          </div>
-          <div class="settings-navgroup">
-            <div class="navgroup">Network</div>
-            <div class="subnav"><a href="#settings/interfaces" data-box="interfaces">Network interfaces</a><a href="#settings/switches" data-box="switches">Switches (SNMP)</a></div>
-          </div>
-          <div class="settings-navgroup">
-            <div class="navgroup">Sign-in &amp; security</div>
-            <div class="subnav"><a href="#settings/security" data-box="security">Sign-in security</a><a href="#settings/sso" data-box="sso">Single sign-on (OIDC)</a><a href="#settings/tls" data-box="tls">HTTPS certificate</a></div>
-          </div>
-          <div class="settings-navgroup">
-            <div class="navgroup">Data</div>
-            <div class="subnav"><a href="#settings/retention" data-box="retention">Data retention</a><a href="#settings/vulndata" data-box="vulndata">Software data</a><a href="#settings/data" data-box="data">Demo data and reset</a></div>
-          </div>
-          <div class="settings-navgroup">
-            <div class="navgroup">Integrations</div>
-            <div class="subnav"><a href="#settings/siem" data-box="siem">SIEM / Log export</a><a href="#settings/ai" data-box="ai">Explain with AI</a></div>
-          </div>
-          <div class="settings-navgroup">
-            <div class="navgroup">System</div>
-            <div class="subnav"><a href="#settings/license" data-box="license">License</a><a href="#settings/updates" data-box="updates">Updates</a><a href="#settings/system" data-box="system">System</a></div>
-          </div>
-          <div class="settings-navgroup">
-            <div class="navgroup">Branding &amp; MSP</div>
-            <div class="subnav"><a href="#settings/branding" data-box="branding">Branding (white label)</a><a href="#settings/overview" data-box="overview">MSP view</a></div>
-          </div>
-        </nav>
         <div id="branding-box" hidden>
           <h3 class="section">Branding (white label)</h3>
           <form id="branding-form" class="brand-form">
