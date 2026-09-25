@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.11.0: Windows groundwork — the last two `#[cfg(unix)]`-only gaps filled
+
+* `src/certs.rs::private_file` (the TLS private key) and `src/health.rs::disk_space` now have
+  `#[cfg(windows)]` implementations — an `icacls` call restricting the key to the account DENIS
+  runs as, and `GetDiskFreeSpaceExW` for free/total disk space. Both compile and lint clean
+  cross-compiled to `x86_64-pc-windows-gnu` (`cargo check`/`clippy`, the latter with `-D warnings`,
+  matching CI's own Windows job). **Unverified beyond that** — nothing has run on a real Windows
+  machine — see WINDOWS.md, which this closes out step 3 of. Capture (Npcap) and the actual
+  service/installer are still separate, larger pieces of work, gated on machine access and a
+  couple of licensing/privilege decisions that are not this repo's to make unilaterally.
+
 ## 2.10.0: Scheduled reports can now e-mail themselves
 
 * **Scheduled reports → optional e-mail delivery** (Reports page, under the schedule): when a

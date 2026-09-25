@@ -146,7 +146,21 @@ pub fn disk_space(path: &Path) -> Option<(u64, u64)> {
         let frsize = v.f_frsize as u64;
         Some((v.f_bavail as u64 * frsize, v.f_blocks as u64 * frsize))
     }
-    #[cfg(not(unix))]
+    // Unverified beyond compiling (see WINDOWS.md).
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let mut p = path;
+        while !p.exists() {
+            p = p.parent()?;
+        }
+        let wide: Vec<u16> = p.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        let (mut avail, mut total, mut total_free) = (0u64, 0u64, 0u64);
+        // SAFETY: `wide` is a valid NUL-terminated wide string; the three out-params are valid u64s.
+        let ok = unsafe { windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW(wide.as_ptr(), &mut avail, &mut total, &mut total_free) };
+        (ok != 0).then_some((avail, total))
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = path;
         None
