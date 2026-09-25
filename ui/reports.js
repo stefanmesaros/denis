@@ -70,15 +70,19 @@ function drawReportSchedule(s) {
   const sched = el('select', { id: 'rep-schedule' }, ...SCHEDULE_TEXT().map(([v, t]) => el('option', { value: v, text: t })));
   const days = el('select', { id: 'rep-days' }, ...PERIOD_TEXT().map(([v, t]) => el('option', { value: String(v), text: t })));
   const keep = el('input', { id: 'rep-keep', type: 'number', min: 1, max: 200, value: String(s.keep) });
+  const emailTo = el('input', { id: 'rep-email-to', value: (s.email_to || []).join(', '), placeholder: tr('e.g. ops@example.com, ciso@example.com') });
   sched.value = s.schedule;
   days.value = String(s.days);
-  for (const c of [sched, days, keep]) c.disabled = !admin;
+  for (const c of [sched, days, keep, emailTo]) c.disabled = !admin;
   const status = el('span', { class: 'muted', id: 'rep-status' });
   $('reports-schedule').replaceChildren(
     el('div', { class: 'form-grid' }, field(tr('Make a report automatically'), sched), field(tr('Each one covers'), days), field(tr('Keep the newest'), keep)),
+    el('div', { class: 'form-grid' }, field(tr('E-mail a link when it is ready (optional)'), emailTo)),
+    el('p', { class: 'muted small', text: tr('Sent through whichever e-mail channel is enabled under Alerting; needs a public URL configured (--public-url) for the link to work. Leave blank to only keep it in the console, as before.') }),
     el('p', { class: 'muted small', text: admin ? tr('Older scheduled reports are removed; reports you made by hand are never removed.') : tr('Only an administrator can change the schedule.') }),
     admin ? el('div', { class: 'row' }, el('button', { type: 'button', class: 'primary', id: 'rep-save', text: tr('Save schedule'), onclick: async () => {
-      const r = await api('PUT', '/api/reports/settings', { schedule: sched.value, days: Number(days.value), keep: Number(keep.value) });
+      const email_to = emailTo.value.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
+      const r = await api('PUT', '/api/reports/settings', { schedule: sched.value, days: Number(days.value), keep: Number(keep.value), email_to });
       status.textContent = r.ok ? tr('Saved.') : apiError(r);
     } }), status) : null);
 }

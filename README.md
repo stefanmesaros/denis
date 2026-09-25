@@ -174,7 +174,7 @@ your actual register — three of the console's 20-odd pages ([more screenshots 
 | Vulnerability & EOL findings | Live CISA/NVD known-exploited feed (+ EPSS score) and end-of-support dates, matched per device |
 | Alerts | Slack, Teams, Discord, PagerDuty, Pushover, ntfy, e-mail, Jira, ServiceNow, signed webhook — per-channel threshold, digests, maintenance mode |
 | Compliance | CIS v8, NIST CSF 2.0, IEC 62443-3-3, NIST SP 800-82, ISO 27001 Annex A, NIS2, DORA, PCI DSS v4.0, HIPAA, SOC 2, CMMC 2.0 (evidence, not certification) |
-| Reports | Saved, scheduled, viewable/downloadable/printable |
+| Reports | Saved, scheduled (optionally e-mailed as a share link), viewable/downloadable/printable |
 | SIEM export | CEF, LEEF or JSON over UDP/TCP/TLS; ECS over Elasticsearch/OpenSearch's Bulk API |
 | OpenObserve | Cursor-based, at-least-once export |
 | Prometheus | `/metrics` exposition |
