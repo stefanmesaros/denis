@@ -50,9 +50,10 @@ nothing on macOS/Linux.
   outside their relevant platform. Self-update's actual logic (download, verify signature, atomic
   rename, roll back on failure) is not Unix-specific; only these two small checks are.
 * `src/certs.rs::private_file` (chmod 0600 on the TLS private key) and `src/health.rs::disk_space`
-  are `#[cfg(unix)]`-gated but narrow: a `#[cfg(windows)]` sibling for each (an ACL restricting the
-  key to the running user; `GetDiskFreeSpaceExW`) is a bounded, separate piece of work each — not
-  yet done, but confirmed not to be *breaking* a Windows check the way `net.rs` was.
+  now have `#[cfg(windows)]` siblings (an `icacls` call restricting the key to the running user's
+  account — the documented, scriptable way to do it, not a raw Win32 ACL rewrite; `GetDiskFreeSpaceExW`
+  for free/total bytes). **Unverified beyond compiling and linting clean** on the cross-compile
+  target, exactly like `net.rs`'s pieces above: nothing has actually run on a Windows machine.
 * The core pipeline (`parse.rs`, `detect.rs`, `inventory.rs`, `fingerprint.rs`, the web/API layer,
   the SQLite store) has no OS-specific code at all.
 
@@ -102,9 +103,8 @@ kind of "should work" code this project's own testing standard exists to prevent
    resolved for real. Either is a real decision (licensing of redistributing a converted SDK
    artifact; whether a capture-less Windows build is worth shipping as an interim step) that this
    document flags rather than picks unilaterally.
-3. Fill in the remaining small `#[cfg(windows)]` gaps (certs.rs, health.rs) — narrow, additive,
-   each independently checkable with `cargo check --target x86_64-pc-windows-gnu` the same way
-   net.rs's were.
+3. ~~Fill in the remaining small `#[cfg(windows)]` gaps (certs.rs, health.rs)~~ — done, checked the
+   same way net.rs's were (`cargo check`/`clippy --target x86_64-pc-windows-gnu`, both clean).
 4. Decide the capture/privilege story (Npcap *runtime* licensing for end users, which account the
    service runs as) — a product decision, not code.
 5. A minimal `denis.exe` that can `run` interactively (no service yet) against Npcap, verified on a

@@ -69,7 +69,30 @@ fn private_file(path: &Path, data: &[u8]) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
+/// Unverified beyond compiling (see WINDOWS.md): restricts the file to the account DENIS runs
+/// as, the ACL equivalent of Unix's `mode 0o600` above. `icacls` (not a raw Win32 ACL rewrite) is
+/// the documented, scriptable way to do this, the same reasoning `net.rs` uses for shelling out
+/// to `route` on macOS rather than reimplementing routing-table access over FFI.
+#[cfg(windows)]
+fn private_file(path: &Path, data: &[u8]) -> Result<()> {
+    std::fs::write(path, data).with_context(|| format!("writing {}", path.display()))?;
+    let user = std::env::var("USERNAME").unwrap_or_default();
+    if user.is_empty() {
+        return Ok(());
+    }
+    let grant = format!("{user}:F");
+    let out = std::process::Command::new("icacls")
+        .arg(path)
+        .args(["/inheritance:r", "/grant:r", &grant])
+        .output()
+        .with_context(|| "running icacls")?;
+    if !out.status.success() {
+        bail!("icacls could not restrict permissions on {}: {}", path.display(), String::from_utf8_lossy(&out.stderr));
+    }
+    Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
 fn private_file(path: &Path, data: &[u8]) -> Result<()> {
     std::fs::write(path, data).with_context(|| format!("writing {}", path.display()))
 }

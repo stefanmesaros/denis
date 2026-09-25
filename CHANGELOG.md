@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.12.0: Settings navigation, take two — a sidebar sub-menu instead of page tabs
+
+* 2.9.0 turned Settings' one long scroll into real sub-tabs, but grouped into 7 categories shown
+  all at once on the page — which wrapped across 3 lines, the opposite of the fix. Replaced with a
+  sidebar sub-menu (Sign-in & security, Network, Data, Integrations, Branding & MSP, System — 6
+  entries, always one line, shown under "Settings" only while that page is open); picking one
+  shows everything it covers directly on the page, with no further breakdown into per-item tabs.
+  Every `#settings/...` deep link (the setup guide, the Switches page) keeps working unchanged,
+  resolving to its category.
+
+## 2.11.0: Windows groundwork — the last two `#[cfg(unix)]`-only gaps filled
+
+* `src/certs.rs::private_file` (the TLS private key) and `src/health.rs::disk_space` now have
+  `#[cfg(windows)]` implementations — an `icacls` call restricting the key to the account DENIS
+  runs as, and `GetDiskFreeSpaceExW` for free/total disk space. Both compile and lint clean
+  cross-compiled to `x86_64-pc-windows-gnu` (`cargo check`/`clippy`, the latter with `-D warnings`,
+  matching CI's own Windows job). **Unverified beyond that** — nothing has run on a real Windows
+  machine — see WINDOWS.md, which this closes out step 3 of. Capture (Npcap) and the actual
+  service/installer are still separate, larger pieces of work, gated on machine access and a
+  couple of licensing/privilege decisions that are not this repo's to make unilaterally.
+
 ## 2.10.0: Scheduled reports can now e-mail themselves
 
 * **Scheduled reports → optional e-mail delivery** (Reports page, under the schedule): when a

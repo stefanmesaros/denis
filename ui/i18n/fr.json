@@ -481,7 +481,6 @@
 "Gemini": "Gemini",
 "Gemini (Google)": "Gemini (Google)",
 "Generic webhook (signed JSON)": "Webhook générique (JSON signé)",
-"Get started": "Pour commencer",
 "Give a reason: it is what an auditor will read.": "Indiquez un motif : c'est ce que lira l'auditeur.",
 "Give the identity provider this redirect URL: {url}": "Indiquez cette URL de redirection au fournisseur d'identité : {url}",
 "Give the watch a name.": "Donnez un nom à la surveillance.",
