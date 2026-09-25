@@ -791,17 +791,18 @@ const CHANNEL_HELP = {
   email: () => tr('Any SMTP server. Use STARTTLS or TLS whenever you use a password.'),
   webhook: () => tr('Your own system receives a JSON POST. If you set a signing secret (16+ characters) each request carries X-Denis-Signature: sha256=<HMAC of the body>, so the receiver can verify it came from DENIS.'),
   jira: () => tr('Files one Jira issue per alert. Paste your Jira site address, the account e-mail, an API token (id.atlassian.com/manage-profile/security/api-tokens) and the project key to file under. DENIS never updates or closes the issue afterwards — that happens in Jira like any other ticket.'),
+  servicenow: () => tr('Files one ServiceNow incident per alert. Paste your instance address, a username and password with the incident table\'s write role. DENIS never updates or closes the incident afterwards — that happens in ServiceNow like any other ticket.'),
 };
 
 function syncChannelForm() {
   const k = $('ch-kind').value;
-  $('ch-url-row').hidden = !['slack', 'teams', 'discord', 'webhook', 'ntfy', 'jira'].includes(k);
-  $('ch-url-row').firstChild.textContent = k === 'ntfy' ? tr('Topic address') : k === 'jira' ? tr('Jira site address') : tr('Webhook URL');
-  $('ch-url').placeholder = k === 'ntfy' ? 'https://ntfy.sh/your-topic' : k === 'jira' ? 'https://yourorg.atlassian.net' : 'https://…';
-  $('ch-secret-row').hidden = !['pagerduty', 'webhook', 'pushover', 'ntfy', 'jira'].includes(k);
-  $('ch-secret-row').firstChild.textContent = { webhook: tr('Signing secret (optional)'), pushover: tr('Application token'), ntfy: tr('Access token (optional)'), jira: tr('API token') }[k] || tr('Integration key');
-  $('ch-user-row').hidden = !['pushover', 'jira'].includes(k);
-  $('ch-user-row').firstChild.textContent = k === 'jira' ? tr('Account e-mail') : tr('User or group key');
+  $('ch-url-row').hidden = !['slack', 'teams', 'discord', 'webhook', 'ntfy', 'jira', 'servicenow'].includes(k);
+  $('ch-url-row').firstChild.textContent = k === 'ntfy' ? tr('Topic address') : k === 'jira' ? tr('Jira site address') : k === 'servicenow' ? tr('Instance address') : tr('Webhook URL');
+  $('ch-url').placeholder = k === 'ntfy' ? 'https://ntfy.sh/your-topic' : k === 'jira' ? 'https://yourorg.atlassian.net' : k === 'servicenow' ? 'https://yourinstance.service-now.com' : 'https://…';
+  $('ch-secret-row').hidden = !['pagerduty', 'webhook', 'pushover', 'ntfy', 'jira', 'servicenow'].includes(k);
+  $('ch-secret-row').firstChild.textContent = { webhook: tr('Signing secret (optional)'), pushover: tr('Application token'), ntfy: tr('Access token (optional)'), jira: tr('API token'), servicenow: tr('Password') }[k] || tr('Integration key');
+  $('ch-user-row').hidden = !['pushover', 'jira', 'servicenow'].includes(k);
+  $('ch-user-row').firstChild.textContent = k === 'jira' ? tr('Account e-mail') : k === 'servicenow' ? tr('Username') : tr('User or group key');
   $('ch-project-row').hidden = k !== 'jira';
   $('ch-smtp').hidden = k !== 'email';
   $('ch-min').value = k === 'pagerduty' ? 70 : 50;
@@ -821,7 +822,7 @@ async function loadAlerting() {
   }
   if (!c.ok) return;
   $('no-channels').hidden = c.json.length > 0;
-  const kindName = { slack: 'Slack', teams: 'Microsoft Teams', discord: 'Discord', pagerduty: 'PagerDuty', pushover: 'Pushover', ntfy: 'ntfy', email: 'E-mail', webhook: 'Webhook', jira: 'Jira' };
+  const kindName = { slack: 'Slack', teams: 'Microsoft Teams', discord: 'Discord', pagerduty: 'PagerDuty', pushover: 'Pushover', ntfy: 'ntfy', email: 'E-mail', webhook: 'Webhook', jira: 'Jira', servicenow: 'ServiceNow' };
   $('channels-table').tBodies[0].replaceChildren(...c.json.map((ch) => {
     const st = ch.status || {};
     const target = ch.kind === 'email' ? ch.smtp.to.join(', ') : ch.kind === 'jira' ? (ch.url || '') + ' (' + ch.project + ')' : (ch.url || (ch.kind === 'pagerduty' ? 'events.pagerduty.com' : ch.kind === 'pushover' ? 'api.pushover.net' : ''));
@@ -863,9 +864,9 @@ $('channel-form').onsubmit = async (ev) => {
   ev.preventDefault();
   const k = $('ch-kind').value;
   const body = { kind: k, name: $('ch-name').value.trim(), min_score: Number($('ch-min').value) };
-  if (['slack', 'teams', 'discord', 'webhook', 'ntfy', 'jira'].includes(k)) body.url = $('ch-url').value.trim();
-  if (['pagerduty', 'webhook', 'pushover', 'ntfy', 'jira'].includes(k) && $('ch-secret').value) body.secret = $('ch-secret').value;
-  if (k === 'pushover' || k === 'jira') body.user = $('ch-user').value;
+  if (['slack', 'teams', 'discord', 'webhook', 'ntfy', 'jira', 'servicenow'].includes(k)) body.url = $('ch-url').value.trim();
+  if (['pagerduty', 'webhook', 'pushover', 'ntfy', 'jira', 'servicenow'].includes(k) && $('ch-secret').value) body.secret = $('ch-secret').value;
+  if (k === 'pushover' || k === 'jira' || k === 'servicenow') body.user = $('ch-user').value;
   if (k === 'jira') body.project = $('ch-project').value.trim();
   if (k === 'email') {
     body.smtp = {

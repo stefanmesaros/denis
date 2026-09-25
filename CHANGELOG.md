@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.8.0: ServiceNow ticketing
+
+* **ServiceNow** joins the notification channels alongside Jira: files one real incident per
+  alert against the Table API (`/api/now/table/incident`), Basic-auth authenticated. Severity
+  maps to urgency/impact, and a `correlation_id` (ServiceNow's own convention, the same idea as
+  PagerDuty's dedup key) means repeats of the same alert about the same device correlate in
+  ServiceNow's UI instead of opening a new incident every time. Same dispatcher, digesting,
+  backoff, mute and maintenance-mode machinery every other channel already has.
+
 ## 2.7.0: JA3 now also covers a device's outbound TLS (not just LAN-to-LAN)
 
 * **JA3 for outbound TLS**: 2.5.0's JA3 fingerprinting only ever saw TLS between two local
