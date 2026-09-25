@@ -221,6 +221,24 @@ fn parse_flow(ctx: &Ctx, src_mac: Mac, dst_mac: Mac, p: &[u8], own: bool, out: &
         if !own {
             out.push(Observation::Arp { mac: src_mac, ip: src });
         }
+        // A ClientHello to the outside identifies the device's own TLS stack (JA3), the one
+        // fingerprint an outbound-only device (calling home, fetching updates) otherwise gives no
+        // evidence for at all. Cheap: the record-header check below is a handful of byte
+        // comparisons, and the real parse only ever runs on an actual handshake packet, not on
+        // every packet of a connection.
+        if proto == PROTO_TCP && l4.len() >= 20 {
+            let tcp_hdr = (l4[12] >> 4) as usize * 4;
+            if tcp_hdr >= 20 {
+                if let Some(tls) = l4.get(tcp_hdr..) {
+                    if ot::tls_record(tls).is_some_and(|(t, _)| t == 0x16) && tls.get(5) == Some(&1) {
+                        if let Some((raw, hash)) = crate::ja3::client_ja3(tls) {
+                            let fields = std::collections::BTreeMap::from([("ja3".to_string(), hash), ("ja3_raw".to_string(), raw)]);
+                            out.push(Observation::Link(LinkInfo { mac: src_mac, source: "tls", ip: Some(src), fields }));
+                        }
+                    }
+                }
+            }
+        }
     } else if ctx.is_local(&dst) && is_external(ctx, src) && dst_mac.is_valid() {
         out.push(Observation::FlowSample(FlowSample {
             mac: dst_mac,
@@ -1059,6 +1077,44 @@ mod tests {
         assert_eq!(sample.bytes, 40);
         // ...and doubles as an identity binding.
         assert!(obs.iter().any(|o| matches!(o, Observation::Arp { mac, .. } if mac.0 == DEV)));
+    }
+
+    /// A minimal, hand-built ClientHello (TLS 1.2 legacy version, one cipher suite, no extensions):
+    /// enough for [`crate::ja3::client_ja3`] to recognise and parse.
+    fn client_hello_record() -> Vec<u8> {
+        let mut hs = vec![1]; // handshake type: ClientHello
+        hs.extend([0, 0, 0]); // handshake length placeholder
+        hs.extend([3, 3]); // legacy_version
+        hs.extend([0u8; 32]); // random
+        hs.push(0); // session id length 0
+        hs.extend([0, 2, 0x13, 0x01]); // one cipher suite
+        hs.extend([1, 0]); // compression methods: null only
+        hs.extend([0, 0]); // extensions length: none
+        let hs_len = (hs.len() - 4) as u32;
+        hs[1..4].copy_from_slice(&hs_len.to_be_bytes()[1..]);
+        let mut b = vec![0x16, 3, 1]; // content type, record version
+        b.extend((hs.len() as u16).to_be_bytes());
+        b.extend(hs);
+        b
+    }
+
+    #[test]
+    fn an_outbound_clienthello_gives_ja3_as_a_tls_identity_the_way_lldp_does() {
+        let router = [0x00, 0x1b, 0x63, 1, 1, 1];
+        let mut l4 = tcp_hdr(51234, 443);
+        l4.extend(client_hello_record());
+        let f = eth(router, DEV, ETH_IPV4, &ipv4(6, 64, [192, 168, 1, 30], [93, 184, 216, 34], &l4));
+        let obs = parse_frame(&flow_ctx(), &f);
+        let link = obs.iter().find_map(|o| match o { Observation::Link(l) if l.source == "tls" => Some(l), _ => None }).unwrap();
+        assert_eq!(link.mac.0, DEV);
+        assert_eq!(link.ip, Some(Ipv4Addr::new(192, 168, 1, 30)));
+        assert_eq!(link.fields["ja3"].len(), 32);
+        assert_eq!(link.fields["ja3"], crate::ja3::client_ja3(&client_hello_record()).unwrap().1);
+        // ordinary (non-TLS) outbound traffic never fabricates one
+        let mut plain = tcp_hdr(51234, 443);
+        plain.extend(b"GET / HTTP/1.1\r\n");
+        let f2 = eth(router, DEV, ETH_IPV4, &ipv4(6, 64, [192, 168, 1, 30], [93, 184, 216, 34], &plain));
+        assert!(!parse_frame(&flow_ctx(), &f2).iter().any(|o| matches!(o, Observation::Link(l) if l.source == "tls")));
     }
 
     #[test]

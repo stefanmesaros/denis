@@ -66,7 +66,7 @@ fn pdu(proto: &'static str, server_is_src: bool, class: OtClass, detail: impl In
 
 /// A TLS record header: content type 20-23, version 3.1-3.4, a plausible length. Encrypted payloads are opaque, but the
 /// header, the handshake (protocol version, the server name the client asked for) and the direction are in the clear.
-fn tls_record(p: &[u8]) -> Option<(u8, u16)> {
+pub(crate) fn tls_record(p: &[u8]) -> Option<(u8, u16)> {
     let (t, major, minor) = (*p.first()?, *p.get(1)?, *p.get(2)?);
     let len = u16::from_be_bytes([*p.get(3)?, *p.get(4)?]);
     ((0x14..=0x17).contains(&t) && major == 3 && (1..=4).contains(&minor) && len > 0 && len <= 16384 + 2048).then_some((t, len))
@@ -123,8 +123,10 @@ fn tls_hello(p: &[u8], client: bool) -> (Option<&'static str>, Option<String>) {
     (version, sni)
 }
 
-/// Traffic between two devices that is not decoded: TLS on any port, a secured industrial protocol on its port, or a
-/// known industrial port whose payload is not the protocol DENIS decodes. The content is unknown; the path is not.
+/// Traffic between two *local* devices that is not decoded: TLS on any port, a secured industrial protocol on its
+/// port, or a known industrial port whose payload is not the protocol DENIS decodes. The content is unknown; the
+/// path is not. A device's TLS ClientHello to the *outside* is a separate, narrower check living in
+/// `parse::parse_flow` (JA3 only, no conversation/path bookkeeping) — this function only ever sees two local MACs.
 pub fn parse_opaque(is_tcp: bool, sport: u16, dport: u16, payload: &[u8]) -> Option<OtPdu> {
     let known = |p: u16| SECURE_OT_PORTS.iter().find(|(q, _)| *q == p).map(|(q, n)| (*q, *n)).or_else(|| ot_proto_for_port(p).map(|n| (p, n)));
     let named = known(dport).or_else(|| known(sport));

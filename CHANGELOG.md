@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.7.0: JA3 now also covers a device's outbound TLS (not just LAN-to-LAN)
+
+* **JA3 for outbound TLS**: 2.5.0's JA3 fingerprinting only ever saw TLS between two local
+  devices (the same path that decodes industrial protocols). A device that only ever *calls out*
+  — phoning home, fetching updates, cloud telemetry — gave no such evidence at all. It now does:
+  a ClientHello leaving the network is fingerprinted the same way, right where DENIS already
+  counts that device's outbound traffic, with no measurable extra cost (the check is a handful of
+  byte comparisons per packet; the real parse only ever runs on the one handshake packet of a
+  connection, not its data).
+
 ## 2.6.0: Jira ticketing
 
 * **Jira** joins the notification channels (Settings → Alerting → Add a channel): files one real
