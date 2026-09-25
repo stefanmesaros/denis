@@ -58,7 +58,8 @@ body.side-collapsed .tab .badge { position: absolute; top: 2px; right: 6px; min-
   body.side-collapsed .tab .label, body.side-collapsed .tab .count, body.side-collapsed .navgroup { display: revert; }
   .shell { display: block; }
 }
-#search { flex: 1; min-width: 200px; max-width: 420px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); font: inherit; }
+#search { flex: 2; min-width: 200px; max-width: 640px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); font: inherit; }
+.icon-btn { width: 32px; height: 32px; padding: 0; border-radius: 50%; font-size: 15px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
 .check { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; user-select: none; }
 label.check { display: flex; align-items: center; gap: 7px; margin: 7px 0; }
 label.check input { width: auto; }
