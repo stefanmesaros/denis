@@ -27,18 +27,24 @@ function countryFlag(iso2) {
  * gives one), the country name is shown as plain text instead, so the information is never simply
  * dropped. `null` (render nothing) for a private/reserved/loopback/etc. address — geolocation is
  * only ever attempted for a public one. */
-function ipContextNode(info) {
+/** `{geo, hostname}`: the "🇮🇪 · Amazon.com, Inc. · AS16509" line, and the reverse-DNS hostname
+ * (usually the longest part by far) kept on its own line underneath rather than crowded onto the
+ * same one — either may be `null`. For a non-public address, `geo` is just the classification word
+ * ("private", "loopback", …) and `hostname` is always `null`. */
+function ipContextParts(info) {
   if (!info || info.classification !== 'public') {
     const label = classificationLabel(info);
-    return label ? el('span', { text: label }) : null;
+    return { geo: label ? el('span', { text: label }) : null, hostname: null };
   }
   const flag = countryFlag(info.country_code);
-  const rest = [info.as_org, info.asn ? 'AS' + info.asn : null, info.hostname].filter(Boolean).join(' · ');
-  if (!flag && !info.country && !rest) return null;
-  return el('span', {},
-    flag ? el('span', { title: info.country || '' }, flag) : (info.country ? el('span', { text: info.country }) : null),
-    (flag || info.country) && rest ? ' · ' : null,
-    rest || null);
+  const rest = [info.as_org, info.asn ? 'AS' + info.asn : null].filter(Boolean).join(' · ');
+  const geo = (flag || info.country || rest)
+    ? el('span', {},
+        flag ? el('span', { title: info.country || '' }, flag) : (info.country ? el('span', { text: info.country }) : null),
+        (flag || info.country) && rest ? ' · ' : null,
+        rest || null)
+    : null;
+  return { geo, hostname: info.hostname || null };
 }
 
 /** A short word for a non-public address, shown in place of the geo context line. */
@@ -55,12 +61,13 @@ function classificationLabel(info) {
  * otherwise sit at an inconsistent height next to a context line of varying presence/length.
  * Clicking the address opens the full detail panel (`ipDetailDialog`). */
 function ipInline(ip, info, trailing) {
-  const context = ipContextNode(info);
+  const { geo, hostname } = ipContextParts(info);
   return el('div', { class: 'ip-inline' },
     el('div', { class: 'ip-inline-head' },
       el('button', { type: 'button', class: 'ip-link', text: ip, onclick: () => ipDetailDialog(ip, info) }),
       trailing || null),
-    context ? el('div', { class: 'muted small' }, context) : null);
+    geo ? el('div', { class: 'muted small' }, geo) : null,
+    hostname ? el('div', { class: 'muted small' }, hostname) : null);
 }
 
 /** The full click-through detail panel: every field, plus the data source and database version/
@@ -73,7 +80,7 @@ async function ipDetailDialog(ip, info) {
   const r = await api('GET', '/api/ip-enrichment/' + encodeURIComponent(ip));
   const d = r.ok ? r.json : info || { ip, classification: 'public' };
   const row = (label, value) => (value == null || value === '') ? null : el('div', { class: 'ip-detail-row' }, el('span', { class: 'muted', text: label }), el('span', { text: value }));
-  const flag = countryFlag(d.country);
+  const flag = countryFlag(d.country_code);
   const rows = [
     row(tr('IP address'), d.ip),
     row(tr('Classification'), tr(d.classification)),

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.15.5: The reverse-DNS hostname gets its own line, and the click-through panel's flag is fixed too
+
+* The reverse-DNS hostname (usually the longest part of an IP's context by far) now sits on its
+  own line under the flag/AS-organisation/ASN line, instead of crowded onto the same one — in
+  Alerts, Events, a device's Recent destinations and its IP history alike, since they all share the
+  one component this changes.
+* The click-through detail panel (opened by clicking any IP) had the exact same "flag never
+  renders" bug 2.15.3 fixed for the inline line — it was still reading the country's full name
+  instead of its ISO code. Fixed the same way.
+
 ## 2.15.4: Fix — old cached IP lookups were stuck showing nothing (or no flag) for up to 30 days
 
 * Found via a live report: some addresses in "Recent destinations"/"Network context" showed a
