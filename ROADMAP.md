@@ -12,11 +12,10 @@ year. This is what is still missing, in rough order. Pull requests welcome.
 * An independent penetration test.
 
 ## Features competitors have that DENIS does not (yet)
-* **SAML**, and forcing passkey-only sign-in. SSO via OIDC already exists (Settings → Single sign-on).
+* IPv6 fully in capture, Windows collectors, an alternative database (PostgreSQL) and high availability.
 * **CMDB import** (Active Directory / Entra ID / Intune / MDM). Ticketing already exists: Jira and ServiceNow
   each file a real issue/incident per alert (Settings → Alerting → Add a channel), alongside the signed generic
   webhook for anything else.
+* **SAML**, and forcing passkey-only sign-in. SSO via OIDC already exists (Settings → Single sign-on).
 * **Multi-tenancy** for managed-service providers (white-label branding exists; tenant isolation does not).
-* IPv6 fully in capture, Windows collectors, an alternative database (PostgreSQL) and high availability.
-* Deep packet inspection beyond the supported industrial protocols; Wi-Fi/wireless monitoring.
 * Policy enforcement (NAC): DENIS observes and alerts, it does not block.
