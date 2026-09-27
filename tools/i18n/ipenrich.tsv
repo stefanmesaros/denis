@@ -23,3 +23,29 @@ Reverse DNS is off. || Reverse-DNS ist aus. || Le DNS inversé est désactivé. 
 {provider}, version {version}, updated {date}. || {provider}, Version {version}, aktualisiert {date}. || {provider}, version {version}, mis à jour {date}. || {provider}, versión {version}, actualizado {date}. || {provider}, verzia {version}, aktualizované {date}.
 {provider}: not available ({detail}) || {provider}: nicht verfügbar ({detail}) || {provider} : non disponible ({detail}) || {provider}: no disponible ({detail}) || {provider}: nedostupné ({detail})
 no database installed || keine Datenbank installiert || aucune base de données installée || sin base de datos instalada || žiadna databáza nie je nainštalovaná
+
+# ipenrich.js: the IP-address context line/detail panel shown next to any IP in Alerts, Events
+# and the asset panel's IP history.
+private || privat || privée || privada || súkromná
+loopback || Loopback || bouclage locale || bucle local || spätná slučka
+link-local || Link-local || lien-local || enlace local || link-local
+multicast || Multicast || multidiffusion || multidifusión || multicast
+reserved || reserviert || réservée || reservada || rezervovaná
+unspecified || nicht angegeben || non spécifiée || sin especificar || nešpecifikovaná
+Loading… || Wird geladen … || Chargement… || Cargando… || Načítava sa…
+IP address || IP-Adresse || Adresse IP || Dirección IP || IP adresa
+Classification || Klassifizierung || Classification || Clasificación || Klasifikácia
+unavailable || nicht verfügbar || indisponible || no disponible || nedostupné
+Country || Land || Pays || País || Krajina
+Region || Region || Région || Región || Región
+City || Stadt || Ville || Ciudad || Mesto
+Coordinates || Koordinaten || Coordonnées || Coordenadas || Súradnice
+ASN || ASN || ASN || ASN || ASN
+AS organization || AS-Organisation || Organisation AS || Organización AS || AS organizácia
+ISP / network || ISP / Netzwerk || FAI / réseau || ISP / red || ISP / sieť
+Connection type || Verbindungstyp || Type de connexion || Tipo de conexión || Typ pripojenia
+Data source: {source}{version} || Datenquelle: {source}{version} || Source des données : {source}{version} || Fuente de datos: {source}{version} || Zdroj dát: {source}{version}
+database version {v} || Datenbankversion {v} || version de base {v} || versión de base {v} || verzia databázy {v}
+Approximate location — never a precise physical address. || Ungefährer Standort — niemals eine genaue physische Adresse. || Localisation approximative — jamais une adresse physique précise. || Ubicación aproximada — nunca una dirección física precisa. || Približná poloha — nikdy presná fyzická adresa.
+Nothing is known about this address yet. || Über diese Adresse ist noch nichts bekannt. || Rien n'est encore connu sur cette adresse. || Aún no se sabe nada sobre esta dirección. || O tejto adrese zatiaľ nie je nič známe.
+Network context || Netzwerkkontext || Contexte réseau || Contexto de red || Sieťový kontext

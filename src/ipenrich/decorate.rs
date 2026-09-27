@@ -1,11 +1,14 @@
 //! Decorates an event/alert's `raw_details` (or any other JSON blob with IP addresses in it) with
 //! whatever enrichment is already cached, at the point a response is built for the API — not at
 //! detection time. This keeps `detect.rs`'s rule engine exactly as it is (pure, synchronous, no
-//! knowledge of enrichment at all) while still satisfying `IP_ENRICHMENT.md` §13: every "ip" field
-//! anywhere in an event's JSON (`destinations[].ip`, `client.ip`, `server.ip`, a bare top-level
-//! `ip`, …) gains a sibling `ip_info` object with whatever is known, generically — new rules never
-//! need to remember to call anything for this to keep working, they just need to keep calling
-//! their IP field `"ip"`, which every existing rule already does.
+//! knowledge of enrichment at all) while still satisfying `IP_ENRICHMENT.md` §13: every "ip" or
+//! "remote" field anywhere in an event's JSON (`destinations[].ip`, `client.ip`, `server.ip`, a
+//! bare top-level `ip`, `threat_list_match`/port-scan/volume-anomaly's own `remote`, …) gains a
+//! sibling `ip_info` object with whatever is known, generically — new rules never need to
+//! remember to call anything for this to keep working, they just need to keep calling their
+//! address field `"ip"` or `"remote"`, which every existing rule already does (checked against
+//! every literal `"ip":`/`"remote":` in `detect.rs` — two names, not one, is a real inconsistency
+//! in the rules themselves, not a simplification made here).
 //!
 //! Always best-effort and read-only against the cache (`Service::best_effort`), so decorating a
 //! whole page of alerts is exactly as fast as walking their JSON, never a per-request network
@@ -20,10 +23,18 @@ use serde_json::Value;
 use super::service::Service;
 use super::types::IpInfo;
 
+/// The address-field names checked at every object in the tree — see the module doc for why
+/// there are two rather than one.
+const IP_KEYS: [&str; 2] = ["ip", "remote"];
+
+fn addr_in(map: &serde_json::Map<String, Value>) -> Option<IpAddr> {
+    IP_KEYS.iter().find_map(|k| map.get(*k).and_then(Value::as_str).and_then(|s| s.parse::<IpAddr>().ok()))
+}
+
 fn collect(v: &Value, out: &mut Vec<IpAddr>) {
     match v {
         Value::Object(map) => {
-            if let Some(ip) = map.get("ip").and_then(Value::as_str).and_then(|s| s.parse::<IpAddr>().ok()) {
+            if let Some(ip) = addr_in(map) {
                 out.push(ip);
             }
             for val in map.values() {
@@ -38,7 +49,7 @@ fn collect(v: &Value, out: &mut Vec<IpAddr>) {
 fn inject(v: &mut Value, infos: &HashMap<IpAddr, IpInfo>) {
     match v {
         Value::Object(map) => {
-            if let Some(ip) = map.get("ip").and_then(Value::as_str).and_then(|s| s.parse::<IpAddr>().ok()) {
+            if let Some(ip) = addr_in(map) {
                 if let Some(info) = infos.get(&ip) {
                     if let Ok(json) = serde_json::to_value(info) {
                         map.insert("ip_info".to_string(), json);
@@ -118,6 +129,19 @@ mod tests {
         assert_eq!(details["destinations"][1]["ip_info"]["classification"], "private");
         assert!(details["destinations"][1]["ip_info"]["country"].is_null());
         assert_eq!(details["client"]["ip_info"]["classification"], "public");
+    }
+
+    #[tokio::test]
+    async fn a_bare_remote_field_is_decorated_the_same_as_ip_threat_list_match_and_friends() {
+        // detect.rs's threat_list_match/port-scan/volume-anomaly rules name the address "remote",
+        // not "ip" — a real inconsistency in the rules themselves (see the module doc), which this
+        // locks in so it is never silently reintroduced.
+        let svc = service_with(EnrichedIp { country: Some("RU".into()), ..Default::default() });
+        svc.enrich_now("185.220.101.7".parse().unwrap(), 1000).await;
+        let mut details = serde_json::json!({"summary": "contacted a known-bad address", "remote": "185.220.101.7", "port": 4444, "proto": "tcp"});
+        decorate(&svc, &mut details, 1000);
+        assert_eq!(details["ip_info"]["classification"], "public");
+        assert_eq!(details["ip_info"]["country"], "RU");
     }
 
     #[tokio::test]
