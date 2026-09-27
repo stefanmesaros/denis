@@ -27,6 +27,9 @@ assets = json.load(urllib.request.urlopen(base + "/api/assets"))
 alerts = json.load(urllib.request.urlopen(base + "/api/alerts"))
 by = {(a.get("display_name") or ""): a["id"] for a in assets}
 alert = next(e for e in alerts if e["type"] == "ot_control_command")
+# dismiss the first-run setup guide: it otherwise pops up over every single screenshot below
+put("/api/setup", {"completed": True})
+
 # something for the Rules page to show: two OT command watches and an exception
 put("/api/rules", {"ot_watches": [
     {"id": "s7stop", "name": "S7 CPU stop on the packaging line", "enabled": True, "proto": "s7", "writes": False, "controls": False, "commands": ["PLC stop"],
@@ -44,12 +47,14 @@ if not json.load(urllib.request.urlopen(base + "/api/reports"))["reports"]:
 put("/api/reports/settings", {"schedule": "weekly", "keep": 12, "days": 7})
 
 shots = [
+    ("dashboard", "#dashboard", 1280, 1400),
     ("devices", "#assets", 1280, 860), ("review-queue", "#review", 1280, 620), ("device-detail", f"#device/{by['Finance file server']}", 1280, 1100),
     ("edit-asset", f"#edit/{by['Reception printer']}", 1280, 1000), ("alerts", "#alerts", 1280, 760), ("alert-dialog", f"#alert/{alert['id']}", 1280, 760),
     ("findings", "#findings", 1280, 900), ("accepted-risks", "#findings", 1280, 2600), ("rules", "#rules", 1280, 1150), ("ot-watches", "#rules", 1280, 3500), ("compliance", "#compliance", 1280, 1150), ("reports", "#reports", 1280, 640), ("health", "#health", 1280, 1000),
     ("topology", "#topology", 1280, 820), ("ot", "#ot", 1280, 1250), ("trends", "#trends", 1280, 520), ("top-talkers", "#trends", 1280, 1950),
     ("sites", "#agents", 1280, 460), ("icon-picker", f"#icons/{by['Reception printer']}", 1280, 1000), ("account", "#account", 1280, 640),
-    ("alerting", "#alerting", 1280, 1000), ("users", "#users", 1280, 620), ("settings", "#settings", 1280, 1120), ("audit", "#audit", 1280, 760),
+    ("alerting", "#alerting", 1280, 1000), ("users", "#users", 1280, 620), ("settings", "#settings", 1280, 1120),
+    ("network-intelligence", "#settings/ipenrich", 1280, 1000), ("audit", "#audit", 1280, 760),
 ]
 for name, frag, w, h in shots:
     path = os.path.join(out, name + ".png")
