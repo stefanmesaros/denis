@@ -29,6 +29,29 @@ pub trait GeoipProvider: Send + Sync {
     fn lookup(&self, ip: IpAddr) -> EnrichedIp;
 }
 
-// A `test_support::FixedProvider` (a fixed-answer stand-in for tests that exercise the
-// orchestration around a provider without needing a real MMDB file) lands here once `geoip.rs`
-// or `mod.rs`'s own tests actually need one — left out for now so nothing sits unused.
+#[cfg(test)]
+pub(crate) mod test_support {
+    //! A tiny fixed-answer provider, used by `mod.rs`'s own tests so they can exercise the
+    //! orchestration around a provider without needing a real MMDB file.
+    use super::*;
+    use crate::ipenrich::types::Health;
+
+    pub struct FixedProvider {
+        pub answer: EnrichedIp,
+    }
+
+    impl GeoipProvider for FixedProvider {
+        fn name(&self) -> &'static str {
+            "Fixed (test)"
+        }
+        fn capabilities(&self) -> Capabilities {
+            Capabilities { geoip: true, asn: true, reverse_dns: false }
+        }
+        fn status(&self) -> ProviderStatus {
+            ProviderStatus { name: self.name().to_string(), health: Health::Ok, detail: String::new(), db_version: None, updated_at: None }
+        }
+        fn lookup(&self, _ip: IpAddr) -> EnrichedIp {
+            self.answer.clone()
+        }
+    }
+}

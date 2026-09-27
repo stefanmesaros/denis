@@ -11,6 +11,7 @@ pub mod classify;
 pub mod dns;
 pub mod geoip;
 pub mod provider;
+pub mod service;
 pub mod types;
 
 pub use cache::Cache;
@@ -18,4 +19,5 @@ pub use classify::Classification;
 pub use dns::{DnsConfig, Resolver as DnsResolver};
 pub use geoip::{GeoipConfig, GeoipSource, MmdbProvider};
 pub use provider::GeoipProvider;
+pub use service::{CacheTtls, Metrics, Service};
 pub use types::{Capabilities, EnrichedIp, Health, IpInfo, ProviderStatus};
