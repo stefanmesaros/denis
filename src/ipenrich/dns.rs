@@ -7,8 +7,10 @@ use std::net::IpAddr;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
 
-use hickory_resolver::config::{NameServerConfigGroup, ResolverConfig, ResolverOpts};
-use hickory_resolver::TokioAsyncResolver;
+use hickory_resolver::config::{NameServerConfig, ResolverConfig, ResolverOpts};
+use hickory_resolver::net::runtime::TokioRuntimeProvider;
+use hickory_resolver::proto::rr::{Name, RData};
+use hickory_resolver::TokioResolver;
 use serde::{Deserialize, Serialize};
 
 /// After this many consecutive failures (timeouts, unreachable resolver, …), stop trying for
@@ -89,7 +91,7 @@ impl Resolver {
         self.breaker.is_open(now)
     }
 
-    fn build(&self) -> Option<TokioAsyncResolver> {
+    fn build(&self) -> Option<TokioResolver> {
         let cfg = self.config();
         if !cfg.enabled {
             return None;
@@ -106,12 +108,12 @@ impl Resolver {
         if ips.is_empty() {
             return None;
         }
-        let group = NameServerConfigGroup::from_ips_clear(&ips, 53, true);
-        let resolver_config = ResolverConfig::from_parts(None, vec![], group);
+        let name_servers: Vec<NameServerConfig> = ips.into_iter().map(NameServerConfig::udp_and_tcp).collect();
+        let resolver_config = ResolverConfig::from_parts(None, vec![], name_servers);
         let mut opts = ResolverOpts::default();
         opts.timeout = Duration::from_millis(cfg.timeout_ms as u64);
         opts.attempts = 1; // our own circuit breaker handles repeated failure, not hickory's own retry
-        Some(TokioAsyncResolver::tokio(resolver_config, opts))
+        TokioResolver::builder_with_config(resolver_config, TokioRuntimeProvider::default()).with_options(opts).build().ok()
     }
 
     /// Reverse-resolve one address. Never panics, never blocks past the configured timeout, and
@@ -126,17 +128,18 @@ impl Resolver {
         let Some(resolver) = self.build() else {
             return DnsResult { hostname: None, reason: Some("no resolver configured") };
         };
-        match resolver.reverse_lookup(ip).await {
+        match resolver.reverse_lookup(Name::from(ip)).await {
             Ok(answer) => {
                 self.breaker.record_success();
-                match answer.iter().next() {
+                let name = answer.answers().iter().find_map(|r| match &r.data { RData::PTR(ptr) => Some(ptr.0.clone()), _ => None });
+                match name {
                     Some(name) => DnsResult { hostname: Some(name.to_string().trim_end_matches('.').to_string()), reason: None },
                     None => DnsResult { hostname: None, reason: Some("no PTR record") },
                 }
             }
             Err(e) => {
                 self.breaker.record_failure(now);
-                let reason = if matches!(e.kind(), hickory_resolver::error::ResolveErrorKind::Timeout) { "timeout" } else { "resolver unreachable" };
+                let reason = if matches!(e, hickory_resolver::net::NetError::Timeout) { "timeout" } else { "resolver unreachable" };
                 DnsResult { hostname: None, reason: Some(reason) }
             }
         }

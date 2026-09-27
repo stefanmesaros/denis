@@ -108,10 +108,6 @@ impl MmdbProvider {
     }
 }
 
-fn names_en(names: Option<&std::collections::BTreeMap<&str, &str>>) -> Option<String> {
-    names.and_then(|m| m.get("en")).map(|s| s.to_string())
-}
-
 impl GeoipProvider for MmdbProvider {
     fn name(&self) -> &'static str {
         self.inner.read().unwrap().source_name
@@ -142,18 +138,16 @@ impl GeoipProvider for MmdbProvider {
         let r = self.inner.read().unwrap();
         let mut out = EnrichedIp::default();
         if let Some(reader) = &r.city {
-            if let Ok(Some(rec)) = reader.lookup::<geoip2::City>(ip) {
-                out.country = rec.country.as_ref().and_then(|c| names_en(c.names.as_ref()));
-                out.region = rec.subdivisions.as_ref().and_then(|s| s.first()).and_then(|s| names_en(s.names.as_ref()));
-                out.city = rec.city.as_ref().and_then(|c| names_en(c.names.as_ref()));
-                if let Some(loc) = &rec.location {
-                    out.latitude = loc.latitude;
-                    out.longitude = loc.longitude;
-                }
+            if let Ok(Some(rec)) = reader.lookup(ip).and_then(|l| l.decode::<geoip2::City>()) {
+                out.country = rec.country.names.english.map(str::to_string);
+                out.region = rec.subdivisions.first().and_then(|s| s.names.english).map(str::to_string);
+                out.city = rec.city.names.english.map(str::to_string);
+                out.latitude = rec.location.latitude;
+                out.longitude = rec.location.longitude;
             }
         }
         if let Some(reader) = &r.asn {
-            if let Ok(Some(rec)) = reader.lookup::<geoip2::Asn>(ip) {
+            if let Ok(Some(rec)) = reader.lookup(ip).and_then(|l| l.decode::<geoip2::Asn>()) {
                 out.asn = rec.autonomous_system_number;
                 out.as_org = rec.autonomous_system_organization.map(str::to_string);
             }
