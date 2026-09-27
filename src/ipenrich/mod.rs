@@ -7,5 +7,7 @@
 //! `provider`) land in following commits.
 
 pub mod classify;
+pub mod types;
 
 pub use classify::Classification;
+pub use types::{Capabilities, EnrichedIp, Health, IpInfo, ProviderStatus};
