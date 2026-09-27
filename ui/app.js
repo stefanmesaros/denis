@@ -27,8 +27,8 @@ const RANK = { viewer: 1, editor: 2, admin: 3 };
 const can = (role) => !!(state.me && RANK[state.me.role] >= RANK[role]);
 const state = {
   assets: [], events: [], alerts: [], agents: [], status: null, me: null, options: null,
-  tab: 'assets', sort: 'last_seen', asc: false, selected: null, groupBy: 'none',
-  alertSort: 'time', alertAsc: false,
+  tab: 'dashboard', sort: 'last_seen', asc: false, selected: null, groupBy: 'none',
+  alertSort: 'time', alertAsc: false, alertSevFilter: null, dashRange: 24,
   filters: { device_type: '', location: '', vendor: '', owner: '', os_guess: '' },
   selectedAssets: new Set(), // Devices page: checked rows for bulk tagging (this browser session only)
   expandedAlertGroups: new Set(), // Alerts page: which repeated-alert groups are expanded (this browser tab only)
@@ -143,6 +143,7 @@ const SEARCH_KEYS = {
   tag: (a) => ((a.meta && a.meta.tags) || []).join(' ').toLowerCase(),
   status: (a) => ((a.meta && a.meta.status) || '').toLowerCase(),
   port: (a) => a.open_ports.map((p) => String(p.port)),
+  risk: (a) => (a.risk.level || 'none').toLowerCase(),
 };
 
 function matches(a, q) {
@@ -224,6 +225,7 @@ function drawSearchHelp() {
     ['port:', tr('e.g. port:9100'), tr('an open port')], ['owner:', tr('e.g. owner:jane'), tr('who it is assigned to')],
     ['tag:', tr('e.g. tag:rack-2'), tr('a tag')], ['room:', tr('e.g. room:server-room'), tr('where it is')],
     ['os:', tr('e.g. os:windows'), tr('OS guess')], ['status:', tr('e.g. status:spare'), tr('active/spare/retired/…')],
+    ['risk:', tr('e.g. risk:high'), tr('high/medium/low/none')],
   ];
   $('search-help-menu').replaceChildren(
     el('p', { class: 'muted small', text: tr('Combine several, separated by a space (type:printer port:9100 matches both). Plain text still matches IP, MAC, name, owner, serial and tags, like before.') }),
@@ -540,7 +542,9 @@ function groupRepeatingAlerts(rows) {
 
 function renderAlerts() {
   const showAcked = $('show-acked').checked;
-  let rows = state.alerts.filter((e) => showAcked || !e.acked);
+  let rows = state.alerts.filter((e) => (showAcked || !e.acked) && (!state.alertSevFilter || e.severity === state.alertSevFilter));
+  $('alert-sev-filter').hidden = !state.alertSevFilter;
+  $('alert-sev-filter-label').textContent = tr(state.alertSevFilter || '');
   const key = {
     time: (e) => e.timestamp,
     score: (e) => e.score,
@@ -737,6 +741,167 @@ function renderEvents() {
       el('td', { class: 'muted', text: d.summary || '' }));
   }));
 }
+
+// -------------------------------------------------------------------- dashboard (landing screen)
+
+/** Jump to Devices, pre-filtered by a search query — how every dashboard drill-down into the
+ * fleet works (a risk-level segment, a device-type segment, a "needs review" card, …). */
+function goAssets(query) {
+  setTab('assets');
+  $('search').value = query || '';
+  renderAssets();
+}
+function goAssetsOnline(online) {
+  setTab('assets');
+  $('only-online').checked = online;
+  renderAssets();
+}
+function goAssetsReview() {
+  setTab('assets');
+  $('only-review').checked = true;
+  renderAssets();
+}
+function goAlertsSeverity(sev) {
+  setTab('alerts');
+  state.alertSevFilter = sev;
+  renderAlerts();
+}
+
+/** A ring built from plain SVG circles (stroke-dasharray/-offset) — same no-library philosophy as
+ * the Trends line/bar charts below, just drawn to look like the segmented, rounded-cap rings a
+ * modern SOC console (Crowdstrike, SentinelOne, …) uses: a small gap between segments and rounded
+ * ends instead of one continuous stroke. `segments` is `[{label, value, cls, onclick}]`; `cls`
+ * picks a colour shared with the `.sev`/`.r-*` palette used everywhere else. */
+function donutChart(segments) {
+  const size = 132, thickness = 16, gap = 0.05; // gap: radians of blank space between segments
+  const total = segments.reduce((s, x) => s + x.value, 0);
+  const r = (size - thickness) / 2, c = size / 2;
+  const circumference = 2 * Math.PI * r;
+  const shown = segments.filter((s) => s.value > 0);
+  let angle = -Math.PI / 2;
+  const rings = total ? shown.map((s) => {
+    const span = (s.value / total) * (2 * Math.PI) - (shown.length > 1 ? gap : 0);
+    const len = Math.max(0, (span / (2 * Math.PI)) * circumference);
+    const ring = svg('circle', {
+      cx: c, cy: c, r, class: 'ring ring-' + s.cls + (s.onclick ? ' ring-clickable' : ''), 'stroke-width': thickness,
+      'stroke-dasharray': `${len} ${circumference - len}`, 'stroke-dashoffset': String(-(angle + Math.PI / 2) / (2 * Math.PI) * circumference),
+      ...(s.onclick ? { tabindex: '0', role: 'button' } : {}),
+    }, svg('title', {}, document.createTextNode(s.label + ': ' + s.value)));
+    if (s.onclick) { ring.onclick = s.onclick; ring.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') s.onclick(); }; }
+    angle += span + gap;
+    return ring;
+  }) : [svg('circle', { cx: c, cy: c, r, class: 'ring ring-none', 'stroke-width': thickness })];
+  return svg('svg', { viewBox: `0 0 ${size} ${size}`, class: 'donut', role: 'img', 'aria-label': segments.map((s) => `${s.label}: ${s.value}`).join(', ') },
+    ...rings,
+    svg('text', { x: c, y: c - 8, class: 'donut-total', 'text-anchor': 'middle', 'dominant-baseline': 'central' }, document.createTextNode(String(total))),
+    svg('text', { x: c, y: c + 13, class: 'donut-sub', 'text-anchor': 'middle', 'dominant-baseline': 'central' }, document.createTextNode(tr('total'))));
+}
+
+function donutCard(title, segments) {
+  const legend = el('div', { class: 'legend' }, ...segments.map((s) => {
+    const row = el('div', { class: 'legend-item' + (s.onclick ? ' clickable' : '') },
+      el('span', { class: 'legend-dot ' + s.cls }), el('span', { class: 'muted', text: s.label }), el('b', { text: String(s.value) }));
+    if (s.onclick) row.onclick = s.onclick;
+    return row;
+  }));
+  return el('div', { class: 'chart donut-card' }, el('h3', { text: title }), el('div', { class: 'donut-row' }, donutChart(segments), legend));
+}
+
+/** The home screen: fleet-wide counts (12 cards), fleet trends over the chosen period, four
+ * at-a-glance breakdowns (each segment drills into Devices/Alerts pre-filtered), and what needs
+ * looking at right now (recent alerts, the riskiest devices, standing findings) — the counts and
+ * breakdowns are drawn entirely from state already loaded by refresh() and loadFindings(), so
+ * opening this page costs no extra request; only the trend charts fetch (the same /api/trends
+ * the Trends tab itself uses, just with its own period picker). */
+function renderDashboard() {
+  const assets = state.assets || [];
+  const openAlerts = (state.alerts || []).filter((e) => !e.acked);
+  const findings = (state.findings || []).filter((f) => f.severity !== 'info');
+  const sites = 1 + (state.agents || []).length;
+  const online = assets.filter(isOnline).length;
+  const needsReviewCount = assets.filter(needsReview).length;
+  const highAlerts = openAlerts.filter((e) => e.severity === 'high').length;
+  const highRisk = assets.filter((a) => a.risk.level === 'high').length;
+  const rangeHours = Number($('dash-range').value) || 24;
+  const newInRange = assets.filter((a) => a.first_seen && now() - a.first_seen < rangeHours * 3600).length;
+
+  const card = (n, label, cls, onclick) => el('div', { class: 'card' + (cls ? ' ' + cls : '') + (onclick ? ' clickable' : ''), onclick }, el('b', { text: String(n) }), label);
+  $('dash-cards').replaceChildren(
+    card(assets.length, tr('devices'), '', () => goAssets('')),
+    card(online, tr('online now'), '', () => goAssetsOnline(true)),
+    card(assets.length - online, tr('offline'), '', () => goAssetsOnline(false)),
+    card(needsReviewCount, tr('needs review'), needsReviewCount ? 'warn' : '', goAssetsReview),
+    card(openAlerts.length, tr('open alerts'), openAlerts.length ? 'bad' : '', () => setTab('alerts')),
+    card(highAlerts, tr('high-severity alerts'), highAlerts ? 'bad' : '', () => goAlertsSeverity('high')),
+    card(assets.filter(isOt).length, tr('OT devices'), '', () => setTab('ot')),
+    card(highRisk, tr('high risk devices'), highRisk ? 'bad' : '', () => goAssets('risk:high')),
+    card(findings.length, tr('findings needing attention'), findings.length ? 'bad' : '', () => setTab('findings')),
+    card(acceptedRisks.length, tr('accepted risks'), '', () => setTab('findings')),
+    card(sites, tr('sites'), '', $('tab-overview').hidden ? null : () => setTab('overview')),
+    card(newInRange, tr('new devices ({n}h)', { n: rangeHours }), '', () => setTab('trends')));
+
+  const byRisk = (lvl) => assets.filter((a) => (a.risk.level || 'none') === lvl).length;
+  const byAlertSev = (lvl) => openAlerts.filter((e) => e.severity === lvl).length;
+  const typeCounts = new Map();
+  for (const a of assets) { const t = tr(a.device_type); typeCounts.set(t, (typeCounts.get(t) || 0) + 1); }
+  const topTypes = [...typeCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const TYPE_COLORS = ['high', 'medium', 'low', 'none'];
+  const otherTypes = topTypes.slice(3).reduce((n, [, c]) => n + c, 0);
+  const rank = { high: 2, medium: 1, low: 0 };
+  const topFindingsAll = [...findings].sort((a, b) => (rank[b.severity] ?? 0) - (rank[a.severity] ?? 0));
+
+  $('dash-charts').replaceChildren(
+    donutCard(tr('Devices by risk'), ['high', 'medium', 'low', 'none'].map((lvl) => ({ label: tr(lvl), value: byRisk(lvl), cls: lvl, onclick: byRisk(lvl) ? () => goAssets('risk:' + lvl) : null }))),
+    donutCard(tr('Open alerts by severity'), ['high', 'medium', 'low'].map((lvl) => ({ label: tr(lvl), value: byAlertSev(lvl), cls: lvl, onclick: byAlertSev(lvl) ? () => goAlertsSeverity(lvl) : null }))),
+    donutCard(tr('Devices by type'), [
+      ...topTypes.slice(0, 3).map(([t, n], i) => ({ label: t, value: n, cls: TYPE_COLORS[i], onclick: () => goAssets('type:' + t) })),
+      { label: tr('other'), value: otherTypes, cls: 'none', onclick: otherTypes ? () => setTab('assets') : null },
+    ]),
+    donutCard(tr('Findings by severity'), ['high', 'medium', 'low'].map((lvl) => ({ label: tr(lvl), value: findings.filter((f) => f.severity === lvl).length, cls: lvl, onclick: () => setTab('findings') }))));
+
+  const recentAlerts = [...openAlerts].sort((a, b) => b.timestamp - a.timestamp).slice(0, 8);
+  $('dash-alerts').replaceChildren(...recentAlerts.map((e) => {
+    const a = assetById(e.asset_id);
+    return el('div', { class: 'dash-item', onclick: () => showAlert(e, a) },
+      sevTag(e), ' ' + e.type + ' · ' + deviceLabel(a, '#' + e.asset_id),
+      el('span', { class: 'muted small', text: ' · ' + ago(e.timestamp) }));
+  }));
+  $('dash-alerts-empty').hidden = recentAlerts.length > 0;
+
+  // "most at risk": highest risk score first, ties broken by how many open alerts they carry
+  const openAlertsByAsset = new Map();
+  for (const e of openAlerts) openAlertsByAsset.set(e.asset_id, (openAlertsByAsset.get(e.asset_id) || 0) + 1);
+  const topRisk = assets.filter((a) => a.risk.score > 0)
+    .sort((a, b) => b.risk.score - a.risk.score || (openAlertsByAsset.get(b.id) || 0) - (openAlertsByAsset.get(a.id) || 0))
+    .slice(0, 8);
+  $('dash-top-risk').replaceChildren(...topRisk.map((a) => el('div', { class: 'dash-item', onclick: () => showDetail(a.id) },
+    riskTag(a), ' ' + deviceLabel(a, '#' + a.id),
+    openAlertsByAsset.get(a.id) ? el('span', { class: 'muted small', text: ' · ' + tr('{n} open alerts', { n: openAlertsByAsset.get(a.id) }) }) : null)));
+  $('dash-top-risk-empty').hidden = topRisk.length > 0;
+
+  const topFindings = topFindingsAll.slice(0, 8);
+  $('dash-findings').replaceChildren(...topFindings.map((f) => el('div', { class: 'dash-item', onclick: () => setTab('findings') },
+    el('span', { class: 'sev ' + f.severity, text: tr(f.severity) }), ' ' + tr(f.title),
+    el('span', { class: 'muted small', text: ' · ' + (f.assets.length === 1 ? tr('1 device') : tr('{n} devices', { n: f.assets.length })) }))));
+  $('dash-findings-empty').hidden = topFindings.length > 0;
+
+  loadDashboardTrends();
+}
+
+/** The two trend charts (alerts raised, devices online) over the dashboard's own period picker —
+ * reuses `chart()` and `/api/trends`, exactly like the Trends tab, just scoped to this page. */
+async function loadDashboardTrends() {
+  const hours = Number($('dash-range').value) || 24;
+  let data;
+  try { data = await apiFetch('/api/trends?hours=' + hours).then((r) => r.json()); } catch (e) { return; }
+  if (state.tab !== 'dashboard') return; // arrived late after the tab changed again
+  const pts = data.points || [];
+  const last = pts[pts.length - 1];
+  $('dash-trends').replaceChildren(
+    chart(tr('Alerts raised'), String(pts.reduce((n, p) => n + p.alerts, 0)), pts, 'alerts', 'bars', String),
+    chart(tr('Devices online'), last ? tr('{n} of {total}', { n: last.devices_online, total: last.devices_total }) : '–', pts, 'devices_online', 'line', String));
+}
+$('dash-range').onchange = () => { if (state.tab === 'dashboard') renderDashboard(); };
 
 // -------------------------------------------------------------- overview (MSP: one row per site)
 
@@ -1152,11 +1317,10 @@ function renderSoftware() {
   rows.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0) * (state.softwareAsc ? 1 : -1));
   $('software-table').tBodies[0].replaceChildren(...rows.map((r) => {
     const status = softwareStatus(r);
-    const names = r.asset_ids.map((id) => { const a = assetById(id); return deviceLabel(a, '#' + id); });
     return el('tr', {},
       el('td', { text: r.product }),
       el('td', {}, el('code', { text: r.version })),
-      el('td', { class: 'num', title: names.join(', ') }, String(r.asset_ids.length)),
+      el('td', { class: 'num' }, el('button', { type: 'button', class: 'link-btn', text: String(r.asset_ids.length), onclick: () => showSoftwareDevices(r) })),
       el('td', {}, el('span', { class: 'sev ' + status.sev, text: status.text })));
   }));
   $('software-empty').hidden = rows.length > 0;
@@ -1172,6 +1336,19 @@ for (const th of $('software-table').tHead.rows[0].cells) {
     state.softwareSort = k;
     renderSoftware();
   };
+}
+
+/** Which devices run one product/version row — the Software page groups by software, not by
+ * device, so this is the only place that answers "where is this actually running". */
+function showSoftwareDevices(r) {
+  const rows = r.asset_ids.map((id) => {
+    const a = assetById(id);
+    return el('div', { class: 'row' }, el('button', {
+      type: 'button', text: deviceLabel(a, '#' + id),
+      onclick: () => { $('msg-dialog').close(); showDetail(id); },
+    }));
+  });
+  showMessage(r.product + ' ' + r.version, el('div', {}, ...rows));
 }
 
 // ------------------------------------------------------------------ trends
@@ -1326,7 +1503,7 @@ async function loadCompliance() {
 function setTab(t) {
   state.tab = t;
   for (const b of document.querySelectorAll('.tab')) b.classList.toggle('active', b.dataset.tab === t);
-  for (const v of ['overview', 'assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'health', 'alerting', 'topology', 'ot', 'software', 'trends', 'events', 'agents', 'users', 'settings', 'audit', 'account']) $('view-' + v).hidden = t !== v;
+  for (const v of ['dashboard', 'overview', 'assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'health', 'alerting', 'topology', 'ot', 'software', 'trends', 'events', 'agents', 'users', 'settings', 'audit', 'account']) $('view-' + v).hidden = t !== v;
   $('search').hidden = $('online-label').hidden = $('review-label').hidden = $('group-by').hidden = $('filters-box').hidden = $('search-help-box').hidden = $('assets-table-cols-btn').hidden = t !== 'assets';
   if (t !== 'assets') $('filters-menu').hidden = true;
   if (t !== 'assets') $('review-all').hidden = true;
@@ -1338,6 +1515,7 @@ function setTab(t) {
   $('range').hidden = t !== 'trends';
   $('settings-cats').hidden = t !== 'settings';
   renderSiteFilter();
+  if (t === 'dashboard') renderDashboard();
   if (t === 'alerts') renderAlerts();
   if (t === 'overview') renderOverview();
   if (t === 'topology') { if (topoMode === 'physical') renderPhysical(); else renderTopology(); }
@@ -1379,6 +1557,7 @@ async function refresh() {
   renderAlerts();
   renderEvents();
   renderAgents();
+  if (state.tab === 'dashboard') renderDashboard();
   if (state.tab === 'overview') renderOverview();
   if (state.tab === 'topology') renderTopology();
   if (state.tab === 'trends') loadTrends();
@@ -1418,6 +1597,7 @@ $('only-review').onchange = renderAssets;
 $('site').onchange = () => { renderAssets(); if (state.tab === 'topology') renderTopology(); if (state.tab === 'trends') loadTrends(); };
 $('range').onchange = loadTrends;
 $('show-acked').onchange = renderAlerts;
+$('alert-sev-filter-clear').onclick = () => { state.alertSevFilter = null; renderAlerts(); };
 $('close').onclick = () => { $('detail').hidden = true; state.selected = null; };
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('close').onclick(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });

@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.14.0: A runZero-style Dashboard as the new home screen, plus five toolbar/layout fixes
+
+* New **Dashboard** page, now the default landing screen (every other page is unchanged and still
+  reachable from the sidebar): 12 clickable KPI tiles (devices, online/offline, needs review, open
+  alerts, high-severity alerts, OT devices, high-risk devices, findings needing attention, accepted
+  risks, sites, new devices in the chosen period), two trend charts (alerts raised, devices online)
+  and four donut breakdowns (devices by risk, open alerts by severity, devices by type, findings by
+  severity) over a period picker (24h/7d/30d), and three "what needs attention" lists (recent
+  alerts, most at-risk devices, standing findings). Every tile, donut segment and list row is
+  clickable and drills straight into Devices/Alerts/Findings pre-filtered to what it showed (a new
+  `risk:` search key backs the risk-level drill-downs; Alerts gained a clearable severity filter
+  chip for the same reason). Built entirely from state the app already loads each refresh — opening
+  it costs no extra request beyond its own two trend-chart fetches.
+* Software: the device count is now a button that lists which devices actually run that product and
+  version, each opening its device panel (previously only a hover tooltip, easy to miss).
+* OT: the communications-matrix "Columns" button now sits at the right edge of its row, matching
+  every other Columns button, instead of crowding the "only writes / control commands" checkbox.
+* Compliance: "Expand all"/"Collapse all" no longer read as glued to the first group below them.
+* Reports: the same missing-gap fix for the period/"Make a report now" row and the Columns/"Open a
+  live report…" row, both now separated from the table below.
+* Settings: "Setup guide" moved from Network to System, where the rest of the first-run/maintenance
+  items already live.
+
 ## 2.13.2: Fix the Update dialog's "Schedule" button doing nothing
 
 * An empty `datetime-local` input still renders today's date as a greyed-out placeholder, which

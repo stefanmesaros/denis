@@ -241,7 +241,7 @@ async function start() {
   initReports();
   initHealth();
   loadHealthBadge();
-  setTab('assets');
+  setTab('dashboard');
   await refresh();
   applyHash();
   maybeShowSetupGuide();
@@ -1026,11 +1026,11 @@ $('account-logout').onclick = () => $('logout').click();
  * setup guide, the switches page) deep-link to these keys directly, independent of grouping. */
 const SETTINGS_CATS = [
   ['security', [['security', 'security-box'], ['sso', 'sso-box'], ['tls', 'tls-box']]],
-  ['network', [['setup', 'setup-box'], ['interfaces', 'interfaces-box'], ['switches', 'switches-box']]],
+  ['network', [['interfaces', 'interfaces-box'], ['switches', 'switches-box']]],
   ['data', [['retention', 'retention-box'], ['vulndata', 'vuln-box'], ['data', 'data-box']]],
   ['integrations', [['siem', 'siem-box'], ['ai', 'ai-box']]],
   ['branding', [['branding', 'branding-box'], ['overview', 'overview-box']]],
-  ['system', [['license', 'license-box'], ['updates', 'update-box'], ['system', 'system-box']]],
+  ['system', [['license', 'license-box'], ['updates', 'update-box'], ['system', 'system-box'], ['setup', 'setup-box']]],
 ];
 const SETTINGS_DEFAULT = 'security';
 
@@ -1067,7 +1067,7 @@ for (const b of document.querySelectorAll('#settings-cats .subtab')) {
  */
 function applyHash() {
   const [what, arg] = location.hash.replace(/^#/, '').split('/');
-  const tabs = ['overview', 'assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'health', 'topology', 'ot', 'trends', 'events', 'agents', 'alerting', 'users', 'settings', 'audit'];
+  const tabs = ['dashboard', 'overview', 'assets', 'alerts', 'findings', 'rules', 'compliance', 'reports', 'health', 'topology', 'ot', 'trends', 'events', 'agents', 'alerting', 'users', 'settings', 'audit'];
   if (tabs.includes(what) && !$('tab-' + what)?.hidden) setTab(what);
   if (what === 'account' && state.me) setTab('account');
   // #rules/watches: scroll to the OT command watches

@@ -190,6 +190,47 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 .chart .bar { fill: var(--accent); }
 .chart .bar.alert { fill: #dc2626; }
 .chart .grid { stroke: var(--line); stroke-width: 1; }
+
+/* -------------------------------------------------------------------- dashboard (landing screen) */
+/* the Dashboard's own toolbar is the very first thing in <main> — `.section-row`'s usual 20px top
+   margin (meant to separate a heading from whatever came before it on the page) has nothing to
+   separate from here and just reads as a stray blank row above "Overview". */
+#dash-toolbar { margin-top: 0; }
+#dash-toolbar select { margin-left: 8px; }
+.dash-charts { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 14px; }
+.dash-charts .chart { flex: 1 1 320px; }
+/* the four breakdown cards are narrower than a trend chart, so at least 3 (ideally 4) fit across
+   a normal desktop width instead of just 2 */
+.dash-charts .donut-card { flex: 1 1 250px; max-width: 300px; }
+.donut-row { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 8px; }
+/* `.chart svg { width: 100% }` (for the Trends-style line/bar charts) is more specific than a bare
+   `.donut` class and would otherwise stretch the donut to the card's full width; `.donut-row .donut`
+   out-specifies it back down to a fixed, modern-looking ring size. */
+.donut-row .donut { width: 128px; height: 128px; flex: none; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .08)); }
+.ring { fill: none; stroke-linecap: round; transition: opacity .1s; }
+.ring-clickable { cursor: pointer; }
+.ring-clickable:hover, .ring-clickable:focus-visible { opacity: .8; outline: none; }
+.ring-high { stroke: #dc2626; }
+.ring-medium { stroke: var(--warn); }
+.ring-low { stroke: var(--accent); }
+.ring-none { stroke: var(--off); }
+.donut-total { font-size: 22px; font-weight: 700; fill: var(--text); }
+.donut-sub { font-size: 10px; fill: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.legend { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+.legend-item { display: flex; align-items: center; gap: 7px; border-radius: 5px; padding: 2px 4px; margin: 0 -4px; }
+.legend-item.clickable { cursor: pointer; }
+.legend-item.clickable:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.legend-item b { color: var(--text); min-width: 18px; margin-left: auto; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+.legend-dot.high { background: #dc2626; }
+.legend-dot.medium { background: var(--warn); }
+.legend-dot.low { background: var(--accent); }
+.legend-dot.none { background: var(--off); }
+.dash-row { display: flex; flex-wrap: wrap; gap: 16px; }
+.dash-col { flex: 1 1 320px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 12px; }
+.dash-item { padding: 8px 2px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13px; }
+.dash-item:last-child { border-bottom: none; }
+.dash-item:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .talker-rows { margin-top: 8px; display: flex; flex-direction: column; gap: 7px; }
 .talker-row { display: grid; grid-template-columns: auto minmax(0, 1fr) 2fr auto; align-items: center; gap: 8px; }
 .talker-x { flex: none; width: 20px; height: 20px; line-height: 1; padding: 0; border-radius: 50%; }
@@ -260,14 +301,31 @@ h3.section { margin: 20px 0 6px; font-size: 14px; }
    takes the heading's own vertical margin, so wrapping it changes nothing about the spacing. */
 .section-row { margin: 20px 0 6px; }
 .section-row h3.section { margin: 0; }
+/* Reports' own toolbar row (period/"Make a report now"/"Open a live report…", plus the Columns
+   button tables.js adds into it via data-cols-host) is a plain `.row` reused as that host, so it
+   never gets the 8px bottom margin a table's own auto-generated `.table-tools` row would have —
+   without this it reads as stuck to the table right below it. */
+#reports-toolbar { margin-bottom: 8px; }
 
 .card.bad { border-color: #dc2626; }
 .card.bad b { color: #dc2626; }
+.card.warn { border-color: var(--warn); }
+.card.warn b { color: var(--warn); }
 tr.row-bad td { background: color-mix(in srgb, #dc2626 12%, transparent); }
 tr.row-warn td { background: color-mix(in srgb, var(--warn) 10%, transparent); }
 .cards { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 14px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; min-width: 130px; color: var(--muted); font-size: 12px; }
 .card b { display: block; font-size: 22px; color: var(--text); }
+.card.clickable { cursor: pointer; transition: border-color .1s, box-shadow .1s, transform .1s; }
+.card.clickable:hover { border-color: var(--accent); box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 16%, transparent); transform: translateY(-1px); }
+/* the Dashboard's 12 KPI tiles: a fixed column count (always a divisor of 12) instead of
+   `.cards`'s own flex-wrap, so every row is completely full edge-to-edge at any width instead of
+   trailing off into blank space when a row doesn't happen to fill on its own. */
+#dash-cards { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin: 0 0 14px; }
+#dash-cards .card { min-width: 0; } /* a grid column may be narrower than the flex-layout floor */
+@media (max-width: 1100px) { #dash-cards { grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 760px) { #dash-cards { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 480px) { #dash-cards { grid-template-columns: repeat(2, 1fr); } }
 
 /* ------------------------------------------------------------ branding form */
 .brand-form { display: grid; gap: 10px; max-width: 460px; margin-bottom: 14px; }
@@ -370,6 +428,10 @@ button.chip, .chip.clickable { cursor: pointer; }
 .measure b { font-size: 22px; }
 .bar { height: 6px; background: var(--line); border-radius: 3px; margin: 6px 0; overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); }
+/* the "Expand all"/"Collapse all" row sits directly above the first group with no border of its
+   own to separate them, so it needs its own gap (a `.compliance-group + .compliance-group` rule
+   does not apply here — that row is not itself a `.compliance-group`). */
+#compliance-groups > .row { margin-bottom: 10px; }
 .compliance-group { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .compliance-group + .compliance-group { margin-top: 10px; }
 .compliance-group summary { cursor: pointer; padding: 10px 14px; font-weight: 600; list-style: none; display: flex; align-items: center; gap: 8px; }
@@ -401,6 +463,10 @@ button.danger:hover { background: color-mix(in srgb, #dc2626 12%, transparent); 
 /* links that look like buttons (Reports: Open / Download) */
 a.button { display: inline-block; font: inherit; text-decoration: none; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 6px 13px; border-radius: 6px; box-shadow: 0 1px 1px rgba(0,0,0,.02); transition: border-color .1s, box-shadow .1s; }
 a.button:hover { border-color: var(--accent); box-shadow: 0 1px 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+/* a number/word that acts like a link (e.g. Software's device count): no border or background,
+   just the accent colour and an underline on hover, so it doesn't read as a full button */
+.link-btn { border: none; background: none; box-shadow: none; padding: 0; color: var(--accent); font: inherit; }
+.link-btn:hover { text-decoration: underline; box-shadow: none; }
 .row-actions { white-space: nowrap; text-align: right; }
 .row-actions > * { margin-left: 6px; }
 

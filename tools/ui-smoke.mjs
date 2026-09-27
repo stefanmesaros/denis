@@ -126,7 +126,7 @@ const ready2 = async () => { for (let i = 0; i < 60; i++) { if (await evaluate("
 await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
 await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/meta/options*' }] });
 
-const TABS = ['assets', 'alerts', 'findings', 'topology', 'ot', 'software', 'trends', 'events', 'compliance', 'reports', 'health', 'rules', 'alerting', 'agents', 'users', 'settings', 'audit', 'account'];
+const TABS = ['dashboard', 'assets', 'alerts', 'findings', 'topology', 'ot', 'software', 'trends', 'events', 'compliance', 'reports', 'health', 'rules', 'alerting', 'agents', 'users', 'settings', 'audit', 'account'];
 // text a person must never see on a page
 const BAD_TEXT = "(() => { const t = document.getElementById('app').innerText; return ['null', 'undefined', '[object Object]', 'NaN'].filter((w) => new RegExp('(^|[^A-Za-z0-9_])' + w.replace(/[\\[\\]]/g, '\\\\$&') + '([^A-Za-z0-9_]|$)').test(t)); })()";
 
@@ -153,7 +153,7 @@ for (const tab of TABS) {
 }
 
 // ------------------------------------------------------------------ what each list must contain
-const counts = { assets: ['#assets-table tbody tr', 30], alerts: ['#alerts-table tbody tr', 5], ot: ['#ot-matrix tbody tr', 5], software: ['#software-table tbody tr', 3], rules: ['#rules-list .rule-card', 15], compliance: ['#compliance-groups .compliance-row', 8], audit: ['#audit-table tbody tr', 0], users: ['#users-table tbody tr', 0] };
+const counts = { dashboard: ['#dash-cards .card', 6], assets: ['#assets-table tbody tr', 30], alerts: ['#alerts-table tbody tr', 5], ot: ['#ot-matrix tbody tr', 5], software: ['#software-table tbody tr', 3], rules: ['#rules-list .rule-card', 15], compliance: ['#compliance-groups .compliance-row', 8], audit: ['#audit-table tbody tr', 0], users: ['#users-table tbody tr', 0] };
 for (const [tab, [sel, min]] of Object.entries(counts)) {
   await check(`"${tab}" lists at least ${min} rows`, async () => {
     await evaluate(`setTab('${tab}'); 0`);
@@ -162,6 +162,24 @@ for (const [tab, [sel, min]] of Object.entries(counts)) {
     return n >= min ? null : `only ${n} (${sel})`;
   });
 }
+
+await check('the Dashboard draws its trend and donut charts and clicking a recent alert opens it', async () => {
+  await evaluate("location.hash = '#dashboard'; setTab('dashboard'); 0");
+  await sleep(300);
+  const donuts = await evaluate("document.querySelectorAll('#dash-charts svg.donut').length");
+  if (donuts !== 4) return `expected 4 donut charts, found ${donuts}`;
+  const trends = await evaluate("document.querySelectorAll('#dash-trends .chart').length");
+  if (trends !== 2) return `expected 2 trend charts, found ${trends}`;
+  const items = await evaluate("document.querySelectorAll('#dash-alerts .dash-item').length");
+  if (items > 0) {
+    await evaluate("document.querySelector('#dash-alerts .dash-item').click(); 0");
+    await sleep(200);
+    const open = await evaluate("document.getElementById('msg-dialog').open");
+    if (!open) return 'clicking a recent alert did not open it';
+    await evaluate("document.getElementById('msg-dialog').close(); 0");
+  }
+  return null;
+});
 
 // ------------------------------------------------------------------ the asset editor
 const printerId = await evaluate("state.assets.find((a) => a.meta && a.meta.display_name === 'Reception printer').id");
@@ -1108,7 +1126,7 @@ await evaluate("localStorage.removeItem('denis-lang'); 0");
 await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 800, deviceScaleFactor: 2, mobile: true });
 await load(base + '/#assets');
 await ready();
-for (const tab of ['assets', 'alerts', 'ot', 'rules', 'settings', 'account']) {
+for (const tab of ['dashboard', 'assets', 'alerts', 'ot', 'rules', 'settings', 'account']) {
   await check(`on a phone the "${tab}" page does not overflow sideways`, async () => {
     await evaluate(`setTab('${tab}'); 0`);
     await sleep(600);

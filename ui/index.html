@@ -49,9 +49,10 @@
     <div class="shell">
       <aside id="sidebar" aria-label="Main menu">
         <nav id="menu">
+          <button class="tab active" data-tab="dashboard" type="button"><span class="label">Dashboard</span></button>
           <button class="tab" data-tab="overview" type="button" id="tab-overview" hidden><span class="label">MSP view</span></button>
           <div class="navgroup">Monitor</div>
-          <button class="tab active" data-tab="assets" type="button"><span class="label">Devices</span> <span id="count-assets" class="count"></span></button>
+          <button class="tab" data-tab="assets" type="button"><span class="label">Devices</span> <span id="count-assets" class="count"></span></button>
           <button class="tab" data-tab="alerts" type="button"><span class="label">Alerts</span> <span id="count-alerts" class="badge" hidden></span></button>
           <button class="tab" data-tab="findings" type="button"><span class="label">Findings</span> <span id="count-findings" class="badge" hidden></span></button>
           <div class="navgroup">Analyze</div>
@@ -118,12 +119,44 @@
 
 
     <main>
+      <section id="view-dashboard">
+        <div class="row section-row" id="dash-toolbar">
+          <h3 class="section">Overview</h3>
+          <span class="spacer"></span>
+          <select id="dash-range" aria-label="Time range for the trend charts and new-devices count">
+            <option value="24">Last 24 hours</option>
+            <option value="168">Last 7 days</option>
+            <option value="720">Last 30 days</option>
+          </select>
+        </div>
+        <div id="dash-cards" class="cards"></div>
+        <div id="dash-trends" class="dash-charts"></div>
+        <div id="dash-charts" class="dash-charts"></div>
+        <div class="dash-row">
+          <div class="dash-col">
+            <h3 class="section">Recent alerts</h3>
+            <div id="dash-alerts"></div>
+            <p id="dash-alerts-empty" class="muted" hidden>No open alerts. All quiet.</p>
+          </div>
+          <div class="dash-col">
+            <h3 class="section">Most at-risk devices</h3>
+            <div id="dash-top-risk"></div>
+            <p id="dash-top-risk-empty" class="muted" hidden>No devices with open risk factors.</p>
+          </div>
+          <div class="dash-col">
+            <h3 class="section">Findings needing attention</h3>
+            <div id="dash-findings"></div>
+            <p id="dash-findings-empty" class="muted" hidden>No standing findings.</p>
+          </div>
+        </div>
+      </section>
+
       <section id="view-overview" hidden>
         <p class="muted">One row per site — the local network and every remote agent you can see. Click a row to open its devices.</p>
         <div class="table-wrap"><table id="overview-table"><thead><tr><th></th><th>Site</th><th class="num">Devices</th><th>Open alerts</th><th>Last report</th></tr></thead><tbody></tbody></table></div>
       </section>
 
-      <section id="view-assets">
+      <section id="view-assets" hidden>
         <div id="license-banner" class="banner" hidden></div>
         <div id="bulk-tag-bar" class="bulk-bar" hidden>
           <div class="row"><b id="bulk-tag-count"></b><button id="bulk-tag-clear" type="button">Clear selection</button><span id="bulk-tag-msg" class="muted"></span></div>
@@ -172,6 +205,7 @@
 
       <section id="view-alerts" hidden>
         <div class="table-tools" id="alerts-tools">
+          <span class="chip" id="alert-sev-filter" hidden>Severity: <b id="alert-sev-filter-label"></b> <button type="button" class="chip-x" id="alert-sev-filter-clear" aria-label="Clear severity filter">×</button></span>
           <span class="exports" id="exports-alerts" hidden>
             <button id="ack-all-alerts" type="button" title="Also clears any older backlog this page does not show">Acknowledge all</button>
             <a id="export-alerts" class="button" href="/api/export/alerts.csv?days=30" download>Alerts CSV</a>
@@ -210,7 +244,7 @@
         <div class="table-wrap"><table id="ot-devices" data-cols-host="ot-devices-toolbar"><thead><tr><th>Device</th><th>IP</th><th>Purdue</th><th>Zone</th><th>Type</th><th>Protocols</th><th>Identity</th><th>Last seen</th></tr></thead><tbody></tbody></table></div>
         <p id="ot-empty" class="muted" hidden>No industrial devices identified yet. Industrial protocols are decoded passively from traffic that reaches this collector: run with <code>--profile ot</code> on a mirror/SPAN port or tap. Purdue level and zone can be set per device.</p>
         <h3 class="section">Communications matrix</h3>
-        <div class="inline-form"><select id="ot-proto" aria-label="Protocol"></select><label class="check"><input id="ot-risky" type="checkbox"> only writes / control commands</label></div>
+        <div class="inline-form"><select id="ot-proto" aria-label="Protocol"></select><label class="check"><input id="ot-risky" type="checkbox"> only writes / control commands</label><span class="spacer"></span></div>
         <div class="table-wrap"><table id="ot-matrix"><thead><tr><th>Client</th><th></th><th>Server</th><th>Protocol</th><th>Reads</th><th>Writes</th><th>Control</th><th>Commands seen</th><th>Last seen</th></tr></thead><tbody></tbody></table></div>
         <p class="muted">Who talks to whom, over which industrial protocol, and what kind of messages (read / write / control such as STOP or program download). A path that appears after the learning period raises an alert; so does any control command. Click a command to be told whenever it is sent (an OT command watch, see Rules).</p>
       </section>

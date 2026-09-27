@@ -1,0 +1,32 @@
+# The Dashboard: the landing screen, KPI cards, the two donut charts, and the two "what needs
+# looking at" lists (recent alerts, standing findings).
+Dashboard || Übersicht || Tableau de bord || Panel || Prehľad
+online now || jetzt online || en ligne actuellement || en línea ahora || teraz online
+open alerts || offene Warnungen || alertes ouvertes || alertas abiertas || otvorené upozornenia
+findings needing attention || zu prüfende Befunde || constats à traiter || hallazgos que requieren atención || zistenia vyžadujúce pozornosť
+OT devices || OT-Geräte || appareils OT || dispositivos OT || OT zariadenia
+sites || Standorte || sites || sitios || lokality
+Devices by risk || Geräte nach Risiko || Appareils par risque || Dispositivos por riesgo || Zariadenia podľa rizika
+Open alerts by severity || Offene Warnungen nach Schweregrad || Alertes ouvertes par gravité || Alertas abiertas por gravedad || Otvorené upozornenia podľa závažnosti
+Recent alerts || Aktuelle Warnungen || Alertes récentes || Alertas recientes || Nedávne upozornenia
+No open alerts. All quiet. || Keine offenen Warnungen. Alles ruhig. || Aucune alerte ouverte. Tout est calme. || Sin alertas abiertas. Todo tranquilo. || Žiadne otvorené upozornenia. Všetko v poriadku.
+Findings needing attention || Zu prüfende Befunde || Constats à traiter || Hallazgos que requieren atención || Zistenia vyžadujúce pozornosť
+No standing findings. || Keine offenen Befunde. || Aucun constat en cours. || No hay hallazgos pendientes. || Žiadne trvajúce zistenia.
+Overview || Übersicht || Vue d'ensemble || Resumen || Prehľad
+offline || offline || hors ligne || sin conexión || offline
+high-severity alerts || Warnungen mit hohem Schweregrad || alertes de gravité élevée || alertas de gravedad alta || upozornenia s vysokou závažnosťou
+high risk devices || Geräte mit hohem Risiko || appareils à risque élevé || dispositivos de riesgo alto || zariadenia s vysokým rizikom
+accepted risks || akzeptierte Risiken || risques acceptés || riesgos aceptados || akceptované riziká
+new devices ({n}h) || neue Geräte ({n} Std.) || nouveaux appareils ({n} h) || dispositivos nuevos ({n} h) || nové zariadenia ({n} h)
+Devices by type || Geräte nach Typ || Appareils par type || Dispositivos por tipo || Zariadenia podľa typu
+other || sonstige || autres || otros || ostatné
+Findings by severity || Befunde nach Schweregrad || Constats par gravité || Hallazgos por gravedad || Zistenia podľa závažnosti
+{n} open alerts || {n} offene Warnungen || {n} alertes ouvertes || {n} alertas abiertas || {n} otvorených upozornení
+total || gesamt || total || total || spolu
+Most at-risk devices || Riskanteste Geräte || Appareils les plus à risque || Dispositivos de mayor riesgo || Najrizikovejšie zariadenia
+No devices with open risk factors. || Keine Geräte mit offenen Risikofaktoren. || Aucun appareil avec des facteurs de risque ouverts. || Sin dispositivos con factores de riesgo abiertos. || Žiadne zariadenia s otvorenými rizikovými faktormi.
+Severity: || Schweregrad: || Gravité : || Gravedad: || Závažnosť:
+Clear severity filter || Schweregrad-Filter löschen || Effacer le filtre de gravité || Borrar el filtro de gravedad || Zrušiť filter závažnosti
+Time range for the trend charts and new-devices count || Zeitraum für die Trenddiagramme und die Anzahl neuer Geräte || Période des graphiques de tendance et du nombre de nouveaux appareils || Período para los gráficos de tendencia y el recuento de dispositivos nuevos || Časové obdobie pre trendové grafy a počet nových zariadení
+e.g. risk:high || z. B. risk:high || ex. risk:high || p. ej. risk:high || napr. risk:high
+high/medium/low/none || hoch/mittel/niedrig/keine || élevé/moyen/faible/aucun || alto/medio/bajo/ninguno || vysoká/stredná/nízka/žiadna

@@ -137,6 +137,7 @@ const ICON_NAMES = Object.keys(ICON_SHAPES);
 
 // Menu icons: same drawing rules, but only for the sidebar (never offered as a device icon).
 const NAV_SHAPES = {
+  dashboard: [['rect', { x: 3, y: 3, width: 8, height: 8, rx: 1.5 }], ['rect', { x: 13, y: 3, width: 8, height: 5, rx: 1.5 }], ['rect', { x: 13, y: 10, width: 8, height: 11, rx: 1.5 }], ['rect', { x: 3, y: 13, width: 8, height: 8, rx: 1.5 }]],
   assets: [['rect', { x: 3, y: 4, width: 18, height: 12, rx: 1.5 }], ['path', { d: 'M9 20h6M12 16v4' }]],
   alerts: [['path', { d: 'M6 9a6 6 0 0 1 12 0c0 6 2.5 7 2.5 7h-17S6 15 6 9zM10 20a2 2 0 0 0 4 0' }]],
   findings: [['rect', { x: 5, y: 3, width: 14, height: 18, rx: 2 }], ['path', { d: 'M9 3v2h6V3M9 12l2 2 4-4' }]],

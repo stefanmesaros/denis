@@ -18,9 +18,11 @@ async function loadFindings() {
   if (!r.ok) return;
   const list = await r.json();
   acceptedRisks = ar.ok ? await ar.json() : [];
+  state.findings = list; // kept for the Dashboard's own summary, independent of which tab is open
   const n = list.filter((f) => f.severity !== 'info').length;
   $('count-findings').hidden = !n;
   $('count-findings').textContent = n;
+  if (state.tab === 'dashboard') renderDashboard();
   if (state.tab !== 'findings') return; // the badge is kept fresh; the list is drawn only when shown
   const box = $('findings-list');
   $('no-findings').hidden = list.length > 0;
