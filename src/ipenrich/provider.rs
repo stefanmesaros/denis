@@ -27,6 +27,15 @@ pub trait GeoipProvider: Send + Sync {
     /// an error — a missing/corrupt database is a `status()` concern, not a per-call one, so a
     /// caller never has to handle a `Result` just to enrich one more IP.
     fn lookup(&self, ip: IpAddr) -> EnrichedIp;
+
+    /// Told about a (possibly changed) on-disk database — an administrator saving a new custom
+    /// path, or a new version having just been downloaded (`geoip.rs`'s update mechanism). Default
+    /// no-op: a provider with nothing to reload (a REST/internal-server one, say) simply ignores
+    /// this; `MmdbProvider` is the one that actually does something with it. This is how a
+    /// Settings save takes effect in the *running* service immediately, without a restart — the
+    /// `Service` only ever holds `Arc<dyn GeoipProvider>`, never a concrete `MmdbProvider`, so this
+    /// has to be a trait method rather than something `web_ipenrich.rs` reaches past the trait for.
+    fn reload(&self, _source_name: &'static str, _city_path: Option<&std::path::Path>, _asn_path: Option<&std::path::Path>, _db_version: Option<String>, _updated_at: Option<i64>) {}
 }
 
 #[cfg(test)]

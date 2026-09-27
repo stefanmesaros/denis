@@ -120,6 +120,12 @@ impl Service {
     pub fn set_dns_config(&self, cfg: super::dns::DnsConfig) {
         self.dns.set_config(cfg);
     }
+    /// See `GeoipProvider::reload` — this just forwards to whatever provider is actually plugged
+    /// in (only `MmdbProvider` does anything with it; see `mod.rs::reconfigure_geoip`, which is
+    /// what `web_ipenrich.rs` calls after an admin saves a new GeoIP source).
+    pub fn reload_geoip(&self, source_name: &'static str, city_path: Option<&std::path::Path>, asn_path: Option<&std::path::Path>, db_version: Option<String>) {
+        self.geoip.reload(source_name, city_path, asn_path, db_version, None);
+    }
 
     /// Classify + read-only cache lookup for every one of `ips` — never calls a provider, never
     /// blocks. Exactly what `detect.rs` calls while building an event's `destinations`/`ip`

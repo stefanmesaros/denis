@@ -97,6 +97,7 @@ pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Ext
     let now = now_ts();
     let dns_for_service = b.dns.clone();
     let ttl_changed = b.cache_geoip_ttl_secs.is_some() || b.cache_dns_ttl_secs.is_some();
+    let geoip_changed = b.geoip.is_some();
     blocking(&st.store, move |s| {
         if let Some(dns) = &b.dns {
             settings::save_dns_config(s, dns, now)?;
@@ -128,6 +129,15 @@ pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Ext
     if ttl_changed {
         let ttls = blocking(&st.store, |s| Ok(settings::cache_ttls(s))).await?;
         st.ipenrich.set_ttls(ttls);
+    }
+    if geoip_changed {
+        let db_path = st.shared.db_path.clone();
+        let (ipenrich, store) = (st.ipenrich.clone(), st.store.clone());
+        blocking(&store, move |s| {
+            ipenrich::reconfigure_geoip(&ipenrich, s, &db_path);
+            Ok(())
+        })
+        .await?;
     }
     audit(&st, &me.username, "ipenrich.settings.update", None, json!({}));
     let (dns, geoip, ttls, secret) = blocking(&st.store, |s| Ok((settings::dns_config(s), settings::geoip_config(s), settings::cache_ttls(s), settings::custom_api_secret(s)))).await?;

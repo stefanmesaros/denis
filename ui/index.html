@@ -540,6 +540,35 @@
           <h3 class="section">Switches (SNMP)</h3>
           <div id="switches-body"></div>
         </div>
+        <div id="ipenrich-box" hidden>
+          <h3 class="section">Network Intelligence</h3>
+          <p class="muted">Country, city, ASN and reverse-DNS hostname for every public IP address shown in the
+            console (alerts, events, device history) — looked up locally from a GeoIP database, never sent to a
+            third party per address. <span id="ipenrich-status"></span></p>
+          <h4>Reverse DNS</h4>
+          <label class="check"><input id="ipenrich-dns-enabled" type="checkbox"> Enabled</label>
+          <div class="row">
+            <label>DNS resolver<input id="ipenrich-dns-primary" placeholder="1.1.1.1"></label>
+            <label>Secondary (optional)<input id="ipenrich-dns-secondary" placeholder="1.0.0.1"></label>
+            <label>Timeout (ms)<input id="ipenrich-dns-timeout" type="number" min="100" max="30000"></label>
+          </div>
+          <h4>GeoIP database</h4>
+          <p class="muted" id="ipenrich-geoip-status"></p>
+          <div class="row">
+            <label>Source<select id="ipenrich-geoip-source"><option value="dbip">DB-IP Lite (default)</option><option value="custom">Custom MMDB file(s)</option></select></label>
+          </div>
+          <div class="row" id="ipenrich-custom-row" hidden>
+            <label>City/country database path<input id="ipenrich-city-path" placeholder="/path/to/city.mmdb"></label>
+            <label>ASN database path<input id="ipenrich-asn-path" placeholder="/path/to/asn.mmdb"></label>
+          </div>
+          <h4>Cache</h4>
+          <div class="row">
+            <label>GeoIP cache (days)<input id="ipenrich-geoip-ttl" type="number" min="1"></label>
+            <label>Reverse-DNS cache (hours)<input id="ipenrich-dns-ttl" type="number" min="1"></label>
+          </div>
+          <div class="row"><button id="ipenrich-save" type="button" class="primary">Save</button><span id="ipenrich-msg" class="muted"></span></div>
+          <p class="muted small" id="ipenrich-attribution"></p>
+        </div>
         <div id="security-box" hidden>
           <h3 class="section">Sign-in security</h3>
           <div id="security-body"></div>

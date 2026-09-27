@@ -164,6 +164,13 @@ impl GeoipProvider for MmdbProvider {
         }
         out
     }
+
+    /// Forwards to the inherent `reload` above — method resolution always prefers an inherent
+    /// method over a trait one for the same receiver type, so this is not infinite recursion, just
+    /// this type's answer to the trait's "a Settings save takes effect immediately" contract.
+    fn reload(&self, source_name: &'static str, city_path: Option<&Path>, asn_path: Option<&Path>, db_version: Option<String>, updated_at: Option<i64>) {
+        MmdbProvider::reload(self, source_name, city_path, asn_path, db_version, updated_at)
+    }
 }
 
 // ------------------------------------------------------------------------------- database updates

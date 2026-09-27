@@ -225,6 +225,7 @@ async function start() {
   $('setup-box').hidden = !can('admin');
   $('security-box').hidden = !can('admin');
   $('switches-box').hidden = !can('admin');
+  $('ipenrich-box').hidden = !can('admin');
   $('vuln-box').hidden = !can('admin');
   $('siem-box').hidden = !can('admin');
   $('sso-box').hidden = !can('admin');
@@ -1026,7 +1027,7 @@ $('account-logout').onclick = () => $('logout').click();
  * setup guide, the switches page) deep-link to these keys directly, independent of grouping. */
 const SETTINGS_CATS = [
   ['security', [['security', 'security-box'], ['sso', 'sso-box'], ['tls', 'tls-box']]],
-  ['network', [['interfaces', 'interfaces-box'], ['switches', 'switches-box']]],
+  ['network', [['interfaces', 'interfaces-box'], ['switches', 'switches-box'], ['ipenrich', 'ipenrich-box']]],
   ['data', [['retention', 'retention-box'], ['vulndata', 'vuln-box'], ['data', 'data-box']]],
   ['integrations', [['siem', 'siem-box'], ['ai', 'ai-box']]],
   ['branding', [['branding', 'branding-box'], ['overview', 'overview-box']]],
@@ -1503,6 +1504,58 @@ $('retention-save').onclick = async () => {
   const r = await api('PUT', '/api/retention', { days: Number($('retention-days').value) || 0 });
   $('retention-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
   if (r.ok) loadRetentionBox();
+};
+
+// -------------------------------------------------------------- IP enrichment (Network Intelligence)
+
+function ipenrichSyncForm() {
+  $('ipenrich-custom-row').hidden = $('ipenrich-geoip-source').value !== 'custom';
+}
+$('ipenrich-geoip-source').onchange = ipenrichSyncForm;
+
+async function loadIpenrichBox() {
+  if (!can('admin')) return;
+  const [full, pub] = await Promise.all([api('GET', '/api/ip-enrichment/settings'), api('GET', '/api/ip-enrichment')]);
+  if (!full.ok || !pub.ok) return;
+  const d = full.json;
+  $('ipenrich-dns-enabled').checked = d.dns.enabled;
+  $('ipenrich-dns-primary').value = d.dns.primary;
+  $('ipenrich-dns-secondary').value = d.dns.secondary || '';
+  $('ipenrich-dns-timeout').value = d.dns.timeout_ms;
+  const custom = d.geoip.source !== 'DbIpLite' && typeof d.geoip.source === 'object';
+  $('ipenrich-geoip-source').value = custom ? 'custom' : 'dbip';
+  if (custom) {
+    $('ipenrich-city-path').value = d.geoip.source.CustomMmdb.city_path || '';
+    $('ipenrich-asn-path').value = d.geoip.source.CustomMmdb.asn_path || '';
+  }
+  ipenrichSyncForm();
+  $('ipenrich-geoip-ttl').value = Math.round(d.cache_geoip_ttl_secs / 86400);
+  $('ipenrich-dns-ttl').value = Math.round(d.cache_dns_ttl_secs / 3600);
+
+  const g = pub.json.geoip;
+  $('ipenrich-status').textContent = pub.json.dns_enabled ? tr('Reverse DNS is on.') : tr('Reverse DNS is off.');
+  $('ipenrich-geoip-status').textContent = g.health === 'ok'
+    ? tr('{provider}, version {version}, updated {date}.', { provider: g.name, version: g.db_version || '?', date: g.updated_at ? fmtTime(g.updated_at) : tr('never') })
+    : tr('{provider}: not available ({detail})', { provider: g.name, detail: g.detail || tr('no database installed') });
+  $('ipenrich-attribution').textContent = pub.json.attribution;
+}
+$('ipenrich-save').onclick = async () => {
+  const body = {
+    dns: {
+      enabled: $('ipenrich-dns-enabled').checked,
+      primary: $('ipenrich-dns-primary').value.trim() || '1.1.1.1',
+      secondary: $('ipenrich-dns-secondary').value.trim() || null,
+      timeout_ms: Number($('ipenrich-dns-timeout').value) || 2000,
+    },
+    geoip: $('ipenrich-geoip-source').value === 'custom'
+      ? { source: { CustomMmdb: { city_path: $('ipenrich-city-path').value.trim() || null, asn_path: $('ipenrich-asn-path').value.trim() || null } }, auto_update: false }
+      : { source: 'DbIpLite', auto_update: true },
+    cache_geoip_ttl_secs: (Number($('ipenrich-geoip-ttl').value) || 30) * 86400,
+    cache_dns_ttl_secs: (Number($('ipenrich-dns-ttl').value) || 24) * 3600,
+  };
+  const r = await api('PUT', '/api/ip-enrichment/settings', body);
+  $('ipenrich-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
+  if (r.ok) loadIpenrichBox();
 };
 
 async function loadTlsBox() {

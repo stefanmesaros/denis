@@ -1530,7 +1530,7 @@ function setTab(t) {
   if (t === 'alerting') loadAlerting();
   if (t === 'users') { renderUsers(); renderApiTokens(); }
   if (t === 'settings') {
-    initBrandingForm(); initOverviewBox(); loadLicenseBox(); loadInterfacesBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); loadSiemBox(); loadSsoBox(); loadAiBox(); loadRetentionBox();
+    initBrandingForm(); initOverviewBox(); loadLicenseBox(); loadInterfacesBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); loadSiemBox(); loadSsoBox(); loadAiBox(); loadRetentionBox(); loadIpenrichBox();
     settingsSelect(location.hash.startsWith('#settings/') ? location.hash.split('/')[1] : SETTINGS_DEFAULT);
   }
   if (t === 'audit') renderAudit();
