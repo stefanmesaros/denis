@@ -7,6 +7,11 @@ Secondary (optional) || Sekundär (optional) || Secondaire (facultatif) || Secun
 Timeout (ms) || Zeitüberschreitung (ms) || Délai (ms) || Tiempo de espera (ms) || Časový limit (ms)
 GeoIP database || GeoIP-Datenbank || Base de données GeoIP || Base de datos GeoIP || GeoIP databáza
 Source || Quelle || Source || Fuente || Zdroj
+Automatically update || Automatisch aktualisieren || Mettre à jour automatiquement || Actualizar automáticamente || Automaticky aktualizovať
+How often || Wie oft || À quelle fréquence || Con qué frecuencia || Ako často
+Daily || Täglich || Quotidienne || Diaria || Denne
+Weekly || Wöchentlich || Hebdomadaire || Semanal || Týždenne
+Monthly || Monatlich || Mensuelle || Mensual || Mesačne
 DB-IP Lite (default) || DB-IP Lite (Standard) || DB-IP Lite (par défaut) || DB-IP Lite (predeterminado) || DB-IP Lite (predvolené)
 Custom MMDB file(s) || Eigene MMDB-Datei(en) || Fichier(s) MMDB personnalisé(s) || Archivo(s) MMDB personalizado(s) || Vlastné MMDB súbory
 City/country database path || Pfad zur Stadt-/Länderdatenbank || Chemin de la base ville/pays || Ruta de la base de ciudad/país || Cesta k databáze mesta/krajiny

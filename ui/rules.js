@@ -101,7 +101,13 @@ function exceptionsEditor(list, onChange, editable) {
  * every device is treated the way a brand new one already is — network-wide, for a chosen
  * 1-7 days. For after a change big enough that the existing baselines are not a fair
  * comparison any more (a new switch, a re-addressed subnet, a big batch of new devices). */
+let learningExpiryTimer = null;
+
 function drawLearningBox(learning) {
+  if (learningExpiryTimer) {
+    clearTimeout(learningExpiryTimer);
+    learningExpiryTimer = null;
+  }
   const act = async (path, body) => {
     const r = await api('POST', '/api/learning/' + path, body);
     $('learning-msg').textContent = r.ok ? '' : apiError(r);
@@ -117,6 +123,13 @@ function drawLearningBox(learning) {
         el('button', { type: 'button', onclick: () => act('start', { days: Number(days.value) }), text: tr('Restart learning mode') })),
       el('span', { id: 'learning-msg', class: 'muted' }));
     return;
+  }
+  // If it is still running (not paused), the countdown ends on its own without anyone clicking
+  // anything - re-check right when that happens so this box does not keep showing Pause/End for
+  // a learning period the server has already finished (loadRules() redraws from fresh data, which
+  // then falls into the `!learning` branch above once the server reports it as over).
+  if (!learning.paused) {
+    learningExpiryTimer = setTimeout(loadRules, Math.max(1, learning.remaining_secs) * 1000 + 1000);
   }
   const remaining = span(learning.remaining_secs);
   $('learning-box').replaceChildren(

@@ -15,6 +15,10 @@ use super::classify::Classification;
 pub struct EnrichedIp {
     pub hostname: Option<String>,
     pub country: Option<String>,
+    /// ISO 3166-1 alpha-2 ("US", "DE", …), for the UI's flag emoji — `country` itself is the
+    /// display name ("United States"), never a code, so the two are separate fields rather than
+    /// asking every caller to know which one a given provider happened to return.
+    pub country_code: Option<String>,
     pub region: Option<String>,
     pub city: Option<String>,
     pub latitude: Option<f64>,
@@ -45,7 +49,7 @@ impl EnrichedIp {
     /// versa.
     pub fn merge_from(&mut self, other: &EnrichedIp) {
         macro_rules! take { ($($f:ident),*) => { $( if other.$f.is_some() { self.$f = other.$f.clone(); } )* }; }
-        take!(hostname, country, region, city, asn, as_org, isp, connection_type, geoip_source, geoip_db_version, dns_source);
+        take!(hostname, country, country_code, region, city, asn, as_org, isp, connection_type, geoip_source, geoip_db_version, dns_source);
         if other.latitude.is_some() {
             self.latitude = other.latitude;
         }

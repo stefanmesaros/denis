@@ -903,6 +903,10 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     tasks.push(tokio::spawn(crate::reverify::run(store.clone(), coll.shared.clone(), alerts.clone())));
     // support dates and known-exploited vulnerabilities (bundled data, optionally refreshed)
     tasks.push(tokio::spawn(crate::vulndata::run(store.clone())));
+    // GeoIP database: DB-IP Lite auto-updated on the configured schedule (on by default, off
+    // switch in Settings) — the same service instance the web layer uses below, not a second one.
+    let ipenrich = crate::ipenrich::build_service(store.clone(), &cfg.collector.db);
+    tasks.push(tokio::spawn(crate::ipenrich::run_geoip_auto_update(ipenrich.clone(), store.clone(), cfg.collector.db.clone())));
     // switches read over SNMP (ports, neighbours, what is plugged in where)
     tasks.push(tokio::spawn(crate::switches::run(store.clone())));
     // scheduled backups of the database
@@ -1072,7 +1076,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
         // over HTTPS the cookie must never travel in clear
         secure_cookie: cfg.secure_cookie || tls.is_some(),
         license: crate::license::load(cfg.license_file.as_deref(), &*store),
-        ipenrich: crate::ipenrich::build_service(store.clone(), &cfg.collector.db),
+        ipenrich: ipenrich.clone(),
     };
     let scheme = if tls.is_some() { "https" } else { "http" };
     tracing::info!("web UI on {scheme}://{}", cfg.listen);

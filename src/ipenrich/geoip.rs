@@ -37,11 +37,44 @@ pub enum GeoipSource {
     CustomMmdb { city_path: Option<String>, asn_path: Option<String> },
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+/// How often the periodic job (see `ipenrich::run_geoip_auto_update`) checks DB-IP for a newer
+/// release. DB-IP only ever publishes monthly, so `Daily`/`Weekly` cost nothing beyond a slightly
+/// earlier catch of that month's release (`update_now` is idempotent — re-installing the same
+/// month's file is a harmless no-op) — offered anyway since some customers would rather be sure.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub enum UpdateFrequency {
+    Daily,
+    Weekly,
+    #[default]
+    Monthly,
+}
+
+impl UpdateFrequency {
+    pub fn as_secs(self) -> i64 {
+        match self {
+            UpdateFrequency::Daily => 86_400,
+            UpdateFrequency::Weekly => 7 * 86_400,
+            UpdateFrequency::Monthly => 30 * 86_400,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct GeoipConfig {
     pub source: GeoipSource,
     /// Only meaningful for `DbIpLite`: check for a newer monthly release on the periodic job.
+    /// On by default — a fresh install should not silently sit on an aging database forever just
+    /// because nobody found the "Update now" button — but a customer who would rather control
+    /// exactly when the database on disk changes can turn it off.
     pub auto_update: bool,
+    #[serde(default)]
+    pub update_frequency: UpdateFrequency,
+}
+
+impl Default for GeoipConfig {
+    fn default() -> Self {
+        GeoipConfig { source: GeoipSource::default(), auto_update: true, update_frequency: UpdateFrequency::default() }
+    }
 }
 
 struct Readers {
@@ -140,6 +173,7 @@ impl GeoipProvider for MmdbProvider {
         if let Some(reader) = &r.city {
             if let Ok(Some(rec)) = reader.lookup(ip).and_then(|l| l.decode::<geoip2::City>()) {
                 out.country = rec.country.names.english.map(str::to_string);
+                out.country_code = rec.country.iso_code.map(str::to_string);
                 out.region = rec.subdivisions.first().and_then(|s| s.names.english).map(str::to_string);
                 out.city = rec.city.names.english.map(str::to_string);
                 out.latitude = rec.location.latitude;
@@ -295,6 +329,21 @@ pub fn update_now(dir: &Path, now: i64) -> Result<String> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn a_fresh_geoip_config_defaults_to_dbip_lite_with_monthly_auto_update_on() {
+        let cfg = GeoipConfig::default();
+        assert_eq!(cfg.source, GeoipSource::DbIpLite);
+        assert!(cfg.auto_update, "a fresh install should not silently sit on an aging database");
+        assert_eq!(cfg.update_frequency, UpdateFrequency::Monthly);
+    }
+
+    #[test]
+    fn update_frequency_maps_to_the_expected_number_of_seconds() {
+        assert_eq!(UpdateFrequency::Daily.as_secs(), 86_400);
+        assert_eq!(UpdateFrequency::Weekly.as_secs(), 7 * 86_400);
+        assert_eq!(UpdateFrequency::Monthly.as_secs(), 30 * 86_400);
+    }
 
     #[test]
     fn a_provider_with_no_database_reports_down_and_returns_nothing_but_never_panics() {

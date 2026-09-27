@@ -19,17 +19,26 @@ function countryFlag(iso2) {
   return String.fromCodePoint(...cps);
 }
 
-/** The one-line "AS Org · ASnnnn · Country" (or as much of it as is known) shown right under an
- * IP address, per the brief's own example. `null` (render nothing) for a private/reserved/
- * loopback/etc. address — geolocation is only ever attempted for a public one. */
-function ipContextLine(info) {
-  if (!info || info.classification !== 'public') return null;
-  const parts = [];
-  if (info.as_org) parts.push(info.as_org);
-  if (info.asn) parts.push('AS' + info.asn);
-  if (info.country) parts.push((countryFlag(info.country) ? countryFlag(info.country) + ' ' : '') + info.country);
-  if (!parts.length) return null;
-  return parts.join(' · ');
+/** The one-line "🇺🇸 · AS Org · ASnnnn · reverse-dns-hostname" (or as much of it as is known)
+ * shown right under an IP address. The flag comes first and carries the country name as a hover
+ * tooltip rather than spelling it out in text — recognisable at a glance for most people, and the
+ * name is still one hover away for anyone who does not recognise a given flag, without spending
+ * the row's width on it for everyone else. When no ISO country code is known (not every provider
+ * gives one), the country name is shown as plain text instead, so the information is never simply
+ * dropped. `null` (render nothing) for a private/reserved/loopback/etc. address — geolocation is
+ * only ever attempted for a public one. */
+function ipContextNode(info) {
+  if (!info || info.classification !== 'public') {
+    const label = classificationLabel(info);
+    return label ? el('span', { text: label }) : null;
+  }
+  const flag = countryFlag(info.country_code);
+  const rest = [info.as_org, info.asn ? 'AS' + info.asn : null, info.hostname].filter(Boolean).join(' · ');
+  if (!flag && !info.country && !rest) return null;
+  return el('span', {},
+    flag ? el('span', { title: info.country || '' }, flag) : (info.country ? el('span', { text: info.country }) : null),
+    (flag || info.country) && rest ? ' · ' : null,
+    rest || null);
 }
 
 /** A short word for a non-public address, shown in place of the geo context line. */
@@ -41,12 +50,17 @@ function classificationLabel(info) {
 
 /** One IP address, inline: the address itself, clickable, with its context line right under it —
  * the exact `198.41.200.33` / `Cloudflare, Inc. · AS13335 · US` two-line pattern from the brief.
- * Clicking opens the full detail panel (`ipDetailDialog`). */
-function ipInline(ip, info) {
-  const context = ipContextLine(info) || classificationLabel(info);
+ * `trailing`, when given, renders on the *same* line as the address itself (right-aligned) — a
+ * caller's own per-row detail (a timestamp, a byte count, a first/last-seen range) that would
+ * otherwise sit at an inconsistent height next to a context line of varying presence/length.
+ * Clicking the address opens the full detail panel (`ipDetailDialog`). */
+function ipInline(ip, info, trailing) {
+  const context = ipContextNode(info);
   return el('div', { class: 'ip-inline' },
-    el('button', { type: 'button', class: 'ip-link', text: ip, onclick: () => ipDetailDialog(ip, info) }),
-    context ? el('div', { class: 'muted small', text: context }) : null);
+    el('div', { class: 'ip-inline-head' },
+      el('button', { type: 'button', class: 'ip-link', text: ip, onclick: () => ipDetailDialog(ip, info) }),
+      trailing || null),
+    context ? el('div', { class: 'muted small' }, context) : null);
 }
 
 /** The full click-through detail panel: every field, plus the data source and database version/
@@ -114,10 +128,10 @@ function findIpEntries(details) {
  * the real answer in the background and swaps the context line in — the panel never waits on a
  * lookup to open, and a device with ten historical addresses costs ten small, independent
  * requests rather than one slow one. */
-function ipInlineLazy(ip) {
-  const holder = ipInline(ip, null);
+function ipInlineLazy(ip, trailing) {
+  const holder = ipInline(ip, null, trailing);
   api('GET', '/api/ip-enrichment/' + encodeURIComponent(ip)).then((r) => {
-    if (r.ok) holder.replaceWith(ipInline(ip, r.json));
+    if (r.ok) holder.replaceWith(ipInline(ip, r.json, trailing));
   });
   return holder;
 }

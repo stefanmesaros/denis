@@ -2635,7 +2635,7 @@ mod tests {
         let (app, store, [viewer, editor, admin]) = secured().await;
         let (st, _, v) = send(&app, req("GET", "/api/vulndata", Some(&viewer), None)).await;
         assert_eq!(st, StatusCode::OK);
-        assert!(v["kev_entries"].as_u64().unwrap() >= 5 && v["products"].as_array().unwrap().iter().any(|p| p == "nginx") && v["refresh_eol"] == true && v["refresh_kev"] == false && v["refreshed_at"].is_null(), "on by default; {v}");
+        assert!(v["kev_entries"].as_u64().unwrap() >= 5 && v["products"].as_array().unwrap().iter().any(|p| p == "nginx") && v["refresh_eol"] == true && v["refresh_kev"] == true && v["refreshed_at"].is_null(), "both on by default on a fresh install; {v}");
         for c in [&viewer, &editor] {
             assert_eq!(send(&app, req("PUT", "/api/vulndata", Some(c), Some(serde_json::json!({"refresh_eol": false})))).await.0, StatusCode::FORBIDDEN);
             assert_eq!(send(&app, req("POST", "/api/vulndata/refresh", Some(c), None)).await.0, StatusCode::FORBIDDEN);

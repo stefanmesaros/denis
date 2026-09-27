@@ -556,6 +556,8 @@
           <p class="muted" id="ipenrich-geoip-status"></p>
           <div class="row">
             <label>Source<select id="ipenrich-geoip-source"><option value="dbip">DB-IP Lite (default)</option><option value="custom">Custom MMDB file(s)</option></select></label>
+            <label class="check" id="ipenrich-geoip-auto-row"><input id="ipenrich-geoip-auto" type="checkbox"> Automatically update</label>
+            <label id="ipenrich-geoip-freq-row">How often<select id="ipenrich-geoip-freq"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label>
             <button id="ipenrich-geoip-update" type="button">Update now</button>
             <span id="ipenrich-geoip-update-msg" class="muted"></span>
           </div>

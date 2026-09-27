@@ -87,7 +87,11 @@ mod tests {
         save_dns_config(&store, &dns, 1000).unwrap();
         assert_eq!(dns_config(&store), dns);
 
-        let geo = GeoipConfig { source: super::super::geoip::GeoipSource::CustomMmdb { city_path: Some("/x/city.mmdb".into()), asn_path: None }, auto_update: false };
+        let geo = GeoipConfig {
+            source: super::super::geoip::GeoipSource::CustomMmdb { city_path: Some("/x/city.mmdb".into()), asn_path: None },
+            auto_update: false,
+            update_frequency: super::super::geoip::UpdateFrequency::Weekly,
+        };
         save_geoip_config(&store, &geo, 1000).unwrap();
         assert_eq!(geoip_config(&store), geo);
 

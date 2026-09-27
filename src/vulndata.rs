@@ -347,17 +347,19 @@ pub struct Overlay {
 pub struct Settings {
     pub refresh_eol: bool,
     /// Whether the console also fetches known-exploited vulnerabilities from CISA/NVD by itself
-    /// every week (see `fetch_kev_live`). Off by default: unlike the EOL refresh this contacts
-    /// two additional public sites and takes a while (NVD is rate-limited per CVE), so it is an
-    /// administrator's own choice to turn on rather than something a fresh install starts doing
-    /// unasked. "Update now" (below) always works regardless of this setting.
+    /// every week (see `fetch_kev_live`). On by default, same as `refresh_eol` — a fresh install
+    /// should have real findings from day one, not an empty Findings page until someone finds
+    /// this switch. It does contact two additional public sites and takes a while (NVD is
+    /// rate-limited per CVE), which is why it stayed opt-in for a while, but that cost is paid
+    /// once in the background, not on the admin's time; they can still turn it off. "Update now"
+    /// (below) always works regardless of this setting.
     #[serde(default)]
     pub refresh_kev: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { refresh_eol: true, refresh_kev: false }
+        Settings { refresh_eol: true, refresh_kev: true }
     }
 }
 
@@ -922,13 +924,24 @@ mod tests {
     }
 
     #[test]
-    fn support_dates_refresh_is_on_by_default_but_can_be_turned_off() {
+    fn support_dates_and_kev_refresh_are_both_on_by_default_but_can_be_turned_off() {
         let store = crate::store::sqlite::SqliteStore::open_in_memory().unwrap();
         assert!(settings(&store).refresh_eol, "a fresh install refreshes support dates on its own");
-        assert!(!settings(&store).refresh_kev, "the heavier CISA/NVD refresh is opt-in");
-        save_settings(&store, &Settings { refresh_eol: false, refresh_kev: true }, 1).unwrap();
+        assert!(settings(&store).refresh_kev, "a fresh install refreshes CISA/NVD known-exploited data on its own too");
+        save_settings(&store, &Settings { refresh_eol: false, refresh_kev: false }, 1).unwrap();
         assert!(!settings(&store).refresh_eol);
-        assert!(settings(&store).refresh_kev);
+        assert!(!settings(&store).refresh_kev);
+    }
+
+    #[test]
+    fn an_older_saved_settings_blob_without_refresh_kev_keeps_it_off_rather_than_silently_turning_on() {
+        // an admin upgrading from a version where this field did not exist yet should not have a
+        // heavier background job switched on behind their back - only a brand new install (no
+        // saved blob at all) gets both defaults on.
+        let store = crate::store::sqlite::SqliteStore::open_in_memory().unwrap();
+        store.set_setting(SETTINGS_KEY, br#"{"refresh_eol":true}"#, 1).unwrap();
+        assert!(settings(&store).refresh_eol);
+        assert!(!settings(&store).refresh_kev);
     }
 
     fn custom(cve: &str, product: &str, added: &str, ranges: Vec<Range>) -> Kev {

@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.15.3: GeoIP auto-update, a real country flag, and cleaner IP context rows
+
+* **GeoIP database now auto-updates itself**, on by default (monthly) — turned on for the exact
+  reason 2.15.2 needed a manual "Update now" click at all: nobody should have to find that button
+  for the database to ever exist. Settings → Network → Network Intelligence gets an "Automatically
+  update" switch and a Daily/Weekly/Monthly choice; turning it off goes back to on-demand only.
+* The flag next to a country was never actually a flag — the field it read was the country's full
+  name ("United States"), not the two-letter code the flag emoji needs, so it silently rendered
+  nothing. GeoIP lookups now carry the real ISO country code too. The flag comes first in the IP
+  context line, with the country's name as a hover tooltip rather than spelled out in text, then
+  AS organisation, ASN and the reverse-DNS hostname — the hostname is now part of this inline line
+  itself, not only the click-through detail panel.
+* A destinations row's timestamp/byte count now sits on the same line as the IP address, instead
+  of floating at an inconsistent height depending on whether a context line happened to be present
+  underneath it.
+* CISA/NVD known-exploited-vulnerability refresh (previously an opt-in "heavier" background job)
+  is now on by default alongside the existing support-dates refresh, so a fresh install's Findings
+  reflect real, current threat intelligence from day one rather than an empty page until someone
+  finds the switch.
+* Learning mode's box on the Rules page no longer keeps showing stale Pause/End controls once a
+  learning period naturally finishes on its own — it now re-checks right when the countdown ends
+  and redraws as "Restart learning mode", the same as it always did after an explicit "End now".
+
 ## 2.15.2: Fix — GeoIP data was never actually downloaded, and stale "Network context" in single-IP views
 
 * Found the real cause of a live report of a completely blank "Network context" in production: the

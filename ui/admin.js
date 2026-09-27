@@ -1511,9 +1511,12 @@ $('retention-save').onclick = async () => {
 function ipenrichSyncForm() {
   const custom = $('ipenrich-geoip-source').value === 'custom';
   $('ipenrich-custom-row').hidden = !custom;
-  $('ipenrich-geoip-update').hidden = custom; // nothing to fetch for a customer's own file
+  $('ipenrich-geoip-update').hidden = custom; // nothing to fetch or auto-update for a customer's own file
+  $('ipenrich-geoip-auto-row').hidden = custom;
+  $('ipenrich-geoip-freq-row').hidden = custom || !$('ipenrich-geoip-auto').checked;
 }
 $('ipenrich-geoip-source').onchange = ipenrichSyncForm;
+$('ipenrich-geoip-auto').onchange = ipenrichSyncForm;
 $('ipenrich-geoip-update').onclick = async () => {
   $('ipenrich-geoip-update').disabled = true;
   $('ipenrich-geoip-update-msg').textContent = tr('Downloading…');
@@ -1538,6 +1541,8 @@ async function loadIpenrichBox() {
     $('ipenrich-city-path').value = d.geoip.source.CustomMmdb.city_path || '';
     $('ipenrich-asn-path').value = d.geoip.source.CustomMmdb.asn_path || '';
   }
+  $('ipenrich-geoip-auto').checked = d.geoip.auto_update;
+  $('ipenrich-geoip-freq').value = (d.geoip.update_frequency || 'Monthly').toLowerCase();
   ipenrichSyncForm();
   $('ipenrich-geoip-ttl').value = Math.round(d.cache_geoip_ttl_secs / 86400);
   $('ipenrich-dns-ttl').value = Math.round(d.cache_dns_ttl_secs / 3600);
@@ -1558,8 +1563,12 @@ $('ipenrich-save').onclick = async () => {
       timeout_ms: Number($('ipenrich-dns-timeout').value) || 2000,
     },
     geoip: $('ipenrich-geoip-source').value === 'custom'
-      ? { source: { CustomMmdb: { city_path: $('ipenrich-city-path').value.trim() || null, asn_path: $('ipenrich-asn-path').value.trim() || null } }, auto_update: false }
-      : { source: 'DbIpLite', auto_update: true },
+      ? { source: { CustomMmdb: { city_path: $('ipenrich-city-path').value.trim() || null, asn_path: $('ipenrich-asn-path').value.trim() || null } }, auto_update: false, update_frequency: 'Monthly' }
+      : {
+          source: 'DbIpLite',
+          auto_update: $('ipenrich-geoip-auto').checked,
+          update_frequency: { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' }[$('ipenrich-geoip-freq').value] || 'Monthly',
+        },
     cache_geoip_ttl_secs: (Number($('ipenrich-geoip-ttl').value) || 30) * 86400,
     cache_dns_ttl_secs: (Number($('ipenrich-dns-ttl').value) || 24) * 3600,
   };

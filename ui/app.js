@@ -1050,7 +1050,7 @@ async function showDetail(id) {
     ]),
     el('h3', { text: tr('Recent destinations') }),
     el('div', {}, ...bl.destinations.slice(0, 10).map((d) => el('div', { class: 'ip-context-row' },
-      ipInlineLazy(d.ip), el('span', { class: 'muted small', text: `${tr('last {t}', { t: ago(d.last_seen) })} · ${mb(d.bytes)}` })))),
+      ipInlineLazy(d.ip, el('span', { class: 'muted small', text: `${tr('last {t}', { t: ago(d.last_seen) })} · ${mb(d.bytes)}` }))))),
     el('h3', { text: tr('Active hours (local time)') }),
     hoursChart(bl.active_hours),
   ] : [el('div', { class: 'muted', text: tr('No traffic baseline yet. It is built from flow accounting (--flows) for traffic that crosses the monitoring interface.') })];
@@ -1109,7 +1109,7 @@ async function showDetail(id) {
     ]),
     el('h3', { text: tr('IP history') }),
     a.ip_history.length ? el('div', {}, ...a.ip_history.slice().sort((x, y) => y.last_seen - x.last_seen).map((r) => el('div', { class: 'ip-context-row' },
-      ipInlineLazy(r.ip), el('span', { class: 'muted small', text: `(${fmtTime(r.first_seen)} → ${fmtTime(r.last_seen)})` })))) : el('div', { class: 'muted', text: tr('none') }),
+      ipInlineLazy(r.ip, el('span', { class: 'muted small', text: `(${fmtTime(r.first_seen)} → ${fmtTime(r.last_seen)})` }))))) : el('div', { class: 'muted', text: tr('none') }),
     el('h3', { text: tr('Open ports') + (a.ports_scanned_at ? ' · ' + tr('scanned {t}', { t: ago(a.ports_scanned_at) }) : '') }),
     a.open_ports.length ? list(a.open_ports.map((p) => `${p.port}/${p.proto} ${p.service || ''}`)) : el('div', { class: 'muted', text: a.ports_scanned_at ? tr('none of the scanned ports are open') : tr('not scanned yet') }),
     el('h3', { text: tr('Fingerprint evidence') }),
