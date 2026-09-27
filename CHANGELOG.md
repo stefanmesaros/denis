@@ -1,6 +1,17 @@
 # Changelog
 
-## 2.15.3: GeoIP auto-update, a real country flag, and cleaner IP context rows
+## 2.15.4: Fix — old cached IP lookups were stuck showing nothing (or no flag) for up to 30 days
+
+* Found via a live report: some addresses in "Recent destinations"/"Network context" showed a
+  full country/ASN line, others showed only a reverse-DNS hostname or nothing at all — for the
+  same device, at the same time. Root cause: the GeoIP cache's 30-day TTL does not know a fresher
+  answer might exist for a reason other than time passing. Two rollout-created shapes of old cache
+  row were stuck this way until their TTL happened to expire: rows written back when there was no
+  GeoIP database installed at all (2.15.1 and earlier, or an upgrade that never ran an update), and
+  rows written after 2.15.2 but before 2.15.3 added the ISO country code the flag needs. Both are
+  now recognised and refetched immediately instead of waited out — confirmed live against a
+  database that had exactly this stale mix (previously-empty and previously-flagless rows both
+  came back complete on the very next lookup, no cache flush or restart needed).
 
 * **GeoIP database now auto-updates itself**, on by default (monthly) — turned on for the exact
   reason 2.15.2 needed a manual "Update now" click at all: nobody should have to find that button
