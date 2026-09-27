@@ -125,11 +125,18 @@ function ipInlineLazy(ip) {
 /** The "Network context" section for an alert/event's detail dialog: every IP address its
  * `raw_details` mentions, each inline with its context line, clickable for the full panel. `null`
  * (render nothing) when there is nothing to show, so a rule with no IPs in it looks exactly as it
- * did before this existed. */
+ * did before this existed.
+ *
+ * Always a fresh, on-demand lookup (`ipInlineLazy`), not the possibly-still-empty `ip_info` the
+ * list endpoint already attached: a person opening one specific alert is exactly the "wait a
+ * moment for one item" case `IP_ENRICHMENT.md` §8 describes, and a brand-new destination (the
+ * most common reason to be looking at all) has usually not been resolved by the background
+ * worker yet — showing nothing until a page reload would defeat the point of showing this here
+ * at all. */
 function ipContextSection(details) {
   const entries = findIpEntries(details);
   if (!entries.length) return null;
   return el('div', { class: 'ip-context-section' },
     el('b', { text: tr('Network context') }),
-    ...entries.map((e) => el('div', { class: 'ip-context-row' }, e.label ? el('span', { class: 'tag', text: e.label }) : null, ipInline(e.ip, e.info))));
+    ...entries.map((e) => el('div', { class: 'ip-context-row' }, e.label ? el('span', { class: 'tag', text: e.label }) : null, ipInlineLazy(e.ip))));
 }

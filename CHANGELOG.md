@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.15.2: Fix — GeoIP data was never actually downloaded, and stale "Network context" in single-IP views
+
+* Found the real cause of a live report of a completely blank "Network context" in production: the
+  DB-IP Lite **download** itself had never been implemented — only the update mechanism (verify,
+  atomic swap) existed, so a fresh install had a configured source but no data behind it. DENIS now
+  really fetches `dbip-{city,asn}-lite-{month}.mmdb.gz` from DB-IP, decompresses and validates it
+  (parses as a real MMDB file), and installs it the same zero-downtime way as any other update.
+  Verified against DB-IP's real servers, not mocked.
+* New **"Update now"** button next to Settings → Network → Network Intelligence's GeoIP source,
+  for an admin to trigger that download on demand (hidden when the source is a custom file — there
+  is nothing to fetch for that).
+* Alerts, Events and a device's "Recent destinations" now always show a **fresh** lookup for the one
+  IP address actually being looked at, instead of whatever happened to already be cached when the
+  background enrichment worker got to it — the direct fix for addresses that were brand new and
+  hadn't been resolved yet when someone opened that specific alert.
+
 ## 2.15.1: Hotfix — dependency security advisories, and a missed enrichment spot
 
 * `cargo audit` caught two real advisories in 2.15.0's new dependencies right after release:

@@ -151,3 +151,49 @@ pub(crate) async fn lookup(State(st): State<AppState>, Path(ip): Path<String>) -
     let info = st.ipenrich.enrich_now(ip, now_ts()).await;
     Ok(Json(info).into_response())
 }
+
+#[derive(Serialize)]
+pub struct UpdateResp {
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// "Update now" (Settings): downloads DB-IP Lite's current release and points the running
+/// service at it immediately — only meaningful when the configured source is `DbIpLite` (a
+/// custom-file source has nothing for DENIS to fetch; the button is hidden for it client-side,
+/// but this refuses it server-side too, since a misbehaving client is not a security boundary
+/// this app should rely on the UI alone for).
+pub(crate) async fn update_geoip(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Response, ApiError> {
+    let geoip_cfg = blocking(&st.store, |s| Ok(settings::geoip_config(s))).await?;
+    if !matches!(geoip_cfg.source, ipenrich::GeoipSource::DbIpLite) {
+        return Ok(err(StatusCode::BAD_REQUEST, "the configured GeoIP source is a custom file, not DB-IP Lite - there is nothing to download"));
+    }
+    let dir = ipenrich::geoip::data_dir(st.shared.db_path.parent().unwrap_or_else(|| std::path::Path::new(".")));
+    let now = now_ts();
+    let result = tokio::task::spawn_blocking(move || ipenrich::geoip::update_now(&dir, now)).await;
+    let resp = match result {
+        Ok(Ok(version)) => {
+            let now2 = now_ts();
+            let v = version.clone();
+            blocking(&st.store, move |s| crate::store::SettingsStore::set_setting(s, "ipenrich.geoip_db_version", v.as_bytes(), now2)).await?;
+            let db_path = st.shared.db_path.clone();
+            let (ipenrich_h, store) = (st.ipenrich.clone(), st.store.clone());
+            blocking(&store, move |s| {
+                ipenrich::reconfigure_geoip(&ipenrich_h, s, &db_path);
+                Ok(())
+            })
+            .await?;
+            audit(&st, &me.username, "ipenrich.geoip.update", None, json!({"ok": true, "version": version}));
+            UpdateResp { ok: true, version: Some(version), error: None }
+        }
+        Ok(Err(e)) => {
+            audit(&st, &me.username, "ipenrich.geoip.update", None, json!({"ok": false, "error": e.to_string()}));
+            UpdateResp { ok: false, version: None, error: Some(format!("{e:#}")) }
+        }
+        Err(_) => UpdateResp { ok: false, version: None, error: Some("internal error".to_string()) },
+    };
+    Ok(Json(resp).into_response())
+}

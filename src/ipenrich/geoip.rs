@@ -224,6 +224,73 @@ pub fn data_dir(base: &Path) -> PathBuf {
     base.join("geoip")
 }
 
+// ------------------------------------------------------------------------------- DB-IP Lite download
+
+/// DB-IP's own free-tier download host — https://db-ip.com, CC BY 4.0 (`DB_IP_ATTRIBUTION`).
+const DB_IP_BASE: &str = "https://download.db-ip.com/free";
+/// A City-Lite file is tens of MB; refuse anything absurd rather than an unbounded read.
+const MAX_DOWNLOAD_BYTES: u64 = 200 * 1024 * 1024;
+
+fn fetch(url: &str) -> Result<Vec<u8>> {
+    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(120))).http_status_as_error(true).build().into();
+    let mut resp = agent.get(url).header("User-Agent", concat!("denis/", env!("CARGO_PKG_VERSION"))).call().with_context(|| format!("fetching {url}"))?;
+    resp.body_mut().with_config().limit(MAX_DOWNLOAD_BYTES).read_to_vec().with_context(|| format!("downloading {url}"))
+}
+
+fn gunzip(bytes: &[u8]) -> Result<Vec<u8>> {
+    use std::io::Read;
+    let mut out = Vec::new();
+    flate2::read::GzDecoder::new(bytes).read_to_end(&mut out).context("decompressing the downloaded database")?;
+    Ok(out)
+}
+
+/// Downloads and installs DB-IP Lite's city and ASN databases for one `"YYYY-MM"` release into
+/// `dir` — the actual network call behind §10's update mechanism. DB-IP's free Lite files have no
+/// published checksum to verify against (unlike a GitHub release's signed checksums), so beyond
+/// what HTTPS itself already guarantees against tampering in transit, the only integrity check
+/// possible is "does it parse as a real MMDB file" — exactly what `atomic_install`'s caller here
+/// does before ever touching what is currently installed, same as `verify_and_stage`'s reasoning.
+fn download_and_install(dir: &Path, month: &str) -> Result<()> {
+    std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    for (kind, name) in [("city", "city-current.mmdb"), ("asn", "asn-current.mmdb")] {
+        let url = format!("{DB_IP_BASE}/dbip-{kind}-lite-{month}.mmdb.gz");
+        let bytes = gunzip(&fetch(&url)?)?;
+        let stage = dir.join(format!("{name}.download"));
+        std::fs::write(&stage, &bytes).with_context(|| format!("writing {}", stage.display()))?;
+        if let Err(e) = maxminddb::Reader::open_readfile(&stage) {
+            let _ = std::fs::remove_file(&stage);
+            bail!("downloaded {kind} database does not parse as a valid MMDB file: {e}");
+        }
+        atomic_install(&stage, &dir.join(name))?;
+    }
+    Ok(())
+}
+
+/// This month's release and the one before it, "YYYY-MM" — DB-IP publishes a few days into each
+/// month, so a check run early falls back to the still-current previous release instead of
+/// finding nothing.
+fn candidate_months(now: i64) -> Result<[String; 2]> {
+    let dt = time::OffsetDateTime::from_unix_timestamp(now).context("bad timestamp")?;
+    let (y, m) = (dt.year(), dt.month() as u8 as i32);
+    let (py, pm) = if m == 1 { (y - 1, 12) } else { (y, m - 1) };
+    Ok([format!("{y:04}-{m:02}"), format!("{py:04}-{pm:02}")])
+}
+
+/// Tries this month's release, then last month's — called from the Settings "Update now" button
+/// and (when `auto_update` is on) the periodic background job. Returns the version actually
+/// installed.
+pub fn update_now(dir: &Path, now: i64) -> Result<String> {
+    let months = candidate_months(now)?;
+    let mut last_err = None;
+    for month in &months {
+        match download_and_install(dir, month) {
+            Ok(()) => return Ok(month.clone()),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no release month to try")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

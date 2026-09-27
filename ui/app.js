@@ -1050,7 +1050,7 @@ async function showDetail(id) {
     ]),
     el('h3', { text: tr('Recent destinations') }),
     el('div', {}, ...bl.destinations.slice(0, 10).map((d) => el('div', { class: 'ip-context-row' },
-      ipInline(d.ip, d.ip_info), el('span', { class: 'muted small', text: `${tr('last {t}', { t: ago(d.last_seen) })} · ${mb(d.bytes)}` })))),
+      ipInlineLazy(d.ip), el('span', { class: 'muted small', text: `${tr('last {t}', { t: ago(d.last_seen) })} · ${mb(d.bytes)}` })))),
     el('h3', { text: tr('Active hours (local time)') }),
     hoursChart(bl.active_hours),
   ] : [el('div', { class: 'muted', text: tr('No traffic baseline yet. It is built from flow accounting (--flows) for traffic that crosses the monitoring interface.') })];

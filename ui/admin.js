@@ -1509,9 +1509,19 @@ $('retention-save').onclick = async () => {
 // -------------------------------------------------------------- IP enrichment (Network Intelligence)
 
 function ipenrichSyncForm() {
-  $('ipenrich-custom-row').hidden = $('ipenrich-geoip-source').value !== 'custom';
+  const custom = $('ipenrich-geoip-source').value === 'custom';
+  $('ipenrich-custom-row').hidden = !custom;
+  $('ipenrich-geoip-update').hidden = custom; // nothing to fetch for a customer's own file
 }
 $('ipenrich-geoip-source').onchange = ipenrichSyncForm;
+$('ipenrich-geoip-update').onclick = async () => {
+  $('ipenrich-geoip-update').disabled = true;
+  $('ipenrich-geoip-update-msg').textContent = tr('Downloading…');
+  const r = await api('POST', '/api/ip-enrichment/geoip/update');
+  $('ipenrich-geoip-update').disabled = false;
+  $('ipenrich-geoip-update-msg').textContent = r.ok && r.json.ok ? tr('Updated to {version}.', { version: r.json.version }) : (r.ok ? r.json.error : apiError(r));
+  if (r.ok && r.json.ok) loadIpenrichBox();
+};
 
 async function loadIpenrichBox() {
   if (!can('admin')) return;
