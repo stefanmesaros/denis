@@ -70,6 +70,7 @@ pub mod trends;
 pub mod web;
 pub mod web_admin;
 pub mod web_ai;
+pub mod web_ipenrich;
 pub mod web_health;
 pub mod web_passkey;
 pub mod web_reports;

@@ -108,6 +108,19 @@ impl Service {
         *self.ttls.write().unwrap() = ttls;
     }
 
+    /// The three small accessors `web_ipenrich.rs`'s status/settings handlers need — reading the
+    /// live, already-running provider/resolver rather than re-reading `SettingsStore` (which
+    /// would not reflect a change made through `set_dns_config` until the next restart).
+    pub fn dns_enabled(&self) -> bool {
+        self.dns.config().enabled
+    }
+    pub fn geoip_status(&self) -> super::types::ProviderStatus {
+        self.geoip.status()
+    }
+    pub fn set_dns_config(&self, cfg: super::dns::DnsConfig) {
+        self.dns.set_config(cfg);
+    }
+
     /// Classify + read-only cache lookup for every one of `ips` — never calls a provider, never
     /// blocks. Exactly what `detect.rs` calls while building an event's `destinations`/`ip`
     /// fields: whatever is already known is included, and nothing here ever waits for more.

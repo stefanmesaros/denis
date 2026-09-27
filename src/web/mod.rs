@@ -40,6 +40,7 @@ use crate::web_siem as siem_page;
 use crate::web_vuln as vuln_page;
 use crate::web_passkey as passkey;
 use crate::web_ai as ai_page;
+use crate::web_ipenrich as ipenrich_page;
 use crate::web_sso as sso_page;
 use crate::{report, trends};
 use crate::store::EventQuery;
@@ -116,6 +117,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai", get(ai_page::status))
         .route("/api/ai/settings", get(ai_page::get).put(ai_page::put))
         .route("/api/ai/explain", post(ai_page::explain))
+        .route("/api/ip-enrichment", get(ipenrich_page::status))
+        .route("/api/ip-enrichment/settings", get(ipenrich_page::get).put(ipenrich_page::put))
+        .route("/api/ip-enrichment/{ip}", get(ipenrich_page::lookup))
         .route("/api/auth/sso", get(sso_page::status))
         .route("/api/auth/sso/login", get(sso_page::login))
         .route("/api/auth/sso/callback", get(sso_page::callback))
@@ -221,7 +225,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path.starts_with("/api/ai/settings") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path.starts_with("/api/ai/settings") || path.starts_with("/api/ip-enrichment/settings") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -1388,6 +1392,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ip_enrichment_settings_are_admin_only_validated_and_a_lookup_never_touches_a_private_address() {
+        let (app, _store, [viewer, editor, admin]) = secured().await;
+
+        // defaults, readable by anyone signed in, and the DB-IP attribution is always present
+        let (st, _, v) = send(&app, req("GET", "/api/ip-enrichment", Some(&viewer), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(v["attribution"].as_str().unwrap().contains("DB-IP"), "{v}");
+        // `secured()`'s app uses `ipenrich::test_service` (DNS off, no database) so this whole
+        // test suite never touches the network — the default *config* is still enabled=true
+        // (asserted just below, reading it back from `/settings`), only the live test service
+        // itself starts disabled.
+        assert_eq!(v["dns_enabled"], false);
+
+        let (_, _, v) = send(&app, req("GET", "/api/ip-enrichment/settings", Some(&viewer), None)).await;
+        assert_eq!(v["dns"]["primary"].as_str(), Some("1.1.1.1"));
+        assert_eq!(v["cache_geoip_ttl_secs"].as_i64(), Some(30 * 86_400));
+        assert_eq!(v["custom_api_secret_set"], false);
+
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("PUT", "/api/ip-enrichment/settings", Some(c), Some(serde_json::json!({"dns": {"enabled": false, "primary": "9.9.9.9", "secondary": null, "timeout_ms": 500}})))).await.0, StatusCode::FORBIDDEN);
+        }
+        // validated: a resolver that is not an IP address is refused
+        assert_eq!(send(&app, req("PUT", "/api/ip-enrichment/settings", Some(&admin), Some(serde_json::json!({"dns": {"enabled": true, "primary": "not-an-ip", "secondary": null, "timeout_ms": 2000}})))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, req("PUT", "/api/ip-enrichment/settings", Some(&admin), Some(serde_json::json!({"cache_geoip_ttl_secs": 1})))).await.0, StatusCode::BAD_REQUEST);
+
+        let (st, _, v) = send(&app, req("PUT", "/api/ip-enrichment/settings", Some(&admin), Some(serde_json::json!({"dns": {"enabled": false, "primary": "9.9.9.9", "secondary": null, "timeout_ms": 500}, "custom_api_secret": "sk_live_abc"})))).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["dns"]["enabled"], false);
+        assert_eq!(v["dns"]["primary"].as_str(), Some("9.9.9.9"));
+        assert_eq!(v["custom_api_secret_set"], true, "{v}");
+        assert!(v.get("custom_api_secret").is_none(), "the secret itself is never echoed back");
+
+        // took effect immediately: the public status now reflects dns being off, no restart
+        let (_, _, v) = send(&app, req("GET", "/api/ip-enrichment", Some(&viewer), None)).await;
+        assert_eq!(v["dns_enabled"], false);
+
+        // a private address is never sent to a provider and never blocks — classification alone
+        let (st, _, v) = send(&app, req("GET", "/api/ip-enrichment/192.168.1.1", Some(&viewer), None)).await;
+        assert_eq!((st, v["classification"].as_str()), (StatusCode::OK, Some("private")));
+        assert!(v.get("country").is_none() || v["country"].is_null());
+
+        // not a valid address at all: a plain 400, not a panic
+        assert_eq!(send(&app, req("GET", "/api/ip-enrichment/not-an-ip", Some(&viewer), None)).await.0, StatusCode::BAD_REQUEST);
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("ipenrich.settings.update"), "{audit}");
+    }
+
+    #[tokio::test]
     async fn data_retention_is_admin_only_defaults_sensibly_and_is_validated() {
         let (app, _store, [viewer, editor, admin]) = secured().await;
         for u in [&viewer, &editor] {
@@ -1731,6 +1784,7 @@ mod tests {
             (M::GET, "/api/branding", "viewer"), (M::GET, "/api/backups", "admin"), (M::GET, "/api/backups/denis-auto-x.db", "admin"), (M::POST, "/api/backups", "admin"), (M::GET, "/api/system", "viewer"), (M::POST, "/api/reports", "editor"), (M::GET, "/api/reports/3", "viewer"), (M::PUT, "/api/reports/settings", "admin"), (M::DELETE, "/api/reports/3", "admin"), (M::GET, "/api/rules", "viewer"), (M::PUT, "/api/rules", "admin"), (M::DELETE, "/api/rules", "admin"),
             (M::POST, "/api/auth/password", "viewer"), (M::POST, "/api/auth/logout", "viewer"),
             (M::GET, "/api/retention", "admin"), (M::PUT, "/api/retention", "admin"),
+            (M::GET, "/api/ip-enrichment", "viewer"), (M::GET, "/api/ip-enrichment/settings", "viewer"), (M::PUT, "/api/ip-enrichment/settings", "admin"), (M::GET, "/api/ip-enrichment/8.8.8.8", "viewer"),
         ] {
             assert_eq!(required_role(&m, p), want, "{m} {p}");
         }
