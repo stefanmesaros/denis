@@ -12,6 +12,7 @@ pub mod dns;
 pub mod geoip;
 pub mod provider;
 pub mod service;
+pub mod settings;
 pub mod types;
 
 pub use cache::Cache;
