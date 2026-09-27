@@ -36,6 +36,8 @@ pub struct AppState {
     pub secure_cookie: bool,
     /// What edition/cap is in force (see `license`). Defaults to the Community edition.
     pub license: crate::license::Effective,
+    /// IP enrichment (`crate::ipenrich`): reverse DNS + GeoIP/ASN, cached, provider-swappable.
+    pub ipenrich: Arc<crate::ipenrich::Service>,
 }
 
 /// Name of the session cookie.
