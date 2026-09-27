@@ -6,8 +6,10 @@
 //! `classify` (public/private/loopback/… detection). The rest (`cache`, `dns`, `geoip`,
 //! `provider`) land in following commits.
 
+pub mod cache;
 pub mod classify;
 pub mod types;
 
+pub use cache::Cache;
 pub use classify::Classification;
 pub use types::{Capabilities, EnrichedIp, Health, IpInfo, ProviderStatus};
