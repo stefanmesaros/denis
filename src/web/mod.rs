@@ -691,7 +691,7 @@ async fn baseline(State(st): State<AppState>, Extension(AuthUser(me)): Extension
                 .take(50)
                 .map(|(ip, d)| serde_json::json!({"ip": ip, "first_seen": d.first_seen, "last_seen": d.last_seen, "bytes": d.bytes}))
                 .collect();
-            Json(serde_json::json!({
+            let mut body = serde_json::json!({
                 "asset_id": b.asset_id,
                 "observed_since": b.observed_since,
                 "buckets": b.buckets,
@@ -701,8 +701,13 @@ async fn baseline(State(st): State<AppState>, Extension(AuthUser(me)): Extension
                 "volume": {"n": b.volume.n, "mean": b.volume.mean, "std": b.volume.var.sqrt()},
                 "active_hours": b.active_hours,
                 "updated_at": b.updated_at,
-            }))
-            .into_response()
+            });
+            // a device's own traffic baseline is exactly where a customer wants to know *what* a
+            // "typical destination" actually is (country/ASN/ISP/reverse-DNS), not just its bare
+            // address — see ipenrich::decorate's module docs for why this is response-layer, not
+            // computed when the baseline itself is built.
+            crate::ipenrich::decorate(&st.ipenrich, &mut body, now_ts());
+            Json(body).into_response()
         }
         // `null`, not 404: most devices have no traffic baseline (no flow
         // accounting), and the browser logs every 404 as a console error.
@@ -1611,6 +1616,10 @@ mod tests {
         store.save_baseline(&b).unwrap();
         let (code, v) = get_json(&app, &format!("/api/assets/{}/baseline", a.id), "localhost").await;
         assert_eq!((code, v["destinations"][0]["ip"].as_str(), v["destination_count"].as_i64()), (StatusCode::OK, Some("2.2.2.2"), Some(2)));
+        // a typical destination is exactly where a customer wants to know what an address
+        // actually is (country/ASN/ISP/reverse-DNS) — both listed IPs here are public
+        assert_eq!(v["destinations"][0]["ip_info"]["classification"], "public", "{v}");
+        assert_eq!(v["destinations"][1]["ip_info"]["classification"], "public");
 
         // agents
         assert!(get_json(&app, "/api/agents", "localhost").await.1.as_array().unwrap().is_empty());

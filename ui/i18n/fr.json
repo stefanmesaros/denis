@@ -1519,6 +1519,7 @@
 "label too long": "libellé trop long",
 "laptop": "portable",
 "last used {ago}": "dernière utilisation {ago}",
+"last {t}": "dernier {t}",
 "leak sensor": "détecteur de fuite",
 "learned from the switch": "appris par le commutateur",
 "levels": "niveaux",

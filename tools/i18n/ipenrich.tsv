@@ -49,3 +49,4 @@ database version {v} || Datenbankversion {v} || version de base {v} || versión 
 Approximate location — never a precise physical address. || Ungefährer Standort — niemals eine genaue physische Adresse. || Localisation approximative — jamais une adresse physique précise. || Ubicación aproximada — nunca una dirección física precisa. || Približná poloha — nikdy presná fyzická adresa.
 Nothing is known about this address yet. || Über diese Adresse ist noch nichts bekannt. || Rien n'est encore connu sur cette adresse. || Aún no se sabe nada sobre esta dirección. || O tejto adrese zatiaľ nie je nič známe.
 Network context || Netzwerkkontext || Contexte réseau || Contexto de red || Sieťový kontext
+last {t} || zuletzt {t} || dernier {t} || último {t} || naposledy {t}

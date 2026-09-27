@@ -1519,6 +1519,7 @@
 "label too long": "etiqueta demasiado larga",
 "laptop": "portátil",
 "last used {ago}": "último uso {ago}",
+"last {t}": "último {t}",
 "leak sensor": "sensor de fugas",
 "learned from the switch": "aprendido del conmutador",
 "levels": "niveles",

@@ -1519,6 +1519,7 @@
 "label too long": "popis je príliš dlhý",
 "laptop": "notebook",
 "last used {ago}": "naposledy použité {ago}",
+"last {t}": "naposledy {t}",
 "leak sensor": "senzor úniku vody",
 "learned from the switch": "zistené zo switchu",
 "levels": "úrovne",

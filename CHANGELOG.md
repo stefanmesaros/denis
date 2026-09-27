@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.15.1: Hotfix — dependency security advisories, and a missed enrichment spot
+
+* `cargo audit` caught two real advisories in 2.15.0's new dependencies right after release:
+  `hickory-proto` (O(n²) name-compression DoS, RUSTSEC-2026-0119) and `maxminddb` (an unsound
+  `open_mmap`, RUSTSEC-2025-0132, which DENIS never actually calls, but the fix is the right floor
+  regardless). Bumped both past the fixed versions and adapted to their breaking API changes.
+* A device's own traffic baseline ("Recent destinations") now gets the same country/ASN/ISP/
+  reverse-DNS context as Alerts and Events — the one place IP enrichment was still missing where a
+  customer would actually look for it (a device's own IP history, unlike this, is almost always
+  private/LAN and was never a useful place for it).
+
 ## 2.15.0: IP Enrichment — GeoIP, ASN and reverse DNS for every public address DENIS shows
 
 * Every public IP address the console mentions (Alerts, Events, a device's IP history) now gets a

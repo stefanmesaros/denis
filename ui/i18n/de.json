@@ -1519,6 +1519,7 @@
 "label too long": "Bezeichnung zu lang",
 "laptop": "Laptop",
 "last used {ago}": "zuletzt verwendet {ago}",
+"last {t}": "zuletzt {t}",
 "leak sensor": "Leckagesensor",
 "learned from the switch": "vom Switch gelernt",
 "levels": "Ebenen",
