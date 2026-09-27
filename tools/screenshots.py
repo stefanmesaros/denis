@@ -54,7 +54,7 @@ shots = [
     ("topology", "#topology", 1280, 820), ("ot", "#ot", 1280, 1250), ("trends", "#trends", 1280, 520), ("top-talkers", "#trends", 1280, 1950),
     ("sites", "#agents", 1280, 460), ("icon-picker", f"#icons/{by['Reception printer']}", 1280, 1000), ("account", "#account", 1280, 640),
     ("alerting", "#alerting", 1280, 1000), ("users", "#users", 1280, 620), ("settings", "#settings", 1280, 1120),
-    ("network-intelligence", "#settings/ipenrich", 1280, 1000), ("audit", "#audit", 1280, 760),
+    ("network-intelligence", "#settings/ipenrich", 1280, 1350), ("audit", "#audit", 1280, 760),
 ]
 for name, frag, w, h in shots:
     path = os.path.join(out, name + ".png")

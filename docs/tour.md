@@ -239,16 +239,23 @@ the real network ([details](operations.md#demo-data-and-starting-clean-erase-all
 
 ![Network Intelligence](img/network-intelligence.png)
 
-Under *Settings* → **Network** → **Network Intelligence**: country, city, ASN, AS organisation, ISP and reverse-DNS
-hostname for every public IP address the console shows (Alerts, Events, a device's IP history) — looked up locally
-from a GeoIP database, never sent to a third party per address. A private/loopback/link-local/multicast/reserved
-address is never geolocated at all, only classified as such.
+Every public IP address the console shows (Alerts, Events, a device's Recent destinations and IP history) gets a
+flag, AS organisation, ASN and reverse-DNS hostname right next to it — no extra click needed. The flag comes first,
+with the country's name as a hover tooltip rather than spelled out in text; the reverse-DNS hostname, usually the
+longest part by far, sits on its own line underneath. A private/loopback/link-local/multicast/reserved address is
+never geolocated at all, only classified as such. Clicking the address itself still opens a full detail panel with
+coordinates, connection type and which GeoIP database answered.
+
+Under *Settings* → **Network** → **Network Intelligence**:
 
 * **Reverse DNS**: on by default (resolver `1.1.1.1`, secondary `1.0.0.1`, 2000 ms timeout) — change the
   resolver(s) and timeout, or switch it off entirely.
 * **GeoIP database**: **DB-IP Lite** by default (free, [CC BY 4.0](https://db-ip.com)), or point it at your own
-  MaxMind-format `.mmdb` file(s) if you have a licensed database — DENIS never distributes one for you. The
-  provider/version/last-updated date is shown live, and a Settings save takes effect immediately, no restart.
+  MaxMind-format `.mmdb` file(s) if you have a licensed database — DENIS never distributes one for you.
+  **Automatically update** is on by default (monthly) — DB-IP Lite downloads and installs its own current release
+  on its own, so a fresh install never has to wait for someone to notice a manual button. Choose Daily/Weekly/
+  Monthly, or turn it off for on-demand-only ("Update now"). The provider/version/last-updated date is shown live,
+  and a Settings save takes effect immediately, no restart.
 * **Cache**: GeoIP answers are kept for 30 days, reverse-DNS answers for 24 hours, by default — both adjustable.
   The same address is never looked up twice while its cached answer is still fresh, however many alerts mention it.
 * Nothing about this ever slows down or blocks device discovery, alerting or event processing: enrichment happens

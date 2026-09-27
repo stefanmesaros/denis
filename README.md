@@ -46,8 +46,9 @@ network itself rather than trusting whatever was last typed into a CMDB.
 3. **Understand.** A per-device traffic baseline (destinations, ports, volume, active hours — needs `--flows`), an
    industrial communications matrix (who talks to whom, over which protocol, reads vs. writes vs. control), "Top
    talkers" leaderboards for who is moving the most data, and — for any public IP address mentioned anywhere —
-   country, ASN, ISP and reverse-DNS hostname from a local GeoIP database (DB-IP Lite by default, or your own
-   licensed MaxMind file), never a live lookup that sends your traffic's addresses to a third party.
+   country (flag included), ASN, AS organisation and reverse-DNS hostname from a local GeoIP database (DB-IP Lite
+   by default, auto-updated monthly, or your own licensed MaxMind file), never a live lookup that sends your
+   traffic's addresses to a third party.
 4. **Detect, with a score you can read.** New device, rogue DHCP server, ARP hijack / gateway takeover, a new
    destination or port, unusual volume or hour, a device gone silent, a burst of newcomers, contact with a
    known-bad address — each scored 0–100 with the factors behind the score and what to do about it. No black-box
@@ -176,8 +177,8 @@ your actual register — three of the console's 20-odd pages ([more screenshots 
 | Communications matrix | Who talks to whom, which protocol, reads/writes/control commands |
 | Dashboard | 12 clickable KPI tiles, trend charts, risk/severity/type breakdowns, recent alerts, most at-risk devices — the home screen |
 | SNMP topology | Switch ports, LLDP neighbours, MAC-to-port physical map |
-| IP enrichment | Country, city, ASN, ISP, reverse-DNS hostname for any public IP (Alerts, Events, device history) — local GeoIP (DB-IP Lite or your own MMDB), never sent to a third party |
-| Vulnerability & EOL findings | Live CISA/NVD known-exploited feed (+ EPSS score) and end-of-support dates, matched per device |
+| IP enrichment | Country (flag), city, ASN, AS organisation, reverse-DNS hostname for any public IP (Alerts, Events, Recent destinations, IP history) — local GeoIP (DB-IP Lite, auto-updated, or your own MMDB), never sent to a third party |
+| Vulnerability & EOL findings | Live CISA/NVD known-exploited feed (+ EPSS score) and end-of-support dates, matched per device — both refreshed automatically by default |
 | Alerts | Slack, Teams, Discord, PagerDuty, Pushover, ntfy, e-mail, Jira, ServiceNow, signed webhook — per-channel threshold, digests, maintenance mode |
 | Compliance | CIS v8, NIST CSF 2.0, IEC 62443-3-3, NIST SP 800-82, ISO 27001 Annex A, NIS2, DORA, PCI DSS v4.0, HIPAA, SOC 2, CMMC 2.0 (evidence, not certification) |
 | Reports | Saved, scheduled (optionally e-mailed as a share link), viewable/downloadable/printable |
