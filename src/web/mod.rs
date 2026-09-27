@@ -439,6 +439,21 @@ async fn metrics(State(st): State<AppState>) -> Result<Response, ApiError> {
         e.gauge("denis_backup_age_seconds", "Age of the newest backup.", (now - t).max(0) as f64);
     }
     e.gauge("denis_maintenance_mode", "1 while outgoing notifications are silenced.", maint.active(now) as u8 as f64);
+    {
+        use std::sync::atomic::Ordering::Relaxed;
+        let m = &st.ipenrich.metrics;
+        e.gauge("ip_enrichment_total", "IP addresses enriched (geoip or dns) since start.", m.enrichment_total.load(Relaxed) as f64);
+        e.gauge("ip_enrichment_cache_hits", "IP enrichment lookups answered entirely from cache.", m.cache_hits.load(Relaxed) as f64);
+        e.gauge("ip_enrichment_cache_misses", "IP enrichment lookups that needed a fresh geoip/dns fetch.", m.cache_misses.load(Relaxed) as f64);
+        e.gauge("ip_enrichment_errors", "IP enrichment cache writes that failed.", m.errors.load(Relaxed) as f64);
+        e.gauge("dns_lookup_total", "Reverse-DNS lookups attempted since start.", m.dns_total.load(Relaxed) as f64);
+        e.gauge("dns_lookup_cache_hits", "Reverse-DNS answers served from cache.", m.dns_cache_hits.load(Relaxed) as f64);
+        e.gauge("dns_lookup_errors", "Reverse-DNS lookups that failed (timeout, unreachable, ...).", m.dns_errors.load(Relaxed) as f64);
+        e.gauge("ip_enrichment_queue_dropped", "IPs dropped from the background enrichment queue because it was full.", m.queue_dropped.load(Relaxed) as f64);
+        let gs = st.ipenrich.geoip_status();
+        e.family("ip_enrichment_geoip_up", "gauge", "1 if the configured GeoIP provider is healthy.");
+        e.sample("ip_enrichment_geoip_up", &[("provider", &gs.name)], (gs.health == crate::ipenrich::Health::Ok) as u8 as f64);
+    }
     Ok((
         [(header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8".to_string())],
         e.finish(),
@@ -2809,7 +2824,7 @@ mod tests {
         } };
         let (st, body) = scrape(req("GET", "/metrics", Some(&viewer), None)).await;
         assert_eq!(st, StatusCode::OK);
-        for want in ["denis_up 1", "denis_devices 1", "denis_devices_online 1", "denis_devices_by_type{type=\"camera\"} 1", "denis_alerts_unacknowledged{severity=\"high\"} 0", "denis_maintenance_mode 0", "denis_build_info{version="] {
+        for want in ["denis_up 1", "denis_devices 1", "denis_devices_online 1", "denis_devices_by_type{type=\"camera\"} 1", "denis_alerts_unacknowledged{severity=\"high\"} 0", "denis_maintenance_mode 0", "denis_build_info{version=", "ip_enrichment_total 0", "dns_lookup_total 0", "ip_enrichment_geoip_up{provider="] {
             assert!(body.contains(want), "{want}\n{body}");
         }
         assert!(!body.contains("secret-host-name") && !body.contains("02:00:00"), "no names or addresses");
