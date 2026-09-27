@@ -4,6 +4,7 @@
 
 pub mod cache;
 pub mod classify;
+pub mod decorate;
 pub mod dns;
 pub mod geoip;
 pub mod provider;
@@ -13,6 +14,7 @@ pub mod types;
 
 pub use cache::Cache;
 pub use classify::Classification;
+pub use decorate::{decorate, decorate_all};
 pub use dns::{DnsConfig, Resolver as DnsResolver};
 pub use geoip::{GeoipConfig, GeoipSource, MmdbProvider};
 pub use provider::GeoipProvider;

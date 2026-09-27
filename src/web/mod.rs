@@ -543,6 +543,7 @@ async fn events(
     let q: EventQuery = q.into();
     let mut list = blocking(&st.store, move |s| s.list_events(&q)).await?;
     list.retain(|e| site_readable(&st, &me, &e.agent_id));
+    decorate_ip_fields(&st, &mut list);
     Ok(Json(list))
 }
 
@@ -555,7 +556,21 @@ async fn alerts(
     let q = EventQuery { alerts_only: true, ..q.into() };
     let mut list = blocking(&st.store, move |s| s.list_events(&q)).await?;
     list.retain(|e| site_readable(&st, &me, &e.agent_id));
+    decorate_ip_fields(&st, &mut list);
     Ok(Json(list))
+}
+
+/// Adds a sibling `ip_info` object next to every `"ip"` field an event's `raw_details` already
+/// has (`destinations[].ip`, `client.ip`, `server.ip`, …) — see `ipenrich::decorate` for why this
+/// lives at the response layer rather than inside `detect.rs`. Read-only against the cache and
+/// batched across the whole page in one call; never blocks, never fails a response.
+fn decorate_ip_fields(st: &AppState, events: &mut [crate::model::Event]) {
+    let now = now_ts();
+    let mut details: Vec<serde_json::Value> = events.iter_mut().map(|e| e.raw_details.take()).collect();
+    crate::ipenrich::decorate_all(&st.ipenrich, &mut details, now);
+    for (e, d) in events.iter_mut().zip(details) {
+        e.raw_details = d;
+    }
 }
 
 async fn set_ack(st: AppState, me: &User, id: i64, acked: bool) -> Result<Response, ApiError> {
@@ -1438,6 +1453,28 @@ mod tests {
 
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
         assert!(audit.contains("ipenrich.settings.update"), "{audit}");
+    }
+
+    #[tokio::test]
+    async fn alerts_and_events_carry_ip_info_next_to_every_ip_field_in_their_raw_details() {
+        let (app, store) = app(true);
+        let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 4, 5, 6]), 10);
+        store.save_asset(&mut a).unwrap();
+        let mut e = crate::model::Event {
+            id: 0, agent_id: None, asset_id: a.id, kind: "new_destination".into(), timestamp: 5,
+            severity: "high".into(), score: 85, acked: false,
+            raw_details: serde_json::json!({"summary": "x", "destinations": [{"ip": "8.8.8.8", "proto": "tcp", "port": 443}, {"ip": "10.0.0.9", "proto": "tcp", "port": 80}]}),
+        };
+        store.insert_event(&mut e).unwrap();
+
+        for path in ["/api/alerts", "/api/events"] {
+            let (code, v) = get_json(&app, path, "localhost").await;
+            assert_eq!(code, StatusCode::OK);
+            let dests = &v[0]["raw_details"]["destinations"];
+            assert_eq!(dests[0]["ip_info"]["classification"], "public", "{path}: {v}");
+            assert_eq!(dests[1]["ip_info"]["classification"], "private", "a private destination still gets classified, just never geo-looked-up: {path}");
+            assert!(dests[1]["ip_info"]["country"].is_null());
+        }
     }
 
     #[tokio::test]
