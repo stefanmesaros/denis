@@ -135,17 +135,29 @@ Resolver, Secondary DNS Resolver, Timeout, Enable Reverse DNS toggle, GeoIP sour
 for update" / "Update now" buttons, last-updated date, and the DB-IP CC BY 4.0 attribution line
 (also duplicated into a public "About" line, unauthenticated, like `branding` already is).
 
-## 7. Cache
+## 7. Cache — in-memory hot path, SQLite for persistence (decided: both)
 
-In-memory, not a new SQLite table: `DashMap<IpAddr, CacheEntry>`-style (or `Mutex<HashMap>` if a
-new dependency is unwanted — `store/mod.rs` already avoids extra crates where std suffices) with
-two independent TTLs (GeoIP 30d, rDNS 24h) checked per-field, so a hostname can expire and be
-re-resolved without discarding the still-fresh GeoIP data for the same IP. A `dashboard`-style
-in-process cache (not persisted) is enough to satisfy "central cache, not per-event" and "same IP
-across many events costs one lookup" — it just starts cold after a restart, which is acceptable
-(a MMDB lookup is a microsecond-scale local read either way). *Noted as a deliberate simplification
-to flag for review* — persisting the cache in SQLite is a small follow-up if restarts turn out to
-matter in practice (busy sites would otherwise re-resolve rDNS for up to 24h of traffic once).
+Two layers, not one:
+- **In-memory** (`Mutex<HashMap<IpAddr, CacheEntry>>`, no new dependency): the hot path every
+  lookup checks first. Sub-microsecond, holds whatever this process has seen since it started.
+- **SQLite**, a new table via a new `IpCacheStore` trait (same shape as `MetricStore`, one more
+  small trait `sqlite.rs` implements, not a parallel storage mechanism):
+  ```rust
+  pub trait IpCacheStore: Send + Sync {
+      fn get_ip_cache(&self, ip: IpAddr) -> Result<Option<CacheEntry>>;
+      fn set_ip_cache(&self, ip: IpAddr, entry: &CacheEntry) -> Result<()>;
+      fn prune_ip_cache(&self, before: i64) -> Result<usize>; // mirrors prune_metrics
+  }
+  ```
+  `CacheEntry` carries the two independent TTL fields (GeoIP checked/expires-at, rDNS
+  checked/expires-at) so a stale hostname can be re-resolved without discarding still-fresh GeoIP
+  data for the same row.
+
+Lookup order: memory → (miss) SQLite, populating memory on a hit → (miss or expired) provider,
+writing through to both. This gives the speed the brief asks for (no per-event lookup, same IP
+across many events costs one real fetch) *and* survives a restart without re-resolving a busy
+site's whole recent traffic — the combination you asked for. `prune_ip_cache` runs from the same
+periodic job as the GeoIP update check (§10), so the table cannot grow unbounded.
 
 ## 8. Batch processing / dedup
 
@@ -264,21 +276,15 @@ underlying fetch (a `tokio::sync::Notify`/in-flight map, standard dedup-in-fligh
 `mod.rs`/integration: duplicate-IP batch dedup (500 unique from 10,000 events), a full "10 events,
 1 IP, 1 lookup" style test mirroring `top_talkers_sums_each_devices_destinations`'s style.
 
-## 17. Open questions for you before implementation starts
+## 17. Decisions (confirmed)
 
 1. **Settings placement**: reuse the existing "Network" category with a "Network Intelligence"
-   sub-heading (§6), or add a 7th top-level sidebar category? (Recommendation: reuse Network —
-   smaller change, and the brief's own wording is a heading, not a nav-level demand.)
-2. **New dependencies** (`maxminddb`, `hickory-resolver`) — OK to add, or would you rather I hand-roll
-   MMDB parsing / raw DNS packets to keep the dependency count at zero? (Recommendation: take the
-   dependencies — this is exactly the kind of wire-format code the project already prefers a
-   maintained crate for.)
-3. **Cache persistence**: in-memory only (cold after a restart) vs. a new SQLite table for
-   restart-durability. (Recommendation: in-memory for v1, revisit if it matters in practice.)
-4. Anything in §14's page mapping that should instead go somewhere else, or any additional page you
-   had in mind that isn't covered?
+   sub-heading (§6). Decided.
+2. **New dependencies**: `maxminddb` and `hickory-resolver`, both added. Decided.
+3. **Cache persistence**: both — in-memory hot path backed by a new SQLite table (§7). Decided.
+4. §14's page mapping stands as written unless something turns up during implementation.
 
-Once these are confirmed, implementation proceeds bottom-up: `classify.rs` → `cache.rs` → `dns.rs`
-→ `geoip.rs` (with a fixture DB) → `provider.rs`/`mod.rs` wiring → Settings UI → the four UI call
+Implementation proceeds bottom-up: `classify.rs` → `cache.rs` (memory + SQLite) → `dns.rs` →
+`geoip.rs` (with a fixture DB) → `provider.rs`/`mod.rs` wiring → Settings UI → the four UI call
 sites in §14 → metrics → the full test suite in §16 — each layer built, tested and committed before
 the next, same discipline as the rest of this session's work.
