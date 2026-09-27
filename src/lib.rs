@@ -26,6 +26,7 @@ pub mod fingerprint;
 pub mod flow;
 pub mod health;
 pub mod ingest;
+pub mod ipenrich;
 pub mod license;
 pub mod license_alerts;
 pub mod license_key;
