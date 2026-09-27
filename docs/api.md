@@ -91,6 +91,9 @@ Role = the lowest role allowed.
 | `POST /api/findings/{id}/verify` | editor | look again, optionally `{"asset_ids":[…]}`; returns `{rescanned, fixed, still_present, results:[{asset_id, status, detail}]}` with `status` one of `fixed`, `still_present`, `unreachable`, `excluded`, `not_probed` |
 | `PUT /api/rules` · `DELETE /api/rules` | admin | change rule settings (`{"min_score":40,"weights":{"new_device":0},"params":{"silent_minutes":240},"min_scores":{"new_port":45},"exceptions":{"new_device":[{"kind":"type","value":"printer"}]},"ot_watches":[…]}`, `null` = back to default; `ot_watches` is the whole list) · reset all |
 | `PUT /api/branding` · `PUT/DELETE /api/branding/logo` | admin | change branding (JSON) · upload/remove logo (raw PNG/JPEG/GIF/WebP, ≤256 KB) |
+| `GET /api/ip-enrichment` | viewer | public-ish status: `{dns_enabled, geoip:{name,health,detail,db_version,updated_at}, attribution}` |
+| `GET/PUT /api/ip-enrichment/settings` | viewer / admin | reverse-DNS resolver/secondary/timeout/on-off, GeoIP source (`DbIpLite` or `{"CustomMmdb":{"city_path","asn_path"}}`), cache TTLs in seconds, whether a custom API secret is set (never the secret itself); a `PUT` takes effect immediately, no restart |
+| `GET /api/ip-enrichment/{ip}` | viewer | on-demand, fresh lookup for one address: `{ip, classification, hostname, country, region, city, latitude, longitude, asn, as_org, isp, connection_type, geoip_source, geoip_db_version, dns_source}` — every field but `ip`/`classification` may be absent |
 
 ### Editing an asset
 
