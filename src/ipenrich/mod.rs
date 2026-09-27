@@ -8,8 +8,12 @@
 
 pub mod cache;
 pub mod classify;
+pub mod dns;
+pub mod provider;
 pub mod types;
 
 pub use cache::Cache;
 pub use classify::Classification;
+pub use dns::{DnsConfig, Resolver as DnsResolver};
+pub use provider::GeoipProvider;
 pub use types::{Capabilities, EnrichedIp, Health, IpInfo, ProviderStatus};
