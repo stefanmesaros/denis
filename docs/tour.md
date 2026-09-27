@@ -18,6 +18,21 @@ health of exports), the **language** picker, the **colour theme** button (auto /
 **Help** (this documentation), **Sign out** and **Scan now** (an immediate sweep and port scan; disabled in passive-only mode).
 A yellow banner appears while **maintenance mode** silences notifications.
 
+## Dashboard
+
+![Dashboard](img/dashboard.png)
+
+The home screen, and the first thing you see after signing in. Twelve at-a-glance counts (devices,
+online/offline, needs review, open alerts, high-severity alerts, OT devices, high-risk devices,
+findings needing attention, accepted risks, sites, new devices in the chosen period) — click any of
+them to jump straight to the filtered list behind it. Below: two trend charts (alerts raised,
+devices online) over a period you pick (24 hours / 7 days / 30 days), four donut breakdowns
+(devices by risk, open alerts by severity, devices by type, findings by severity — click a segment
+or its legend entry to drill into exactly what it shows), and three lists of what actually needs a
+look right now: recent alerts, the most at-risk devices, and standing findings. Every number here
+is drawn from state the console already has, so opening it costs nothing extra beyond its own two
+trend-chart requests. Every other tab is unchanged and still one click away in the sidebar.
+
 ## Tables: columns
 
 Every table with four or more columns has a **Columns** button above it. **Tick** the columns you want to see,
@@ -80,6 +95,12 @@ logged). Click an alert for the full story:
 *what happened*, *why it scored what it did*, and **what to do next**. **Acknowledge** an alert when it is handled;
 acknowledged alerts no longer count towards a device's risk score. **Alerts CSV** (a button, next to *show
 acknowledged*) exports the list.
+
+Any public IP address the alert mentions gets its own **Network context** section: the address, its country/ASN/ISP
+(or "private"/"loopback"/etc. for one that is not public), reverse-DNS hostname, and — click it — a full detail
+panel with coordinates, connection type and which GeoIP database answered. See
+[IP enrichment](#ip-enrichment) below for where this data comes from and how to configure it. The same section
+appears on the Events page (identical dialog) and, for an address's history, on a device's own panel.
 
 ## Findings
 
@@ -213,6 +234,25 @@ open again here), **branding** (name, logo, colour, default theme and
 language), the **HTTPS certificate** (download the local CA, or use your own), **updates** (check, install now or
 later) and **demo data**: load a fictional company to explore, remove it, or **erase all data** when you are ready for
 the real network ([details](operations.md#demo-data-and-starting-clean-erase-all-data)).
+
+## IP enrichment
+
+![Network Intelligence](img/network-intelligence.png)
+
+Under *Settings* → **Network** → **Network Intelligence**: country, city, ASN, AS organisation, ISP and reverse-DNS
+hostname for every public IP address the console shows (Alerts, Events, a device's IP history) — looked up locally
+from a GeoIP database, never sent to a third party per address. A private/loopback/link-local/multicast/reserved
+address is never geolocated at all, only classified as such.
+
+* **Reverse DNS**: on by default (resolver `1.1.1.1`, secondary `1.0.0.1`, 2000 ms timeout) — change the
+  resolver(s) and timeout, or switch it off entirely.
+* **GeoIP database**: **DB-IP Lite** by default (free, [CC BY 4.0](https://db-ip.com)), or point it at your own
+  MaxMind-format `.mmdb` file(s) if you have a licensed database — DENIS never distributes one for you. The
+  provider/version/last-updated date is shown live, and a Settings save takes effect immediately, no restart.
+* **Cache**: GeoIP answers are kept for 30 days, reverse-DNS answers for 24 hours, by default — both adjustable.
+  The same address is never looked up twice while its cached answer is still fresh, however many alerts mention it.
+* Nothing about this ever slows down or blocks device discovery, alerting or event processing: enrichment happens
+  in the background, and a page of alerts shows whatever is already known rather than waiting on a lookup.
 
 ## Users: second step and Sign-in security
 

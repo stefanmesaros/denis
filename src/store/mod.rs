@@ -184,6 +184,27 @@ pub trait SettingsStore: Send + Sync {
     fn delete_setting(&self, key: &str) -> Result<bool>;
 }
 
+/// The second tier of `crate::ipenrich::cache` (the in-process memory cache is the first): one
+/// row per IP address ever enriched, so a restart does not have to re-resolve reverse DNS (or
+/// re-fetch from a custom REST provider) for a busy site's whole recent traffic. GeoIP and
+/// reverse-DNS are cached independently — see `V16` in `sqlite.rs` for why each row carries two
+/// expiry timestamps instead of one.
+/// One raw cache row: the already-merged `EnrichedIp` JSON, and the two independent expiry
+/// timestamps (`None` = no data cached yet for that sub-part).
+pub type IpCacheRow = (Vec<u8>, Option<i64>, Option<i64>);
+
+pub trait IpCacheStore: Send + Sync {
+    /// The raw row for one address, if any — `crate::ipenrich::cache` decides what is still
+    /// fresh from the two expiry timestamps (this trait does not know about TTLs, just storage).
+    fn get_ip_cache(&self, ip: &str) -> Result<Option<IpCacheRow>>;
+    /// Upserts the row: `enriched` (already-merged JSON), and the two expiry timestamps (`None`
+    /// leaves that sub-part's expiry as it already was, so a GeoIP-only write does not erase a
+    /// DNS expiry that a separate write already set, and vice versa).
+    fn set_ip_cache(&self, ip: &str, enriched: &[u8], geoip_expires_at: Option<i64>, dns_expires_at: Option<i64>) -> Result<()>;
+    /// Deletes rows where both expiries are in the past (or absent); returns how many.
+    fn prune_ip_cache(&self, before: i64) -> Result<usize>;
+}
+
 /// Saved compliance/inventory reports, made by hand or on a schedule.
 pub trait ReportStore: Send + Sync {
     fn add_report(&self, meta: &ReportMeta, content: &[u8]) -> Result<i64>;
@@ -318,4 +339,4 @@ pub trait AdminStore: Send + Sync {
 /// needs, rather than all ~85 methods at once — see the individual traits for what each
 /// area covers. A backend implements the sub-traits it needs, then this one with an empty
 /// body (all its methods already exist via the supertraits).
-pub trait Store: AssetStore + EventStore + MetricStore + SettingsStore + ReportStore + AuthStore + AdminStore {}
+pub trait Store: AssetStore + EventStore + MetricStore + SettingsStore + IpCacheStore + ReportStore + AuthStore + AdminStore {}

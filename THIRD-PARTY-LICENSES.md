@@ -2,7 +2,7 @@
 
 DENIS is built from the open-source crates below. Each is used under its own license (all are permissive: MIT, Apache-2.0, BSD, ISC, Zlib, Unicode, CC0, CDLA-Permissive or similar). The full license texts are in each crate's source distribution.
 
-SQLite is compiled in through the `rusqlite` crate (public domain). Manufacturer names come from the public IEEE OUI registry via the `oui-data` crate.
+SQLite is compiled in through the `rusqlite` crate (public domain). Manufacturer names come from the public IEEE OUI registry via the `oui-data` crate. IP geolocation (Settings → Network → Network Intelligence) uses [DB-IP Lite](https://db-ip.com) by default, under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — "IP Geolocation by DB-IP", also shown in the console itself wherever a database version/update date appears.
 
 | Crate | Version | License | Source |
 |---|---|---|---|

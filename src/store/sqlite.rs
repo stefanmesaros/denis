@@ -7,12 +7,12 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::collections::HashMap;
 
 use super::{
-    AdminStore, AgentToken, ApiToken, AssetStore, AuthStore, EventQuery, EventStore, MetricStore, Passkey, ReportStore,
+    AdminStore, AgentToken, ApiToken, AssetStore, AuthStore, EventQuery, EventStore, IpCacheStore, MetricStore, Passkey, ReportStore,
     SessionRecord, SettingsStore, Store, StoreStats, TopoRow, TotpRecord, UserRecord,
 };
 use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, ReportMeta, RiskAcceptance, User};
 
-const SCHEMA_VERSION: i64 = 15;
+const SCHEMA_VERSION: i64 = 16;
 
 /// Phase 1 schema.
 const V1: &str = "CREATE TABLE assets (
@@ -227,6 +227,20 @@ const V14: &str = "CREATE TABLE site_access (
 /// existed.
 const V15: &str = "ALTER TABLE assets ADD COLUMN ipv6_history TEXT NOT NULL DEFAULT '[]';";
 
+/// IP enrichment cache (`crate::ipenrich::cache`): the SQLite-backed second tier behind the
+/// in-process memory cache, so a restart does not re-resolve reverse DNS (or re-fetch GeoIP, for
+/// a custom REST provider) for every address a busy site has recently seen. `ip` is the address's
+/// canonical text form (`Ipv4Addr`/`Ipv6Addr::to_string()`), so IPv4 and IPv6 share one table.
+/// GeoIP and reverse-DNS are independent sub-lookups with their own TTLs (see design doc §7): each
+/// gets its own `*_expires_at`, so a stale hostname can be re-resolved without discarding
+/// still-fresh GeoIP data for the same row, and vice versa.
+const V16: &str = "CREATE TABLE ip_cache (
+        ip               TEXT PRIMARY KEY,
+        enriched         TEXT NOT NULL,   -- JSON: ipenrich::types::EnrichedIp
+        geoip_expires_at INTEGER,         -- NULL: no geoip data cached for this row
+        dns_expires_at   INTEGER          -- NULL: no reverse-dns data cached for this row
+     );";
+
 /// Phase 3.8: API tokens for scripts and integrations.
 const V7: &str = "CREATE TABLE api_tokens (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -323,7 +337,7 @@ impl SqliteStore {
         }
         // Each step runs in its own transaction and bumps user_version, so a
         // crash mid-migration leaves the database at a consistent older version.
-        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13), (14, V14), (15, V15)] {
+        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13), (14, V14), (15, V15), (16, V16)] {
             if version < target {
                 let tx = conn.unchecked_transaction()?;
                 tx.execute_batch(sql)?;
@@ -785,6 +799,32 @@ impl SettingsStore for SqliteStore {
         Ok(conn.execute("DELETE FROM settings WHERE key = ?1", [key])? > 0)
     }
 
+}
+
+impl IpCacheStore for SqliteStore {
+    fn get_ip_cache(&self, ip: &str) -> Result<Option<super::IpCacheRow>> {
+        let conn = self.conn();
+        Ok(conn.query_row("SELECT enriched, geoip_expires_at, dns_expires_at FROM ip_cache WHERE ip = ?1", [ip], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional()?)
+    }
+    fn set_ip_cache(&self, ip: &str, enriched: &[u8], geoip_expires_at: Option<i64>, dns_expires_at: Option<i64>) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO ip_cache (ip, enriched, geoip_expires_at, dns_expires_at) VALUES (?1,?2,?3,?4)
+             ON CONFLICT(ip) DO UPDATE SET
+                enriched = ?2,
+                geoip_expires_at = COALESCE(?3, ip_cache.geoip_expires_at),
+                dns_expires_at = COALESCE(?4, ip_cache.dns_expires_at)",
+            params![ip, enriched, geoip_expires_at, dns_expires_at],
+        )?;
+        Ok(())
+    }
+    fn prune_ip_cache(&self, before: i64) -> Result<usize> {
+        let conn = self.conn();
+        Ok(conn.execute(
+            "DELETE FROM ip_cache WHERE COALESCE(geoip_expires_at, 0) < ?1 AND COALESCE(dns_expires_at, 0) < ?1",
+            [before],
+        )?)
+    }
 }
 
 impl ReportStore for SqliteStore {
@@ -1355,7 +1395,7 @@ mod tests {
     #[test]
     fn ipv6_history_round_trips_and_defaults_to_empty() {
         let store = SqliteStore::open_in_memory().unwrap();
-        assert_eq!(store.stats(false).unwrap().schema_version, 15);
+        assert_eq!(store.stats(false).unwrap().schema_version, 16);
         let mut a = sample();
         assert!(a.ipv6_history.is_empty(), "nothing sets this yet");
         store.save_asset(&mut a).unwrap();

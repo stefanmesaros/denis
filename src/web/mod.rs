@@ -40,6 +40,7 @@ use crate::web_siem as siem_page;
 use crate::web_vuln as vuln_page;
 use crate::web_passkey as passkey;
 use crate::web_ai as ai_page;
+use crate::web_ipenrich as ipenrich_page;
 use crate::web_sso as sso_page;
 use crate::{report, trends};
 use crate::store::EventQuery;
@@ -116,6 +117,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai", get(ai_page::status))
         .route("/api/ai/settings", get(ai_page::get).put(ai_page::put))
         .route("/api/ai/explain", post(ai_page::explain))
+        .route("/api/ip-enrichment", get(ipenrich_page::status))
+        .route("/api/ip-enrichment/settings", get(ipenrich_page::get).put(ipenrich_page::put))
+        .route("/api/ip-enrichment/{ip}", get(ipenrich_page::lookup))
         .route("/api/auth/sso", get(sso_page::status))
         .route("/api/auth/sso/login", get(sso_page::login))
         .route("/api/auth/sso/callback", get(sso_page::callback))
@@ -221,7 +225,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path.starts_with("/api/ai/settings") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path.starts_with("/api/ai/settings") || path.starts_with("/api/ip-enrichment/settings") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -435,6 +439,21 @@ async fn metrics(State(st): State<AppState>) -> Result<Response, ApiError> {
         e.gauge("denis_backup_age_seconds", "Age of the newest backup.", (now - t).max(0) as f64);
     }
     e.gauge("denis_maintenance_mode", "1 while outgoing notifications are silenced.", maint.active(now) as u8 as f64);
+    {
+        use std::sync::atomic::Ordering::Relaxed;
+        let m = &st.ipenrich.metrics;
+        e.gauge("ip_enrichment_total", "IP addresses enriched (geoip or dns) since start.", m.enrichment_total.load(Relaxed) as f64);
+        e.gauge("ip_enrichment_cache_hits", "IP enrichment lookups answered entirely from cache.", m.cache_hits.load(Relaxed) as f64);
+        e.gauge("ip_enrichment_cache_misses", "IP enrichment lookups that needed a fresh geoip/dns fetch.", m.cache_misses.load(Relaxed) as f64);
+        e.gauge("ip_enrichment_errors", "IP enrichment cache writes that failed.", m.errors.load(Relaxed) as f64);
+        e.gauge("dns_lookup_total", "Reverse-DNS lookups attempted since start.", m.dns_total.load(Relaxed) as f64);
+        e.gauge("dns_lookup_cache_hits", "Reverse-DNS answers served from cache.", m.dns_cache_hits.load(Relaxed) as f64);
+        e.gauge("dns_lookup_errors", "Reverse-DNS lookups that failed (timeout, unreachable, ...).", m.dns_errors.load(Relaxed) as f64);
+        e.gauge("ip_enrichment_queue_dropped", "IPs dropped from the background enrichment queue because it was full.", m.queue_dropped.load(Relaxed) as f64);
+        let gs = st.ipenrich.geoip_status();
+        e.family("ip_enrichment_geoip_up", "gauge", "1 if the configured GeoIP provider is healthy.");
+        e.sample("ip_enrichment_geoip_up", &[("provider", &gs.name)], (gs.health == crate::ipenrich::Health::Ok) as u8 as f64);
+    }
     Ok((
         [(header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8".to_string())],
         e.finish(),
@@ -539,6 +558,7 @@ async fn events(
     let q: EventQuery = q.into();
     let mut list = blocking(&st.store, move |s| s.list_events(&q)).await?;
     list.retain(|e| site_readable(&st, &me, &e.agent_id));
+    decorate_ip_fields(&st, &mut list);
     Ok(Json(list))
 }
 
@@ -551,7 +571,21 @@ async fn alerts(
     let q = EventQuery { alerts_only: true, ..q.into() };
     let mut list = blocking(&st.store, move |s| s.list_events(&q)).await?;
     list.retain(|e| site_readable(&st, &me, &e.agent_id));
+    decorate_ip_fields(&st, &mut list);
     Ok(Json(list))
+}
+
+/// Adds a sibling `ip_info` object next to every `"ip"` field an event's `raw_details` already
+/// has (`destinations[].ip`, `client.ip`, `server.ip`, …) — see `ipenrich::decorate` for why this
+/// lives at the response layer rather than inside `detect.rs`. Read-only against the cache and
+/// batched across the whole page in one call; never blocks, never fails a response.
+fn decorate_ip_fields(st: &AppState, events: &mut [crate::model::Event]) {
+    let now = now_ts();
+    let mut details: Vec<serde_json::Value> = events.iter_mut().map(|e| e.raw_details.take()).collect();
+    crate::ipenrich::decorate_all(&st.ipenrich, &mut details, now);
+    for (e, d) in events.iter_mut().zip(details) {
+        e.raw_details = d;
+    }
 }
 
 async fn set_ack(st: AppState, me: &User, id: i64, acked: bool) -> Result<Response, ApiError> {
@@ -914,7 +948,7 @@ mod tests {
         let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
         let auth = Arc::new(crate::auth::Auth::new(store.clone()));
         (
-            router(AppState { store: store.clone(), shared, loopback_only, allowed_hosts: vec![], auth, no_auth, secure_cookie: false, license: crate::license::load(None, &*store) }),
+            router(AppState { store: store.clone(), shared, loopback_only, allowed_hosts: vec![], auth, no_auth, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()) }),
             store,
         )
     }
@@ -1388,6 +1422,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ip_enrichment_settings_are_admin_only_validated_and_a_lookup_never_touches_a_private_address() {
+        let (app, _store, [viewer, editor, admin]) = secured().await;
+
+        // defaults, readable by anyone signed in, and the DB-IP attribution is always present
+        let (st, _, v) = send(&app, req("GET", "/api/ip-enrichment", Some(&viewer), None)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(v["attribution"].as_str().unwrap().contains("DB-IP"), "{v}");
+        // `secured()`'s app uses `ipenrich::test_service` (DNS off, no database) so this whole
+        // test suite never touches the network — the default *config* is still enabled=true
+        // (asserted just below, reading it back from `/settings`), only the live test service
+        // itself starts disabled.
+        assert_eq!(v["dns_enabled"], false);
+
+        let (_, _, v) = send(&app, req("GET", "/api/ip-enrichment/settings", Some(&viewer), None)).await;
+        assert_eq!(v["dns"]["primary"].as_str(), Some("1.1.1.1"));
+        assert_eq!(v["cache_geoip_ttl_secs"].as_i64(), Some(30 * 86_400));
+        assert_eq!(v["custom_api_secret_set"], false);
+
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("PUT", "/api/ip-enrichment/settings", Some(c), Some(serde_json::json!({"dns": {"enabled": false, "primary": "9.9.9.9", "secondary": null, "timeout_ms": 500}})))).await.0, StatusCode::FORBIDDEN);
+        }
+        // validated: a resolver that is not an IP address is refused
+        assert_eq!(send(&app, req("PUT", "/api/ip-enrichment/settings", Some(&admin), Some(serde_json::json!({"dns": {"enabled": true, "primary": "not-an-ip", "secondary": null, "timeout_ms": 2000}})))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, req("PUT", "/api/ip-enrichment/settings", Some(&admin), Some(serde_json::json!({"cache_geoip_ttl_secs": 1})))).await.0, StatusCode::BAD_REQUEST);
+
+        let (st, _, v) = send(&app, req("PUT", "/api/ip-enrichment/settings", Some(&admin), Some(serde_json::json!({"dns": {"enabled": false, "primary": "9.9.9.9", "secondary": null, "timeout_ms": 500}, "custom_api_secret": "sk_live_abc"})))).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["dns"]["enabled"], false);
+        assert_eq!(v["dns"]["primary"].as_str(), Some("9.9.9.9"));
+        assert_eq!(v["custom_api_secret_set"], true, "{v}");
+        assert!(v.get("custom_api_secret").is_none(), "the secret itself is never echoed back");
+
+        // took effect immediately: the public status now reflects dns being off, no restart
+        let (_, _, v) = send(&app, req("GET", "/api/ip-enrichment", Some(&viewer), None)).await;
+        assert_eq!(v["dns_enabled"], false);
+
+        // a private address is never sent to a provider and never blocks — classification alone
+        let (st, _, v) = send(&app, req("GET", "/api/ip-enrichment/192.168.1.1", Some(&viewer), None)).await;
+        assert_eq!((st, v["classification"].as_str()), (StatusCode::OK, Some("private")));
+        assert!(v.get("country").is_none() || v["country"].is_null());
+
+        // not a valid address at all: a plain 400, not a panic
+        assert_eq!(send(&app, req("GET", "/api/ip-enrichment/not-an-ip", Some(&viewer), None)).await.0, StatusCode::BAD_REQUEST);
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("ipenrich.settings.update"), "{audit}");
+    }
+
+    #[tokio::test]
+    async fn alerts_and_events_carry_ip_info_next_to_every_ip_field_in_their_raw_details() {
+        let (app, store) = app(true);
+        let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 4, 5, 6]), 10);
+        store.save_asset(&mut a).unwrap();
+        let mut e = crate::model::Event {
+            id: 0, agent_id: None, asset_id: a.id, kind: "new_destination".into(), timestamp: 5,
+            severity: "high".into(), score: 85, acked: false,
+            raw_details: serde_json::json!({"summary": "x", "destinations": [{"ip": "8.8.8.8", "proto": "tcp", "port": 443}, {"ip": "10.0.0.9", "proto": "tcp", "port": 80}]}),
+        };
+        store.insert_event(&mut e).unwrap();
+
+        for path in ["/api/alerts", "/api/events"] {
+            let (code, v) = get_json(&app, path, "localhost").await;
+            assert_eq!(code, StatusCode::OK);
+            let dests = &v[0]["raw_details"]["destinations"];
+            assert_eq!(dests[0]["ip_info"]["classification"], "public", "{path}: {v}");
+            assert_eq!(dests[1]["ip_info"]["classification"], "private", "a private destination still gets classified, just never geo-looked-up: {path}");
+            assert!(dests[1]["ip_info"]["country"].is_null());
+        }
+    }
+
+    #[tokio::test]
     async fn data_retention_is_admin_only_defaults_sensibly_and_is_validated() {
         let (app, _store, [viewer, editor, admin]) = secured().await;
         for u in [&viewer, &editor] {
@@ -1731,6 +1836,7 @@ mod tests {
             (M::GET, "/api/branding", "viewer"), (M::GET, "/api/backups", "admin"), (M::GET, "/api/backups/denis-auto-x.db", "admin"), (M::POST, "/api/backups", "admin"), (M::GET, "/api/system", "viewer"), (M::POST, "/api/reports", "editor"), (M::GET, "/api/reports/3", "viewer"), (M::PUT, "/api/reports/settings", "admin"), (M::DELETE, "/api/reports/3", "admin"), (M::GET, "/api/rules", "viewer"), (M::PUT, "/api/rules", "admin"), (M::DELETE, "/api/rules", "admin"),
             (M::POST, "/api/auth/password", "viewer"), (M::POST, "/api/auth/logout", "viewer"),
             (M::GET, "/api/retention", "admin"), (M::PUT, "/api/retention", "admin"),
+            (M::GET, "/api/ip-enrichment", "viewer"), (M::GET, "/api/ip-enrichment/settings", "viewer"), (M::PUT, "/api/ip-enrichment/settings", "admin"), (M::GET, "/api/ip-enrichment/8.8.8.8", "viewer"),
         ] {
             assert_eq!(required_role(&m, p), want, "{m} {p}");
         }
@@ -1794,7 +1900,7 @@ mod tests {
         let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
         store.create_user("vera", &crate::auth::hash_password("a-long-passphrase-1").unwrap(), "viewer", false, 0).unwrap();
         let app = router(AppState { store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: vec![],
-            auth: Arc::new(crate::auth::Auth::new(store.clone())), no_auth: false, secure_cookie: true, license: crate::license::load(None, &*store) });
+            auth: Arc::new(crate::auth::Auth::new(store.clone())), no_auth: false, secure_cookie: true, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()) });
         let (_, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "vera", "password": "a-long-passphrase-1"})))).await;
         assert!(h[header::SET_COOKIE].to_str().unwrap().contains("Secure"));
         let c = cookie_of(&h);
@@ -2074,6 +2180,7 @@ mod tests {
         let mk = |hosts: Vec<String>| router(AppState {
             store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: hosts,
             auth: Arc::new(crate::auth::Auth::new(store.clone())), no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store),
+            ipenrich: crate::ipenrich::test_service(store.clone()),
         });
         let health = |host: &str| axum::http::Request::get("/api/health").header("host", host).body(Body::empty()).unwrap();
         let strict = mk(vec![]);
@@ -2717,7 +2824,7 @@ mod tests {
         } };
         let (st, body) = scrape(req("GET", "/metrics", Some(&viewer), None)).await;
         assert_eq!(st, StatusCode::OK);
-        for want in ["denis_up 1", "denis_devices 1", "denis_devices_online 1", "denis_devices_by_type{type=\"camera\"} 1", "denis_alerts_unacknowledged{severity=\"high\"} 0", "denis_maintenance_mode 0", "denis_build_info{version="] {
+        for want in ["denis_up 1", "denis_devices 1", "denis_devices_online 1", "denis_devices_by_type{type=\"camera\"} 1", "denis_alerts_unacknowledged{severity=\"high\"} 0", "denis_maintenance_mode 0", "denis_build_info{version=", "ip_enrichment_total 0", "dns_lookup_total 0", "ip_enrichment_geoip_up{provider="] {
             assert!(body.contains(want), "{want}\n{body}");
         }
         assert!(!body.contains("secret-host-name") && !body.contains("02:00:00"), "no names or addresses");
@@ -2825,7 +2932,7 @@ mod tests {
         let cfg = crate::passkey::Config { rp_id: "localhost".into(), origins: vec!["http://localhost:8080".into()] };
         *auth.passkey_cfg.lock().unwrap() = Some(cfg.clone());
         store.create_user("vera", &crate::auth::hash_password("a-long-passphrase-1").unwrap(), "viewer", false, 0).unwrap();
-        let app = router(AppState { store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false, license: crate::license::load(None, &*store) });
+        let app = router(AppState { store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()) });
         let (st, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "vera", "password": "a-long-passphrase-1"})))).await;
         assert_eq!(st, StatusCode::OK);
         (app, store, cookie_of(&h), cfg)
@@ -3035,7 +3142,7 @@ mod tests {
         let shared = crate::engine::test_shared();
         // without TLS the API says so
         let auth = Arc::new(crate::auth::Auth::new(store.clone()));
-        let app_off = router(AppState { store: store.clone(), shared: shared.clone(), loopback_only: true, allowed_hosts: vec![], auth: auth.clone(), no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store) });
+        let app_off = router(AppState { store: store.clone(), shared: shared.clone(), loopback_only: true, allowed_hosts: vec![], auth: auth.clone(), no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()) });
         assert_eq!(send(&app_off, req("GET", "/api/tls", None, None)).await.2["enabled"], false);
         assert_eq!(send(&app_off, req("POST", "/api/tls/certificate", None, Some(serde_json::json!({"certificate": "x", "key": "y"})))).await.0, StatusCode::BAD_REQUEST);
         assert_eq!(app_off.clone().oneshot(req("GET", "/tls/ca.pem", None, None)).await.unwrap().status(), StatusCode::NOT_FOUND);
@@ -3048,7 +3155,7 @@ mod tests {
             let role = match u { "viewer" => "viewer", "editor" => "editor", _ => "admin" };
             store.create_user(u, &crate::auth::hash_password("a-long-passphrase-1").unwrap(), role, false, 0).unwrap();
         }
-        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false, license: crate::license::load(None, &*store) });
+        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()) });
         let login = |u: &'static str| { let app = app.clone(); async move {
             let (_, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": u, "password": "a-long-passphrase-1"})))).await;
             cookie_of(&h)
@@ -3455,7 +3562,7 @@ mod tests {
             }
         });
         let auth = Arc::new(crate::auth::Auth::new(store.clone()));
-        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store) });
+        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()) });
         let mk = |n: u8, ty: &str, vendor: &str| {
             let mut a = Asset::new(Mac([2, 0, 0, 0, 0, n]), 10);
             a.device_type = ty.into();

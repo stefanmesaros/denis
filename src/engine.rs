@@ -727,6 +727,7 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
     }
     tracing::info!("viewer console on http://{} (no capture)", cfg.listen);
     let license = crate::license::load(cfg.license_file.as_deref(), &*store);
+    let ipenrich = crate::ipenrich::build_service(store.clone(), &cfg.db);
     web::serve(
         listener,
         web::AppState {
@@ -738,6 +739,7 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
             no_auth: cfg.no_auth,
             secure_cookie: false,
             license,
+            ipenrich,
         },
     )
     .await?;
@@ -1070,6 +1072,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
         // over HTTPS the cookie must never travel in clear
         secure_cookie: cfg.secure_cookie || tls.is_some(),
         license: crate::license::load(cfg.license_file.as_deref(), &*store),
+        ipenrich: crate::ipenrich::build_service(store.clone(), &cfg.collector.db),
     };
     let scheme = if tls.is_some() { "https" } else { "http" };
     tracing::info!("web UI on {scheme}://{}", cfg.listen);

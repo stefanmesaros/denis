@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.15.0: IP Enrichment — GeoIP, ASN and reverse DNS for every public address DENIS shows
+
+* Every public IP address the console mentions (Alerts, Events, a device's IP history) now gets a
+  **"Network context"** line — country, AS organisation, ASN, reverse-DNS hostname — and a click
+  opens a full detail panel with coordinates, connection type, data source and database version. A
+  private/loopback/link-local/multicast/reserved address is classified as such and never
+  geolocated. Geolocation is always labelled "Approximate location", never a precise claim.
+* **Local-only by default**: GeoIP is read from a database file on disk (**DB-IP Lite**, free,
+  CC BY 4.0), never a live API call per address — a customer's own traffic never leaves the box for
+  this. A licensed MaxMind file works the same way if you point Settings at it instead.
+  Provider-swappable by design: the same interface a future custom REST/internal-server provider
+  would implement.
+  New **Settings → Network → Network Intelligence**: reverse-DNS resolver/secondary/timeout/on-off
+  (default `1.1.1.1`/`1.0.0.1`, 2000ms), the GeoIP source, and cache lifetimes (30 days GeoIP, 24
+  hours reverse DNS by default) — every change takes effect immediately, no restart.
+* **Never blocks anything.** Alerts, events and device discovery are built the instant they happen,
+  regardless of whether enrichment for the addresses involved is ready yet; a background worker
+  fills it in, deduplicated (the same address across 10,000 events costs one lookup, not 10,000)
+  and rate-limited by a bounded queue that drops rather than ever stalls the caller. Reverse DNS has
+  its own circuit breaker: five consecutive failures and it stops trying for a minute instead of
+  queueing lookups behind a resolver that is already down.
+  New Prometheus samples on `/metrics`: `ip_enrichment_total`, `_cache_hits`, `_cache_misses`,
+  `_errors`, `_queue_dropped`, `dns_lookup_total`, `_cache_hits`, `_errors`,
+  `ip_enrichment_geoip_up{provider=}`.
+* Supports IPv4 and IPv6 throughout — classification, GeoIP lookup and reverse DNS.
+
 ## 2.14.0: A runZero-style Dashboard as the new home screen, plus five toolbar/layout fixes
 
 * New **Dashboard** page, now the default landing screen (every other page is unchanged and still

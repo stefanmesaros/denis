@@ -710,6 +710,7 @@ function showAlert(e, a) {
     el('p', { text: d.summary || '' }),
     a ? el('p', { class: 'muted', text: tr('Device: {name}', { name: deviceLabel(a, '#' + e.asset_id) + ' (' + a.mac + ')' }) }) : null,
     (d.reasons || []).length ? el('div', {}, el('b', { text: tr('Why this score') }), el('ul', {}, ...d.reasons.map((r) => el('li', { text: translateFactor(r) })))) : null,
+    ipContextSection(d),
     advice ? el('div', {}, el('b', { text: tr('What to do') }), el('p', { text: tr(advice) })) : null,
     aiExplainButton('alert', e.id),
     el('div', { class: 'row' },
@@ -1106,7 +1107,8 @@ async function showDetail(id) {
       row(tr('Last seen'), a.last_seen ? fmtTime(a.last_seen) : tr('never (entered by hand)')),
     ]),
     el('h3', { text: tr('IP history') }),
-    a.ip_history.length ? list(a.ip_history.slice().sort((x, y) => y.last_seen - x.last_seen).map((r) => `${r.ip}  (${fmtTime(r.first_seen)} → ${fmtTime(r.last_seen)})`)) : el('div', { class: 'muted', text: tr('none') }),
+    a.ip_history.length ? el('div', {}, ...a.ip_history.slice().sort((x, y) => y.last_seen - x.last_seen).map((r) => el('div', { class: 'ip-context-row' },
+      ipInlineLazy(r.ip), el('span', { class: 'muted small', text: `(${fmtTime(r.first_seen)} → ${fmtTime(r.last_seen)})` })))) : el('div', { class: 'muted', text: tr('none') }),
     el('h3', { text: tr('Open ports') + (a.ports_scanned_at ? ' · ' + tr('scanned {t}', { t: ago(a.ports_scanned_at) }) : '') }),
     a.open_ports.length ? list(a.open_ports.map((p) => `${p.port}/${p.proto} ${p.service || ''}`)) : el('div', { class: 'muted', text: a.ports_scanned_at ? tr('none of the scanned ports are open') : tr('not scanned yet') }),
     el('h3', { text: tr('Fingerprint evidence') }),
@@ -1530,7 +1532,7 @@ function setTab(t) {
   if (t === 'alerting') loadAlerting();
   if (t === 'users') { renderUsers(); renderApiTokens(); }
   if (t === 'settings') {
-    initBrandingForm(); initOverviewBox(); loadLicenseBox(); loadInterfacesBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); loadSiemBox(); loadSsoBox(); loadAiBox(); loadRetentionBox();
+    initBrandingForm(); initOverviewBox(); loadLicenseBox(); loadInterfacesBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); loadSiemBox(); loadSsoBox(); loadAiBox(); loadRetentionBox(); loadIpenrichBox();
     settingsSelect(location.hash.startsWith('#settings/') ? location.hash.split('/')[1] : SETTINGS_DEFAULT);
   }
   if (t === 'audit') renderAudit();

@@ -1,0 +1,51 @@
+# Settings → Network → Network Intelligence (IP enrichment: reverse DNS + GeoIP/ASN).
+Network Intelligence || Netzwerkintelligenz || Intelligence réseau || Inteligencia de red || Sieťová inteligencia
+Country, city, ASN and reverse-DNS hostname for every public IP address shown in the console (alerts, events, device history) — looked up locally from a GeoIP database, never sent to a third party per address. || Land, Stadt, ASN und Reverse-DNS-Hostname für jede öffentliche IP-Adresse, die in der Konsole angezeigt wird (Warnungen, Ereignisse, Geräteverlauf) — lokal aus einer GeoIP-Datenbank nachgeschlagen, niemals pro Adresse an Dritte gesendet. || Pays, ville, ASN et nom d'hôte DNS inversé pour chaque adresse IP publique affichée dans la console (alertes, événements, historique des appareils) — recherchés localement dans une base GeoIP, jamais envoyés à un tiers par adresse. || País, ciudad, ASN y nombre de host DNS inverso para cada dirección IP pública mostrada en la consola (alertas, eventos, historial de dispositivos) — consultados localmente en una base de datos GeoIP, nunca enviados a un tercero por dirección. || Krajina, mesto, ASN a reverzný DNS hostname pre každú verejnú IP adresu zobrazenú v konzole (upozornenia, udalosti, história zariadení) — vyhľadané lokálne z GeoIP databázy, nikdy neposlané tretej strane pre jednotlivé adresy.
+Reverse DNS || Reverse-DNS || DNS inversé || DNS inverso || Reverzný DNS
+DNS resolver || DNS-Resolver || Résolveur DNS || Resolutor DNS || DNS resolver
+Secondary (optional) || Sekundär (optional) || Secondaire (facultatif) || Secundario (opcional) || Sekundárny (voliteľné)
+Timeout (ms) || Zeitüberschreitung (ms) || Délai (ms) || Tiempo de espera (ms) || Časový limit (ms)
+GeoIP database || GeoIP-Datenbank || Base de données GeoIP || Base de datos GeoIP || GeoIP databáza
+Source || Quelle || Source || Fuente || Zdroj
+DB-IP Lite (default) || DB-IP Lite (Standard) || DB-IP Lite (par défaut) || DB-IP Lite (predeterminado) || DB-IP Lite (predvolené)
+Custom MMDB file(s) || Eigene MMDB-Datei(en) || Fichier(s) MMDB personnalisé(s) || Archivo(s) MMDB personalizado(s) || Vlastné MMDB súbory
+City/country database path || Pfad zur Stadt-/Länderdatenbank || Chemin de la base ville/pays || Ruta de la base de ciudad/país || Cesta k databáze mesta/krajiny
+ASN database path || Pfad zur ASN-Datenbank || Chemin de la base ASN || Ruta de la base ASN || Cesta k ASN databáze
+Cache || Cache || Cache || Caché || Vyrovnávacia pamäť
+GeoIP cache (days) || GeoIP-Cache (Tage) || Cache GeoIP (jours) || Caché GeoIP (días) || GeoIP cache (dni)
+Reverse-DNS cache (hours) || Reverse-DNS-Cache (Stunden) || Cache DNS inversé (heures) || Caché DNS inverso (horas) || Cache reverzného DNS (hodiny)
+1.1.1.1 || 1.1.1.1 || 1.1.1.1 || 1.1.1.1 || 1.1.1.1
+1.0.0.1 || 1.0.0.1 || 1.0.0.1 || 1.0.0.1 || 1.0.0.1
+/path/to/city.mmdb || /pfad/zu/city.mmdb || /chemin/vers/city.mmdb || /ruta/a/city.mmdb || /cesta/k/city.mmdb
+/path/to/asn.mmdb || /pfad/zu/asn.mmdb || /chemin/vers/asn.mmdb || /ruta/a/asn.mmdb || /cesta/k/asn.mmdb
+Reverse DNS is on. || Reverse-DNS ist an. || Le DNS inversé est activé. || El DNS inverso está activado. || Reverzný DNS je zapnutý.
+Reverse DNS is off. || Reverse-DNS ist aus. || Le DNS inversé est désactivé. || El DNS inverso está desactivado. || Reverzný DNS je vypnutý.
+{provider}, version {version}, updated {date}. || {provider}, Version {version}, aktualisiert {date}. || {provider}, version {version}, mis à jour {date}. || {provider}, versión {version}, actualizado {date}. || {provider}, verzia {version}, aktualizované {date}.
+{provider}: not available ({detail}) || {provider}: nicht verfügbar ({detail}) || {provider} : non disponible ({detail}) || {provider}: no disponible ({detail}) || {provider}: nedostupné ({detail})
+no database installed || keine Datenbank installiert || aucune base de données installée || sin base de datos instalada || žiadna databáza nie je nainštalovaná
+
+# ipenrich.js: the IP-address context line/detail panel shown next to any IP in Alerts, Events
+# and the asset panel's IP history.
+private || privat || privée || privada || súkromná
+loopback || Loopback || bouclage locale || bucle local || spätná slučka
+link-local || Link-local || lien-local || enlace local || link-local
+multicast || Multicast || multidiffusion || multidifusión || multicast
+reserved || reserviert || réservée || reservada || rezervovaná
+unspecified || nicht angegeben || non spécifiée || sin especificar || nešpecifikovaná
+Loading… || Wird geladen … || Chargement… || Cargando… || Načítava sa…
+IP address || IP-Adresse || Adresse IP || Dirección IP || IP adresa
+Classification || Klassifizierung || Classification || Clasificación || Klasifikácia
+unavailable || nicht verfügbar || indisponible || no disponible || nedostupné
+Country || Land || Pays || País || Krajina
+Region || Region || Région || Región || Región
+City || Stadt || Ville || Ciudad || Mesto
+Coordinates || Koordinaten || Coordonnées || Coordenadas || Súradnice
+ASN || ASN || ASN || ASN || ASN
+AS organization || AS-Organisation || Organisation AS || Organización AS || AS organizácia
+ISP / network || ISP / Netzwerk || FAI / réseau || ISP / red || ISP / sieť
+Connection type || Verbindungstyp || Type de connexion || Tipo de conexión || Typ pripojenia
+Data source: {source}{version} || Datenquelle: {source}{version} || Source des données : {source}{version} || Fuente de datos: {source}{version} || Zdroj dát: {source}{version}
+database version {v} || Datenbankversion {v} || version de base {v} || versión de base {v} || verzia databázy {v}
+Approximate location — never a precise physical address. || Ungefährer Standort — niemals eine genaue physische Adresse. || Localisation approximative — jamais une adresse physique précise. || Ubicación aproximada — nunca una dirección física precisa. || Približná poloha — nikdy presná fyzická adresa.
+Nothing is known about this address yet. || Über diese Adresse ist noch nichts bekannt. || Rien n'est encore connu sur cette adresse. || Aún no se sabe nada sobre esta dirección. || O tejto adrese zatiaľ nie je nič známe.
+Network context || Netzwerkkontext || Contexte réseau || Contexto de red || Sieťový kontext
