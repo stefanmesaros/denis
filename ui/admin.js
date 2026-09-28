@@ -1625,17 +1625,6 @@ $('ipenrich-save').onclick = async () => {
   if (r.ok) loadIpenrichBox();
 };
 
-$('ipenrich-lookup-go').onclick = async () => {
-  const ip = $('ipenrich-lookup-ip').value.trim();
-  if (!ip) return;
-  $('ipenrich-lookup-msg').textContent = tr('Loading…');
-  const r = await api('GET', '/api/ip-enrichment/' + encodeURIComponent(ip));
-  $('ipenrich-lookup-msg').textContent = '';
-  if (!r.ok) { $('ipenrich-lookup-msg').textContent = apiError(r); return; }
-  ipDetailDialog(ip, r.json);
-};
-$('ipenrich-lookup-ip').onkeydown = (ev) => { if (ev.key === 'Enter') $('ipenrich-lookup-go').click(); };
-
 async function loadTlsBox() {
   if (!can('admin')) return;
   const r = await api('GET', '/api/tls');

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.18.1: Fix — removed the manual IP lookup tool added in 2.18.0
+
+* "Look up an address" (Settings → Network Intelligence) is removed again: on reflection it added
+  a control surface without enough real use on its own — the console still cannot observe real
+  IPv6 traffic (see ROADMAP.md), so a person typing an address in by hand was the only way it was
+  ever reached. Nothing else about 2.18.0 changes.
+
 ## 2.18.0: CMDB import (Entra ID), an IPv6 address lookup tool, and a better exceptions/baseline workflow
 
 * **CMDB import**: Settings → Integrations → CMDB import pulls device inventory from Microsoft
