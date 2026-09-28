@@ -97,11 +97,38 @@ function exceptionsEditor(list, onChange, editable) {
 
 // -------------------------------------------------------------------------------------- rules page
 
-/** "Restart learning mode" (admin only): while it runs, nothing anywhere raises an alert —
+/** "Continue learning mode" (admin only): while it runs, nothing anywhere raises an alert —
  * every device is treated the way a brand new one already is — network-wide, for a chosen
  * 1-7 days. For after a change big enough that the existing baselines are not a fair
- * comparison any more (a new switch, a re-addressed subnet, a big batch of new devices). */
+ * comparison any more (a new switch, a re-addressed subnet, a big batch of new devices). Named
+ * "continue", not "restart": it only pauses alerting for the window - each device's baseline
+ * keeps accumulating underneath it exactly as always, never reset. */
 let learningExpiryTimer = null;
+
+/** "Forget all learned baseline data" - a real reset, unlike learning mode itself. Lives right
+ * here (not in Settings) because this is exactly where an admin is already thinking about
+ * learning/baselines, and the two are easy to conflate otherwise - see the copy above/below this
+ * button, which exists specifically to draw the distinction. */
+function forgetAllBaselineButton() {
+  return el('button', { type: 'button', class: 'danger', onclick: () => {
+    const phrase = 'FORGET LEARNED BASELINE';
+    const input = el('input', { placeholder: phrase, autocomplete: 'off' });
+    openForm(tr('Forget all learned baseline data'), [
+      el('p', { text: tr('This forgets every device\'s learned traffic baseline (destinations, ports, volume, active hours). Devices, alerts, the communications matrix and everything else are kept. The next traffic from any device is judged fresh, exactly like a device that was just discovered.') }),
+      el('p', { class: 'form-error', text: tr('It cannot be undone.') }),
+      field(tr('Type {phrase} to confirm', { phrase }), input),
+    ], {
+      submitLabel: tr('Forget it all'),
+      onSubmit: async () => {
+        if (input.value.trim() !== phrase) return tr('Type the words exactly as shown.');
+        const r = await api('POST', '/api/baseline/forget-all', { confirm: phrase });
+        if (!r.ok) return apiError(r);
+        $('learning-msg').textContent = tr('Every learned baseline was forgotten.');
+        return null;
+      },
+    });
+  }, text: tr('Forget all learned baseline data…') });
+}
 
 function drawLearningBox(learning) {
   if (learningExpiryTimer) {
@@ -117,11 +144,12 @@ function drawLearningBox(learning) {
     const days = el('select', {}, ...[1, 2, 3, 4, 5, 6, 7].map((n) => el('option', { value: String(n), text: n === 1 ? tr('1 day') : tr('{n} days', { n }) })));
     days.value = '3';
     $('learning-box').replaceChildren(
-      el('div', { class: 'rule-head' }, el('b', { text: tr('Restart learning mode') })),
-      el('p', { class: 'muted', text: tr('After a change big enough that the existing baselines no longer make a fair comparison (a new switch, a re-addressed subnet, a batch of new devices), restart learning for every device at once: nothing anywhere alerts for the time you choose, the same treatment a brand new device already gets.') }),
-      el('p', { class: 'muted small', text: tr('This only pauses alerting — it adds to what each device has already learned, it never throws that away. To make every baseline start over from nothing instead, use Settings → Demo data and reset → "Forget all learned baseline data".') }),
+      el('div', { class: 'rule-head' }, el('b', { text: tr('Continue learning mode') })),
+      el('p', { class: 'muted', text: tr('After a change big enough that the existing baselines no longer make a fair comparison (a new switch, a re-addressed subnet, a batch of new devices), continue learning for every device at once: nothing anywhere alerts for the time you choose, the same treatment a brand new device already gets.') }),
+      el('p', { class: 'muted small', text: tr('This only pauses alerting — it adds to what each device has already learned, it never throws that away. To make every baseline start over from nothing instead, use "Forget all learned baseline data" below.') }),
       el('div', { class: 'rule-controls' }, el('label', {}, tr('For'), days),
-        el('button', { type: 'button', onclick: () => act('start', { days: Number(days.value) }), text: tr('Restart learning mode') })),
+        el('button', { type: 'button', onclick: () => act('start', { days: Number(days.value) }), text: tr('Continue learning mode') }),
+        forgetAllBaselineButton()),
       el('span', { id: 'learning-msg', class: 'muted' }));
     return;
   }
@@ -142,7 +170,8 @@ function drawLearningBox(learning) {
     el('p', { class: 'muted small', text: tr('Each device keeps learning normally underneath this — nothing is reset, only alerting is paused.') }),
     el('div', { class: 'rule-controls' },
       el('button', { type: 'button', onclick: () => act(learning.paused ? 'resume' : 'pause', {}), text: learning.paused ? tr('Resume') : tr('Pause') }),
-      el('button', { type: 'button', class: 'danger', onclick: async () => { if (confirm(tr('End learning mode now? Detection returns to normal immediately.'))) await act('end', {}); }, text: tr('End now') })),
+      el('button', { type: 'button', class: 'danger', onclick: async () => { if (confirm(tr('End learning mode now? Detection returns to normal immediately.'))) await act('end', {}); }, text: tr('End now') }),
+      forgetAllBaselineButton()),
     el('span', { id: 'learning-msg', class: 'muted' }));
 }
 
@@ -576,14 +605,34 @@ function setRulesMode(m) {
 }
 for (const b of document.querySelectorAll('#rules-mode button')) b.onclick = () => setRulesMode(b.dataset.mode);
 
+/** "Exceptions & baseline" from a device's own panel: jump to the Rules page's Exceptions tab,
+ * pre-filtered to just this device — the search boxes are the exact same ones a person could type
+ * into by hand, just filled in for them (see `exceptionRow`'s `text` and the server-side search
+ * behind `runBaselineSearch`, both of which already match on a device's own name). */
+function focusDeviceInExceptions(a) {
+  $('detail').hidden = true;
+  state.selected = null;
+  setTab('rules');
+  const q = deviceLabel(a, '#' + a.id);
+  $('exceptions-search').value = q;
+  $('baseline-search').value = q;
+  setRulesMode('exceptions');
+}
+
 /** One row: a label, a detail line, and a remove button that does whatever removing this
  * particular kind of thing actually takes (a per-rule exceptions patch, a whole-watch-array PUT,
- * or a risk-acceptance DELETE) - the three real shapes behind one uniform list. */
+ * or a risk-acceptance DELETE) - the three real shapes behind one uniform list. Returns
+ * `{node, text}` rather than just the node, so `drawExceptionsList` can filter by the search box
+ * without a server round trip - the whole list here is small enough that this never needs paging
+ * the way the (much larger) baseline-destinations list below does. */
 function exceptionRow(label, detail, onRemove) {
-  return el('div', { class: 'exception-row' },
+  const node = el('div', { class: 'exception-row' },
     can('admin') ? el('button', { type: 'button', class: 'exception-remove', title: tr('Remove'), text: '×', onclick: onRemove }) : null,
     el('div', { class: 'exception-row-body' }, el('div', {}, el('b', { text: label })), detail ? el('div', { class: 'muted small', text: detail }) : null));
+  return { node, text: (label + ' ' + (detail || '')).toLowerCase() };
 }
+
+$('exceptions-search').oninput = () => drawExceptionsList();
 
 async function drawExceptionsList() {
   if (!rulesData) { const r = await api('GET', '/api/rules'); if (r.ok) rulesData = r.json; }
@@ -631,7 +680,11 @@ async function drawExceptionsList() {
     }));
   }
 
-  $('exceptions-list').replaceChildren(rows.length ? el('div', { class: 'exception-rows' }, ...rows) : el('p', { class: 'muted', text: tr('None yet.') }));
+  const q = $('exceptions-search').value.trim().toLowerCase();
+  const shown = q ? rows.filter((r) => r.text.includes(q)) : rows;
+  $('exceptions-list').replaceChildren(
+    shown.length ? el('div', { class: 'exception-rows' }, ...shown.map((r) => r.node))
+      : el('p', { class: 'muted', text: rows.length ? tr('No matches.') : tr('None yet.') }));
 }
 
 // ------------------------------------------------------------- Learned baseline, across all devices
@@ -652,20 +705,35 @@ async function runBaselineSearch() {
     : matched > limit
       ? tr('Showing {shown} of {matched} matches — refine your search to narrow it further.', { shown: destinations.length, matched })
       : tr('{n} match(es).', { n: matched });
-  $('baseline-search-list').replaceChildren(...destinations.map((d) => {
-    const a = assetById(d.asset_id);
-    const trailing = el('span', { class: 'muted small' },
-      a ? el('button', { type: 'button', class: 'chip', text: deviceLabel(a, '#' + d.asset_id), onclick: () => showDetail(d.asset_id) }) : el('span', { text: '#' + d.asset_id }),
-      ' · ' + tr('last {t}', { t: ago(d.last_seen) }) + ' · ' + mb(d.bytes),
-      can('admin') ? el('button', {
-        type: 'button', class: 'exception-remove', title: tr('Remove from baseline'), text: '×',
-        onclick: async () => {
-          if (!confirm(tr('Remove {ip} from this device\'s learned baseline? The next time it talks to that address, it is evaluated as new again.', { ip: d.ip }))) return;
-          const del = await api('DELETE', '/api/assets/' + d.asset_id + '/baseline/destinations/' + encodeURIComponent(d.ip));
-          if (!del.ok) { showMessage(tr('Error'), el('p', { text: apiError(del) })); return; }
-          runBaselineSearch();
-        },
-      }) : null);
-    return el('div', { class: 'ip-context-row' }, ipInlineLazy(d.ip, trailing));
-  }));
+
+  // grouped by device - the server already sorts by last_seen (most recent first), and that
+  // order is kept both for the destinations within each device and for which device's group
+  // appears first (its own most recent destination decides).
+  const groups = new Map();
+  for (const d of destinations) {
+    if (!groups.has(d.asset_id)) groups.set(d.asset_id, []);
+    groups.get(d.asset_id).push(d);
+  }
+  const deviceBlocks = [...groups.entries()].map(([assetId, dests]) => {
+    const a = assetById(assetId);
+    const header = el('div', { class: 'rule-head' },
+      a ? el('button', { type: 'button', class: 'chip', text: deviceLabel(a, '#' + assetId), onclick: () => showDetail(assetId) }) : el('b', { text: '#' + assetId }),
+      el('span', { class: 'muted small', text: tr('{n} destination(s)', { n: dests.length }) }));
+    const rows = dests.map((d) => {
+      const trailing = el('span', { class: 'muted small' },
+        tr('last {t}', { t: ago(d.last_seen) }) + ' · ' + mb(d.bytes),
+        can('admin') ? el('button', {
+          type: 'button', class: 'exception-remove', title: tr('Remove from baseline'), text: '×',
+          onclick: async () => {
+            if (!confirm(tr('Remove {ip} from this device\'s learned baseline? The next time it talks to that address, it is evaluated as new again.', { ip: d.ip }))) return;
+            const del = await api('DELETE', '/api/assets/' + assetId + '/baseline/destinations/' + encodeURIComponent(d.ip));
+            if (!del.ok) { showMessage(tr('Error'), el('p', { text: apiError(del) })); return; }
+            runBaselineSearch();
+          },
+        }) : null);
+      return el('div', { class: 'ip-context-row' }, ipInlineLazy(d.ip, trailing));
+    });
+    return el('div', { class: 'rule-card' }, header, ...rows);
+  });
+  $('baseline-search-list').replaceChildren(...deviceBlocks);
 }

@@ -12,7 +12,7 @@ use super::{
 };
 use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, ReportMeta, RiskAcceptance, User};
 
-const SCHEMA_VERSION: i64 = 16;
+const SCHEMA_VERSION: i64 = 17;
 
 /// Phase 1 schema.
 const V1: &str = "CREATE TABLE assets (
@@ -241,6 +241,16 @@ const V16: &str = "CREATE TABLE ip_cache (
         dns_expires_at   INTEGER          -- NULL: no reverse-dns data cached for this row
      );";
 
+/// CMDB import (`crate::cmdb`): devices pulled from an external directory/MDM source, keyed by
+/// that source's own id so a re-sync is a plain upsert. `data` is JSON (`cmdb::CmdbDevice`) —
+/// same "untyped at the storage boundary" choice as `ip_cache.enriched`, so this table does not
+/// pull the `cmdb` module's types into `store` itself.
+const V17: &str = "CREATE TABLE cmdb_devices (
+        external_id TEXT PRIMARY KEY,
+        data        TEXT NOT NULL,
+        updated_at  INTEGER NOT NULL
+     );";
+
 /// Phase 3.8: API tokens for scripts and integrations.
 const V7: &str = "CREATE TABLE api_tokens (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -337,7 +347,7 @@ impl SqliteStore {
         }
         // Each step runs in its own transaction and bumps user_version, so a
         // crash mid-migration leaves the database at a consistent older version.
-        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13), (14, V14), (15, V15), (16, V16)] {
+        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13), (14, V14), (15, V15), (16, V16), (17, V17)] {
             if version < target {
                 let tx = conn.unchecked_transaction()?;
                 tx.execute_batch(sql)?;
@@ -828,6 +838,35 @@ impl IpCacheStore for SqliteStore {
             "DELETE FROM ip_cache WHERE COALESCE(geoip_expires_at, 0) < ?1 AND COALESCE(dns_expires_at, 0) < ?1",
             [before],
         )?)
+    }
+}
+
+impl super::CmdbStore for SqliteStore {
+    fn save_cmdb_device(&self, external_id: &str, data: &[u8], now: i64) -> Result<()> {
+        self.conn().execute(
+            "INSERT INTO cmdb_devices (external_id, data, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(external_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+            params![external_id, data, now],
+        )?;
+        Ok(())
+    }
+    fn list_cmdb_devices(&self) -> Result<Vec<Vec<u8>>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT data FROM cmdb_devices")?;
+        let rows = stmt.query_map([], |r| r.get::<_, Vec<u8>>(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+    fn prune_cmdb_devices(&self, keep: &[String]) -> Result<()> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT external_id FROM cmdb_devices")?;
+        let existing: Vec<String> = stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        drop(stmt);
+        for id in existing {
+            if !keep.contains(&id) {
+                conn.execute("DELETE FROM cmdb_devices WHERE external_id = ?1", params![id])?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1399,7 +1438,7 @@ mod tests {
     #[test]
     fn ipv6_history_round_trips_and_defaults_to_empty() {
         let store = SqliteStore::open_in_memory().unwrap();
-        assert_eq!(store.stats(false).unwrap().schema_version, 16);
+        assert_eq!(store.stats(false).unwrap().schema_version, 17);
         let mut a = sample();
         assert!(a.ipv6_history.is_empty(), "nothing sets this yet");
         store.save_asset(&mut a).unwrap();

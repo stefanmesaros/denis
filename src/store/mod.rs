@@ -210,6 +210,18 @@ pub trait IpCacheStore: Send + Sync {
     fn prune_ip_cache(&self, before: i64) -> Result<usize>;
 }
 
+/// CMDB import (`crate::cmdb`): devices pulled from an external directory/MDM source. Untyped at
+/// this boundary for the same reason `IpCacheStore` is — `data` is JSON the `cmdb` module alone
+/// knows how to interpret, so `store` does not depend on that module's types.
+pub trait CmdbStore: Send + Sync {
+    /// Upsert one record by the source's own id.
+    fn save_cmdb_device(&self, external_id: &str, data: &[u8], now: i64) -> Result<()>;
+    fn list_cmdb_devices(&self) -> Result<Vec<Vec<u8>>>;
+    /// Removes every previously imported record whose external id is not in `keep` — the plain
+    /// way a sync notices a device left the directory since the last one.
+    fn prune_cmdb_devices(&self, keep: &[String]) -> Result<()>;
+}
+
 /// Saved compliance/inventory reports, made by hand or on a schedule.
 pub trait ReportStore: Send + Sync {
     fn add_report(&self, meta: &ReportMeta, content: &[u8]) -> Result<i64>;
@@ -344,4 +356,4 @@ pub trait AdminStore: Send + Sync {
 /// needs, rather than all ~85 methods at once — see the individual traits for what each
 /// area covers. A backend implements the sub-traits it needs, then this one with an empty
 /// body (all its methods already exist via the supertraits).
-pub trait Store: AssetStore + EventStore + MetricStore + SettingsStore + IpCacheStore + ReportStore + AuthStore + AdminStore {}
+pub trait Store: AssetStore + EventStore + MetricStore + SettingsStore + IpCacheStore + ReportStore + AuthStore + AdminStore + CmdbStore {}

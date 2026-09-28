@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.18.0: CMDB import (Entra ID), an IPv6 address lookup tool, and a better exceptions/baseline workflow
+
+* **CMDB import**: Settings → Integrations → CMDB import pulls device inventory from Microsoft
+  Entra ID (an app registration with the `Device.Read.All` application permission, app-only
+  auth) and cross-references it against DENIS's own discovered devices by hostname. Read-only and
+  one-directional — nothing is ever written back to Entra ID, and a match is shown as extra
+  context (OS, compliance state, when Entra last saw it), never used to override a device's own
+  fingerprinted identity. Syncs on a schedule (default daily) or on demand. The first of the
+  Active Directory/Entra ID/Intune/MDM family named in the roadmap — picked first because it needs
+  no on-prem LDAP reachability and no separate Intune licence.
+* **Look up an address** (Settings → Network Intelligence): check any IP address by hand, IPv4 or
+  IPv6, the same full detail panel a click on an address anywhere else in the console opens. A
+  first, safely-scoped piece of real IPv6 support: GeoIP, reverse DNS and classification already
+  handle IPv6 addresses correctly (verified with a real IPv6 address) — this is simply the first
+  place in the console a person can actually type one in, since capture/flow tracking itself is
+  still IPv4-only (see ROADMAP.md for the full scope of what that still needs).
+* Learning mode is now called **"Continue learning mode"**, not "Restart" — a plainer name for
+  what it actually does (only pauses alerting for a window; a device's baseline keeps
+  accumulating underneath it regardless, never reset). "Forget all learned baseline data" moved
+  from Settings onto the Rules page, right next to it, since that is where an admin is already
+  thinking about the distinction between the two.
+* The Exceptions & accepted risks tab gets its own search box (by device, network, rule, watch or
+  finding), and the learned-baseline search below it is now grouped by device — a device heading
+  with its own destinations underneath, rather than one flat list repeating the device name on
+  every row.
+* A device's own panel gets an **"Exceptions & baseline"** button: jumps straight to the Rules
+  page's Exceptions tab with both search boxes already filled in for that one device.
+
 ## 2.17.0: One place for every exception and accepted risk, and a searchable baseline across all devices
 
 * Exceptions and allow-lists used to live in three separate places with no shared view: rule

@@ -1088,6 +1088,8 @@ async function showDetail(id) {
       needsReview(a) ? el('button', { type: 'button', text: tr('Mark as known'), onclick: async () => { await api('POST', '/api/assets/review', { ids: [a.id] }); await refresh(); showDetail(a.id); } }) : null,
       el('button', { type: 'button', text: tr('This is the same device as…'), title: tr('For an access point (or anything else) that shows up more than once under a different MAC address'), onclick: () => openMergeForm(a) }),
       m.manual && can('admin') ? el('button', { type: 'button', text: tr('Delete'), onclick: () => deleteAsset(a) }) : null) : null,
+    el('div', { class: 'detail-actions' },
+      el('button', { type: 'button', text: tr('Exceptions & baseline'), title: tr('This device\'s rule exceptions, watch allow-lists, accepted risks and learned baseline destinations, in one place'), onclick: () => focusDeviceInExceptions(a) })),
     detected ? el('div', { class: 'muted small', text: tr('Discovery guessed: {what}', { what: tr(a.detected.device_type) + (a.detected.os_guess ? ' / ' + a.detected.os_guess : '') }) }) : null,
     mergedSiblings.length ? el('div', { class: 'muted small' }, tr('Also known as:') + ' ',
       ...mergedSiblings.flatMap((s, i) => [i ? ', ' : '', s.mac, ' ',
@@ -1544,7 +1546,7 @@ function setTab(t) {
   if (t === 'alerting') loadAlerting();
   if (t === 'users') { renderUsers(); renderApiTokens(); }
   if (t === 'settings') {
-    initBrandingForm(); initOverviewBox(); loadLicenseBox(); loadInterfacesBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); loadSiemBox(); loadSsoBox(); loadAiBox(); loadRetentionBox(); loadIpenrichBox();
+    initBrandingForm(); initOverviewBox(); loadLicenseBox(); loadInterfacesBox(); loadUpdateBox(); loadTlsBox(); loadSecurityBox(); loadSwitchesBox(); loadVulnBox(); loadSiemBox(); loadSsoBox(); loadAiBox(); loadRetentionBox(); loadIpenrichBox(); loadCmdbBox();
     settingsSelect(location.hash.startsWith('#settings/') ? location.hash.split('/')[1] : SETTINGS_DEFAULT);
   }
   if (t === 'audit') renderAudit();

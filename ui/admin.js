@@ -230,6 +230,7 @@ async function start() {
   $('siem-box').hidden = !can('admin');
   $('sso-box').hidden = !can('admin');
   $('ai-box').hidden = !can('admin');
+  $('cmdb-box').hidden = !can('admin');
   $('retention-box').hidden = !can('admin');
   for (const b of document.querySelectorAll('#topo-mode button')) b.onclick = () => setTopoMode(b.dataset.mode);
   $('setup-open').onclick = openSetupGuide;
@@ -1029,7 +1030,7 @@ const SETTINGS_CATS = [
   ['security', [['security', 'security-box'], ['sso', 'sso-box'], ['tls', 'tls-box']]],
   ['network', [['interfaces', 'interfaces-box'], ['switches', 'switches-box'], ['ipenrich', 'ipenrich-box']]],
   ['data', [['retention', 'retention-box'], ['vulndata', 'vuln-box'], ['data', 'data-box']]],
-  ['integrations', [['siem', 'siem-box'], ['ai', 'ai-box']]],
+  ['integrations', [['siem', 'siem-box'], ['ai', 'ai-box'], ['cmdb', 'cmdb-box']]],
   ['branding', [['branding', 'branding-box'], ['overview', 'overview-box']]],
   ['system', [['license', 'license-box'], ['updates', 'update-box'], ['system', 'system-box'], ['setup', 'setup-box']]],
 ];
@@ -1125,25 +1126,6 @@ $('erase-all').onclick = () => {
       await refresh();
       loadDemoBanner();
       $('demo-status').textContent = tr('Everything was erased. Learning starts again now.');
-      return null;
-    },
-  });
-};
-
-$('baseline-forget-all').onclick = () => {
-  const phrase = 'FORGET LEARNED BASELINE';
-  const input = el('input', { placeholder: phrase, autocomplete: 'off' });
-  openForm(tr('Forget all learned baseline data'), [
-    el('p', { text: tr('This forgets every device\'s learned traffic baseline (destinations, ports, volume, active hours). Devices, alerts, the communications matrix and everything else are kept. The next traffic from any device is judged fresh, exactly like a device that was just discovered.') }),
-    el('p', { class: 'form-error', text: tr('It cannot be undone.') }),
-    field(tr('Type {phrase} to confirm', { phrase }), input),
-  ], {
-    submitLabel: tr('Forget it all'),
-    onSubmit: async () => {
-      if (input.value.trim() !== phrase) return tr('Type the words exactly as shown.');
-      const r = await api('POST', '/api/baseline/forget-all', { confirm: phrase });
-      if (!r.ok) return apiError(r);
-      $('baseline-forget-status').textContent = tr('Every learned baseline was forgotten.');
       return null;
     },
   });
@@ -1454,6 +1436,53 @@ $('ai-save').onclick = async () => {
   if (r.ok) loadAiBox();
 };
 
+async function loadCmdbBox() {
+  if (!can('admin')) return;
+  const [s, d] = await Promise.all([api('GET', '/api/cmdb/settings'), api('GET', '/api/cmdb/devices')]);
+  if (s.ok) {
+    $('cmdb-enabled').checked = s.json.enabled;
+    $('cmdb-tenant').value = s.json.tenant_id || '';
+    $('cmdb-client-id').value = s.json.client_id || '';
+    $('cmdb-interval').value = s.json.sync_interval_hours || 24;
+    $('cmdb-client-secret').value = '';
+    $('cmdb-client-secret').placeholder = s.json.client_secret_set ? tr('(unchanged)') : '';
+    $('cmdb-secret-status').textContent = s.json.client_secret_set ? tr('A client secret is saved.') : tr('No client secret saved yet.');
+  }
+  $('cmdb-devices').replaceChildren(...(d.ok ? d.json : []).map((dev) => {
+    const asset = dev.matched_asset_id != null ? assetById(dev.matched_asset_id) : null;
+    return el('div', { class: 'ip-context-row' },
+      el('div', {},
+        el('b', { text: dev.display_name }),
+        el('div', { class: 'muted small' },
+          [dev.os, dev.os_version].filter(Boolean).join(' '),
+          dev.compliant != null ? (dev.compliant ? ' · ' + tr('compliant') : ' · ' + tr('not compliant')) : '',
+          ' · ' + tr('last synced {t}', { t: ago(dev.last_synced_at) })),
+        asset
+          ? el('div', { class: 'muted small' }, tr('Matched:') + ' ', el('button', { type: 'button', class: 'chip', text: deviceLabel(asset, '#' + dev.matched_asset_id), onclick: () => showDetail(asset.id) }))
+          : el('div', { class: 'muted small', text: tr('No matching device found by hostname.') })));
+  }));
+  if (d.ok && !d.json.length) $('cmdb-devices').replaceChildren(el('p', { class: 'muted', text: tr('Nothing imported yet.') }));
+}
+$('cmdb-save').onclick = async () => {
+  const r = await api('PUT', '/api/cmdb/settings', {
+    enabled: $('cmdb-enabled').checked,
+    tenant_id: $('cmdb-tenant').value.trim(),
+    client_id: $('cmdb-client-id').value.trim(),
+    sync_interval_hours: Number($('cmdb-interval').value) || 24,
+    client_secret: $('cmdb-client-secret').value,
+  });
+  $('cmdb-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
+  if (r.ok) loadCmdbBox();
+};
+$('cmdb-sync').onclick = async () => {
+  $('cmdb-sync').disabled = true;
+  $('cmdb-msg').textContent = tr('Syncing…');
+  const r = await api('POST', '/api/cmdb/sync');
+  $('cmdb-sync').disabled = false;
+  $('cmdb-msg').textContent = r.ok && r.json.ok ? tr('Imported {n} device(s).', { n: r.json.imported }) : (r.ok ? r.json.error : apiError(r));
+  if (r.ok && r.json.ok) loadCmdbBox();
+};
+
 function siemForm() {
   const elastic = $('siem-transport').value === 'elastic';
   return {
@@ -1595,6 +1624,17 @@ $('ipenrich-save').onclick = async () => {
   $('ipenrich-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
   if (r.ok) loadIpenrichBox();
 };
+
+$('ipenrich-lookup-go').onclick = async () => {
+  const ip = $('ipenrich-lookup-ip').value.trim();
+  if (!ip) return;
+  $('ipenrich-lookup-msg').textContent = tr('Loading…');
+  const r = await api('GET', '/api/ip-enrichment/' + encodeURIComponent(ip));
+  $('ipenrich-lookup-msg').textContent = '';
+  if (!r.ok) { $('ipenrich-lookup-msg').textContent = apiError(r); return; }
+  ipDetailDialog(ip, r.json);
+};
+$('ipenrich-lookup-ip').onkeydown = (ev) => { if (ev.key === 'Enter') $('ipenrich-lookup-go').click(); };
 
 async function loadTlsBox() {
   if (!can('admin')) return;

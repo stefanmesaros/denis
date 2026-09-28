@@ -395,6 +395,7 @@
         <div id="rules-mode-exceptions" hidden>
           <h3 class="section">Exceptions &amp; accepted risks</h3>
           <p class="muted">Every place a rule, watch or finding has been told to stay quiet — rule exceptions, OT/network watch allow-lists, and accepted risks from Findings — in one list. Removing one here has the exact same effect as removing it from where it was added.</p>
+          <input id="exceptions-search" type="search" placeholder="Search by device, network, rule, watch or finding…" autocomplete="off">
           <div id="exceptions-list"></div>
           <h3 class="section">Learned baseline destinations</h3>
           <p class="muted">Every device's learned traffic baseline, searchable across all devices at once — the same "×" you would find on one device's own panel, without opening each device individually.</p>
@@ -548,6 +549,25 @@
           </div>
           <div class="row"><button id="ai-save" type="button" class="primary">Save</button><span id="ai-msg" class="muted"></span></div>
         </div>
+        <div id="cmdb-box" hidden>
+          <h3 class="section">CMDB import</h3>
+          <p class="muted">Pulls device inventory from Microsoft Entra ID (an app registration with the
+            <code>Device.Read.All</code> application permission, admin-consented) and cross-references it against
+            what DENIS itself discovered, matching by hostname — nothing is ever written back to Entra ID, and a
+            match is shown as extra context, never used to override a device's own fingerprinted identity.</p>
+          <label class="check"><input id="cmdb-enabled" type="checkbox"> Enabled</label>
+          <div class="row">
+            <label>Tenant ID<input id="cmdb-tenant" placeholder="contoso.onmicrosoft.com"></label>
+            <label>Client (application) ID<input id="cmdb-client-id" placeholder="00000000-0000-0000-0000-000000000000"></label>
+            <label>Client secret<input id="cmdb-client-secret" type="password" autocomplete="off"></label>
+          </div>
+          <div class="row">
+            <label>Sync every<span class="row"><input id="cmdb-interval" type="number" min="1" max="720" value="24"> hours</span></label>
+          </div>
+          <p class="muted small" id="cmdb-secret-status"></p>
+          <div class="row"><button id="cmdb-save" type="button" class="primary">Save</button><button id="cmdb-sync" type="button">Sync now</button><span id="cmdb-msg" class="muted"></span></div>
+          <div id="cmdb-devices"></div>
+        </div>
         <div id="vuln-box" hidden>
           <h3 class="section">Software versions: end of support and known exploits</h3>
           <div id="vuln-body"></div>
@@ -587,6 +607,9 @@
             <label>Reverse-DNS cache (hours)<input id="ipenrich-dns-ttl" type="number" min="1"></label>
           </div>
           <div class="row"><button id="ipenrich-save" type="button" class="primary">Save</button><span id="ipenrich-msg" class="muted"></span></div>
+          <h4>Look up an address</h4>
+          <p class="muted small">Check any public IP address by hand — IPv4 or IPv6 — the same detail panel a click on an address anywhere else in the console opens.</p>
+          <div class="row"><input id="ipenrich-lookup-ip" placeholder="8.8.8.8 or 2001:4860:4860::8888"><button id="ipenrich-lookup-go" type="button">Look up</button><span id="ipenrich-lookup-msg" class="muted"></span></div>
           <p class="muted small" id="ipenrich-attribution"></p>
         </div>
         <div id="security-box" hidden>
@@ -635,8 +658,6 @@
           <h3 class="section">Demo data and reset</h3>
           <p class="muted">New here? <b>Load demo data</b> fills the console with a fictional company so you can explore every screen; it never mixes with your real devices, and <b>Remove demo data</b> deletes exactly that. When you are ready for your own network, <b>Erase all data</b> starts from a clean slate (accounts, settings and the audit log are kept).</p>
           <div class="row"><button id="demo-load" type="button">Load demo data</button><button id="demo-remove" type="button">Remove demo data</button><button id="erase-all" type="button" class="danger">Erase all data…</button><span id="demo-status" class="muted"></span></div>
-          <p class="muted">Restarting learning mode (Rules page) only pauses alerting for a while — it does not touch what has already been learned; new destinations and ports keep being added to it underneath, same as always. To make every device's traffic baseline start over from nothing instead, without touching devices, alerts or anything else:</p>
-          <div class="row"><button id="baseline-forget-all" type="button" class="danger">Forget all learned baseline data…</button><span id="baseline-forget-status" class="muted"></span></div>
         </div>
       </section>
 
