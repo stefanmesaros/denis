@@ -57,7 +57,10 @@ network itself rather than trusting whatever was last typed into a CMDB.
    alerts for control commands (a PLC stop, a program download), traffic crossing the network boundary, Purdue-level
    skipping, and writes from a device that should only ever read.
 6. **Manage the register.** Owner, location, serial number, asset tag, warranty, criticality, tags, custom fields,
-   80+ icons, 90+ device types, full change history, a review queue for new devices, CSV import/export.
+   80+ icons, 90+ device types, full change history, a review queue for new devices, CSV import/export. Optionally
+   cross-referenced against **Microsoft Entra ID and Intune** (CMDB import, Settings → Integrations): read-only,
+   matched by hostname, shown as extra context (OS, compliance state) — never used to override a device's own
+   fingerprinted identity.
 7. **Report.** *Findings* (known-exploited vulnerabilities and end-of-support software matched against what a
    device's banner actually revealed, Telnet/RDP exposed, a lost device still online, no owner, an expiring
    warranty…) with **Verify fix** and **Accept risk**; a *Compliance* view showing where your register and
@@ -298,9 +301,9 @@ commercial license (there is no self-service purchase yet — open a GitHub issu
 
 ## Roadmap
 
-What is missing and planned, including gaps competitors already cover (SSO, ticketing/CMDB integrations,
-multi-tenancy, IPv6, a Windows collector) and verification still owed before a commercial launch: see
-[ROADMAP.md](ROADMAP.md).
+What is missing and planned, including gaps competitors already cover (SAML — OIDC SSO already works; Active
+Directory and other MDM sources — Entra ID and Intune already work in CMDB import; multi-tenancy; IPv6; a Windows
+collector) and verification still owed before a commercial launch: see [ROADMAP.md](ROADMAP.md).
 
 ## Contributing
 
@@ -353,6 +356,10 @@ src/auth.rs         users, sessions, per-agent tokens (Argon2id, hashed tokens, 
 src/web/            API + embedded UI, auth middleware, security headers (mod.rs routes/reads, common.rs shared with web_*)
 src/web_admin.rs    state-changing handlers (session, users, tokens, asset edits, import)
 src/web_siem.rs     SIEM / log export settings (GET/PUT, a test-send endpoint)
+src/cmdb.rs         CMDB import: Entra ID device objects and Intune managed devices via Microsoft Graph, matched to the register by hostname (see CMDB.md)
+src/web_cmdb.rs     CMDB import settings, on-demand sync, imported device list (GET/PUT/POST)
+src/sso.rs          single sign-on: OIDC authorization-code flow with PKCE (see SSO.md)
+src/web_sso.rs      SSO settings, the redirect/callback endpoints
 src/ingest.rs       master side of the agent protocol (per-agent tokens, idempotent batches)
 src/agent.rs        agent reporter
 src/tls.rs          optional built-in HTTPS (rustls)
