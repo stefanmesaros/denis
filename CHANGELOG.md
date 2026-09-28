@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.20.0: Alert noise — auto-detect rotating/pool-style destinations, and give custom watches the same protection
+
+* `new_destination` no longer needs a port to be on a hardcoded list (previously just NTP/STUN,
+  ports 123/3478) to recognise a rotating/pool-style service. It now watches each device's own
+  behaviour: several distinct destinations on the same port in a short burst (a CDN edge, a
+  relay, a broker handing out a fresh address per session) auto-promotes that port to "rotating"
+  for that device, after which it stops repeating the alert — exactly like the built-in NTP/STUN
+  case, just learned per device instead of declared up front. A device that instead picks up one
+  genuinely new, unrelated destination every so often, spread out well beyond the burst window,
+  is never promoted and keeps alerting normally: that spread-out pattern is the one actually worth
+  an admin's attention.
+* Your own network watches (`it_watch`) get the equivalent protection for the first time. Until
+  now a watch's only anti-repeat mechanism was a flat cooldown per exact (device, address, port) —
+  so a watch like "cameras talking to the internet" re-alerted for every single new CDN/cloud IP
+  the camera's own service handed out. It now recognises the same rotating-burst pattern per
+  (device, watch, port) and stops repeating for further new addresses once one is detected, while
+  a device this watch already knows about still alerts normally once its own cooldown lapses.
+* Diagnosed and grounded in a real 434-alert export from a 20-device home network (see
+  ROADMAP.md): one camera alone produced 117 `new_port` alerts to 2 already-known relay servers,
+  and 86 of 130 `new_destination` alerts were CDN (TCP/443) or NTP-pool (UDP/123) rotation, not
+  new relationships. The `new_port`-to-a-known-destination cap and the NTP/STUN allowlist already
+  existed since v2.0.1/v2.0.2; this release is the generalization past that hardcoded 2-port list,
+  plus giving custom watches the protection the two built-in rules already had.
+
 ## 2.19.0: Unified "Exceptions, accepted risks & baseline" view, grouped by device
 
 * The Rules page's "Exceptions & accepted risks" tab is renamed **"Exceptions, accepted risks &

@@ -472,6 +472,12 @@ pub struct Baseline {
     /// that talks to a different server address by design — see `dest_port_churn_max`.
     #[serde(default)]
     pub destination_port_churn: std::collections::BTreeMap<String, u32>,
+    /// `proto/port` keys auto-detected, from this device's own behaviour, as a rotating/pool
+    /// service (several distinct destinations on the same port in quick succession — a CDN edge,
+    /// a relay, a broker) rather than hardcoded like `ROTATING_SERVICE_PORTS`. Sticky once set:
+    /// see `detect.rs`'s rotation-burst tracking for how a port earns a place here.
+    #[serde(default)]
+    pub rotating_ports: std::collections::BTreeSet<String>,
 }
 
 impl Baseline {
@@ -486,6 +492,7 @@ impl Baseline {
             buckets: 0,
             updated_at: now,
             destination_port_churn: Default::default(),
+            rotating_ports: Default::default(),
         }
     }
 }

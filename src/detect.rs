@@ -105,6 +105,16 @@ const COMMON_PORTS: &[u16] = &[53, 80, 123, 443, 465, 587, 853, 993, 5228];
 /// them normally, it just stops repeating the alert after `dest_port_churn_max` of them.
 const ROTATING_SERVICE_PORTS: &[u16] = &[123, 3478]; // NTP, STUN
 
+/// A port earns a place in a device's own `Baseline.rotating_ports` once it has produced this
+/// many distinct new-destination alerts within `ROTATION_BURST_WINDOW_SECS` — the actual
+/// signature of a CDN edge, relay or broker handing out a fresh address per session, as opposed
+/// to a device slowly picking up one genuinely new, unrelated contact every so often (which never
+/// crosses the burst threshold and keeps alerting normally, same as today). Generalizes
+/// `ROTATING_SERVICE_PORTS` beyond its hardcoded NTP/STUN case to any port, learned per device
+/// rather than declared up front — see `dest_port_churn_max` for the count and `ROTATION_BURST_WINDOW_SECS`
+/// for the window.
+const ROTATION_BURST_WINDOW_SECS: i64 = 3600;
+
 
 /// Volume statistics forget after roughly this many buckets (~1 day at 5 min).
 const VOLUME_WINDOW: u32 = 288;
@@ -275,6 +285,16 @@ pub struct Detector {
     conv_cooldown: HashMap<(i64, i64, String), i64>,
     /// One alert per (device, watch, address, port) in a while, for `it_watch`.
     it_cooldown: HashMap<(i64, String, Ipv4Addr, u16), i64>,
+    /// (asset, proto/port) -> recent timestamps of new-destination alerts for that port, used
+    /// only to detect a rotation burst (see `ROTATION_BURST_WINDOW_SECS`) before it is promoted
+    /// into the persisted, sticky `Baseline.rotating_ports`; entries are dropped once promoted.
+    rotation_burst: HashMap<(i64, String), VecDeque<i64>>,
+    /// (asset, watch, port) -> distinct remotes it_watch has already alerted for, and when the
+    /// first of the current burst happened. Generalizes the same rotation idea to custom
+    /// watches, which have no baseline of their own to check "already known" against. In-memory
+    /// only, like `it_cooldown` — resets on restart, which just means a few more alerts get
+    /// re-learned rather than any state being silently lost.
+    it_watch_churn: HashMap<(i64, String, u16), (HashSet<Ipv4Addr>, i64)>,
     /// DHCP servers seen so far, per collector (`None` = local). Learned silently during
     /// the learning period and kept in the database (`dhcp_servers`).
     dhcp_known: HashMap<Option<String>, HashSet<Mac>>,
@@ -310,6 +330,8 @@ impl Detector {
             convs_dirty: HashSet::new(),
             conv_cooldown: HashMap::new(),
             it_cooldown: HashMap::new(),
+            rotation_burst: HashMap::new(),
+            it_watch_churn: HashMap::new(),
             dhcp_known: HashMap::new(),
             dhcp_loaded: false,
             new_times: VecDeque::new(),
@@ -535,6 +557,24 @@ impl Detector {
                 if score == 0 {
                     continue; // the rule as a whole is switched off (weight 0)
                 }
+                // A watch has no baseline of its own to check "already an established
+                // relationship" against (unlike new_destination/new_port) - so it gets the same
+                // rotation-burst idea directly: once this watch has alerted for several distinct
+                // remotes on the same port in a short window, a CDN/relay/broker pattern rather
+                // than genuinely separate contacts, stop repeating for further new ones. A remote
+                // this watch already knows about (its own cooldown just lapsed) is unaffected.
+                let churn_key = (asset_id, w.id.clone(), r.port);
+                let entry = self.it_watch_churn.entry(churn_key).or_insert_with(|| (HashSet::new(), r.window_start));
+                if r.window_start - entry.1 > ROTATION_BURST_WINDOW_SECS {
+                    entry.0.clear();
+                    entry.1 = r.window_start;
+                }
+                if !entry.0.contains(&r.remote) {
+                    if entry.0.len() as u32 >= self.cfg.dest_port_churn_max {
+                        continue;
+                    }
+                    entry.0.insert(r.remote);
+                }
                 self.it_cooldown.insert(key, now + w.cooldown_minutes as i64 * 60);
                 let kb = (r.bytes_out + r.bytes_in) / 1000;
                 let mut d = json!({
@@ -551,6 +591,9 @@ impl Detector {
         }
         if self.it_cooldown.len() > 50_000 {
             self.it_cooldown.retain(|_, u| now < *u);
+        }
+        if self.it_watch_churn.len() > 50_000 {
+            self.it_watch_churn.retain(|_, (_, since)| now - *since <= ROTATION_BURST_WINDOW_SECS);
         }
         events
     }
@@ -615,13 +658,37 @@ impl Detector {
             let mature = r.window_start - b.observed_since >= self.cfg.learning_secs;
             let dest_known = b.typical_destinations.contains_key(&key);
             let mut churned_port = false;
-            let rotating = ROTATING_SERVICE_PORTS.contains(&r.port);
+            let rotating = ROTATING_SERVICE_PORTS.contains(&r.port) || b.rotating_ports.contains(&port_key);
             let dest_churn = b.destination_port_churn.get(&port_key).copied().unwrap_or(0);
             if mature && !dest_known && !(rotating && dest_churn >= self.cfg.dest_port_churn_max) {
                 let (raw, why) = score_new_destination(b, &self.global_dests, asset_id, r);
                 fresh.push((raw, why, r));
                 if rotating {
                     *b.destination_port_churn.entry(port_key.clone()).or_default() += 1;
+                } else {
+                    // Not (yet) a known rotating port: note this alert towards a possible burst,
+                    // and promote the port once enough of them land in a short window - see
+                    // ROTATION_BURST_WINDOW_SECS. A slow trickle of genuinely separate contacts
+                    // never fills the window fast enough to be promoted, and keeps alerting.
+                    // Several new destinations arriving together in one collection window are
+                    // one incident, not several distinct sessions over time - see
+                    // `many_new_destinations_in_one_window_become_one_alert` - so they count as
+                    // a single point towards the burst, not one each.
+                    let times = self.rotation_burst.entry((asset_id, port_key.clone())).or_default();
+                    if times.back() != Some(&r.window_start) {
+                        times.push_back(r.window_start);
+                    }
+                    while times.front().is_some_and(|t| r.window_start - *t > ROTATION_BURST_WINDOW_SECS) {
+                        times.pop_front();
+                    }
+                    if times.len() as u32 >= self.cfg.dest_port_churn_max {
+                        b.rotating_ports.insert(port_key.clone());
+                        // The alerts that made up the burst count as this port's churn budget
+                        // too, so suppression starts with the very next contact instead of
+                        // silently re-spending another `dest_port_churn_max` before it bites.
+                        b.destination_port_churn.insert(port_key.clone(), self.cfg.dest_port_churn_max);
+                        self.rotation_burst.remove(&(asset_id, port_key.clone()));
+                    }
                 }
             } else if mature
                 && !b.typical_ports.contains_key(&port_key)
@@ -671,6 +738,9 @@ impl Detector {
             b.typical_destinations.remove(&oldest);
         }
         self.dirty.insert(asset_id);
+        if self.rotation_burst.len() > 50_000 {
+            self.rotation_burst.retain(|_, times| times.back().is_some_and(|t| now - *t <= ROTATION_BURST_WINDOW_SECS));
+        }
 
         let mut out = Vec::new();
         if let Some(r) = exposed.first() {
@@ -2076,6 +2146,42 @@ mod tests {
     }
 
     #[test]
+    fn a_port_auto_detected_as_rotating_from_a_burst_stops_repeating_but_a_slow_trickle_does_not() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let mut d = Detector::new(cfg(), vec![], 0);
+        established(&s, &mut d);
+        // Several distinct destinations on the same ordinary port in quick succession - a CDN
+        // edge handing out a fresh address per connection, not several genuinely separate
+        // services - alert normally up to dest_port_churn_max (default 3)...
+        for (i, ip) in [[10, 0, 0, 1], [20, 0, 0, 1], [30, 0, 0, 1]].into_iter().enumerate() {
+            let ts = 2000 + i as i64 * 60; // a minute apart: comfortably inside the burst window
+            let ev = d.ingest_flows(None, &[flow(MAC, ip, 443, 1, ts)], &s, ts + 10);
+            assert_eq!(kinds(&ev), [(RULE_NEW_DESTINATION, 50)], "alert #{i}");
+        }
+        // ...then the burst auto-promotes port 443 to "rotating" for this device, exactly like
+        // the hardcoded NTP/STUN case: further new destinations on it stop alerting...
+        let ev = d.ingest_flows(None, &[flow(MAC, [40, 0, 0, 1], 443, 1, 2200)], &s, 2210);
+        assert!(ev.is_empty(), "auto-detected rotating port should stop repeating");
+        // ...while a genuinely new destination on a different, still-ordinary port still alerts.
+        let ev = d.ingest_flows(None, &[flow(MAC, [1, 2, 3, 4], 8080, 1, 2300)], &s, 2310);
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].kind.as_str(), RULE_NEW_DESTINATION);
+
+        // A device that picks up new destinations on the same port slowly, spread out well
+        // beyond the burst window, is never promoted: each one is a genuinely separate contact
+        // and still worth an alert - the actual signature worth an admin's attention.
+        let s2 = SqliteStore::open_in_memory().unwrap();
+        let mut d2 = Detector::new(cfg(), vec![], 0);
+        established(&s2, &mut d2);
+        for (i, ip) in [[10, 0, 0, 2], [20, 0, 0, 2], [30, 0, 0, 2], [40, 0, 0, 2]].into_iter().enumerate() {
+            let ts = 2000 + i as i64 * (ROTATION_BURST_WINDOW_SECS + 100);
+            let ev = d2.ingest_flows(None, &[flow(MAC, ip, 443, 1, ts)], &s2, ts + 10);
+            assert_eq!(ev.len(), 1, "slow trickle alert #{i} should still fire");
+            assert_eq!(ev[0].kind.as_str(), RULE_NEW_DESTINATION);
+        }
+    }
+
+    #[test]
     fn new_port_is_tunable_like_every_rule() {
         let s = SqliteStore::open_in_memory().unwrap();
         let mut c = cfg();
@@ -2816,6 +2922,42 @@ mod tests {
         // another device is not what the watch is about
         assert!(d.ingest_flows(None, &[flow(MAC2, [1, 1, 1, 1], 443, 500, 3000)], &s, 3000).is_empty());
         let _ = other;
+    }
+
+    #[test]
+    fn an_it_watch_stops_repeating_for_a_burst_of_distinct_remotes_but_a_returning_one_still_alerts() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let cam = asset(&s, MAC, 0);
+        let mut c = cfg();
+        let mut w = it_watch("w1");
+        w.sources = vec![crate::rules::Scope { kind: "device".into(), value: cam.id.to_string(), note: None }];
+        c.it_watches = vec![w];
+        let mut d = Detector::new(c, vec![], 0);
+        // Three distinct remotes on the same port, a minute apart - well inside the burst
+        // window - still alert (dest_port_churn_max defaults to 3)...
+        for (i, ip) in [[8, 8, 4, 4], [8, 8, 8, 8], [1, 1, 1, 1]].into_iter().enumerate() {
+            let ts = i as i64 * 60;
+            let ev = d.ingest_flows(None, &[flow(MAC, ip, 443, 500, ts)], &s, ts + 10);
+            assert_eq!(kinds(&ev), [(RULE_IT_WATCH, 75)], "remote #{i}");
+        }
+        // ...a fourth distinct remote on that same port, in the same burst, is a rotating
+        // pattern (a relay/CDN, not four separate things worth four separate alerts) and is
+        // suppressed.
+        assert!(d.ingest_flows(None, &[flow(MAC, [2, 2, 2, 2], 443, 500, 200)], &s, 210).is_empty(), "fourth distinct remote suppressed");
+        // A remote this watch already knows about is unaffected by the cap: once its own
+        // cooldown lapses it alerts again, same as always.
+        let ev = d.ingest_flows(None, &[flow(MAC, [8, 8, 4, 4], 443, 500, 3000)], &s, 3010);
+        assert_eq!(kinds(&ev), [(RULE_IT_WATCH, 75)], "a returning known remote is not new churn");
+        // A different port is an entirely different burst: unaffected by port 443's cap.
+        let ev = d.ingest_flows(None, &[flow(MAC, [3, 3, 3, 3], 8443, 500, 210)], &s, 220);
+        assert_eq!(kinds(&ev), [(RULE_IT_WATCH, 75)]);
+        // Well beyond the burst window, the pattern is judged fresh again: a new distinct
+        // remote on port 443 alerts rather than staying suppressed forever.
+        let ts = 200 + ROTATION_BURST_WINDOW_SECS + 100;
+        let ev = d.ingest_flows(None, &[flow(MAC, [4, 4, 4, 4], 443, 500, ts)], &s, ts + 10);
+        // by now the device is also past its own learning period, so a genuinely new
+        // destination legitimately raises new_destination too - both are real, independent signals
+        assert!(kinds(&ev).contains(&(RULE_IT_WATCH, 75)), "burst window elapsed: judged fresh again: {:?}", kinds(&ev));
     }
 
     #[test]
