@@ -38,12 +38,13 @@ pub const RULE_THREAT: &str = "threat_list_match";
 pub const RULE_OT_WATCH: &str = "ot_command_watch";
 pub const RULE_OT_ESCALATION: &str = "ot_write_escalation";
 pub const RULE_IT_WATCH: &str = "it_watch";
+pub const RULE_LAN_SCAN: &str = "lan_scan";
 
 /// Every rule name accepted by `--rule-weight`.
 pub const RULES: &[&str] = &[
     RULE_NEW_DEVICE, RULE_NEW_DESTINATION, RULE_VOLUME, RULE_NEW_PORT, RULE_HOURS, RULE_ARP, RULE_SILENT,
     RULE_OT_NEW_CONV, RULE_OT_CONTROL, RULE_OT_EXPOSURE, RULE_DHCP, RULE_BURST, RULE_OT_PURDUE, RULE_OT_WRITER, RULE_THREAT,
-    RULE_OT_WATCH, RULE_OT_ESCALATION, RULE_IT_WATCH,
+    RULE_OT_WATCH, RULE_OT_ESCALATION, RULE_IT_WATCH, RULE_LAN_SCAN,
 ];
 
 /// Every event kind that can be raised as an alert, with what the person who
@@ -71,6 +72,7 @@ pub const ADVICE: &[(&str, &str)] = &[
     (RULE_OT_WATCH, "One of your own OT command watches matched: a command you asked to be told about was sent to an industrial device. Check who sent it and why (the alert names the watch, the sender and the target). If it was planned, no action is needed; if not, contact the plant's operations and security leads, and consider adding the sender to the watch's allowed senders once you know it is legitimate."),
     (RULE_OT_ESCALATION, "A path that only ever read from an industrial device has started writing to it. That is how a monitoring or reporting connection turns into a controlling one. Confirm with operations that the change was intended (a new function, a commissioning, a maintenance task); if not, treat the sender as compromised or misconfigured and block the path at the firewall between the zones."),
     (RULE_OT_EXPOSURE, "An industrial protocol crossed the network boundary. These protocols have no authentication of their own, so nothing outside should reach them. Find the firewall or NAT rule, or the bridging device, that allows it and close it."),
+    (RULE_LAN_SCAN, "A device contacted many different addresses, or many different ports on one address, on your own local network in a short time - the signature of a host sweep or port scan, not ordinary traffic. Check what is actually running on the device (a security scanner and a backup or discovery tool can look the same to this rule); if nothing legitimate explains it, isolate the device and investigate it as a likely compromise."),
 ];
 
 /// What to do about an alert of this kind, if we have advice for it.
@@ -187,6 +189,14 @@ pub struct DetectConfig {
     /// `ot_unexpected_writer` and `ot_write_escalation`: minimum gap between repeats.
     pub ot_writer_cooldown_secs: i64,
     pub ot_escalation_cooldown_secs: i64,
+    /// `lan_scan`: a host sweep or port scan is judged over this rolling window.
+    pub lan_scan_window_secs: i64,
+    /// `lan_scan`: this many distinct local addresses contacted within the window is a sweep.
+    pub lan_scan_min_hosts: usize,
+    /// `lan_scan`: this many distinct ports on one local address within the window is a scan.
+    pub lan_scan_min_ports: usize,
+    /// `lan_scan`: minimum gap between two alerts for the same device.
+    pub lan_scan_cooldown_secs: i64,
     /// Per-rule minimum score: below it the rule's events are logged as `info` only.
     pub rule_min_scores: HashMap<String, i32>,
 }
@@ -229,6 +239,10 @@ impl Default for DetectConfig {
             ot_purdue_gap: 2.0,
             ot_writer_cooldown_secs: 3600,
             ot_escalation_cooldown_secs: 6 * 3600,
+            lan_scan_window_secs: 120,
+            lan_scan_min_hosts: 8,
+            lan_scan_min_ports: 8,
+            lan_scan_cooldown_secs: 3600,
             rule_min_scores: HashMap::new(),
         }
     }
@@ -295,6 +309,9 @@ pub struct Detector {
     /// only, like `it_cooldown` — resets on restart, which just means a few more alerts get
     /// re-learned rather than any state being silently lost.
     it_watch_churn: HashMap<(i64, String, u16), (HashSet<Ipv4Addr>, i64)>,
+    /// asset -> recent (local address, port, when) contacted on its own network, for `lan_scan`.
+    /// In-memory only: a restart just means the rolling window starts over, same as `new_times`.
+    lan_scan_log: HashMap<i64, VecDeque<(Ipv4Addr, u16, i64)>>,
     /// DHCP servers seen so far, per collector (`None` = local). Learned silently during
     /// the learning period and kept in the database (`dhcp_servers`).
     dhcp_known: HashMap<Option<String>, HashSet<Mac>>,
@@ -332,6 +349,7 @@ impl Detector {
             it_cooldown: HashMap::new(),
             rotation_burst: HashMap::new(),
             it_watch_churn: HashMap::new(),
+            lan_scan_log: HashMap::new(),
             dhcp_known: HashMap::new(),
             dhcp_loaded: false,
             new_times: VecDeque::new(),
@@ -517,6 +535,7 @@ impl Detector {
             if !self.cfg.it_watches.is_empty() {
                 events.extend(self.it_watch_hits(asset_id, &recs, store, now));
             }
+            events.extend(self.lan_scan_hits(asset_id, &recs, store, now));
             let found = self.ingest_asset(asset_id, &recs, now);
             if found.is_empty() {
                 continue;
@@ -594,6 +613,85 @@ impl Detector {
         }
         if self.it_watch_churn.len() > 50_000 {
             self.it_watch_churn.retain(|_, (_, since)| now - *since <= ROTATION_BURST_WINDOW_SECS);
+        }
+        events
+    }
+
+    /// A device suddenly contacting many distinct addresses, or many distinct ports on one
+    /// address, on its own local network in a short time - the actual signature of a host sweep
+    /// or port scan (a compromised device probing the LAN for other targets), not ordinary
+    /// traffic. Not subject to learning: a scan is abnormal on day one too, same reasoning as
+    /// `threat_hits`. Deliberately count-based rather than looking at connection success/failure
+    /// (DENIS's flow records carry no TCP handshake state) - consistent with the rest of this
+    /// module's "simple, explainable" rules rather than deep packet inspection.
+    fn lan_scan_hits(&mut self, asset_id: i64, recs: &[&FlowRecord], store: &dyn Store, now: i64) -> Vec<Event> {
+        let mut events = Vec::new();
+        let local: Vec<&&FlowRecord> = recs.iter().filter(|r| crate::rules::is_private_addr(r.remote)).collect();
+        if local.is_empty() {
+            return events;
+        }
+        if self.cooldown.get(&(asset_id, RULE_LAN_SCAN)).is_some_and(|u| now < *u) {
+            return events;
+        }
+        let log = self.lan_scan_log.entry(asset_id).or_default();
+        let mut newest = log.back().map(|(_, _, t)| *t).unwrap_or(i64::MIN);
+        for r in &local {
+            log.push_back((r.remote, r.port, r.window_start));
+            newest = newest.max(r.window_start);
+        }
+        while log.front().is_some_and(|(_, _, t)| newest - *t > self.cfg.lan_scan_window_secs) {
+            log.pop_front();
+        }
+        let hosts: HashSet<Ipv4Addr> = log.iter().map(|(ip, _, _)| *ip).collect();
+        let mut ports_per_host: HashMap<Ipv4Addr, HashSet<u16>> = HashMap::new();
+        for (ip, port, _) in log.iter() {
+            ports_per_host.entry(*ip).or_default().insert(*port);
+        }
+        let (busiest_host, busiest_ports) = ports_per_host
+            .iter()
+            .max_by_key(|(_, ports)| ports.len())
+            .map(|(ip, ports)| (*ip, ports.len()))
+            .unwrap_or((Ipv4Addr::UNSPECIFIED, 0));
+        let minutes = self.cfg.lan_scan_window_secs / 60;
+
+        // A host sweep (many distinct local addresses) is judged first: it is the broader, less
+        // ambiguous pattern. Only when that does not fire is a port sweep against a single
+        // address considered, so one event never double-counts as both.
+        let raw = if hosts.len() >= self.cfg.lan_scan_min_hosts {
+            55 + 3 * (hosts.len() as i32 - self.cfg.lan_scan_min_hosts as i32)
+        } else if busiest_ports >= self.cfg.lan_scan_min_ports {
+            55 + 3 * (busiest_ports as i32 - self.cfg.lan_scan_min_ports as i32)
+        } else {
+            return events;
+        }
+        .clamp(0, 100);
+        let score = self.cfg.weighted(RULE_LAN_SCAN, raw);
+        if score == 0 {
+            return events;
+        }
+        let Some(asset) = store.get_asset(asset_id).ok().flatten() else { return events };
+        let name = asset_label(&asset);
+        let (summary, reason) = if hosts.len() >= self.cfg.lan_scan_min_hosts {
+            (
+                format!("{name} contacted {} different addresses on your local network within {minutes} minutes", hosts.len()),
+                format!("+{raw} {} distinct local addresses in {minutes} minutes - a host sweep, not ordinary traffic", hosts.len()),
+            )
+        } else {
+            (
+                format!("{name} tried {busiest_ports} different ports on {busiest_host} within {minutes} minutes"),
+                format!("+{raw} {busiest_ports} distinct ports on one local address in {minutes} minutes - a port scan, not ordinary traffic"),
+            )
+        };
+        self.cooldown.insert((asset_id, RULE_LAN_SCAN), now + self.cfg.lan_scan_cooldown_secs);
+        self.lan_scan_log.remove(&asset_id); // start the window fresh after an alert
+        let details = json!({
+            "summary": summary,
+            "reasons": [reason],
+            "hosts": hosts.len(), "busiest_host": busiest_host, "busiest_ports": busiest_ports,
+        });
+        events.push(make_event(&asset, RULE_LAN_SCAN, score, severity_for(score, self.cfg.min_score), details, now));
+        if self.lan_scan_log.len() > 50_000 {
+            self.lan_scan_log.retain(|_, log| log.back().is_some_and(|(_, _, t)| now - *t <= self.cfg.lan_scan_window_secs));
         }
         events
     }
@@ -2989,6 +3087,53 @@ mod tests {
         // an amount of data, and a protocol
         assert!(run(&|w, _| w.min_kb = 10).is_empty(), "600 bytes is not 10 kB");
         assert!(run(&|w, _| w.proto = "udp".into()).is_empty(), "the flows are TCP");
+    }
+
+    #[test]
+    fn many_distinct_local_addresses_contacted_quickly_is_a_host_sweep() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        asset(&s, MAC, 0);
+        let mut d = Detector::new(cfg(), vec![], 0);
+        // Ordinary local traffic - a handful of LAN neighbours - stays quiet.
+        for (i, host) in (1u8..=5).enumerate() {
+            let ts = i as i64 * 5;
+            assert!(d.ingest_flows(None, &[flow(MAC, [192, 168, 1, host], 80, 10, ts)], &s, ts + 10).is_empty(), "host #{host}");
+        }
+        // Contacting 8 distinct local addresses within the window (default: lan_scan_min_hosts) is a sweep.
+        for host in 6u8..=8 {
+            let ts = 30 + host as i64;
+            let ev = d.ingest_flows(None, &[flow(MAC, [192, 168, 1, host], 80, 10, ts)], &s, ts + 10);
+            if host < 8 {
+                assert!(ev.is_empty(), "host #{host} not yet at the threshold");
+            } else {
+                assert_eq!(kinds(&ev), [(RULE_LAN_SCAN, 55)]);
+                assert!(ev[0].raw_details["summary"].as_str().unwrap().contains("8 different addresses"));
+            }
+        }
+        // Held back afterwards (cooldown), even for a fresh batch of new local addresses.
+        assert!(d.ingest_flows(None, &[flow(MAC, [192, 168, 2, 1], 80, 10, 100)], &s, 110).is_empty());
+        // Contacts with public (non-local) addresses never count towards a sweep.
+        let s2 = SqliteStore::open_in_memory().unwrap();
+        asset(&s2, MAC, 0);
+        let mut d2 = Detector::new(cfg(), vec![], 0);
+        for (i, oct) in (1u8..=10).enumerate() {
+            let ts = i as i64 * 5;
+            assert!(d2.ingest_flows(None, &[flow(MAC, [30, 0, 0, oct], 443, 10, ts)], &s2, ts + 10).is_empty(), "public address #{oct}");
+        }
+    }
+
+    #[test]
+    fn many_distinct_ports_on_one_local_address_is_a_port_scan() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        asset(&s, MAC, 0);
+        let mut d = Detector::new(cfg(), vec![], 0);
+        for port in 1u16..=7 {
+            let ts = port as i64 * 2;
+            assert!(d.ingest_flows(None, &[flow(MAC, [192, 168, 1, 50], port, 10, ts)], &s, ts + 10).is_empty(), "port #{port} not yet at the threshold");
+        }
+        let ev = d.ingest_flows(None, &[flow(MAC, [192, 168, 1, 50], 8, 10, 20)], &s, 30);
+        assert_eq!(kinds(&ev), [(RULE_LAN_SCAN, 55)]);
+        assert!(ev[0].raw_details["summary"].as_str().unwrap().contains("8 different ports on 192.168.1.50"));
     }
 
     #[test]

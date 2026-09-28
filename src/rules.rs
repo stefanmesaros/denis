@@ -89,6 +89,14 @@ pub static PARAMS: &[Param] = &[
         |c| c.ot_escalation_cooldown_secs as f64 / 3600.0, |c, v| c.ot_escalation_cooldown_secs = (v * 3600.0) as i64),
     param("agent_offline_minutes", "Site silent for", "min", "How long a remote site may stop reporting before one alert is raised.", 1.0, 120.0, 1.0,
         |c| c.agent_offline_secs as f64 / 60.0, |c, v| c.agent_offline_secs = (v * 60.0) as i64),
+    param("lan_scan_window_min", "Judged over", "min", "A host sweep or port scan is judged within this rolling window.", 1.0, 60.0, 1.0,
+        |c| c.lan_scan_window_secs as f64 / 60.0, |c, v| c.lan_scan_window_secs = (v * 60.0) as i64),
+    param("lan_scan_min_hosts", "Local addresses that count as a sweep", "addresses", "This many distinct addresses on your own network, contacted within the window above, is a host sweep.", 3.0, 100.0, 1.0,
+        |c| c.lan_scan_min_hosts as f64, |c, v| c.lan_scan_min_hosts = v as usize),
+    param("lan_scan_min_ports", "Ports on one address that count as a scan", "ports", "This many distinct ports on a single local address, tried within the window above, is a port scan.", 3.0, 100.0, 1.0,
+        |c| c.lan_scan_min_ports as f64, |c, v| c.lan_scan_min_ports = v as usize),
+    param("lan_scan_cooldown_min", "Minimum gap between alerts", "min", "Per device.", 1.0, 1440.0, 1.0,
+        |c| c.lan_scan_cooldown_secs as f64 / 60.0, |c, v| c.lan_scan_cooldown_secs = (v * 60.0) as i64),
 ];
 
 /// What a rule is, in plain words, for the portal.
@@ -137,6 +145,9 @@ pub static RULE_INFO: &[RuleInfo] = &[
     RuleInfo { id: "it_watch", title: "Network: your watches", group: "network",
         summary: "Your own watches on ordinary traffic: be told when devices you choose talk to networks, addresses or ports you did not allow (cameras talking to the internet, servers using unusual ports, the guest network reaching the office). Add them below.",
         needs: "traffic analysis (--flows)", params: &[] },
+    RuleInfo { id: "lan_scan", title: "Internal network scan", group: "network",
+        summary: "A device suddenly contacts many different addresses, or many different ports on one address, on your own local network in a short time: a host sweep or port scan, not ordinary traffic.",
+        needs: "traffic analysis on a mirror port", params: &["lan_scan_window_min", "lan_scan_min_hosts", "lan_scan_min_ports", "lan_scan_cooldown_min"] },
     RuleInfo { id: "ot_new_conversation", title: "OT: new communication path", group: "ot",
         summary: "An industrial device starts talking to a controller it never talked to. Writes and control messages weigh more than reads.",
         needs: "traffic analysis on a mirror port", params: &[] },

@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.21.0: New rule — internal network scan (host sweep / port scan) detection
+
+* A new built-in rule, **Internal network scan** (Rules → Network rules), flags a device that
+  suddenly contacts many different addresses, or many different ports on one address, on your
+  own local network in a short time: the actual signature of a host sweep or port scan, not
+  ordinary traffic. Judged by breadth rather than connection success/failure (DENIS's flow
+  records carry no TCP handshake state), consistent with the rest of the rule engine's "simple,
+  explainable" style. Not subject to the learning period — a scan is abnormal on day one too.
+  Needs traffic analysis on a mirror port, the same requirement as the OT rules, since seeing
+  device-to-device LAN traffic (not just the collector's own uplink) needs a span/mirror port.
+  Tunable like every other rule: the judging window, how many distinct addresses count as a
+  sweep, how many distinct ports on one address count as a scan, and the cooldown between alerts.
+* Closes a real gap found while answering "does DENIS tell me if a device on my network is
+  scanning it?" — no. `new_device_burst` catches many *new devices* arriving quickly (an external
+  scan/ARP-flood signature), but nothing previously flagged an already-known device suddenly
+  probing many other local hosts or ports, the signature of a compromised device doing
+  reconnaissance. See ROADMAP.md.
+
 ## 2.20.0: Alert noise — auto-detect rotating/pool-style destinations, and give custom watches the same protection
 
 * `new_destination` no longer needs a port to be on a hardcoded list (previously just NTP/STUN,
