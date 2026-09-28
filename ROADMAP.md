@@ -3,6 +3,44 @@
 DENIS aims to be an honest, self-hostable alternative to the asset-visibility products that cost six figures a
 year. This is what is still missing, in rough order. Pull requests welcome.
 
+## Next up, in order
+
+1. **Alert noise: stop repeating for the same relationship, generalized beyond a hardcoded port
+   list** (in progress, 2026-09-28). Diagnosed against a real 434-alert export from a 20-device
+   home network: 86% of all alerts (374/434) were `new_port`, `new_destination` or `it_watch` —
+   and most of those were not 374 distinct events, just a handful of relationships re-alerting
+   per session/IP: one camera alone produced 117 `new_port` alerts to 2 already-known relay
+   servers (a cloud relay that hands out a fresh ephemeral port per session), and 86 of 130
+   `new_destination` alerts were TCP/443 or UDP/123 — CDN and NTP-pool IP rotation, not new
+   relationships. On a network with hundreds of devices this doesn't scale linearly, it
+   compounds, and the realistic admin response is disabling the rule — which defeats the point.
+   `new_port`/`new_destination` already cap repeats per destination since v2.0.1/v2.0.2, and
+   `new_destination` already special-cases NTP/STUN (ports 123/3478) by a hardcoded allowlist —
+   but nothing generalizes past those 2 ports (port 443 legitimately carries both CDN rotation
+   *and* the traffic that matters most to still catch, so it can't be blanket-exempted), and
+   `it_watch` (custom watches) has no such logic at all — only a flat per-(device, watch, exact
+   IP, exact port) cooldown, so any new IP or port re-fires immediately regardless of how
+   established the relationship is. Considered ASN/org-based clustering for the generalization
+   (closer to how Cisco Stealthwatch's host-groups work) but rejected it: it needs a new
+   dependency threaded through the detector (enrichment is currently response-layer only, not
+   available during detection — would touch ~77 call sites), the enrichment cache is best-effort
+   and often empty for a destination's first contact (exactly when the decision matters most),
+   and it wouldn't even solve the NTP case (pool.ntp.org servers span unrelated ASNs by design).
+   Going with the same behavioral technique Zeek-style NIDS use instead: auto-detect "rotating"
+   per (device, port) from behavior — several distinct new destinations on the same port in a
+   short burst — rather than only recognising a hardcoded list, and extend the same
+   already-known-destination/port suppression to `it_watch`. Reasoning for a genuinely slow,
+   spread-out pattern (the actual signature of something worth an admin's attention) is
+   preserved, since it never crosses the burst threshold.
+2. **Internal reconnaissance / port-scan detection.** Checked the rule list (2026-09-28): DENIS
+   has `new_device_burst` (many *new devices* joining quickly — an external scan/ARP-flood
+   signature) but nothing that flags an *already-known* device suddenly touching many different
+   local hosts or ports in a short time — the actual signature of a compromised device scanning
+   the LAN. Not started yet; natural next step once the alert-noise work above lands, and likely
+   shares mechanics with it (churn/burst detection over local rather than external destinations).
+3. **IPv6 in capture and the asset model.** See below for the detailed scoping — unchanged, just
+   reordered to come after the two items above per an explicit priority call.
+
 ## Verification still owed
 * Master/agent across a real network; TLS with a public CA or behind a reverse proxy.
 * Passkeys with a physical security key or phone (verified with software authenticators only).
