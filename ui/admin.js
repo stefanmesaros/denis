@@ -1446,9 +1446,11 @@ $('ai-save').onclick = async () => {
   if (r.ok) loadAiBox();
 };
 
+const CMDB_SOURCE_LABEL = (source) => (source === 'intune' ? tr('Intune') : source === 'ad' ? tr('Active Directory') : tr('Entra ID'));
+
 async function loadCmdbBox() {
   if (!can('admin')) return;
-  const [s, d] = await Promise.all([api('GET', '/api/cmdb/settings'), api('GET', '/api/cmdb/devices')]);
+  const [s, a, d] = await Promise.all([api('GET', '/api/cmdb/settings'), api('GET', '/api/ad/settings'), api('GET', '/api/cmdb/devices')]);
   if (s.ok) {
     $('cmdb-enabled').checked = s.json.enabled;
     $('cmdb-tenant').value = s.json.tenant_id || '';
@@ -1459,12 +1461,22 @@ async function loadCmdbBox() {
     $('cmdb-client-secret').placeholder = s.json.client_secret_set ? tr('(unchanged)') : '';
     $('cmdb-secret-status').textContent = s.json.client_secret_set ? tr('A client secret is saved.') : tr('No client secret saved yet.');
   }
+  if (a.ok) {
+    $('ad-enabled').checked = a.json.enabled;
+    $('ad-url').value = a.json.url || '';
+    $('ad-bind-dn').value = a.json.bind_dn || '';
+    $('ad-base-dn').value = a.json.base_dn || '';
+    $('ad-interval').value = a.json.sync_interval_hours || 24;
+    $('ad-bind-password').value = '';
+    $('ad-bind-password').placeholder = a.json.bind_password_set ? tr('(unchanged)') : '';
+    $('ad-password-status').textContent = a.json.bind_password_set ? tr('A bind password is saved.') : tr('No bind password saved yet.');
+  }
   $('cmdb-devices').replaceChildren(...(d.ok ? d.json : []).map((dev) => {
     const asset = dev.matched_asset_id != null ? assetById(dev.matched_asset_id) : null;
     return el('div', { class: 'ip-context-row' },
       el('div', {},
         el('b', { text: dev.display_name }), ' ',
-        el('span', { class: 'tag', text: dev.source === 'intune' ? tr('Intune') : tr('Entra ID') }),
+        el('span', { class: 'tag', text: CMDB_SOURCE_LABEL(dev.source) }),
         el('div', { class: 'muted small' },
           [dev.os, dev.os_version].filter(Boolean).join(' '),
           dev.compliant != null ? (dev.compliant ? ' · ' + tr('compliant') : ' · ' + tr('not compliant')) : '',
@@ -1493,6 +1505,26 @@ $('cmdb-sync').onclick = async () => {
   const r = await api('POST', '/api/cmdb/sync');
   $('cmdb-sync').disabled = false;
   $('cmdb-msg').textContent = r.ok && r.json.ok ? tr('Imported {n} device(s).', { n: r.json.imported }) : (r.ok ? r.json.error : apiError(r));
+  if (r.ok && r.json.ok) loadCmdbBox();
+};
+$('ad-save').onclick = async () => {
+  const r = await api('PUT', '/api/ad/settings', {
+    enabled: $('ad-enabled').checked,
+    url: $('ad-url').value.trim(),
+    bind_dn: $('ad-bind-dn').value.trim(),
+    base_dn: $('ad-base-dn').value.trim(),
+    sync_interval_hours: Number($('ad-interval').value) || 24,
+    bind_password: $('ad-bind-password').value,
+  });
+  $('ad-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
+  if (r.ok) loadCmdbBox();
+};
+$('ad-sync').onclick = async () => {
+  $('ad-sync').disabled = true;
+  $('ad-msg').textContent = tr('Syncing…');
+  const r = await api('POST', '/api/ad/sync');
+  $('ad-sync').disabled = false;
+  $('ad-msg').textContent = r.ok && r.json.ok ? tr('Imported {n} device(s).', { n: r.json.imported }) : (r.ok ? r.json.error : apiError(r));
   if (r.ok && r.json.ok) loadCmdbBox();
 };
 

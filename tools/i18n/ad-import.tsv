@@ -1,0 +1,15 @@
+# Settings → Integrations → CMDB import: the Active Directory (on-premises, LDAP) source, added
+# alongside the existing Entra ID / Intune ones (see cmdb.tsv) - src/ad.rs, src/web_ad.rs.
+Active Directory || Active Directory || Active Directory || Active Directory || Active Directory
+A bind password is saved. || Ein Bind-Passwort ist gespeichert. || Un mot de passe de liaison est enregistré. || Se ha guardado una contraseña de enlace. || Bind heslo je uložené.
+No bind password saved yet. || Noch kein Bind-Passwort gespeichert. || Aucun mot de passe de liaison enregistré pour l'instant. || Aún no se ha guardado ninguna contraseña de enlace. || Zatiaľ nie je uložené žiadne bind heslo.
+Active Directory (on-premises) || Active Directory (vor Ort) || Active Directory (sur site) || Active Directory (local) || Active Directory (lokálne)
+Pulls computer objects from an on-premises Active Directory domain over LDAP/LDAPS, using a dedicated read-only bind account, and cross-references them the same way — matched by hostname, shown as extra context, nothing ever written back. || Ruft Computerobjekte aus einer lokalen Active-Directory-Domäne über LDAP/LDAPS ab, mit einem dedizierten schreibgeschützten Bind-Konto, und gleicht sie auf dieselbe Weise ab — per Hostname-Abgleich, als zusätzlicher Kontext angezeigt, nie zurückgeschrieben. || Récupère les objets ordinateur d'un domaine Active Directory sur site via LDAP/LDAPS, avec un compte de liaison dédié en lecture seule, et les recoupe de la même manière — par correspondance de nom d'hôte, affichés à titre d'information supplémentaire, jamais réécrits. || Obtiene objetos de equipo de un dominio Active Directory local mediante LDAP/LDAPS, usando una cuenta de enlace dedicada de solo lectura, y los coteja de la misma manera — emparejados por nombre de host, mostrados como contexto adicional, nunca escritos de vuelta. || Načíta objekty počítačov z lokálnej domény Active Directory cez LDAP/LDAPS pomocou vyhradeného read-only bind účtu a porovnáva ich rovnakým spôsobom — podľa zhody hostname, zobrazené ako doplnkový kontext, nikdy sa nič nezapisuje späť.
+Server URL || Server-URL || URL du serveur || URL del servidor || URL servera
+Bind DN || Bind-DN || DN de liaison || DN de enlace || Bind DN
+Bind password || Bind-Passwort || Mot de passe de liaison || Contraseña de enlace || Bind heslo
+Base DN || Basis-DN || DN de base || DN base || Base DN
+Imported devices || Importierte Geräte || Appareils importés || Dispositivos importados || Importované zariadenia
+ldaps://dc.contoso.local:636 || ldaps://dc.contoso.local:636 || ldaps://dc.contoso.local:636 || ldaps://dc.contoso.local:636 || ldaps://dc.contoso.local:636
+CN=denis-ro,OU=Service Accounts,DC=contoso,DC=local || CN=denis-ro,OU=Service Accounts,DC=contoso,DC=local || CN=denis-ro,OU=Service Accounts,DC=contoso,DC=local || CN=denis-ro,OU=Service Accounts,DC=contoso,DC=local || CN=denis-ro,OU=Service Accounts,DC=contoso,DC=local
+DC=contoso,DC=local || DC=contoso,DC=local || DC=contoso,DC=local || DC=contoso,DC=local || DC=contoso,DC=local

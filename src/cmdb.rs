@@ -29,7 +29,7 @@ const SETTINGS_KEY: &str = "cmdb.settings";
 const CLIENT_SECRET_KEY: &str = "cmdb.client_secret";
 const GRAPH_BASE: &str = "https://graph.microsoft.com/v1.0";
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     pub enabled: bool,
     /// The Azure AD tenant (a GUID, or its `*.onmicrosoft.com` domain).
@@ -46,6 +46,14 @@ pub struct Settings {
 }
 fn default_interval_hours() -> i64 {
     24
+}
+impl Default for Settings {
+    // `#[derive(Default)]` would not know about `#[serde(default = "default_interval_hours")]`
+    // above and would give `sync_interval_hours: 0` for a never-configured install - correct for
+    // "no source is enabled yet", misleading for the interval an admin would actually want shown.
+    fn default() -> Self {
+        Settings { enabled: false, tenant_id: String::new(), client_id: String::new(), sync_interval_hours: default_interval_hours(), include_intune: false }
+    }
 }
 
 pub fn settings(store: &dyn SettingsStore) -> Settings {
@@ -246,8 +254,13 @@ pub fn sync_now(store: &dyn Store, now: i64) -> Result<usize> {
         store.save_cmdb_device(&rec.external_id, &serde_json::to_vec(&rec)?, now)?;
         kept.push(rec.external_id);
     }
+    let synced = kept.len();
+    // Prune only Entra ID/Intune rows: a device imported by the independent Active Directory
+    // sync (src/ad.rs) is kept as-is, so this sync never deletes what that one imported.
+    let other_sources: Vec<String> = list_devices(store)?.into_iter().filter(|d| d.source != "entra" && d.source != "intune").map(|d| d.external_id).collect();
+    kept.extend(other_sources);
     store.prune_cmdb_devices(&kept)?;
-    Ok(kept.len())
+    Ok(synced)
 }
 
 pub fn list_devices(store: &dyn Store) -> Result<Vec<CmdbDevice>> {
@@ -299,6 +312,7 @@ mod tests {
         let store = SqliteStore::open_in_memory().unwrap();
         assert_eq!(settings(&store), Settings::default());
         assert!(!settings(&store).enabled, "off by default: nothing calls out until configured");
+        assert_eq!(settings(&store).sync_interval_hours, 24, "not 0 - #[derive(Default)] does not see #[serde(default = ...)]");
         assert_eq!(client_secret(&store), None);
 
         let cfg = Settings { enabled: true, tenant_id: "contoso.onmicrosoft.com".into(), client_id: "abc-123".into(), sync_interval_hours: 6, include_intune: true };

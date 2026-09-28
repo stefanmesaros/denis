@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.24.0: CMDB import — Active Directory (on-premises, LDAP/LDAPS)
+
+* CMDB import (Settings → Integrations) can now also pull computer objects from an **on-premises
+  Active Directory domain**, over LDAP/LDAPS, alongside the existing Entra ID and Intune sources —
+  entirely independent of those two: its own enable toggle, its own credentials (a bind DN and
+  password against a domain controller — a dedicated read-only service account is strongly
+  recommended over a real administrator's own login), its own sync schedule. Matched to DENIS's
+  own discovered devices the same way — exact, case-insensitive hostname only, preferring
+  `dNSHostName` over the bare `name` attribute — read-only, one-directional, shown as extra
+  context, never used to override a device's own fingerprinted identity.
+* New dependency: the `ldap3` crate (its synchronous `LdapConn`, not the tokio-async client —
+  matching how this codebase's other optional integrations already run their blocking I/O inside
+  `spawn_blocking` rather than pulling in a second async runtime).
+* Fixed a real bug uncovered while building this: `cmdb.rs`'s own Entra ID/Intune sync originally
+  assumed it was the only writer to the shared imported-device table, and its "forget devices no
+  longer present" pruning would have silently deleted Active Directory's rows on its very next
+  run. Both sources' pruning is now scoped to their own rows only.
+* Also fixed: `Settings::default()` for both the Entra ID/Intune and the new Active Directory
+  settings reported `sync_interval_hours: 0` for a never-configured install rather than the
+  intended 24 — `#[derive(Default)]` doesn't see a field's `#[serde(default = "...")]` attribute,
+  they solve different problems that happen to look similar. The UI never showed this (it already
+  had a `|| 24` display fallback), but the raw API response did.
+* See [CMDB.md](CMDB.md) for the full "what was verified, what wasn't" honesty accounting, same
+  bar as [SSO.md](SSO.md) — this was, until this release, entirely undocumented (see v2.23.0).
+
 ## 2.23.0: CMDB import — Intune managed devices
 
 * CMDB import (Settings → Integrations) can now also pull **Intune managed devices**

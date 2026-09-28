@@ -58,9 +58,9 @@ network itself rather than trusting whatever was last typed into a CMDB.
    skipping, and writes from a device that should only ever read.
 6. **Manage the register.** Owner, location, serial number, asset tag, warranty, criticality, tags, custom fields,
    80+ icons, 90+ device types, full change history, a review queue for new devices, CSV import/export. Optionally
-   cross-referenced against **Microsoft Entra ID and Intune** (CMDB import, Settings → Integrations): read-only,
-   matched by hostname, shown as extra context (OS, compliance state) — never used to override a device's own
-   fingerprinted identity.
+   cross-referenced against **Microsoft Entra ID, Intune, and on-premises Active Directory** (CMDB import,
+   Settings → Integrations): read-only, matched by hostname, shown as extra context (OS, compliance state) — never
+   used to override a device's own fingerprinted identity.
 7. **Report.** *Findings* (known-exploited vulnerabilities and end-of-support software matched against what a
    device's banner actually revealed, Telnet/RDP exposed, a lost device still online, no owner, an expiring
    warranty…) with **Verify fix** and **Accept risk**; a *Compliance* view showing where your register and
@@ -301,9 +301,9 @@ commercial license (there is no self-service purchase yet — open a GitHub issu
 
 ## Roadmap
 
-What is missing and planned, including gaps competitors already cover (SAML — OIDC SSO already works; Active
-Directory and other MDM sources — Entra ID and Intune already work in CMDB import; multi-tenancy; IPv6; a Windows
-collector) and verification still owed before a commercial launch: see [ROADMAP.md](ROADMAP.md).
+What is missing and planned, including gaps competitors already cover (SAML — OIDC SSO already works; other MDM
+sources such as Jamf — Entra ID, Intune and Active Directory already work in CMDB import; multi-tenancy; IPv6; a
+Windows collector) and verification still owed before a commercial launch: see [ROADMAP.md](ROADMAP.md).
 
 ## Contributing
 
@@ -358,6 +358,8 @@ src/web_admin.rs    state-changing handlers (session, users, tokens, asset edits
 src/web_siem.rs     SIEM / log export settings (GET/PUT, a test-send endpoint)
 src/cmdb.rs         CMDB import: Entra ID device objects and Intune managed devices via Microsoft Graph, matched to the register by hostname (see CMDB.md)
 src/web_cmdb.rs     CMDB import settings, on-demand sync, imported device list (GET/PUT/POST)
+src/ad.rs           CMDB import, third source: on-premises Active Directory computer objects over LDAP/LDAPS (see CMDB.md)
+src/web_ad.rs       Active Directory import settings, on-demand sync (GET/PUT/POST)
 src/sso.rs          single sign-on: OIDC authorization-code flow with PKCE (see SSO.md)
 src/web_sso.rs      SSO settings, the redirect/callback endpoints
 src/ingest.rs       master side of the agent protocol (per-agent tokens, idempotent batches)

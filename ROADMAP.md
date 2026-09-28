@@ -49,11 +49,16 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    check-in). Records from the two sources are now keyed by `<source>:<id>`, since Entra ID device
    objects and Intune managed devices live in separate GUID spaces for what may be the same
    physical machine.
-5. **CMDB import: Active Directory (on-prem).** Not started. A different protocol from Entra
-   ID/Intune — LDAP/LDAPS rather than REST, a new dependency, and reachability to a domain
-   controller (same LAN or VPN) rather than a cloud API. The matching/store/sync/UI shape from the
-   Entra ID work carries over; the fetch side and its tests (mocking LDAP is more awkward than
-   mocking REST) are the real new work.
+5. ~~**CMDB import: Active Directory (on-prem).**~~ Done in v2.24.0 (2026-09-28). A different
+   protocol from Entra ID/Intune, as scoped — LDAP/LDAPS via the new `ldap3` crate (its
+   synchronous `LdapConn`, matching how every other optional integration in this codebase already
+   runs its blocking I/O inside `spawn_blocking` rather than pulling in a second async runtime),
+   its own independent settings/credentials/schedule rather than sharing Entra ID's app
+   registration. The matching/store/UI shape from the Entra ID work carried over as expected; the
+   real new work was the fetch side and — found only while building this, not anticipated in the
+   original scoping — making `cmdb.rs`'s own pruning source-scoped, since it originally assumed it
+   was the only writer to the imported-device table and would have deleted Active Directory's rows
+   on its own next sync otherwise.
 6. **IPv6 in capture and the asset model.** See below for the detailed scoping.
 7. **Windows collectors.** Partial groundwork already exists (`WINDOWS.md`, Win32 calls in
    `net.rs`/`health.rs`, the `windows-sys` dependency), none of it verified on a real Windows

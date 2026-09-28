@@ -1,6 +1,6 @@
 [package]
 name = "denis"
-version = "2.23.0"
+version = "2.24.0"
 edition = "2021"
 description = "DENIS: Device Enumeration & Network Inventory Security. Find every device on an IT or OT network, keep an editable asset register, and get alerted when behaviour changes."
 license-file = "LICENSE"
@@ -25,6 +25,7 @@ getrandom = "0.4.3"
 hickory-resolver = { version = "0.26.3", default-features = false, features = ["tokio"] }
 ipnet = "2.12.2"
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "builder", "rustls-tls"] }
+ldap3 = { version = "0.12.1", default-features = false, features = ["sync", "tls-rustls-ring"] }
 libc = "0.2.189"
 maxminddb = "0.32.0"
 md-5 = "0.10.6"

@@ -967,6 +967,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     tasks.push(tokio::spawn(crate::switches::run(store.clone())));
     // CMDB import from Entra ID (off by default, on its own schedule once configured)
     tasks.push(tokio::spawn(crate::cmdb::run(store.clone())));
+    tasks.push(tokio::spawn(crate::ad::run(store.clone())));
     // scheduled backups of the database
     tasks.push(tokio::spawn(crate::backups::run(store.clone(), cfg.collector.db.clone(), cfg.backup_upstream.clone())));
     // a low-severity alert 30 days before a commercial license expires, a higher-severity one
