@@ -381,11 +381,27 @@
       </section>
 
       <section id="view-rules" hidden>
-        <p class="muted">Every detection DENIS runs, and how it is set. Alerts are scored 0–100; anything below the minimum score is only logged. Turning a rule off, or its weight down, is safe: nothing is deleted. Changes apply within seconds and are written to the audit log. <a href="/docs/detection-rules" target="_blank" rel="noopener">How each rule scores</a></p>
-        <div id="rules-global" class="rule-card"></div>
-        <div id="learning-box" class="rule-card" hidden></div>
-        <div id="rules-list"></div>
-        <div class="row" id="rules-actions" hidden><button id="rules-save" type="button" class="primary">Save changes</button><button id="rules-reset" type="button">Reset everything to defaults</button><button id="rules-export" type="button">Export as file</button><button id="rules-import" type="button">Import from file…</button><input id="rules-import-file" type="file" accept="application/json,.json" hidden><span id="rules-status" class="muted"></span></div>
+        <div id="rules-mode" class="segmented" role="group" aria-label="Rules or exceptions">
+          <button type="button" data-mode="rules" class="active">Rules</button>
+          <button type="button" data-mode="exceptions">Exceptions &amp; accepted risks</button>
+        </div>
+        <div id="rules-mode-rules">
+          <p class="muted">Every detection DENIS runs, and how it is set. Alerts are scored 0–100; anything below the minimum score is only logged. Turning a rule off, or its weight down, is safe: nothing is deleted. Changes apply within seconds and are written to the audit log. <a href="/docs/detection-rules" target="_blank" rel="noopener">How each rule scores</a></p>
+          <div id="rules-global" class="rule-card"></div>
+          <div id="learning-box" class="rule-card" hidden></div>
+          <div id="rules-list"></div>
+          <div class="row" id="rules-actions" hidden><button id="rules-save" type="button" class="primary">Save changes</button><button id="rules-reset" type="button">Reset everything to defaults</button><button id="rules-export" type="button">Export as file</button><button id="rules-import" type="button">Import from file…</button><input id="rules-import-file" type="file" accept="application/json,.json" hidden><span id="rules-status" class="muted"></span></div>
+        </div>
+        <div id="rules-mode-exceptions" hidden>
+          <h3 class="section">Exceptions &amp; accepted risks</h3>
+          <p class="muted">Every place a rule, watch or finding has been told to stay quiet — rule exceptions, OT/network watch allow-lists, and accepted risks from Findings — in one list. Removing one here has the exact same effect as removing it from where it was added.</p>
+          <div id="exceptions-list"></div>
+          <h3 class="section">Learned baseline destinations</h3>
+          <p class="muted">Every device's learned traffic baseline, searchable across all devices at once — the same "×" you would find on one device's own panel, without opening each device individually.</p>
+          <input id="baseline-search" type="search" placeholder="Search by device name, MAC, IP, or destination IP…" autocomplete="off">
+          <div id="baseline-search-status" class="muted small"></div>
+          <div id="baseline-search-list"></div>
+        </div>
       </section>
 
       <section id="view-events" hidden>

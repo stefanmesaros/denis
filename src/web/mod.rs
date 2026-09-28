@@ -165,6 +165,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/assets/{id}/meta", patch(admin::patch_meta))
         .route("/api/assets/{id}/history", get(admin::history))
         .route("/api/assets/{id}/baseline", get(baseline))
+        .route("/api/baseline/destinations", get(baseline_destinations_all))
         .route("/api/assets/{id}/baseline/destinations/{ip}", delete(delete_baseline_destination))
         .route("/api/assets/{id}/merged", get(merged_into_this))
         .route("/api/events", get(events))
@@ -222,13 +223,15 @@ fn is_public(method: &axum::http::Method, path: &str) -> bool {
 /// anything needs `editor`; managing users, tokens and the audit log, or
 /// deleting assets, needs `admin`.
 pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static str {
-    if path.starts_with("/api/users") || path.starts_with("/api/tls") || path.starts_with("/api/data") || path.starts_with("/api/baseline") || path.starts_with("/api/channels") || path.starts_with("/api/agent-tokens") || path.starts_with("/api/api-tokens") || path.starts_with("/api/audit") || path.starts_with("/api/backups") || path.starts_with("/api/msp-backups") || path.starts_with("/api/setup") || path.starts_with("/api/security") || path.starts_with("/api/retention") {
+    if path.starts_with("/api/users") || path.starts_with("/api/tls") || path.starts_with("/api/data") || path.starts_with("/api/channels") || path.starts_with("/api/agent-tokens") || path.starts_with("/api/api-tokens") || path.starts_with("/api/audit") || path.starts_with("/api/backups") || path.starts_with("/api/msp-backups") || path.starts_with("/api/setup") || path.starts_with("/api/security") || path.starts_with("/api/retention") {
         return "admin";
     }
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path.starts_with("/api/ai/settings") || path.starts_with("/api/ip-enrichment/settings") || path.starts_with("/api/ip-enrichment/geoip") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
+    // `/api/baseline/destinations` (GET) is a read: any viewer may search it, same as the
+    // per-device baseline panel it aggregates. Only `/api/baseline/forget-all` (POST) is here.
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/baseline") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path.starts_with("/api/ai/settings") || path.starts_with("/api/ip-enrichment/settings") || path.starts_with("/api/ip-enrichment/geoip") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -716,6 +719,61 @@ async fn baseline(State(st): State<AppState>, Extension(AuthUser(me)): Extension
         // accounting), and the browser logs every 404 as a console error.
         None => Json(serde_json::Value::Null).into_response(),
     })
+}
+
+#[derive(Deserialize)]
+struct BaselineDestQuery {
+    /// Case-insensitive substring, matched against the owning device's name, MAC, current IP, or
+    /// the destination IP itself — one box, several fields, same spirit as the Devices page's own
+    /// search (see `ui/app.js`'s `type:`/`port:`/`vendor:` box).
+    #[serde(default)]
+    q: String,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+/// Every device's learned baseline destinations in one flat, searchable list — the aggregate
+/// counterpart to the per-device panel (`baseline` above), for an admin who wants to find and
+/// clean up something without opening devices one at a time. A device's own baseline can hold up
+/// to `max_destinations` (2000 by default) entries, so with more than a handful of devices this is
+/// never sent whole: `q` is required to narrow it in any real deployment, and the response is
+/// always capped (`limit`, default 200, hard ceiling 1000) with `matched` telling the caller how
+/// many rows actually matched so the UI can say "refine your search" rather than silently
+/// truncating without a word.
+async fn baseline_destinations_all(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Query(q): Query<BaselineDestQuery>) -> Result<Response, ApiError> {
+    let (baselines, assets, metas) = blocking(&st.store, |s| Ok((s.load_baselines()?, s.load_assets()?, s.load_all_meta()?))).await?;
+    let by_id: HashMap<i64, &Asset> = assets.iter().map(|a| (a.id, a)).collect();
+    let needle = q.q.trim().to_lowercase();
+    let limit = q.limit.unwrap_or(200).min(1000);
+
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    for b in &baselines {
+        let Some(a) = by_id.get(&b.asset_id) else { continue };
+        if !site_readable(&st, &me, &a.agent_id) {
+            continue;
+        }
+        let asset_ip = a.current_ip().map(|ip| ip.to_string()).unwrap_or_default();
+        let mac = a.mac.to_string();
+        let name = metas.get(&a.id).and_then(|m| m.display_name.clone()).or_else(|| a.hostnames.first().cloned()).unwrap_or_default();
+        let asset_haystack = format!("{} {} {}", name.to_lowercase(), mac.to_lowercase(), asset_ip.to_lowercase());
+        let asset_matches = needle.is_empty() || asset_haystack.contains(&needle);
+        for (ip, d) in &b.typical_destinations {
+            if !asset_matches && !ip.to_lowercase().contains(&needle) {
+                continue;
+            }
+            rows.push(serde_json::json!({
+                "asset_id": a.id, "ip": ip, "first_seen": d.first_seen, "last_seen": d.last_seen, "bytes": d.bytes,
+            }));
+        }
+    }
+    rows.sort_by_key(|r| std::cmp::Reverse(r["last_seen"].as_i64().unwrap_or(0)));
+    let matched = rows.len();
+    rows.truncate(limit);
+    let mut body = serde_json::json!({ "destinations": rows, "matched": matched, "limit": limit });
+    // same reasoning as the per-device panel: this is exactly where an admin wants to know what a
+    // destination actually is, not just its bare address.
+    crate::ipenrich::decorate(&st.ipenrich, &mut body, now_ts());
+    Ok(Json(body).into_response())
 }
 
 /// Remove one destination from one device's learned baseline — the fix for a learning period
@@ -1713,6 +1771,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn baseline_destinations_can_be_searched_across_every_device_at_once() {
+        use crate::model::{AssetMeta, Baseline, DestStat};
+        let (app, store, [viewer, _editor, admin]) = secured().await;
+        let mut a1 = Asset::new(Mac([0x3c, 0x22, 0xfb, 1, 1, 1]), 10);
+        store.save_asset(&mut a1).unwrap();
+        store.save_meta(a1.id, &AssetMeta { display_name: Some("Finance server".into()), ..Default::default() }, "test", 10).unwrap();
+        let mut b1 = Baseline::new(a1.id, 1);
+        b1.typical_destinations.insert("1.1.1.1".into(), DestStat { first_seen: 1, last_seen: 100, bytes: 9, bytes_out: 9, bytes_in: 0, port_churn: 0 });
+        store.save_baseline(&b1).unwrap();
+
+        let mut a2 = Asset::new(Mac([0x3c, 0x22, 0xfb, 2, 2, 2]), 10);
+        store.save_asset(&mut a2).unwrap();
+        let mut b2 = Baseline::new(a2.id, 1);
+        b2.typical_destinations.insert("8.8.8.8".into(), DestStat { first_seen: 1, last_seen: 50, bytes: 9, bytes_out: 9, bytes_in: 0, port_churn: 0 });
+        store.save_baseline(&b2).unwrap();
+
+        // no query: both devices' destinations, most-recently-seen first
+        let (st0, _, v) = send(&app, req("GET", "/api/baseline/destinations", Some(&viewer), None)).await;
+        assert_eq!(st0, StatusCode::OK, "{v}");
+        let ips: Vec<_> = v["destinations"].as_array().unwrap().iter().map(|d| d["ip"].as_str().unwrap()).collect();
+        assert_eq!(ips, vec!["1.1.1.1", "8.8.8.8"], "{v}");
+        assert_eq!(v["matched"], 2);
+
+        // by device name
+        let (_, _, v) = send(&app, req("GET", "/api/baseline/destinations?q=finance", Some(&viewer), None)).await;
+        assert_eq!(v["destinations"].as_array().unwrap().len(), 1);
+        assert_eq!(v["destinations"][0]["ip"], "1.1.1.1");
+
+        // by destination IP
+        let (_, _, v) = send(&app, req("GET", "/api/baseline/destinations?q=8.8.8.8", Some(&viewer), None)).await;
+        assert_eq!(v["destinations"].as_array().unwrap().len(), 1);
+        assert_eq!(v["destinations"][0]["ip"], "8.8.8.8");
+
+        // by device MAC
+        let (_, _, v) = send(&app, req("GET", &format!("/api/baseline/destinations?q={}", a2.mac), Some(&viewer), None)).await;
+        assert_eq!(v["destinations"].as_array().unwrap().len(), 1);
+        assert_eq!(v["destinations"][0]["ip"], "8.8.8.8");
+
+        // no match: an empty, not-truncated list
+        let (_, _, v) = send(&app, req("GET", "/api/baseline/destinations?q=nothing-like-this", Some(&viewer), None)).await;
+        assert_eq!((v["destinations"].as_array().unwrap().len(), v["matched"].clone()), (0, serde_json::json!(0)));
+
+        // the actual delete endpoint reached from this same search is admin-only, as ever
+        assert_eq!(send(&app, req("DELETE", &format!("/api/assets/{}/baseline/destinations/1.1.1.1", a1.id), Some(&viewer), None)).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("DELETE", &format!("/api/assets/{}/baseline/destinations/1.1.1.1", a1.id), Some(&admin), None)).await.0, StatusCode::OK);
+    }
+
+    #[tokio::test]
     async fn ack_all_clears_a_backlog_the_alerts_page_would_never_scroll_to() {
         use crate::model::Event;
         let (app, store) = app(true);
@@ -1931,7 +2037,7 @@ mod tests {
             (M::POST, "/api/auth/password", "viewer"), (M::POST, "/api/auth/logout", "viewer"),
             (M::GET, "/api/retention", "admin"), (M::PUT, "/api/retention", "admin"),
             (M::GET, "/api/ip-enrichment", "viewer"), (M::GET, "/api/ip-enrichment/settings", "viewer"), (M::PUT, "/api/ip-enrichment/settings", "admin"), (M::GET, "/api/ip-enrichment/8.8.8.8", "viewer"),
-            (M::DELETE, "/api/assets/1/baseline/destinations/1.1.1.1", "admin"), (M::POST, "/api/baseline/forget-all", "admin"),
+            (M::DELETE, "/api/assets/1/baseline/destinations/1.1.1.1", "admin"), (M::POST, "/api/baseline/forget-all", "admin"), (M::GET, "/api/baseline/destinations", "viewer"),
         ] {
             assert_eq!(required_role(&m, p), want, "{m} {p}");
         }

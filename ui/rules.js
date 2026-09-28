@@ -553,3 +553,119 @@ function openItWatchForm(prefill, done) {
     },
   });
 }
+
+// --------------------------------------------------------- Exceptions & accepted risks (Rules tab)
+//
+// Rule exceptions (rulesData.exceptions), OT/network watch allow-lists (ot_watches[].allowed_senders,
+// it_watches[].except_sources) and accepted risks (acceptedRisks, from findings.js) each already
+// have their own place to be *created* - this only aggregates them into one place to be *seen and
+// removed*, without changing where any of it is actually stored. Removing a row here calls the
+// exact same endpoint removing it from its own place would.
+
+let rulesMode = 'rules';
+
+function setRulesMode(m) {
+  rulesMode = m;
+  for (const b of document.querySelectorAll('#rules-mode button')) b.classList.toggle('active', b.dataset.mode === m);
+  $('rules-mode-rules').hidden = m !== 'rules';
+  $('rules-mode-exceptions').hidden = m !== 'exceptions';
+  if (m === 'exceptions') {
+    drawExceptionsList();
+    runBaselineSearch();
+  }
+}
+for (const b of document.querySelectorAll('#rules-mode button')) b.onclick = () => setRulesMode(b.dataset.mode);
+
+/** One row: a label, a detail line, and a remove button that does whatever removing this
+ * particular kind of thing actually takes (a per-rule exceptions patch, a whole-watch-array PUT,
+ * or a risk-acceptance DELETE) - the three real shapes behind one uniform list. */
+function exceptionRow(label, detail, onRemove) {
+  return el('div', { class: 'exception-row' },
+    can('admin') ? el('button', { type: 'button', class: 'exception-remove', title: tr('Remove'), text: '×', onclick: onRemove }) : null,
+    el('div', { class: 'exception-row-body' }, el('div', {}, el('b', { text: label })), detail ? el('div', { class: 'muted small', text: detail }) : null));
+}
+
+async function drawExceptionsList() {
+  if (!rulesData) { const r = await api('GET', '/api/rules'); if (r.ok) rulesData = r.json; }
+  if (!rulesData) return;
+  const rows = [];
+
+  for (const [ruleId, scopes] of Object.entries(rulesData.exceptions || {})) {
+    const rule = (rulesData.rules || []).find((r) => r.id === ruleId);
+    scopes.forEach((s, i) => {
+      rows.push(exceptionRow(scopeText(s), tr('Exception on rule: {rule}', { rule: rule ? rule.title : ruleId }), async () => {
+        if (!confirm(tr('Remove this exception from {rule}?', { rule: rule ? rule.title : ruleId }))) return;
+        const list = scopes.filter((_, j) => j !== i);
+        const r = await api('PUT', '/api/rules', { exceptions: { [ruleId]: list.length ? list : null } });
+        if (!r.ok) return showMessage(tr('Error'), el('p', { text: apiError(r) }));
+        rulesData = null;
+        drawExceptionsList();
+      }));
+    });
+  }
+
+  for (const [group, field, kindLabel] of [['ot_watches', 'allowed_senders', tr('OT watch allow-list')], ['it_watches', 'except_sources', tr('Network watch exception')]]) {
+    for (const w of rulesData[group] || []) {
+      (w[field] || []).forEach((s, i) => {
+        rows.push(exceptionRow(scopeText(s), tr('{kind}: {name}', { kind: kindLabel, name: w.name }), async () => {
+          if (!confirm(tr('Remove this from the watch "{name}"?', { name: w.name }))) return;
+          const updated = { ...w, [field]: w[field].filter((_, j) => j !== i) };
+          const list = (rulesData[group] || []).map((x) => (x.id === w.id ? updated : x));
+          const r = await api('PUT', '/api/rules', { [group]: list });
+          if (!r.ok) return showMessage(tr('Error'), el('p', { text: apiError(r) }));
+          rulesData = null;
+          drawExceptionsList();
+        }));
+      });
+    }
+  }
+
+  for (const a of (typeof acceptedRisks !== 'undefined' ? acceptedRisks : [])) {
+    const dev = assetById(a.asset_id);
+    rows.push(exceptionRow(tr(a.title), tr('Accepted risk: {device} · {reason}', { device: dev ? deviceLabel(dev, '#' + a.asset_id) : '#' + a.asset_id, reason: a.reason }), async () => {
+      if (!confirm(tr('Withdraw the accepted risk "{title}"? It will count as a finding again.', { title: tr(a.title) }))) return;
+      const r = await api('DELETE', '/api/risk-acceptances/' + a.id);
+      if (!r.ok) return showMessage(tr('Error'), el('p', { text: apiError(r) }));
+      if (typeof loadFindings === 'function') loadFindings();
+      drawExceptionsList();
+    }));
+  }
+
+  $('exceptions-list').replaceChildren(rows.length ? el('div', { class: 'exception-rows' }, ...rows) : el('p', { class: 'muted', text: tr('None yet.') }));
+}
+
+// ------------------------------------------------------------- Learned baseline, across all devices
+
+let baselineSearchTimer = null;
+$('baseline-search').oninput = () => {
+  clearTimeout(baselineSearchTimer);
+  baselineSearchTimer = setTimeout(runBaselineSearch, 300);
+};
+
+async function runBaselineSearch() {
+  const q = $('baseline-search').value.trim();
+  const r = await api('GET', '/api/baseline/destinations?q=' + encodeURIComponent(q) + '&limit=200');
+  if (!r.ok) { $('baseline-search-status').textContent = apiError(r); return; }
+  const { destinations, matched, limit } = r.json;
+  $('baseline-search-status').textContent = !q
+    ? tr('{n} most recently seen (search to find a specific device or address).', { n: destinations.length })
+    : matched > limit
+      ? tr('Showing {shown} of {matched} matches — refine your search to narrow it further.', { shown: destinations.length, matched })
+      : tr('{n} match(es).', { n: matched });
+  $('baseline-search-list').replaceChildren(...destinations.map((d) => {
+    const a = assetById(d.asset_id);
+    const trailing = el('span', { class: 'muted small' },
+      a ? el('button', { type: 'button', class: 'chip', text: deviceLabel(a, '#' + d.asset_id), onclick: () => showDetail(d.asset_id) }) : el('span', { text: '#' + d.asset_id }),
+      ' · ' + tr('last {t}', { t: ago(d.last_seen) }) + ' · ' + mb(d.bytes),
+      can('admin') ? el('button', {
+        type: 'button', class: 'exception-remove', title: tr('Remove from baseline'), text: '×',
+        onclick: async () => {
+          if (!confirm(tr('Remove {ip} from this device\'s learned baseline? The next time it talks to that address, it is evaluated as new again.', { ip: d.ip }))) return;
+          const del = await api('DELETE', '/api/assets/' + d.asset_id + '/baseline/destinations/' + encodeURIComponent(d.ip));
+          if (!del.ok) { showMessage(tr('Error'), el('p', { text: apiError(del) })); return; }
+          runBaselineSearch();
+        },
+      }) : null);
+    return el('div', { class: 'ip-context-row' }, ipInlineLazy(d.ip, trailing));
+  }));
+}

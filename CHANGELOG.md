@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.17.0: One place for every exception and accepted risk, and a searchable baseline across all devices
+
+* Exceptions and allow-lists used to live in three separate places with no shared view: rule
+  exceptions, OT/network watch allow-lists, and accepted risks from Findings. **Rules → Exceptions
+  & accepted risks** now lists all three together — what it is, which rule/watch/finding it
+  belongs to, and a "×" that removes it exactly the way removing it from its own place already
+  did. Nothing about where any of it is stored changed; this is a view, not a migration.
+* The same tab adds a **searchable, all-devices view of learned baseline destinations** — one
+  search box (device name, MAC, device IP, or destination IP) instead of opening devices one at a
+  time to find and remove something. New `GET /api/baseline/destinations` endpoint: searches
+  server-side and caps what comes back (200 by default, 1000 at most, with a plain "N matched, N
+  shown" count) rather than ever shipping a whole network's baseline in one response — a busy
+  device alone can hold up to 2000 learned destinations.
+
 ## 2.16.0: Edit a device's learned baseline — remove one destination, or forget it all
 
 * A device's traffic baseline can learn something wrong during a learning period, and the only fix
