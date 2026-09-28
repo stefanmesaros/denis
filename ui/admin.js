@@ -1130,6 +1130,25 @@ $('erase-all').onclick = () => {
   });
 };
 
+$('baseline-forget-all').onclick = () => {
+  const phrase = 'FORGET LEARNED BASELINE';
+  const input = el('input', { placeholder: phrase, autocomplete: 'off' });
+  openForm(tr('Forget all learned baseline data'), [
+    el('p', { text: tr('This forgets every device\'s learned traffic baseline (destinations, ports, volume, active hours). Devices, alerts, the communications matrix and everything else are kept. The next traffic from any device is judged fresh, exactly like a device that was just discovered.') }),
+    el('p', { class: 'form-error', text: tr('It cannot be undone.') }),
+    field(tr('Type {phrase} to confirm', { phrase }), input),
+  ], {
+    submitLabel: tr('Forget it all'),
+    onSubmit: async () => {
+      if (input.value.trim() !== phrase) return tr('Type the words exactly as shown.');
+      const r = await api('POST', '/api/baseline/forget-all', { confirm: phrase });
+      if (!r.ok) return apiError(r);
+      $('baseline-forget-status').textContent = tr('Every learned baseline was forgotten.');
+      return null;
+    },
+  });
+};
+
 // ------------------------------------------------------------------- updates
 
 let updateInfo = null;

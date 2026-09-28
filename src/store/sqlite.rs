@@ -564,6 +564,10 @@ impl AssetStore for SqliteStore {
         )?;
         Ok(())
     }
+    fn clear_all_baselines(&self) -> Result<()> {
+        self.conn().execute("DELETE FROM baselines", [])?;
+        Ok(())
+    }
     fn load_presence(&self) -> Result<Vec<Presence>> {
         let conn = self.conn();
         let mut stmt = conn.prepare("SELECT data FROM presence")?;

@@ -364,7 +364,7 @@ input[type=color] { padding: 0; width: 44px; height: 30px; }
 .ip-inline { line-height: 1.3; flex: 1; min-width: 0; }
 .ip-inline-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .ip-inline-head .ip-link { flex: none; }
-.ip-inline-head > span { white-space: nowrap; }
+.ip-inline-head > span { white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
 .ip-link { border: none; background: none; padding: 0; box-shadow: none; font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); cursor: pointer; }
 .ip-link:hover { text-decoration: underline; box-shadow: none; }
 .ip-detail { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 8px 0; font-size: 13px; }

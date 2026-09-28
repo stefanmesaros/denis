@@ -119,6 +119,7 @@ function drawLearningBox(learning) {
     $('learning-box').replaceChildren(
       el('div', { class: 'rule-head' }, el('b', { text: tr('Restart learning mode') })),
       el('p', { class: 'muted', text: tr('After a change big enough that the existing baselines no longer make a fair comparison (a new switch, a re-addressed subnet, a batch of new devices), restart learning for every device at once: nothing anywhere alerts for the time you choose, the same treatment a brand new device already gets.') }),
+      el('p', { class: 'muted small', text: tr('This only pauses alerting — it adds to what each device has already learned, it never throws that away. To make every baseline start over from nothing instead, use Settings → Demo data and reset → "Forget all learned baseline data".') }),
       el('div', { class: 'rule-controls' }, el('label', {}, tr('For'), days),
         el('button', { type: 'button', onclick: () => act('start', { days: Number(days.value) }), text: tr('Restart learning mode') })),
       el('span', { id: 'learning-msg', class: 'muted' }));
@@ -138,6 +139,7 @@ function drawLearningBox(learning) {
     el('p', { class: 'muted', text: learning.paused
       ? tr('Paused with {remaining} left; nothing resumes counting down until you resume it. Nothing alerts anywhere while it is paused, either.', { remaining })
       : tr('{remaining} left. Nothing anywhere raises an alert until then, or until you end it early.', { remaining }) }),
+    el('p', { class: 'muted small', text: tr('Each device keeps learning normally underneath this — nothing is reset, only alerting is paused.') }),
     el('div', { class: 'rule-controls' },
       el('button', { type: 'button', onclick: () => act(learning.paused ? 'resume' : 'pause', {}), text: learning.paused ? tr('Resume') : tr('Pause') }),
       el('button', { type: 'button', class: 'danger', onclick: async () => { if (confirm(tr('End learning mode now? Detection returns to normal immediately.'))) await act('end', {}); }, text: tr('End now') })),

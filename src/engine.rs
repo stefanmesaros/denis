@@ -227,6 +227,16 @@ pub enum RescanOutcome {
 /// Where an erase request's outcome is sent back.
 type EraseReply = tokio::sync::oneshot::Sender<Result<(), String>>;
 
+/// A baseline edit initiated from the web console (a device panel's delete button, or Settings'
+/// "Forget all learned baseline data") — the live `Detector`'s in-memory copy is the source of
+/// truth while a collector runs (it only flushes to the database periodically), so this has to go
+/// through the same collector, not just an update to the stored row directly.
+pub enum BaselineEdit {
+    RemoveDestination { asset_id: i64, ip: String },
+    ClearAll,
+}
+type BaselineEditReply = tokio::sync::oneshot::Sender<Result<(), String>>;
+
 /// State shared between the engine tasks and the web layer.
 pub struct Shared {
     info: Mutex<StatusInfo>,
@@ -236,6 +246,9 @@ pub struct Shared {
     detect_base: Mutex<Option<DetectConfig>>,
     /// Set by `run`: asks the engine to erase the data *and* its own in-memory state together.
     erase_tx: Mutex<Option<mpsc::Sender<EraseReply>>>,
+    /// Set by `run`: asks the engine to edit a live baseline in memory, not just the stored row
+    /// (`None` in viewer mode, where the store alone is authoritative — see `edit_baseline_via_engine`).
+    baseline_edit_tx: Mutex<Option<mpsc::Sender<(BaselineEdit, BaselineEditReply)>>>,
     /// Asks the collector to scan devices again (`None` when it cannot: viewer mode, passive-only).
     rescan_tx: Mutex<Option<mpsc::Sender<RescanRequest>>>,
     /// The console's certificate, when it is served over TLS.
@@ -295,6 +308,17 @@ impl Shared {
         let tx = self.erase_tx.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
         let (reply, answer) = tokio::sync::oneshot::channel();
         tx.send(reply).await.ok()?;
+        Some(answer.await.unwrap_or_else(|_| Err("the engine did not answer".into())))
+    }
+
+    /// Edit a live baseline (remove one destination, or forget all of them) through the running
+    /// collector, so its in-memory copy and the stored row never disagree. `None` when no
+    /// collector is running (`denis serve`, viewer-only) — the caller then edits the stored row
+    /// directly, which is authoritative there since nothing else holds a competing copy.
+    pub async fn edit_baseline_via_engine(&self, op: BaselineEdit) -> Option<Result<(), String>> {
+        let tx = self.baseline_edit_tx.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        tx.send((op, reply)).await.ok()?;
         Some(answer.await.unwrap_or_else(|_| Err("the engine did not answer".into())))
     }
 
@@ -469,6 +493,7 @@ impl Collector {
             detect_base: Mutex::new(None),
             channel_status: Default::default(),
             erase_tx: Mutex::new(None),
+            baseline_edit_tx: Mutex::new(None),
         rescan_tx: Mutex::new(None),
             updater: Mutex::new(None),
             tls: Mutex::new(None),
@@ -710,6 +735,7 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
         detect_base: Mutex::new(Some(DetectConfig::default())),
         channel_status: Default::default(),
         erase_tx: Mutex::new(None),
+        baseline_edit_tx: Mutex::new(None),
         rescan_tx: Mutex::new(None),
         updater: Mutex::new(None),
         tls: Mutex::new(None),
@@ -865,6 +891,36 @@ pub async fn run(mut cfg: Config) -> Result<()> {
                     shared.update(|st| st.learning_ends_at = Some(now + learning));
                 }
                 drop((inv, det));
+                let _ = reply.send(res);
+            }
+        });
+    }
+    // Baseline housekeeping from the console (a device panel's delete button, Settings' "Forget
+    // all learned baseline data"): the live detector's in-memory copy has to change too, not just
+    // the stored row, or the periodic flush a few ticks later would just write the old data back.
+    {
+        let (tx, mut rx) = mpsc::channel::<(BaselineEdit, BaselineEditReply)>(4);
+        *coll.shared.baseline_edit_tx.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
+        let (s, d) = (store.clone(), detector.clone());
+        tokio::spawn(async move {
+            while let Some((op, reply)) = rx.recv().await {
+                let mut det = d.lock().unwrap();
+                let res = match &op {
+                    BaselineEdit::RemoveDestination { asset_id, ip } => {
+                        det.remove_baseline_destination(*asset_id, ip);
+                        // save regardless of whether it was actually present: idempotent, and a
+                        // caller that raced with a flush should still end up consistent either way
+                        match det.baseline(*asset_id) {
+                            Some(b) => s.save_baseline(b).map_err(|e| format!("{e:#}")),
+                            None => Ok(()),
+                        }
+                    }
+                    BaselineEdit::ClearAll => {
+                        det.clear_all_baselines();
+                        s.clear_all_baselines().map_err(|e| format!("{e:#}"))
+                    }
+                };
+                drop(det);
                 let _ = reply.send(res);
             }
         });
@@ -1365,6 +1421,7 @@ pub fn test_shared_at(db_path: std::path::PathBuf) -> Arc<Shared> {
         detect_base: Mutex::new(Some(DetectConfig::default())),
         channel_status: Default::default(),
         erase_tx: Mutex::new(None),
+        baseline_edit_tx: Mutex::new(None),
         rescan_tx: Mutex::new(None),
         updater: Mutex::new(None),
         tls: Mutex::new(None),

@@ -1049,8 +1049,19 @@ async function showDetail(id) {
       row(tr('Ports'), Object.entries(bl.ports).sort((x, y) => y[1] - x[1]).slice(0, 8).map(([p]) => p)),
     ]),
     el('h3', { text: tr('Recent destinations') }),
-    el('div', {}, ...bl.destinations.slice(0, 10).map((d) => el('div', { class: 'ip-context-row' },
-      ipInlineLazy(d.ip, el('span', { class: 'muted small', text: `${tr('last {t}', { t: ago(d.last_seen) })} · ${mb(d.bytes)}` }))))),
+    el('div', {}, ...bl.destinations.slice(0, 10).map((d) => {
+      const removeBtn = can('admin') ? el('button', {
+        type: 'button', class: 'exception-remove', title: tr('Remove from baseline'), text: '×',
+        onclick: async () => {
+          if (!confirm(tr('Remove {ip} from this device\'s learned baseline? The next time it talks to that address, it is evaluated as new again.', { ip: d.ip }))) return;
+          const r = await api('DELETE', '/api/assets/' + id + '/baseline/destinations/' + encodeURIComponent(d.ip));
+          if (!r.ok) { showMessage(tr('Error'), el('p', { text: apiError(r) })); return; }
+          showDetail(id);
+        },
+      }) : null;
+      const trailing = el('span', { class: 'muted small' }, `${tr('last {t}', { t: ago(d.last_seen) })} · ${mb(d.bytes)}`, removeBtn);
+      return el('div', { class: 'ip-context-row' }, ipInlineLazy(d.ip, trailing));
+    })),
     el('h3', { text: tr('Active hours (local time)') }),
     hoursChart(bl.active_hours),
   ] : [el('div', { class: 'muted', text: tr('No traffic baseline yet. It is built from flow accounting (--flows) for traffic that crosses the monitoring interface.') })];

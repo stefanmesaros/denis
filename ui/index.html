@@ -619,6 +619,8 @@
           <h3 class="section">Demo data and reset</h3>
           <p class="muted">New here? <b>Load demo data</b> fills the console with a fictional company so you can explore every screen; it never mixes with your real devices, and <b>Remove demo data</b> deletes exactly that. When you are ready for your own network, <b>Erase all data</b> starts from a clean slate (accounts, settings and the audit log are kept).</p>
           <div class="row"><button id="demo-load" type="button">Load demo data</button><button id="demo-remove" type="button">Remove demo data</button><button id="erase-all" type="button" class="danger">Erase all data…</button><span id="demo-status" class="muted"></span></div>
+          <p class="muted">Restarting learning mode (Rules page) only pauses alerting for a while — it does not touch what has already been learned; new destinations and ports keep being added to it underneath, same as always. To make every device's traffic baseline start over from nothing instead, without touching devices, alerts or anything else:</p>
+          <div class="row"><button id="baseline-forget-all" type="button" class="danger">Forget all learned baseline data…</button><span id="baseline-forget-status" class="muted"></span></div>
         </div>
       </section>
 

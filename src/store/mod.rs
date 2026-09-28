@@ -135,6 +135,11 @@ pub trait AssetStore: Send + Sync {
     fn load_baselines(&self) -> Result<Vec<Baseline>>;
     fn get_baseline(&self, asset_id: i64) -> Result<Option<Baseline>>;
     fn save_baseline(&self, b: &Baseline) -> Result<()>;
+    /// Forgets every device's learned traffic baseline at once ("Settings" → "Forget all learned
+    /// baseline data"). Narrower than `erase_inventory`: devices, alerts, the communications
+    /// matrix and everything else are kept — only the accumulated destinations/ports/volume
+    /// history that make up a "typical" traffic pattern per device is gone.
+    fn clear_all_baselines(&self) -> Result<()>;
 
     fn load_presence(&self) -> Result<Vec<Presence>>;
     fn save_presence(&self, p: &Presence) -> Result<()>;

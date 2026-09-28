@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.16.0: Edit a device's learned baseline — remove one destination, or forget it all
+
+* A device's traffic baseline can learn something wrong during a learning period, and the only fix
+  used to be restarting learning for the *entire* network — far too blunt. A device's Asset panel
+  now has a small "×" next to each entry under "Recent destinations": removing one means the next
+  time that device talks to that address, it is judged fresh again, exactly like it never learned
+  it. Admin-only, asks for confirmation first.
+* New **Settings → Demo data and reset → "Forget all learned baseline data"**: wipes every
+  device's learned traffic baseline network-wide (destinations, ports, volume, active hours) in
+  one step, without touching devices, alerts, the communications matrix or anything else — for
+  when a whole-network reset is genuinely what is needed, not just a grace period. Needs the exact
+  confirmation phrase typed out first, same ceremony as "Erase all data".
+* Cleared up a real point of confusion: "Restart learning mode" only pauses alerting for the
+  window you choose — it does **not** reset or rebuild a device's baseline. New destinations and
+  ports keep being learned underneath it exactly as always (verified directly against the
+  detection code, not assumed). The Rules page now says so explicitly, and points at the new
+  "Forget all learned baseline data" button for anyone who actually wants a clean slate.
+* Fixed correctly for the case a collector is running live: baseline edits go through the same
+  in-memory detector the capture pipeline uses, not just the stored row, so a live install's
+  periodic baseline flush can never silently undo one of these edits a few seconds later.
+
 ## 2.15.5: The reverse-DNS hostname gets its own line, and the click-through panel's flag is fixed too
 
 * The reverse-DNS hostname (usually the longest part of an IP's context by far) now sits on its

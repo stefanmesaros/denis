@@ -110,6 +110,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/update/schedule", delete(admin::update_unschedule))
         .route("/api/demo", get(admin::demo_get).post(admin::demo_load).delete(admin::demo_remove))
         .route("/api/data/erase", post(admin::data_erase))
+        .route("/api/baseline/forget-all", post(admin::baseline_forget_all))
         .route("/api/findings", get(findings))
         .route("/api/findings/{id}/verify", post(admin::finding_verify))
         .route("/api/siem", get(siem_page::get).put(siem_page::put))
@@ -164,6 +165,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/assets/{id}/meta", patch(admin::patch_meta))
         .route("/api/assets/{id}/history", get(admin::history))
         .route("/api/assets/{id}/baseline", get(baseline))
+        .route("/api/assets/{id}/baseline/destinations/{ip}", delete(delete_baseline_destination))
         .route("/api/assets/{id}/merged", get(merged_into_this))
         .route("/api/events", get(events))
         .route("/api/alerts", get(alerts))
@@ -220,7 +222,7 @@ fn is_public(method: &axum::http::Method, path: &str) -> bool {
 /// anything needs `editor`; managing users, tokens and the audit log, or
 /// deleting assets, needs `admin`.
 pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static str {
-    if path.starts_with("/api/users") || path.starts_with("/api/tls") || path.starts_with("/api/data") || path.starts_with("/api/channels") || path.starts_with("/api/agent-tokens") || path.starts_with("/api/api-tokens") || path.starts_with("/api/audit") || path.starts_with("/api/backups") || path.starts_with("/api/msp-backups") || path.starts_with("/api/setup") || path.starts_with("/api/security") || path.starts_with("/api/retention") {
+    if path.starts_with("/api/users") || path.starts_with("/api/tls") || path.starts_with("/api/data") || path.starts_with("/api/baseline") || path.starts_with("/api/channels") || path.starts_with("/api/agent-tokens") || path.starts_with("/api/api-tokens") || path.starts_with("/api/audit") || path.starts_with("/api/backups") || path.starts_with("/api/msp-backups") || path.starts_with("/api/setup") || path.starts_with("/api/security") || path.starts_with("/api/retention") {
         return "admin";
     }
     if path.starts_with("/api/auth/") {
@@ -714,6 +716,35 @@ async fn baseline(State(st): State<AppState>, Extension(AuthUser(me)): Extension
         // accounting), and the browser logs every 404 as a console error.
         None => Json(serde_json::Value::Null).into_response(),
     })
+}
+
+/// Remove one destination from one device's learned baseline — the fix for a learning period
+/// having picked up something wrong, without restarting learning (which would not even help: it
+/// only pauses alerting, the baseline keeps growing underneath it regardless). The next time this
+/// device talks to that address it is evaluated as new again, exactly like one it never learned.
+async fn delete_baseline_destination(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path((id, ip)): Path<(i64, String)>) -> Result<Response, ApiError> {
+    if scoped_asset(&st, &me, id).await?.is_none() {
+        return Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "not found"}))).into_response());
+    }
+    let op = crate::engine::BaselineEdit::RemoveDestination { asset_id: id, ip: ip.clone() };
+    let done: Result<(), String> = match st.shared.edit_baseline_via_engine(op).await {
+        Some(r) => r,
+        None => {
+            // no collector running (viewer-only `denis serve`): the stored row is authoritative
+            let ip_for_store = ip.clone();
+            blocking(&st.store, move |s| {
+                let Some(mut b) = s.get_baseline(id)? else { return Ok(Ok(())) };
+                b.typical_destinations.remove(&ip_for_store);
+                Ok(s.save_baseline(&b).map_err(|e| e.to_string()))
+            })
+            .await?
+        }
+    };
+    if let Err(e) = done {
+        return Ok(admin::err(StatusCode::INTERNAL_SERVER_ERROR, e));
+    }
+    admin::audit(&st, &me.username, "baseline.delete_destination", Some(id), serde_json::json!({"ip": ip}));
+    Ok(Json(serde_json::json!({"deleted": true})).into_response())
 }
 
 /// Fleet-wide software inventory: every distinct product+version read from a device's service
@@ -1629,6 +1660,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_baseline_destination_can_be_deleted_and_is_treated_as_new_again() {
+        use crate::model::{Baseline, DestStat};
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 7, 8, 9]), 10);
+        store.save_asset(&mut a).unwrap();
+        let mut b = Baseline::new(a.id, 1);
+        b.typical_destinations.insert("1.1.1.1".into(), DestStat { first_seen: 1, last_seen: 5, bytes: 9, bytes_out: 9, bytes_in: 0, port_churn: 0 });
+        b.typical_destinations.insert("2.2.2.2".into(), DestStat { first_seen: 1, last_seen: 50, bytes: 9, bytes_out: 9, bytes_in: 0, port_churn: 0 });
+        store.save_baseline(&b).unwrap();
+
+        let uri = format!("/api/assets/{}/baseline/destinations/1.1.1.1", a.id);
+        // viewer/editor cannot delete - DELETE is always admin-only
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("DELETE", &uri, Some(c), None)).await.0, StatusCode::FORBIDDEN);
+        }
+        assert_eq!(send(&app, req("DELETE", &uri, Some(&admin), None)).await.0, StatusCode::OK);
+
+        let (code, _, v) = send(&app, req("GET", &format!("/api/assets/{}/baseline", a.id), Some(&admin), None)).await;
+        assert_eq!(code, StatusCode::OK);
+        let ips: Vec<_> = v["destinations"].as_array().unwrap().iter().map(|d| d["ip"].as_str().unwrap()).collect();
+        assert_eq!(ips, vec!["2.2.2.2"], "1.1.1.1 is gone, 2.2.2.2 untouched");
+
+        // a device or address that does not exist is a plain not-found/no-op, never a panic
+        assert_eq!(send(&app, req("DELETE", &format!("/api/assets/{}/baseline/destinations/9.9.9.9", a.id), Some(&admin), None)).await.0, StatusCode::OK);
+        assert_eq!(send(&app, req("DELETE", "/api/assets/999999/baseline/destinations/1.1.1.1", Some(&admin), None)).await.0, StatusCode::NOT_FOUND);
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("baseline.delete_destination") && audit.contains("1.1.1.1"), "{audit}");
+    }
+
+    #[tokio::test]
+    async fn forgetting_all_baselines_needs_the_exact_phrase_and_admin_and_leaves_devices_alone() {
+        use crate::model::{Baseline, DestStat};
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 9, 9, 9]), 10);
+        store.save_asset(&mut a).unwrap();
+        let mut b = Baseline::new(a.id, 1);
+        b.typical_destinations.insert("1.1.1.1".into(), DestStat { first_seen: 1, last_seen: 5, bytes: 9, bytes_out: 9, bytes_in: 0, port_churn: 0 });
+        store.save_baseline(&b).unwrap();
+
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("POST", "/api/baseline/forget-all", Some(c), Some(serde_json::json!({"confirm": "FORGET LEARNED BASELINE"})))).await.0, StatusCode::FORBIDDEN);
+        }
+        assert_eq!(send(&app, req("POST", "/api/baseline/forget-all", Some(&admin), Some(serde_json::json!({"confirm": "nope"})))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(send(&app, req("POST", "/api/baseline/forget-all", Some(&admin), Some(serde_json::json!({"confirm": "FORGET LEARNED BASELINE"})))).await.0, StatusCode::OK);
+
+        assert_eq!(send(&app, req("GET", &format!("/api/assets/{}/baseline", a.id), Some(&admin), None)).await.2, serde_json::Value::Null, "baseline is gone");
+        assert_eq!(send(&app, req("GET", &format!("/api/assets/{}", a.id), Some(&admin), None)).await.0, StatusCode::OK, "the device itself is untouched");
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("baseline.forget_all"), "{audit}");
+    }
+
+    #[tokio::test]
     async fn ack_all_clears_a_backlog_the_alerts_page_would_never_scroll_to() {
         use crate::model::Event;
         let (app, store) = app(true);
@@ -1847,6 +1931,7 @@ mod tests {
             (M::POST, "/api/auth/password", "viewer"), (M::POST, "/api/auth/logout", "viewer"),
             (M::GET, "/api/retention", "admin"), (M::PUT, "/api/retention", "admin"),
             (M::GET, "/api/ip-enrichment", "viewer"), (M::GET, "/api/ip-enrichment/settings", "viewer"), (M::PUT, "/api/ip-enrichment/settings", "admin"), (M::GET, "/api/ip-enrichment/8.8.8.8", "viewer"),
+            (M::DELETE, "/api/assets/1/baseline/destinations/1.1.1.1", "admin"), (M::POST, "/api/baseline/forget-all", "admin"),
         ] {
             assert_eq!(required_role(&m, p), want, "{m} {p}");
         }

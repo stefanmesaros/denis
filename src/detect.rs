@@ -361,6 +361,28 @@ impl Detector {
         self.baselines.get(&asset_id)
     }
 
+    /// Removes one destination from one device's baseline — Settings/asset-panel housekeeping,
+    /// not something the detection pipeline itself ever does on its own. Returns whether it was
+    /// actually present. The next time this device talks to that address it is evaluated as new
+    /// again, exactly like a destination that was never learned. The caller is responsible for
+    /// persisting the updated row (`Store::save_baseline`) — this only touches memory, like every
+    /// other baseline mutation in this file.
+    pub fn remove_baseline_destination(&mut self, asset_id: i64, ip: &str) -> bool {
+        self.baselines.get_mut(&asset_id).is_some_and(|b| b.typical_destinations.remove(ip).is_some())
+    }
+
+    /// Forgets every device's learned traffic baseline network-wide ("Settings" → "Forget all
+    /// learned baseline data"). Deliberately narrower than `reset()`: alerts, presence, the
+    /// communications matrix, cooldowns and the threat list are all kept — only the accumulated
+    /// destinations/ports/volume history that make up a "typical" traffic pattern is gone. The
+    /// caller persists the store side (`Store::clear_all_baselines`) — this only clears memory.
+    pub fn clear_all_baselines(&mut self) {
+        self.baselines.clear();
+        self.dirty.clear();
+        self.global_dests.clear();
+        self.buckets.clear();
+    }
+
     /// When observation of this collector began. Only ever moves earlier, so
     /// restarts don't reopen the learning period.
     pub fn set_learning_start(&mut self, agent: Option<&str>, ts: i64) {
@@ -1881,6 +1903,48 @@ mod tests {
         assert!(d2.global_dests[&Ipv4Addr::new(1, 1, 1, 1)].contains(&a.id));
         assert!(d2.dirty.is_empty());
         d2.flush(&s).unwrap();
+    }
+
+    #[test]
+    fn removing_one_baseline_destination_leaves_the_rest_alone_and_it_is_treated_as_new_again() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let mut d = Detector::new(cfg(), vec![], 0);
+        let a = asset(&s, MAC, 0);
+        steady(&mut d, &s, 4, 2_000_000); // learns 1.1.1.1
+        d.ingest_flows(None, &[flow(MAC, [2, 2, 2, 2], 80, 1000, 1_500_000)], &s, 1_500_010);
+        assert!(d.baseline(a.id).unwrap().typical_destinations.contains_key("1.1.1.1"));
+        assert!(d.baseline(a.id).unwrap().typical_destinations.contains_key("2.2.2.2"));
+
+        assert!(d.remove_baseline_destination(a.id, "1.1.1.1"));
+        let b = d.baseline(a.id).unwrap();
+        assert!(!b.typical_destinations.contains_key("1.1.1.1"), "removed");
+        assert!(b.typical_destinations.contains_key("2.2.2.2"), "untouched");
+
+        assert!(!d.remove_baseline_destination(a.id, "1.1.1.1"), "already gone - reports it plainly, does not panic");
+        assert!(!d.remove_baseline_destination(999_999, "1.1.1.1"), "an unknown asset is also a no-op, not a panic");
+    }
+
+    #[test]
+    fn clearing_all_baselines_forgets_destinations_and_cross_device_knowledge_but_nothing_else() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let mut d = Detector::new(cfg(), vec![], 0);
+        let a = asset(&s, MAC, 0);
+        steady(&mut d, &s, 4, 2_000_000);
+        assert!(!d.baselines.is_empty());
+        assert!(!d.global_dests.is_empty());
+
+        d.clear_all_baselines();
+        assert!(d.baselines.is_empty());
+        assert!(d.dirty.is_empty());
+        assert!(d.global_dests.is_empty());
+        assert!(d.baseline(a.id).is_none());
+
+        // the device itself, and its learning-start bookkeeping, are unaffected - only the
+        // accumulated destinations/ports/volume history is gone
+        assert!(s.get_asset(a.id).unwrap().is_some());
+        // traffic right after a clear is evaluated fresh, exactly like a brand new device
+        assert!(d.ingest_flows(None, &[flow(MAC, [1, 1, 1, 1], 443, 1000, 10)], &s, 20).is_empty(), "still within its own new learning window");
+        assert!(d.baseline(a.id).unwrap().typical_destinations.contains_key("1.1.1.1"), "starts learning again immediately");
     }
 
     #[test]

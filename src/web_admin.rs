@@ -786,6 +786,35 @@ pub(crate) async fn data_erase(State(st): State<AppState>, Extension(AuthUser(me
     Ok(Json(json!({ "erased": true })).into_response())
 }
 
+/// The exact words that must be typed to forget every device's learned traffic baseline.
+pub const FORGET_BASELINE_PHRASE: &str = "FORGET LEARNED BASELINE";
+
+#[derive(Deserialize)]
+pub struct ForgetBaselineReq {
+    confirm: String,
+}
+
+/// Forget every device's learned traffic baseline (destinations, ports, volume, active hours) at
+/// once — narrower than "Erase all data": devices, alerts, the communications matrix and
+/// everything else are kept. The next traffic from any device is evaluated fresh, exactly as if
+/// it had just been discovered (restarting learning mode does *not* do this on its own — that
+/// only pauses alerting for a grace window while the baseline keeps accumulating underneath it;
+/// see `ui/rules.js`'s learning-mode box for that distinction spelled out to the admin).
+pub(crate) async fn baseline_forget_all(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<ForgetBaselineReq>) -> Result<Response, ApiError> {
+    if b.confirm != FORGET_BASELINE_PHRASE {
+        return Ok(err(StatusCode::BAD_REQUEST, format!("type {FORGET_BASELINE_PHRASE} to confirm")));
+    }
+    let done = match st.shared.edit_baseline_via_engine(crate::engine::BaselineEdit::ClearAll).await {
+        Some(r) => r,
+        None => blocking(&st.store, |s| Ok(s.clear_all_baselines().map_err(|e| e.to_string()))).await?,
+    };
+    if let Err(e) = done {
+        return Ok(err(StatusCode::INTERNAL_SERVER_ERROR, e));
+    }
+    audit(&st, &me.username, "baseline.forget_all", None, json!({}));
+    Ok(Json(json!({ "forgotten": true })).into_response())
+}
+
 // ------------------------------------------------------ notification channels
 
 fn maintenance_json(m: &crate::channels::Maintenance, now: i64) -> Value {
