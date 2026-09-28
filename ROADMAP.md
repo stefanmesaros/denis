@@ -31,7 +31,22 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    device on my network is scanning it?"). Shipped as a new rule, **Internal network scan**:
    breadth-based (distinct local addresses, or distinct ports on one local address, within a
    rolling window), not connection-state-based, consistent with the rest of the rule engine.
-3. **IPv6 in capture and the asset model.** See below for the detailed scoping — up next.
+3. **Enforcing passkey-only sign-in.** Not started (2026-09-28). The passkey infrastructure
+   itself (registration, verification, storage) already exists and is mature (`passkey.rs`), but
+   today a passkey is only ever a *second* factor added on top of a password — there is no
+   passwordless sign-in flow and no admin policy to require one. Needs: a discoverable-credential
+   (resident key) sign-in path that never asks for a password, and an admin-facing policy that
+   requires every account to have a passkey and disables the password/TOTP fallback once it does.
+4. **CMDB import: Intune.** Not started. Reuses almost the entire Entra ID integration shipped in
+   v2.18.0 — same Microsoft Graph OAuth2 app-only auth, same `ureq` client, same
+   hostname-match/upsert/prune shape (`cmdb.rs`) — just a different Graph endpoint
+   (`/deviceManagement/managedDevices`) and different fields (compliance state, OS, last check-in).
+5. **CMDB import: Active Directory (on-prem).** Not started. A different protocol from Entra
+   ID/Intune — LDAP/LDAPS rather than REST, a new dependency, and reachability to a domain
+   controller (same LAN or VPN) rather than a cloud API. The matching/store/sync/UI shape from the
+   Entra ID work carries over; the fetch side and its tests (mocking LDAP is more awkward than
+   mocking REST) are the real new work.
+6. **IPv6 in capture and the asset model.** See below for the detailed scoping.
 
 ## Verification still owed
 * Master/agent across a real network; TLS with a public CA or behind a reverse proxy.
