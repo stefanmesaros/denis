@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.19.0: Unified "Exceptions, accepted risks & baseline" view, grouped by device
+
+* The Rules page's "Exceptions & accepted risks" tab is renamed **"Exceptions, accepted risks &
+  baseline"** and also reachable as its own sidebar sub-page under Rules (same pattern as the
+  Settings categories), alongside the existing in-page tab.
+* Its content is restructured: exceptions scoped to a device type, tag or network stay in their
+  own "Network-wide exceptions" list (they cannot be attributed to one device), but everything
+  else — rule exceptions on a specific device, OT/network watch allow-lists, accepted risks, and
+  learned baseline destinations — is now grouped into a single "By device" table, styled like the
+  Devices page. Clicking a device row expands it in place to show everything for that device
+  together; clicking the device's name instead opens its own Asset panel directly. "Expand all" /
+  "Collapse all" sit next to the table's own column controls.
+* One search box now searches everything on the page at once — device name, MAC, IP, network,
+  rule name, watch name or finding title — instead of the two separate search boxes this replaces.
+* Fixed a real bug along the way: accepted risks were read from a global (`acceptedRisks`) that is
+  only populated once the Findings tab has been visited in the current session, so a device
+  present in this view only because of an accepted risk could silently disappear on a cold visit
+  (e.g. following a bookmark straight to Rules). Now fetched fresh every time this view loads.
+
 ## 2.18.1: Fix — removed the manual IP lookup tool added in 2.18.0
 
 * "Look up an address" (Settings → Network Intelligence) is removed again: on reflection it added

@@ -1074,6 +1074,7 @@ function applyHash() {
   if (what === 'account' && state.me) setTab('account');
   // #rules/watches: scroll to the OT command watches
   if (what === 'rules' && arg === 'watches') setTimeout(() => $('watches')?.scrollIntoView({ block: 'start' }), 700);
+  if (what === 'rules' && (arg === 'exceptions' || arg === 'rules')) setRulesMode(arg);
   // #settings/tls, #settings/updates ...: setTab('settings') above already reads the hash and
   // calls settingsSelect for it; nothing further to do here for a settings deep link.
   if (what === 'passkeys') { location.hash = '#account'; return; }

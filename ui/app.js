@@ -1530,6 +1530,7 @@ function setTab(t) {
   if (t !== 'alerts') $('learning').hidden = true; // renderAlerts() sets it back on the next refresh once alerts is active
   $('range').hidden = t !== 'trends';
   $('settings-cats').hidden = t !== 'settings';
+  $('rules-subtabs').hidden = t !== 'rules';
   renderSiteFilter();
   if (t === 'dashboard') renderDashboard();
   if (t === 'alerts') renderAlerts();

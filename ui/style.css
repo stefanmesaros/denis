@@ -260,6 +260,8 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 /* --------------------------------------------------------------- icons */
 .iconbadge { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent); flex: none; }
 .namecell { display: flex; align-items: center; gap: 8px; }
+button.link-cell { border: 0; background: none; padding: 0; box-shadow: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+button.link-cell:hover { color: var(--accent); }
 .detail-head { display: flex; align-items: center; gap: 12px; margin-right: 28px; }
 .detail-head .iconbadge { width: 46px; height: 46px; border-radius: 12px; }
 .detail-actions { display: flex; gap: 8px; margin: 10px 0 4px; }
@@ -411,6 +413,12 @@ button.chip, .chip.clickable { cursor: pointer; }
 .help-link:hover { border-color: var(--accent); }
 
 /* --------------------------------------------------------------------- rules */
+#rex-table .rex-detail { cursor: default; }
+#rex-table .rex-detail:hover { background: none; }
+#rex-table .rex-detail td { padding: 10px 14px 16px; }
+#rex-network-table tbody tr { cursor: default; }
+#rex-table th:first-child, #rex-table td:first-child, #rex-network-table th:first-child, #rex-network-table td:first-child { width: 1%; padding-right: 4px; }
+#rex-bulk-actions { margin-right: auto; }
 .rule-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 10px 0; }
 .rule-card.off { opacity: .65; }
 .rule-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

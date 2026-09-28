@@ -583,48 +583,51 @@ function openItWatchForm(prefill, done) {
   });
 }
 
-// --------------------------------------------------------- Exceptions & accepted risks (Rules tab)
+// --------------------------------------------------------- Exceptions, accepted risks & baseline (Rules tab)
 //
 // Rule exceptions (rulesData.exceptions), OT/network watch allow-lists (ot_watches[].allowed_senders,
-// it_watches[].except_sources) and accepted risks (acceptedRisks, from findings.js) each already
-// have their own place to be *created* - this only aggregates them into one place to be *seen and
-// removed*, without changing where any of it is actually stored. Removing a row here calls the
-// exact same endpoint removing it from its own place would.
+// it_watches[].except_sources), accepted risks (acceptedRisks, from findings.js) and learned baseline
+// destinations (/api/baseline/destinations) each already have their own place to be *created* - this
+// only aggregates them into one place to be *seen and removed*, grouped by the device they belong to,
+// without changing where any of it is actually stored. Removing a row here calls the exact same
+// endpoint removing it from its own place would. Exceptions scoped to a device type, tag or network
+// (not one device) cannot be attributed to a device, so they get their own section above the table.
 
 let rulesMode = 'rules';
+let rexExpanded = new Set(); // asset ids currently expanded in the "by device" table
 
 function setRulesMode(m) {
   rulesMode = m;
   for (const b of document.querySelectorAll('#rules-mode button')) b.classList.toggle('active', b.dataset.mode === m);
+  for (const b of document.querySelectorAll('#rules-subtabs .subtab')) b.classList.toggle('active', b.dataset.rulesMode === m);
   $('rules-mode-rules').hidden = m !== 'rules';
   $('rules-mode-exceptions').hidden = m !== 'exceptions';
-  if (m === 'exceptions') {
-    drawExceptionsList();
-    runBaselineSearch();
-  }
+  if (m === 'exceptions') loadExceptionsView();
 }
 for (const b of document.querySelectorAll('#rules-mode button')) b.onclick = () => setRulesMode(b.dataset.mode);
+for (const b of document.querySelectorAll('#rules-subtabs .subtab')) {
+  b.onclick = () => { location.hash = '#rules/' + b.dataset.rulesMode; setTab('rules'); setRulesMode(b.dataset.rulesMode); };
+}
 
 /** "Exceptions & baseline" from a device's own panel: jump to the Rules page's Exceptions tab,
- * pre-filtered to just this device — the search boxes are the exact same ones a person could type
- * into by hand, just filled in for them (see `exceptionRow`'s `text` and the server-side search
- * behind `runBaselineSearch`, both of which already match on a device's own name). */
+ * pre-filtered to and expanded on just this device (see `exceptionRow`'s `text` and the
+ * server-side search behind `loadExceptionsView`, both of which already match on a device's own
+ * name). */
 function focusDeviceInExceptions(a) {
   $('detail').hidden = true;
   state.selected = null;
   setTab('rules');
-  const q = deviceLabel(a, '#' + a.id);
-  $('exceptions-search').value = q;
-  $('baseline-search').value = q;
+  $('rex-search').value = deviceLabel(a, '#' + a.id);
+  rexExpanded.add(a.id);
   setRulesMode('exceptions');
 }
 
 /** One row: a label, a detail line, and a remove button that does whatever removing this
  * particular kind of thing actually takes (a per-rule exceptions patch, a whole-watch-array PUT,
  * or a risk-acceptance DELETE) - the three real shapes behind one uniform list. Returns
- * `{node, text}` rather than just the node, so `drawExceptionsList` can filter by the search box
- * without a server round trip - the whole list here is small enough that this never needs paging
- * the way the (much larger) baseline-destinations list below does. */
+ * `{node, text}` rather than just the node, so `loadExceptionsView` can filter by the search box
+ * without a server round trip - each device's own exceptions/risks are few enough that this never
+ * needs paging the way the (much larger) baseline-destinations list does. */
 function exceptionRow(label, detail, onRemove) {
   const node = el('div', { class: 'exception-row' },
     can('admin') ? el('button', { type: 'button', class: 'exception-remove', title: tr('Remove'), text: '×', onclick: onRemove }) : null,
@@ -632,108 +635,163 @@ function exceptionRow(label, detail, onRemove) {
   return { node, text: (label + ' ' + (detail || '')).toLowerCase() };
 }
 
-$('exceptions-search').oninput = () => drawExceptionsList();
+/** Same shape as exceptionRow, as a table row instead of a div - for the "Network-wide exceptions"
+ * table, styled to match the "By device" table right below it rather than the (visually
+ * different) exception-row list used inside each device's own expanded detail. */
+function networkRow(label, detail, onRemove) {
+  const node = el('tr', {},
+    el('td', {}, can('admin') ? el('button', { type: 'button', class: 'exception-remove', title: tr('Remove'), text: '×', onclick: onRemove }) : null),
+    el('td', {}, el('b', { text: label })),
+    el('td', { class: 'muted small', text: detail || '' }));
+  return { node, text: (label + ' ' + (detail || '')).toLowerCase() };
+}
 
-async function drawExceptionsList() {
+/** One learned baseline destination, as a removable row - shared between the per-device Asset
+ * panel and this page. */
+function baselineDestRow(assetId, d) {
+  const trailing = el('span', { class: 'muted small' },
+    tr('last {t}', { t: ago(d.last_seen) }) + ' · ' + mb(d.bytes),
+    can('admin') ? el('button', {
+      type: 'button', class: 'exception-remove', title: tr('Remove from baseline'), text: '×',
+      onclick: async () => {
+        if (!confirm(tr('Remove {ip} from this device\'s learned baseline? The next time it talks to that address, it is evaluated as new again.', { ip: d.ip }))) return;
+        const del = await api('DELETE', '/api/assets/' + assetId + '/baseline/destinations/' + encodeURIComponent(d.ip));
+        if (!del.ok) { showMessage(tr('Error'), el('p', { text: apiError(del) })); return; }
+        loadExceptionsView();
+      },
+    }) : null);
+  return el('div', { class: 'ip-context-row' }, ipInlineLazy(d.ip, trailing));
+}
+
+let rexSearchTimer = null;
+$('rex-search').oninput = () => { clearTimeout(rexSearchTimer); rexSearchTimer = setTimeout(loadExceptionsView, 300); };
+
+/** Draws the whole "Exceptions, accepted risks & baseline" tab: a network-wide exceptions list,
+ * and a device table where each row expands into that device's own exceptions, accepted risks
+ * and learned baseline destinations together. */
+async function loadExceptionsView() {
   if (!rulesData) { const r = await api('GET', '/api/rules'); if (r.ok) rulesData = r.json; }
   if (!rulesData) return;
-  const rows = [];
+  const q = $('rex-search').value.trim().toLowerCase();
+
+  const byDevice = new Map(); // asset id -> exceptionRow[]
+  const network = []; // exceptionRow[], not attributable to one device
+  const bucket = (id) => { if (!byDevice.has(id)) byDevice.set(id, []); return byDevice.get(id); };
 
   for (const [ruleId, scopes] of Object.entries(rulesData.exceptions || {})) {
     const rule = (rulesData.rules || []).find((r) => r.id === ruleId);
     scopes.forEach((s, i) => {
-      rows.push(exceptionRow(scopeText(s), tr('Exception on rule: {rule}', { rule: rule ? rule.title : ruleId }), async () => {
+      const onRemove = async () => {
         if (!confirm(tr('Remove this exception from {rule}?', { rule: rule ? rule.title : ruleId }))) return;
         const list = scopes.filter((_, j) => j !== i);
         const r = await api('PUT', '/api/rules', { exceptions: { [ruleId]: list.length ? list : null } });
         if (!r.ok) return showMessage(tr('Error'), el('p', { text: apiError(r) }));
         rulesData = null;
-        drawExceptionsList();
-      }));
+        loadExceptionsView();
+      };
+      const detail = tr('Exception on rule: {rule}', { rule: rule ? rule.title : ruleId });
+      if (s.kind === 'device') bucket(Number(s.value)).push(exceptionRow(scopeText(s), detail, onRemove));
+      else network.push(networkRow(scopeText(s), detail, onRemove));
     });
   }
 
   for (const [group, field, kindLabel] of [['ot_watches', 'allowed_senders', tr('OT watch allow-list')], ['it_watches', 'except_sources', tr('Network watch exception')]]) {
     for (const w of rulesData[group] || []) {
       (w[field] || []).forEach((s, i) => {
-        rows.push(exceptionRow(scopeText(s), tr('{kind}: {name}', { kind: kindLabel, name: w.name }), async () => {
+        const onRemove = async () => {
           if (!confirm(tr('Remove this from the watch "{name}"?', { name: w.name }))) return;
           const updated = { ...w, [field]: w[field].filter((_, j) => j !== i) };
           const list = (rulesData[group] || []).map((x) => (x.id === w.id ? updated : x));
           const r = await api('PUT', '/api/rules', { [group]: list });
           if (!r.ok) return showMessage(tr('Error'), el('p', { text: apiError(r) }));
           rulesData = null;
-          drawExceptionsList();
-        }));
+          loadExceptionsView();
+        };
+        const detail = tr('{kind}: {name}', { kind: kindLabel, name: w.name });
+        if (s.kind === 'device') bucket(Number(s.value)).push(exceptionRow(scopeText(s), detail, onRemove));
+        else network.push(networkRow(scopeText(s), detail, onRemove));
       });
     }
   }
 
-  for (const a of (typeof acceptedRisks !== 'undefined' ? acceptedRisks : [])) {
-    const dev = assetById(a.asset_id);
-    rows.push(exceptionRow(tr(a.title), tr('Accepted risk: {device} · {reason}', { device: dev ? deviceLabel(dev, '#' + a.asset_id) : '#' + a.asset_id, reason: a.reason }), async () => {
+  // fetched fresh rather than read from the `acceptedRisks` global (findings.js): that global is
+  // only populated once the Findings tab has been visited, so relying on it here would silently
+  // drop accepted risks - and the devices only present because of one - until someone opened
+  // Findings first.
+  const rr = await api('GET', '/api/risk-acceptances');
+  for (const a of (rr.ok ? rr.json : [])) {
+    const row = exceptionRow(tr(a.title), tr('Accepted risk: {reason}', { reason: a.reason }), async () => {
       if (!confirm(tr('Withdraw the accepted risk "{title}"? It will count as a finding again.', { title: tr(a.title) }))) return;
       const r = await api('DELETE', '/api/risk-acceptances/' + a.id);
       if (!r.ok) return showMessage(tr('Error'), el('p', { text: apiError(r) }));
       if (typeof loadFindings === 'function') loadFindings();
-      drawExceptionsList();
-    }));
-  }
-
-  const q = $('exceptions-search').value.trim().toLowerCase();
-  const shown = q ? rows.filter((r) => r.text.includes(q)) : rows;
-  $('exceptions-list').replaceChildren(
-    shown.length ? el('div', { class: 'exception-rows' }, ...shown.map((r) => r.node))
-      : el('p', { class: 'muted', text: rows.length ? tr('No matches.') : tr('None yet.') }));
-}
-
-// ------------------------------------------------------------- Learned baseline, across all devices
-
-let baselineSearchTimer = null;
-$('baseline-search').oninput = () => {
-  clearTimeout(baselineSearchTimer);
-  baselineSearchTimer = setTimeout(runBaselineSearch, 300);
-};
-
-async function runBaselineSearch() {
-  const q = $('baseline-search').value.trim();
-  const r = await api('GET', '/api/baseline/destinations?q=' + encodeURIComponent(q) + '&limit=200');
-  if (!r.ok) { $('baseline-search-status').textContent = apiError(r); return; }
-  const { destinations, matched, limit } = r.json;
-  $('baseline-search-status').textContent = !q
-    ? tr('{n} most recently seen (search to find a specific device or address).', { n: destinations.length })
-    : matched > limit
-      ? tr('Showing {shown} of {matched} matches — refine your search to narrow it further.', { shown: destinations.length, matched })
-      : tr('{n} match(es).', { n: matched });
-
-  // grouped by device - the server already sorts by last_seen (most recent first), and that
-  // order is kept both for the destinations within each device and for which device's group
-  // appears first (its own most recent destination decides).
-  const groups = new Map();
-  for (const d of destinations) {
-    if (!groups.has(d.asset_id)) groups.set(d.asset_id, []);
-    groups.get(d.asset_id).push(d);
-  }
-  const deviceBlocks = [...groups.entries()].map(([assetId, dests]) => {
-    const a = assetById(assetId);
-    const header = el('div', { class: 'rule-head' },
-      a ? el('button', { type: 'button', class: 'chip', text: deviceLabel(a, '#' + assetId), onclick: () => showDetail(assetId) }) : el('b', { text: '#' + assetId }),
-      el('span', { class: 'muted small', text: tr('{n} destination(s)', { n: dests.length }) }));
-    const rows = dests.map((d) => {
-      const trailing = el('span', { class: 'muted small' },
-        tr('last {t}', { t: ago(d.last_seen) }) + ' · ' + mb(d.bytes),
-        can('admin') ? el('button', {
-          type: 'button', class: 'exception-remove', title: tr('Remove from baseline'), text: '×',
-          onclick: async () => {
-            if (!confirm(tr('Remove {ip} from this device\'s learned baseline? The next time it talks to that address, it is evaluated as new again.', { ip: d.ip }))) return;
-            const del = await api('DELETE', '/api/assets/' + assetId + '/baseline/destinations/' + encodeURIComponent(d.ip));
-            if (!del.ok) { showMessage(tr('Error'), el('p', { text: apiError(del) })); return; }
-            runBaselineSearch();
-          },
-        }) : null);
-      return el('div', { class: 'ip-context-row' }, ipInlineLazy(d.ip, trailing));
+      loadExceptionsView();
     });
-    return el('div', { class: 'rule-card' }, header, ...rows);
-  });
-  $('baseline-search-list').replaceChildren(...deviceBlocks);
+    bucket(a.asset_id).push(row);
+  }
+
+  const shownNetwork = q ? network.filter((r) => r.text.includes(q)) : network;
+  $('rex-network-table').tBodies[0].replaceChildren(...shownNetwork.map((r) => r.node));
+  $('rex-network-empty').hidden = shownNetwork.length > 0;
+  $('rex-network-empty').textContent = network.length ? tr('No matches.') : tr('None.');
+
+  // baseline destinations: searched server-side (matches a device's name/MAC/IP or the
+  // destination IP itself), so a device whose name matches already gets all its destinations back
+  // - keeping the same "device matches -> show everything" rule used below for exceptions/risks.
+  const br = await api('GET', '/api/baseline/destinations?q=' + encodeURIComponent(q) + '&limit=2000');
+  const baselineByDevice = new Map();
+  if (br.ok) {
+    for (const d of br.json.destinations) {
+      if (!baselineByDevice.has(d.asset_id)) baselineByDevice.set(d.asset_id, []);
+      baselineByDevice.get(d.asset_id).push(d);
+    }
+    const { destinations, matched, limit } = br.json;
+    $('rex-status').textContent = !q
+      ? tr('{n} devices with a learned baseline shown below (search to find a specific device or address).', { n: baselineByDevice.size })
+      : matched > limit
+        ? tr('Showing {shown} of {matched} baseline matches — refine your search to narrow it further.', { shown: destinations.length, matched })
+        : tr('{n} baseline match(es).', { n: matched });
+  } else {
+    $('rex-status').textContent = apiError(br);
+  }
+
+  const ids = new Set([...byDevice.keys(), ...baselineByDevice.keys()]);
+  const results = [];
+  for (const id of ids) {
+    const a = assetById(id);
+    const deviceHay = (a ? name(a) + ' ' + a.mac + ' ' + (a.ip || '') : '#' + id).toLowerCase();
+    const deviceMatches = !q || deviceHay.includes(q);
+    const excRows = byDevice.get(id) || [];
+    const shownExc = deviceMatches ? excRows : excRows.filter((r) => r.text.includes(q));
+    const baseRows = baselineByDevice.get(id) || [];
+    if (!shownExc.length && !baseRows.length) continue;
+    results.push({ id, asset: a, excRows: shownExc, baseRows });
+  }
+  results.sort((x, y) => (x.asset ? name(x.asset) || x.asset.ip || x.asset.mac : '#' + x.id).localeCompare(y.asset ? name(y.asset) || y.asset.ip || y.asset.mac : '#' + y.id));
+
+  const rows = [];
+  for (const { id, asset: a, excRows, baseRows } of results) {
+    const open = rexExpanded.has(id);
+    const toggle = () => { if (rexExpanded.has(id)) rexExpanded.delete(id); else rexExpanded.add(id); loadExceptionsView(); };
+    const nameCell = a
+      ? el('button', { type: 'button', class: 'namecell link-cell', title: tr('Open device panel'), onclick: (ev) => { ev.stopPropagation(); showDetail(id); } }, iconBadge(a), el('span', { text: name(a) }))
+      : el('span', { text: tr('device #{id} (no longer known)', { id }) });
+    rows.push(el('tr', { class: 'rex-row', onclick: toggle },
+      el('td', { text: open ? '▾' : '▸' }),
+      el('td', {}, nameCell),
+      el('td', { class: 'mono', text: a ? (a.ip || '—') : '—' }),
+      el('td', { class: 'mono', text: a ? a.mac : '' }),
+      el('td', {}, a ? el('span', { class: 'tag', text: tr(a.device_type) }) : null),
+      el('td', { text: tr('{n} item(s)', { n: excRows.length + baseRows.length }) })));
+    if (open) {
+      rows.push(el('tr', { class: 'rex-detail' }, el('td', { colSpan: 6 },
+        excRows.length ? el('div', { class: 'exception-rows' }, ...excRows.map((r) => r.node)) : null,
+        baseRows.length ? el('div', {}, el('div', { class: 'group-title', text: tr('Learned baseline destinations') }), ...baseRows.map((d) => baselineDestRow(id, d))) : null)));
+    }
+  }
+  $('rex-table').tBodies[0].replaceChildren(...rows);
+  $('rex-empty').hidden = results.length > 0;
+  $('rex-bulk-actions').hidden = results.length < 2;
+  $('rex-expand-all').onclick = () => { for (const { id } of results) rexExpanded.add(id); loadExceptionsView(); };
+  $('rex-collapse-all').onclick = () => { for (const { id } of results) rexExpanded.delete(id); loadExceptionsView(); };
 }

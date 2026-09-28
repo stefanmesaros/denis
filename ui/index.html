@@ -65,6 +65,10 @@
           <button class="tab" data-tab="reports" type="button"><span class="label">Reports</span></button>
           <div class="navgroup">Manage</div>
           <button class="tab" data-tab="rules" type="button"><span class="label">Rules</span></button>
+          <div id="rules-subtabs" class="subtabs" hidden>
+            <button type="button" class="subtab active" data-rules-mode="rules">Rules</button>
+            <button type="button" class="subtab" data-rules-mode="exceptions">Exceptions, accepted risks &amp; baseline</button>
+          </div>
           <button class="tab" data-tab="alerting" type="button" id="tab-alerting" hidden><span class="label">Alerting</span></button>
           <button class="tab" data-tab="health" type="button"><span class="label">Health</span> <span id="count-health" class="badge" hidden></span></button>
           <button class="tab" data-tab="agents" type="button"><span class="label">Sites</span> <span id="count-agents" class="count"></span></button>
@@ -383,7 +387,7 @@
       <section id="view-rules" hidden>
         <div id="rules-mode" class="segmented" role="group" aria-label="Rules or exceptions">
           <button type="button" data-mode="rules" class="active">Rules</button>
-          <button type="button" data-mode="exceptions">Exceptions &amp; accepted risks</button>
+          <button type="button" data-mode="exceptions">Exceptions, accepted risks &amp; baseline</button>
         </div>
         <div id="rules-mode-rules">
           <p class="muted">Every detection DENIS runs, and how it is set. Alerts are scored 0–100; anything below the minimum score is only logged. Turning a rule off, or its weight down, is safe: nothing is deleted. Changes apply within seconds and are written to the audit log. <a href="/docs/detection-rules" target="_blank" rel="noopener">How each rule scores</a></p>
@@ -393,15 +397,30 @@
           <div class="row" id="rules-actions" hidden><button id="rules-save" type="button" class="primary">Save changes</button><button id="rules-reset" type="button">Reset everything to defaults</button><button id="rules-export" type="button">Export as file</button><button id="rules-import" type="button">Import from file…</button><input id="rules-import-file" type="file" accept="application/json,.json" hidden><span id="rules-status" class="muted"></span></div>
         </div>
         <div id="rules-mode-exceptions" hidden>
-          <h3 class="section">Exceptions &amp; accepted risks</h3>
-          <p class="muted">Every place a rule, watch or finding has been told to stay quiet — rule exceptions, OT/network watch allow-lists, and accepted risks from Findings — in one list. Removing one here has the exact same effect as removing it from where it was added.</p>
-          <input id="exceptions-search" type="search" placeholder="Search by device, network, rule, watch or finding…" autocomplete="off">
-          <div id="exceptions-list"></div>
-          <h3 class="section">Learned baseline destinations</h3>
-          <p class="muted">Every device's learned traffic baseline, searchable across all devices at once — the same "×" you would find on one device's own panel, without opening each device individually.</p>
-          <input id="baseline-search" type="search" placeholder="Search by device name, MAC, IP, or destination IP…" autocomplete="off">
-          <div id="baseline-search-status" class="muted small"></div>
-          <div id="baseline-search-list"></div>
+          <h3 class="section">Exceptions, accepted risks &amp; baseline</h3>
+          <p class="muted">Every place a rule, watch or finding has been told to stay quiet, and everything each device has learned as normal — rule exceptions, OT/network watch allow-lists, accepted risks from Findings, and learned baseline destinations — grouped by device, one list. Removing one here has the exact same effect as removing it from where it was added.</p>
+          <input id="rex-search" type="search" placeholder="Search by device, MAC, IP, network, rule, watch or finding…" autocomplete="off">
+          <h4 class="section">Network-wide exceptions</h4>
+          <p class="muted small">Exceptions scoped to a device type, tag or network — not tied to one device.</p>
+          <div class="table-wrap">
+            <table id="rex-network-table">
+              <thead><tr><th></th><th>Scope</th><th>Applies to</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p id="rex-network-empty" class="muted" hidden>None.</p>
+          <h4 class="section">By device</h4>
+          <div id="rex-status" class="muted small"></div>
+          <div class="table-tools" id="rex-table-tools">
+            <div class="row" id="rex-bulk-actions" hidden><button type="button" id="rex-expand-all">Expand all</button><button type="button" id="rex-collapse-all">Collapse all</button></div>
+          </div>
+          <div class="table-wrap">
+            <table id="rex-table" data-cols-host="rex-table-tools">
+              <thead><tr><th></th><th>Device</th><th>IP</th><th>MAC</th><th>Type</th><th>Items</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p id="rex-empty" class="muted" hidden>No matches.</p>
         </div>
       </section>
 
