@@ -41,10 +41,14 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    turning it on. Along the way, fixed the settings storage the policy shares with the existing
    MFA policy: the old setter blindly overwrote the whole blob rather than merging into it, which
    would have silently erased whichever policy was set second.
-4. **CMDB import: Intune.** Not started. Reuses almost the entire Entra ID integration shipped in
-   v2.18.0 — same Microsoft Graph OAuth2 app-only auth, same `ureq` client, same
-   hostname-match/upsert/prune shape (`cmdb.rs`) — just a different Graph endpoint
-   (`/deviceManagement/managedDevices`) and different fields (compliance state, OS, last check-in).
+4. ~~**CMDB import: Intune.**~~ Done in v2.23.0 (2026-09-28). Reused almost the entire Entra ID
+   integration shipped in v2.18.0 — same Microsoft Graph OAuth2 app-only auth (the `.default`
+   scope picks up whatever permissions are actually granted, so one token already covered both),
+   same `ureq` client, same hostname-match/upsert/prune shape (`cmdb.rs`) — just a different Graph
+   endpoint (`/deviceManagement/managedDevices`) and different fields (compliance state, OS, last
+   check-in). Records from the two sources are now keyed by `<source>:<id>`, since Entra ID device
+   objects and Intune managed devices live in separate GUID spaces for what may be the same
+   physical machine.
 5. **CMDB import: Active Directory (on-prem).** Not started. A different protocol from Entra
    ID/Intune — LDAP/LDAPS rather than REST, a new dependency, and reachability to a domain
    controller (same LAN or VPN) rather than a cloud API. The matching/store/sync/UI shape from the

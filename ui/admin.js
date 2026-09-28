@@ -1453,6 +1453,7 @@ async function loadCmdbBox() {
     $('cmdb-enabled').checked = s.json.enabled;
     $('cmdb-tenant').value = s.json.tenant_id || '';
     $('cmdb-client-id').value = s.json.client_id || '';
+    $('cmdb-intune').checked = !!s.json.include_intune;
     $('cmdb-interval').value = s.json.sync_interval_hours || 24;
     $('cmdb-client-secret').value = '';
     $('cmdb-client-secret').placeholder = s.json.client_secret_set ? tr('(unchanged)') : '';
@@ -1462,7 +1463,8 @@ async function loadCmdbBox() {
     const asset = dev.matched_asset_id != null ? assetById(dev.matched_asset_id) : null;
     return el('div', { class: 'ip-context-row' },
       el('div', {},
-        el('b', { text: dev.display_name }),
+        el('b', { text: dev.display_name }), ' ',
+        el('span', { class: 'tag', text: dev.source === 'intune' ? tr('Intune') : tr('Entra ID') }),
         el('div', { class: 'muted small' },
           [dev.os, dev.os_version].filter(Boolean).join(' '),
           dev.compliant != null ? (dev.compliant ? ' · ' + tr('compliant') : ' · ' + tr('not compliant')) : '',
@@ -1478,6 +1480,7 @@ $('cmdb-save').onclick = async () => {
     enabled: $('cmdb-enabled').checked,
     tenant_id: $('cmdb-tenant').value.trim(),
     client_id: $('cmdb-client-id').value.trim(),
+    include_intune: $('cmdb-intune').checked,
     sync_interval_hours: Number($('cmdb-interval').value) || 24,
     client_secret: $('cmdb-client-secret').value,
   });

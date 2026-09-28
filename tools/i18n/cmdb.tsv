@@ -19,3 +19,9 @@ No matching device found by hostname. || Kein passendes Gerät anhand des Hostna
 Nothing imported yet. || Noch nichts importiert. || Rien d'importé pour l'instant. || Aún no se ha importado nada. || Zatiaľ nič neimportované.
 Syncing… || Wird synchronisiert … || Synchronisation… || Sincronizando… || Synchronizuje sa…
 Imported {n} device(s). || {n} Gerät(e) importiert. || {n} appareil(s) importé(s). || {n} dispositivo(s) importado(s). || Importovaných {n} zariadení.
+Also import Intune managed devices || Auch von Intune verwaltete Geräte importieren || Importer aussi les appareils gérés par Intune || Importar también los dispositivos administrados por Intune || Importovať aj zariadenia spravované cez Intune
+Uses the same app registration above — needs the additional || Verwendet dieselbe App-Registrierung wie oben — benötigt zusätzlich die || Utilise la même inscription d'application ci-dessus — nécessite en plus l'autorisation || Usa el mismo registro de aplicación de arriba — necesita adicionalmente el permiso || Používa rovnakú registráciu aplikácie ako vyššie — potrebuje navyše
+DeviceManagementManagedDevices.Read.All || DeviceManagementManagedDevices.Read.All || DeviceManagementManagedDevices.Read.All || DeviceManagementManagedDevices.Read.All || DeviceManagementManagedDevices.Read.All
+application permission, admin-consented alongside || Anwendungsberechtigung, mit Administrator-Zustimmung neben || d'application, avec consentement administrateur, en plus de || de aplicación, con consentimiento de administrador junto a || aplikačné oprávnenie, so súhlasom administrátora popri
+Intune || Intune || Intune || Intune || Intune
+Entra ID || Entra ID || Entra ID || Entra ID || Entra ID

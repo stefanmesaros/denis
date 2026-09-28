@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.23.0: CMDB import — Intune managed devices
+
+* CMDB import (Settings → Integrations) can now also pull **Intune managed devices**
+  (`/deviceManagement/managedDevices`), alongside the existing Entra ID device import shipped in
+  v2.18.0. A new checkbox, "Also import Intune managed devices", reuses the same app registration,
+  tenant and client secret already configured — it just needs the additional
+  `DeviceManagementManagedDevices.Read.All` application permission granted alongside
+  `Device.Read.All`. Matched to DENIS's own discovered devices the same way as Entra ID devices —
+  exact, case-insensitive hostname only, read-only, one-directional. Each imported device now
+  shows which source it came from (Entra ID or Intune) in the device list.
+* Entra ID and Intune device objects live in separate Graph GUID spaces for what may be the same
+  physical device, so imported records are now keyed by `<source>:<id>` (`entra:...`,
+  `intune:...`) to guarantee the two can never collide or overwrite each other in the store. A
+  record saved before this existed (every Entra ID import through v2.22.0) still reads back
+  correctly, defaulting to `entra`.
+
 ## 2.22.0: Enforcing passkey-only sign-in, and Settings now opens on System
 
 * **Passkey-only sign-in** (Settings → Sign-in & security → "Passkey-only sign-in for"): a new,

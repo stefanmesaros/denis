@@ -1541,9 +1541,9 @@ mod tests {
         let bad2 = serde_json::json!({"enabled": false, "tenant_id": "t", "client_id": "c", "sync_interval_hours": 0});
         assert_eq!(send(&app, req("PUT", "/api/cmdb/settings", Some(&admin), Some(bad2))).await.0, StatusCode::BAD_REQUEST);
 
-        let good = serde_json::json!({"enabled": true, "tenant_id": "contoso.onmicrosoft.com", "client_id": "abc-123", "sync_interval_hours": 6, "client_secret": "sekret"});
+        let good = serde_json::json!({"enabled": true, "tenant_id": "contoso.onmicrosoft.com", "client_id": "abc-123", "sync_interval_hours": 6, "client_secret": "sekret", "include_intune": true});
         let (st, _, v) = send(&app, req("PUT", "/api/cmdb/settings", Some(&admin), Some(good))).await;
-        assert_eq!((st, v.get("client_secret"), v["client_secret_set"].as_bool(), v["tenant_id"].as_str()), (StatusCode::OK, None, Some(true), Some("contoso.onmicrosoft.com")), "the secret is never echoed back; {v}");
+        assert_eq!((st, v.get("client_secret"), v["client_secret_set"].as_bool(), v["tenant_id"].as_str(), v["include_intune"].as_bool()), (StatusCode::OK, None, Some(true), Some("contoso.onmicrosoft.com"), Some(true)), "the secret is never echoed back; {v}");
 
         // saving again with a blank secret leaves the saved one alone
         let unchanged = serde_json::json!({"enabled": true, "tenant_id": "contoso.onmicrosoft.com", "client_id": "abc-123", "sync_interval_hours": 6});

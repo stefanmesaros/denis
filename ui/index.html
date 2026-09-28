@@ -580,6 +580,8 @@
             <label>Client (application) ID<input id="cmdb-client-id" placeholder="00000000-0000-0000-0000-000000000000"></label>
             <label>Client secret<input id="cmdb-client-secret" type="password" autocomplete="off"></label>
           </div>
+          <label class="check"><input id="cmdb-intune" type="checkbox"> Also import Intune managed devices</label>
+          <p class="muted small">Uses the same app registration above — needs the additional <code>DeviceManagementManagedDevices.Read.All</code> application permission, admin-consented alongside <code>Device.Read.All</code>.</p>
           <div class="row">
             <label>Sync every<span class="row"><input id="cmdb-interval" type="number" min="1" max="720" value="24"> hours</span></label>
           </div>
