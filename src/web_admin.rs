@@ -46,6 +46,7 @@ fn map_auth_err(e: AuthError) -> Response {
         }
         AuthError::Rejected(m) => err(StatusCode::BAD_REQUEST, m),
         AuthError::MfaRequired(_) => err(StatusCode::UNAUTHORIZED, "a one-time code is required"),
+        AuthError::PasskeyOnly => err(StatusCode::FORBIDDEN, "this account must sign in with a passkey"),
         AuthError::Internal(e) => {
             tracing::error!("auth error: {e:#}");
             err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
@@ -119,13 +120,20 @@ pub(crate) async fn login(
     match res {
         Ok((token, user)) => {
             audit(&st, &user.username, "auth.login", None, json!({}));
-            let mut r = Json(json!({ "user": user, "must_change": user.must_change })).into_response();
+            let must_enrol = st.auth.must_enrol(&user, now_ts());
+            let must_enrol_passkey = st.auth.must_enrol_passkey(&user, now_ts());
+            let mut r = Json(json!({ "user": user, "must_change": user.must_change, "must_enrol": must_enrol, "must_enrol_passkey": must_enrol_passkey })).into_response();
             r.headers_mut().insert(header::SET_COOKIE, cookie(&token, st.secure_cookie, None));
             r
         }
         Err(AuthError::MfaRequired(ticket)) => {
             // the password was right; the session comes with the code (POST /api/auth/mfa)
             Json(json!({ "mfa_required": true, "ticket": ticket })).into_response()
+        }
+        Err(AuthError::PasskeyOnly) => {
+            // the password was right, but this account may no longer use it to open a session
+            audit(&st, &body.username.trim().chars().take(64).collect::<String>(), "auth.login_failed", None, json!({ "locked": false, "ip": ip.to_string(), "reason": "passkey_only" }));
+            Json(json!({ "passkey_required": true })).into_response()
         }
         Err(e) => {
             // The attempted name is logged as typed (trimmed, bounded): useful
@@ -168,7 +176,8 @@ pub(crate) async fn logout(State(st): State<AppState>, Extension(AuthUser(user))
 pub(crate) async fn me(State(st): State<AppState>, Extension(AuthUser(user)): Extension<AuthUser>) -> Json<Value> {
     // a person who must set up a second step before anything else works (an API token or a no-login console never must)
     let must_enrol = user.id > 0 && !st.no_auth && st.auth.must_enrol(&user, now_ts());
-    Json(json!({ "user": user, "must_change": user.must_change, "must_enrol": must_enrol }))
+    let must_enrol_passkey = user.id > 0 && !st.no_auth && st.auth.must_enrol_passkey(&user, now_ts());
+    Json(json!({ "user": user, "must_change": user.must_change, "must_enrol": must_enrol, "must_enrol_passkey": must_enrol_passkey }))
 }
 
 #[derive(Deserialize)]

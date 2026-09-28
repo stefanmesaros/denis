@@ -54,6 +54,9 @@ pub enum AuthError {
     Rejected(String),
     /// The password was right but a one-time code is needed too: this ticket goes with it.
     MfaRequired(String),
+    /// The password was right, but this account is policy-required to sign in with a passkey
+    /// instead - no session is opened.
+    PasskeyOnly,
     Internal(anyhow::Error),
 }
 
@@ -89,6 +92,9 @@ pub struct Auth {
     mfa_tickets: Mutex<HashMap<String, MfaTicket>>,
     /// The policy "who must use a second step" (`off`, `admins`, `all`) and when it was read.
     mfa_policy: Mutex<Option<(String, i64)>>,
+    /// The policy "who may no longer sign in with a password once they have a passkey", same
+    /// shape and caching as `mfa_policy`.
+    passkey_policy: Mutex<Option<(String, i64)>>,
 }
 
 struct MfaTicket {
@@ -188,7 +194,7 @@ pub fn validate_username(u: &str) -> Result<(), String> {
 
 impl Auth {
     pub fn new(store: Arc<dyn Store>) -> Self {
-        Auth { store, attempts: Mutex::new(HashMap::new()), last_agent_touch: Mutex::new(HashMap::new()), ip_failures: Mutex::new(HashMap::new()), passkey_cfg: Mutex::new(None), ceremonies: Mutex::new(Default::default()), mfa_tickets: Mutex::new(HashMap::new()), mfa_policy: Mutex::new(None) }
+        Auth { store, attempts: Mutex::new(HashMap::new()), last_agent_touch: Mutex::new(HashMap::new()), ip_failures: Mutex::new(HashMap::new()), passkey_cfg: Mutex::new(None), ceremonies: Mutex::new(Default::default()), mfa_tickets: Mutex::new(HashMap::new()), mfa_policy: Mutex::new(None), passkey_policy: Mutex::new(None) }
     }
 
     /// First run: create `admin` with a random one-time password. Returns it
@@ -283,6 +289,11 @@ impl Auth {
             self.record_failure(&key, now);
             return Err(AuthError::Invalid);
         };
+        if self.passkey_only(&r.user, now) {
+            // a right password proved who they are; it just no longer opens a session by itself
+            self.attempts.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
+            return Err(AuthError::PasskeyOnly);
+        }
         if self.store.get_totp(r.user.id)?.is_some_and(|t| t.enabled) {
             // the failure counter stays as it is: a right password must not wipe out the wrong codes tried so far
             return Err(AuthError::MfaRequired(self.new_ticket(r.user.id, &key, now)?));
@@ -391,39 +402,97 @@ impl Auth {
 
     // ------------------------------------------------------ who must use a second step
 
-    /// `off`, `admins` or `all`. Read from the database at most every few seconds.
-    pub fn mfa_policy(&self, now: i64) -> String {
-        let mut c = self.mfa_policy.lock().unwrap_or_else(|e| e.into_inner());
+    /// The security settings blob as saved so far (both `mfa_required` and `passkey_required`
+    /// live in it): read once and merged into, never blindly overwritten, so setting one policy
+    /// never erases the other.
+    fn read_security(&self) -> serde_json::Value {
+        self.store
+            .get_setting(SECURITY_KEY)
+            .ok()
+            .flatten()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .unwrap_or_else(|| serde_json::json!({}))
+    }
+
+    fn policy_field(&self, cache: &Mutex<Option<(String, i64)>>, field: &str, now: i64) -> String {
+        let mut c = cache.lock().unwrap_or_else(|e| e.into_inner());
         if let Some((p, at)) = c.as_ref() {
             if now - at < 10 {
                 return p.clone();
             }
         }
         let p = self
-            .store
-            .get_setting(SECURITY_KEY)
-            .ok()
-            .flatten()
-            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-            .and_then(|v| v["mfa_required"].as_str().map(String::from))
+            .read_security()
+            .get(field)
+            .and_then(|v| v.as_str().map(String::from))
             .filter(|p| MFA_POLICIES.contains(&p.as_str()))
             .unwrap_or_else(|| "off".into());
         *c = Some((p.clone(), now));
         p
     }
 
-    pub fn set_mfa_policy(&self, policy: &str, now: i64) -> Result<(), AuthError> {
+    fn set_policy_field(&self, cache: &Mutex<Option<(String, i64)>>, field: &str, policy: &str, now: i64) -> Result<(), AuthError> {
         if !MFA_POLICIES.contains(&policy) {
             return Err(AuthError::Rejected("the policy must be off, admins or all".into()));
         }
-        self.store.set_setting(SECURITY_KEY, &serde_json::to_vec(&serde_json::json!({ "mfa_required": policy }))?, now)?;
-        *self.mfa_policy.lock().unwrap_or_else(|e| e.into_inner()) = Some((policy.to_string(), now));
+        let mut v = self.read_security();
+        v[field] = serde_json::json!(policy);
+        self.store.set_setting(SECURITY_KEY, &serde_json::to_vec(&v)?, now)?;
+        *cache.lock().unwrap_or_else(|e| e.into_inner()) = Some((policy.to_string(), now));
         Ok(())
+    }
+
+    /// `off`, `admins` or `all`. Read from the database at most every few seconds.
+    pub fn mfa_policy(&self, now: i64) -> String {
+        self.policy_field(&self.mfa_policy, "mfa_required", now)
+    }
+
+    pub fn set_mfa_policy(&self, policy: &str, now: i64) -> Result<(), AuthError> {
+        self.set_policy_field(&self.mfa_policy, "mfa_required", policy, now)
+    }
+
+    /// `off`, `admins` or `all`: who may no longer sign in with a password once they have a
+    /// passkey - see `passkey_only`.
+    pub fn passkey_policy(&self, now: i64) -> String {
+        self.policy_field(&self.passkey_policy, "passkey_required", now)
+    }
+
+    pub fn set_passkey_policy(&self, policy: &str, now: i64) -> Result<(), AuthError> {
+        self.set_policy_field(&self.passkey_policy, "passkey_required", policy, now)
     }
 
     /// Has this person a second factor: a working authenticator app or at least one passkey?
     pub fn has_mfa(&self, user_id: i64) -> Result<bool> {
         Ok(self.store.get_totp(user_id)?.is_some_and(|t| t.enabled) || !self.store.list_passkeys(user_id)?.is_empty())
+    }
+
+    /// Has this person at least one passkey? (Never on a database error: see `must_enrol`.)
+    fn has_passkey(&self, user_id: i64) -> Result<bool> {
+        Ok(!self.store.list_passkeys(user_id)?.is_empty())
+    }
+
+    fn passkey_required_for(&self, user: &User, now: i64) -> bool {
+        match self.passkey_policy(now).as_str() {
+            "all" => true,
+            "admins" => user.role == "admin",
+            _ => false,
+        }
+    }
+
+    /// Must this person set up a passkey before anything else works? Unlike `must_enrol`, an
+    /// authenticator app never satisfies this - the policy specifically means "a passkey".
+    pub fn must_enrol_passkey(&self, user: &User, now: i64) -> bool {
+        self.passkey_required_for(user, now) && self.has_passkey(user.id).is_ok_and(|has| !has)
+    }
+
+    /// Is this person past the point where a password may open a session at all? True only once
+    /// they are both required to (the policy covers them) *and* have already set a passkey up -
+    /// never while they still owe that first enrolment, so nobody is locked out by a policy
+    /// change before they have had the chance to add one. A stray password hash is otherwise kept
+    /// forever (needed to confirm identity before sensitive changes), it just stops being a way
+    /// in.
+    fn passkey_only(&self, user: &User, now: i64) -> bool {
+        self.passkey_required_for(user, now) && self.has_passkey(user.id).unwrap_or(false)
     }
 
     /// Must this person set up a second step before anything else works? (Never on a database error: that must not lock everybody out.)
@@ -825,6 +894,47 @@ mod tests {
         let (_, user) = a.login("jana", &new, 5).unwrap();
         assert!(user.must_change);
         assert!(matches!(a.reset_password(999), Err(AuthError::Rejected(_))));
+    }
+
+    #[test]
+    fn the_mfa_and_passkey_policies_are_independent_and_do_not_clobber_each_other() {
+        let a = auth();
+        a.set_mfa_policy("admins", 0).unwrap();
+        a.set_passkey_policy("all", 1).unwrap();
+        assert_eq!(a.mfa_policy(2), "admins");
+        assert_eq!(a.passkey_policy(2), "all");
+        // setting one again leaves the other alone
+        a.set_mfa_policy("off", 3).unwrap();
+        assert_eq!(a.mfa_policy(4), "off");
+        assert_eq!(a.passkey_policy(4), "all", "not reset by the unrelated mfa_policy write");
+        assert!(matches!(a.set_passkey_policy("sometimes", 5), Err(AuthError::Rejected(_))));
+    }
+
+    #[test]
+    fn passkey_only_enforcement_never_locks_out_someone_who_has_not_enrolled_yet() {
+        let a = auth();
+        let admin = admin_with(&a, "a-long-passphrase-1");
+        let (jana, pw) = a.create_user("jana", "viewer", 1).unwrap();
+        a.set_passkey_policy("all", 2).unwrap();
+        // required, but nobody has a passkey yet: password sign-in still works, so the person
+        // can actually get in and set one up - must_enrol_passkey says they owe it
+        assert!(a.must_enrol_passkey(&jana, 3));
+        let (tok, _) = a.login("jana", &pw, 3).unwrap();
+        assert!(a.session_user(&tok, 4).is_some());
+        // once they have a passkey, the password path is refused - proven with the right
+        // password, so this is not indistinguishable from a wrong one, unlike Invalid
+        a.store.add_passkey(jana.id, b"cred-1", b"pub-1", 0, "phone", 5).unwrap();
+        assert!(!a.must_enrol_passkey(&jana, 6));
+        assert!(matches!(a.login("jana", &pw, 6), Err(AuthError::PasskeyOnly)));
+        // a wrong password for the same account is still just Invalid, not PasskeyOnly - no hint leaks to a guesser
+        assert!(matches!(a.login("jana", "wrong-password-entirely", 7), Err(AuthError::Invalid)));
+        // the admin, uncovered by an "admins"-only policy here since this one is "all", is
+        // equally affected: policy applies account-wide, not just to viewers
+        a.store.add_passkey(admin.id, b"cred-2", b"pub-2", 0, "key", 8).unwrap();
+        assert!(matches!(a.login("admin", "a-long-passphrase-1", 9), Err(AuthError::PasskeyOnly)));
+        // turning the policy back off restores the password path immediately, passkey or not
+        a.set_passkey_policy("off", 10).unwrap();
+        assert!(a.login("jana", &pw, 11).is_ok());
     }
 
     #[test]

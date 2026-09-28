@@ -75,7 +75,8 @@ pub(crate) async fn mfa_login(
                 audit(&st, &user.username, "totp.recovery_code_used", None, json!({}));
             }
             let must_enrol = st.auth.must_enrol(&user, now_ts());
-            let mut r = Json(json!({ "user": user, "must_change": user.must_change, "must_enrol": must_enrol })).into_response();
+            let must_enrol_passkey = st.auth.must_enrol_passkey(&user, now_ts());
+            let mut r = Json(json!({ "user": user, "must_change": user.must_change, "must_enrol": must_enrol, "must_enrol_passkey": must_enrol_passkey })).into_response();
             r.headers_mut().insert(header::SET_COOKIE, cookie(&token, st.secure_cookie, None));
             r
         }
@@ -291,41 +292,65 @@ pub(crate) async fn admin_reset(State(st): State<AppState>, Extension(AuthUser(m
     Ok(Json(json!({ "removed": removed })).into_response())
 }
 
-/// Who must use a second step, and how many people that would catch right now.
+/// Who must use a second step (and who must use specifically a passkey, no longer just any
+/// second step), and how many people each policy would catch right now.
 pub(crate) async fn policy_get(State(st): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     let policy = st.auth.mfa_policy(now_ts());
-    let (admins_without, all_without) = blocking(&st.store, |s| {
+    let passkey_policy = st.auth.passkey_policy(now_ts());
+    let (admins_without, all_without, admins_without_passkey, all_without_passkey) = blocking(&st.store, |s| {
         let totp = s.totp_enabled_users()?;
-        let (mut a, mut n) = (0, 0);
+        let (mut a, mut n, mut ap, mut np) = (0, 0, 0, 0);
         for u in s.list_users()?.into_iter().filter(|u| !u.disabled) {
-            if !totp.contains(&u.id) && s.list_passkeys(u.id)?.is_empty() {
+            let has_passkey = !s.list_passkeys(u.id)?.is_empty();
+            if !totp.contains(&u.id) && !has_passkey {
                 n += 1;
                 if u.role == "admin" {
                     a += 1;
                 }
             }
+            if !has_passkey {
+                np += 1;
+                if u.role == "admin" {
+                    ap += 1;
+                }
+            }
         }
-        Ok((a, n))
+        Ok((a, n, ap, np))
     })
     .await?;
-    Ok(Json(json!({ "mfa_required": policy, "admins_without": admins_without, "all_without": all_without })))
+    Ok(Json(json!({
+        "mfa_required": policy, "admins_without": admins_without, "all_without": all_without,
+        "passkey_required": passkey_policy, "admins_without_passkey": admins_without_passkey, "all_without_passkey": all_without_passkey,
+    })))
 }
 
 #[derive(Deserialize)]
 pub struct PolicyReq {
-    mfa_required: String,
+    mfa_required: Option<String>,
+    passkey_required: Option<String>,
 }
 
 pub(crate) async fn policy_put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<PolicyReq>) -> Response {
-    if !crate::auth::MFA_POLICIES.contains(&b.mfa_required.as_str()) {
+    if b.mfa_required.as_deref().is_some_and(|p| !crate::auth::MFA_POLICIES.contains(&p)) || b.passkey_required.as_deref().is_some_and(|p| !crate::auth::MFA_POLICIES.contains(&p)) {
         return err(StatusCode::BAD_REQUEST, E_POLICY);
     }
-    if let Err(e) = st.auth.set_mfa_policy(&b.mfa_required, now_ts()) {
-        return match e {
-            AuthError::Rejected(m) => err(StatusCode::BAD_REQUEST, m),
-            _ => err(StatusCode::INTERNAL_SERVER_ERROR, "internal error"),
-        };
+    let now = now_ts();
+    if let Some(p) = &b.mfa_required {
+        if let Err(e) = st.auth.set_mfa_policy(p, now) {
+            return match e {
+                AuthError::Rejected(m) => err(StatusCode::BAD_REQUEST, m),
+                _ => err(StatusCode::INTERNAL_SERVER_ERROR, "internal error"),
+            };
+        }
     }
-    audit(&st, &me.username, "security.mfa_policy", None, json!({ "mfa_required": b.mfa_required }));
-    Json(json!({ "mfa_required": b.mfa_required })).into_response()
+    if let Some(p) = &b.passkey_required {
+        if let Err(e) = st.auth.set_passkey_policy(p, now) {
+            return match e {
+                AuthError::Rejected(m) => err(StatusCode::BAD_REQUEST, m),
+                _ => err(StatusCode::INTERNAL_SERVER_ERROR, "internal error"),
+            };
+        }
+    }
+    audit(&st, &me.username, "security.mfa_policy", None, json!({ "mfa_required": b.mfa_required, "passkey_required": b.passkey_required }));
+    Json(json!({ "mfa_required": st.auth.mfa_policy(now), "passkey_required": st.auth.passkey_policy(now) })).into_response()
 }

@@ -158,29 +158,65 @@ function onMustEnrol() {
   });
 }
 
+/** Called when the server says specifically a passkey must be set up first (must_enrol_passkey) -
+ * stricter than `onMustEnrol`: an authenticator app does not satisfy this policy, so there is no
+ * fallback option here, only a passkey. The account's password keeps working until they add one
+ * (see `Auth::passkey_only`), so this is a nudge, not a lockout. */
+function onMustEnrolPasskey() {
+  if ($('form-dialog').open) return;
+  const passkeyName = el('input', { placeholder: tr('name, e.g. "Work laptop" or "YubiKey"'), maxLength: 40 });
+  const passkeyError = el('div', { class: 'form-error', hidden: true });
+  const canPasskey = state.methods && state.methods.passkey && passkeysSupported();
+  openForm(tr('Add a passkey'), [
+    el('p', { text: tr('Your administrator requires a passkey for signing in on this account. Your password keeps working until you add one; once you do, only the passkey does.') }),
+    canPasskey
+      ? el('div', { class: 'row' }, passkeyName, el('button', { type: 'button', id: 'enrol-passkey', text: tr('Add a passkey'), onclick: async () => {
+        const e = await addPasskey(passkeyName.value.trim());
+        if (e) { passkeyError.textContent = e; passkeyError.hidden = false; } else location.reload();
+      } }))
+      : el('p', { class: 'form-error', text: tr('This browser does not support passkeys. Sign in from a device or browser that does to add one.') }),
+    passkeyError,
+  ], {
+    submitLabel: tr('I have added a passkey'),
+    cancellable: false,
+    onSubmit: async () => { location.reload(); return null; },
+  });
+}
+
 // ------------------------------------------------------------- administrators
 
 const MFA_POLICY_TEXT = () => [['off', tr('Nobody')], ['admins', tr('Administrators')], ['all', tr('Everybody')]];
 
-/** Settings → Sign-in security: who must use a second step. */
+/** Settings → Sign-in security: who must use a second step, and who must use specifically a
+ * passkey (no password fallback at all, once they have one). Two independent policies, one form. */
 async function loadSecurityBox() {
   const r = await api('GET', '/api/security');
   if (!r.ok) return;
   const p = r.json;
   const sel = el('select', { id: 'mfa-policy' }, ...MFA_POLICY_TEXT().map(([v, t]) => el('option', { value: v, text: t })));
   sel.value = p.mfa_required;
+  const pkSel = el('select', { id: 'passkey-policy' }, ...MFA_POLICY_TEXT().map(([v, t]) => el('option', { value: v, text: t })));
+  pkSel.value = p.passkey_required;
   const status = el('span', { class: 'muted', id: 'mfa-status' });
   const count = (v) => (v === 'admins' ? p.admins_without : v === 'all' ? p.all_without : 0);
+  const pkCount = (v) => (v === 'admins' ? p.admins_without_passkey : v === 'all' ? p.all_without_passkey : 0);
   const note = el('p', { class: 'muted small' });
+  const pkNote = el('p', { class: 'muted small' });
   const drawNote = () => { note.textContent = sel.value === 'off' ? '' : tr('{n} people have no second step yet. At their next request they are asked to set one up before anything else works.', { n: count(sel.value) }); };
+  const drawPkNote = () => { pkNote.textContent = pkSel.value === 'off' ? '' : tr('{n} people have no passkey yet. Their password still works until they add one; once they do, only the passkey does.', { n: pkCount(pkSel.value) }); };
   sel.onchange = drawNote;
+  pkSel.onchange = drawPkNote;
   drawNote();
+  drawPkNote();
   $('security-body').replaceChildren(
     el('p', { class: 'muted', text: tr('A second sign-in step is an authenticator app or a passkey. Signing in with a passkey already counts. Whoever is required to have one is asked to set it up at their next request.') }),
     el('label', { class: 'field-narrow' }, tr('Required for'), sel),
     note,
+    el('p', { class: 'muted', text: tr('Separately, once someone required below has actually added a passkey, their password stops opening a session at all - only the passkey does. Nobody is locked out by turning this on: it only takes effect once they have set one up.') }),
+    el('label', { class: 'field-narrow' }, tr('Passkey-only sign-in for'), pkSel),
+    pkNote,
     el('div', { class: 'row' }, el('button', { type: 'button', class: 'primary', id: 'mfa-save', text: tr('Save'), onclick: async () => {
-      const s = await api('PUT', '/api/security', { mfa_required: sel.value });
+      const s = await api('PUT', '/api/security', { mfa_required: sel.value, passkey_required: pkSel.value });
       status.textContent = s.ok ? tr('Saved.') : apiError(s);
     } }), status));
 }

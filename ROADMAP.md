@@ -31,12 +31,16 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    device on my network is scanning it?"). Shipped as a new rule, **Internal network scan**:
    breadth-based (distinct local addresses, or distinct ports on one local address, within a
    rolling window), not connection-state-based, consistent with the rest of the rule engine.
-3. **Enforcing passkey-only sign-in.** Not started (2026-09-28). The passkey infrastructure
-   itself (registration, verification, storage) already exists and is mature (`passkey.rs`), but
-   today a passkey is only ever a *second* factor added on top of a password — there is no
-   passwordless sign-in flow and no admin policy to require one. Needs: a discoverable-credential
-   (resident key) sign-in path that never asks for a password, and an admin-facing policy that
-   requires every account to have a passkey and disables the password/TOTP fallback once it does.
+3. ~~**Enforcing passkey-only sign-in.**~~ Done in v2.22.0 (2026-09-28). The passkey
+   infrastructure itself (registration, verification, storage) already existed and was mature
+   (`passkey.rs`) — and, on inspection, the sign-in *flow* itself was already fully passwordless
+   and username-less (a discoverable/resident-key WebAuthn ceremony, `allowCredentials: []`), so
+   the actual missing piece was narrower than first scoped: an admin policy, independent of the
+   existing "second step" one, that stops a covered account's password from opening a session at
+   all once that account has actually added a passkey — never before, so nobody is locked out by
+   turning it on. Along the way, fixed the settings storage the policy shares with the existing
+   MFA policy: the old setter blindly overwrote the whole blob rather than merging into it, which
+   would have silently erased whichever policy was set second.
 4. **CMDB import: Intune.** Not started. Reuses almost the entire Entra ID integration shipped in
    v2.18.0 — same Microsoft Graph OAuth2 app-only auth, same `ureq` client, same
    hostname-match/upsert/prune shape (`cmdb.rs`) — just a different Graph endpoint
@@ -47,6 +51,17 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    Entra ID work carries over; the fetch side and its tests (mocking LDAP is more awkward than
    mocking REST) are the real new work.
 6. **IPv6 in capture and the asset model.** See below for the detailed scoping.
+7. **Windows collectors.** Partial groundwork already exists (`WINDOWS.md`, Win32 calls in
+   `net.rs`/`health.rs`, the `windows-sys` dependency), none of it verified on a real Windows
+   machine. Picked ahead of SAML: it grows what DENIS can *observe* (a large share of real
+   networks are Windows-centric and cannot run DENIS at all today), where SAML only changes how
+   admins sign in — valuable for enterprise procurement, but it doesn't expand the product's
+   actual capability. Do this first while the existing groundwork's context is still fresh.
+8. **SAML.** OIDC SSO already exists; SAML is a separate protocol (XML signatures, metadata
+   exchange, an ACS endpoint) with a real CVE history (signature-wrapping attacks) and
+   meaningfully less mature Rust tooling than OIDC's. Ordered after Windows collectors per an
+   explicit priority call, not because it is unimportant — revisit the order if a specific
+   customer's procurement is blocked on it.
 
 ## Verification still owed
 * Master/agent across a real network; TLS with a public CA or behind a reverse proxy.

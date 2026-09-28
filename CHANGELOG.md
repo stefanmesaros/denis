@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.22.0: Enforcing passkey-only sign-in, and Settings now opens on System
+
+* **Passkey-only sign-in** (Settings → Sign-in & security → "Passkey-only sign-in for"): a new,
+  independent policy alongside the existing "who must use a second step" one. Once someone
+  covered by it has actually added a passkey, their password stops opening a session at all —
+  only the passkey does. Nobody is ever locked out by turning this on: the password keeps working
+  right up until the person has set a passkey up, so bootstrapping a team onto it is always safe.
+  A wrong password for a passkey-only account still gets the same generic "invalid username or
+  password" as any other account — the stricter refusal only ever follows a *correct* password,
+  so nothing new is guessable. The passkey sign-in flow itself needed no changes: it was already
+  fully passwordless and username-less (a discoverable/resident-key WebAuthn flow, `allowCredentials: []`)
+  since it was first built — this release is entirely the *policy* layer, plus fixing the
+  settings storage underneath it to merge instead of silently overwriting sibling fields when two
+  independent policies share one settings blob.
+* Settings now opens on **System** by default, not Sign-in & security — the first thing an
+  administrator sees when they click Settings is license/updates/restart/setup guide, not a
+  security sub-page.
+
 ## 2.21.0: New rule — internal network scan (host sweep / port scan) detection
 
 * A new built-in rule, **Internal network scan** (Rules → Network rules), flags a device that

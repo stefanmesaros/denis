@@ -261,7 +261,8 @@ async function boot() {
   const me = await api('GET', '/api/auth/me');
   if (me.ok) {
     state.me = me.json.user;
-    if (me.json.must_change) { await start(); onMustChange(); } else { await start(); if (me.json.must_enrol) onMustEnrol(); }
+    if (me.json.must_change) { await start(); onMustChange(); }
+    else { await start(); if (me.json.must_enrol_passkey) onMustEnrolPasskey(); else if (me.json.must_enrol) onMustEnrol(); }
   } else {
     showLogin();
   }
@@ -286,10 +287,18 @@ $('login-form').onsubmit = async (ev) => {
     showLoginCodeStep(r.json.ticket);
     return;
   }
+  if (r.json.passkey_required) {
+    const e = $('login-error');
+    e.textContent = tr('This account must sign in with a passkey — use the button below.');
+    e.hidden = false;
+    $('login-pass').value = '';
+    return;
+  }
   resetLoginCodeStep();
   state.me = r.json.user;
   await start();
   if (r.json.must_change) onMustChange();
+  else if (r.json.must_enrol_passkey) onMustEnrolPasskey();
   else if (r.json.must_enrol) onMustEnrol();
 };
 $('login-back').onclick = () => { resetLoginCodeStep(); $('login-error').hidden = true; $('login-user').focus(); };
@@ -1027,14 +1036,14 @@ $('account-logout').onclick = () => $('logout').click();
  * the `#settings/<key>` items it covers; kept stable across releases, since other pages (the
  * setup guide, the switches page) deep-link to these keys directly, independent of grouping. */
 const SETTINGS_CATS = [
+  ['system', [['license', 'license-box'], ['updates', 'update-box'], ['system', 'system-box'], ['setup', 'setup-box']]],
   ['security', [['security', 'security-box'], ['sso', 'sso-box'], ['tls', 'tls-box']]],
   ['network', [['interfaces', 'interfaces-box'], ['switches', 'switches-box'], ['ipenrich', 'ipenrich-box']]],
   ['data', [['retention', 'retention-box'], ['vulndata', 'vuln-box'], ['data', 'data-box']]],
   ['integrations', [['siem', 'siem-box'], ['ai', 'ai-box'], ['cmdb', 'cmdb-box']]],
   ['branding', [['branding', 'branding-box'], ['overview', 'overview-box']]],
-  ['system', [['license', 'license-box'], ['updates', 'update-box'], ['system', 'system-box'], ['setup', 'setup-box']]],
 ];
-const SETTINGS_DEFAULT = 'security';
+const SETTINGS_DEFAULT = 'system';
 
 const settingsCatOf = (key) => SETTINGS_CATS.find(([, items]) => items.some(([k]) => k === key))?.[0];
 

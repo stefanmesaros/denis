@@ -2813,6 +2813,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_passkey_only_policy_refuses_password_login_once_a_passkey_exists_but_never_locks_out_someone_who_has_none_yet() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        let pw = "a-long-passphrase-1";
+        // writing this policy leaves the unrelated mfa_policy field at its default, not clobbered
+        assert_eq!(send(&app, req("PUT", "/api/security", Some(&admin), Some(serde_json::json!({"passkey_required": "all"})))).await.0, StatusCode::OK);
+        let (_, _, p) = send(&app, req("GET", "/api/security", Some(&admin), None)).await;
+        assert_eq!((p["mfa_required"].as_str(), p["passkey_required"].as_str(), p["all_without_passkey"].as_u64()), (Some("off"), Some("all"), Some(3)), "{p}");
+        assert_eq!(send(&app, req("PUT", "/api/security", Some(&viewer), Some(serde_json::json!({"passkey_required": "all"})))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, req("PUT", "/api/security", Some(&admin), Some(serde_json::json!({"passkey_required": "loosely"})))).await.0, StatusCode::BAD_REQUEST);
+
+        // nobody has a passkey yet: the policy is required, but password sign-in still works -
+        // otherwise turning this on would lock out the entire team at once
+        let vid = store.find_user("eda").unwrap().unwrap().user.id;
+        let (st, _, v) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "eda", "password": pw})))).await;
+        assert_eq!((st, v["must_enrol_passkey"].as_bool()), (StatusCode::OK, Some(true)), "{v}");
+
+        // once eda has a passkey, the password path is refused with a distinct, non-guessable reason
+        store.add_passkey(vid, b"cred-eda", b"pub-eda", 0, "phone", now_ts()).unwrap();
+        let (st, h, v) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "eda", "password": pw})))).await;
+        assert_eq!((st, v["passkey_required"].as_bool()), (StatusCode::OK, Some(true)), "{v}");
+        assert!(!h.contains_key(header::SET_COOKIE), "no session is opened");
+        // a wrong password is still just a generic failure, indistinguishable from any other account
+        let (_, _, v) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "eda", "password": "not-it-at-all-12"})))).await;
+        assert!(v["passkey_required"].is_null() && v["error"].is_string(), "{v}");
+        // vera and adam, without passkeys, are unaffected
+        assert_eq!(send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "vera", "password": pw})))).await.0, StatusCode::OK);
+        let _ = editor;
+    }
+
+    #[tokio::test]
     async fn switches_are_added_by_admins_polled_over_snmp_and_place_known_devices_on_their_ports_without_ever_exposing_the_community() {
         use crate::snmp::{agent, oid, Value};
         let (app, store, [viewer, editor, admin]) = secured().await;
