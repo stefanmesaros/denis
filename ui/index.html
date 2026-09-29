@@ -578,6 +578,8 @@
           <p class="muted small">Adds an "Explain with AI" button to alerts and findings: one plain-language summary per click. Never automatic — only called when you click the button, sending only that one alert or finding's own summary, reasons and device label.</p>
           <label class="check"><input id="ai-feature-alert-triage" type="checkbox"> Alert triage</label>
           <p class="muted small">Adds a "Triage with AI" button to alerts: an assessment (likely benign / suspicious / requires investigation) alongside DENIS's own severity — never in place of it, and never automatic. Only called when you click the button, sending the same alert data as the explanation feature above.</p>
+          <label class="check"><input id="ai-feature-recommended-actions" type="checkbox"> Recommended actions</label>
+          <p class="muted small">Adds a "Recommended actions" button to alerts: a short list of concrete next steps to investigate — advisory only, DENIS never acts on any of them itself. Only called when you click the button, sending the same alert data as the features above.</p>
           <div class="row"><button id="ai-save" type="button" class="primary">Save</button><span id="ai-msg" class="muted"></span></div>
         </div>
         <div id="cmdb-box" hidden>

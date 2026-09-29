@@ -25,6 +25,7 @@ pub struct PublicStatus {
     pub default_provider: String,
     pub alert_explanations: bool,
     pub alert_triage: bool,
+    pub recommended_actions: bool,
 }
 
 #[derive(Serialize)]
@@ -45,6 +46,7 @@ pub(crate) async fn status(State(st): State<AppState>) -> Result<Json<PublicStat
         default_provider: cfg.default_provider,
         alert_explanations: cfg.enabled && cfg.features.alert_explanations,
         alert_triage: cfg.enabled && cfg.features.alert_triage,
+        recommended_actions: cfg.enabled && cfg.features.recommended_actions,
     }))
 }
 
@@ -235,6 +237,63 @@ pub(crate) async fn triage(State(st): State<AppState>, Extension(AuthUser(me)): 
         Ok(Ok(result)) => {
             audit(&st, &me.username, "ai.triage", None, json!({"alert_id": id, "provider": provider, "assessment": result.assessment}));
             Ok(Json(TriageResp { provider, severity: ev.severity, score: ev.score, result }).into_response())
+        }
+        Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
+        Err(_) => Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct RecommendReq {
+    /// An alert's numeric event id, as text. Advisory next steps, alert-only, same as triage —
+    /// findings already carry their own fixed `fix` text (see `finding_prompt`).
+    id: String,
+    #[serde(default)]
+    provider: Option<String>,
+}
+
+#[derive(Serialize)]
+struct RecommendResp {
+    provider: &'static str,
+    #[serde(flatten)]
+    result: crate::ai::RecommendedActions,
+}
+
+/// Advisory next steps for one alert the caller can already see (spec section 15) — never anything
+/// DENIS itself acts on. On click only, same bar as `explain`/`triage`.
+pub(crate) async fn recommend(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<RecommendReq>) -> Result<Response, ApiError> {
+    let store = st.store.clone();
+    let now = now_ts();
+    let cfg = blocking(&store, |s| crate::ai::load(s)).await?;
+    if !cfg.enabled {
+        return Ok(err(StatusCode::FORBIDDEN, "AI is turned off in Settings → AI"));
+    }
+    if !cfg.features.recommended_actions {
+        return Ok(err(StatusCode::FORBIDDEN, "the recommended-actions AI feature is turned off in Settings → AI"));
+    }
+    let id: i64 = match b.id.parse() {
+        Ok(id) => id,
+        Err(_) => return Ok(err(StatusCode::BAD_REQUEST, "bad alert id")),
+    };
+    let ev = blocking(&store, move |s| s.get_event(id)).await?;
+    let Some(ev) = ev else { return Ok(err(StatusCode::NOT_FOUND, "no such alert")) };
+    let asset = blocking(&store, move |s| s.get_asset(ev.asset_id)).await?;
+    let label = asset.map(|a| device_label(&a)).unwrap_or_else(|| format!("device #{}", ev.asset_id));
+    let d = &ev.raw_details;
+    let summary = d["summary"].as_str().unwrap_or_default();
+    let reasons: Vec<String> = d["reasons"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
+    let prompt = crate::ai::alert_prompt(&ev.kind, ev.score, &ev.severity, summary, &reasons, &label);
+    let provider = b.provider.filter(|p| !p.is_empty()).unwrap_or(cfg.default_provider.clone());
+    let provider: &'static str = match crate::ai::PROVIDERS.iter().find(|p| **p == provider) {
+        Some(p) => p,
+        None => return Ok(err(StatusCode::BAD_REQUEST, "choose a configured provider")),
+    };
+    let cfg2 = cfg.clone();
+    let result = tokio::task::spawn_blocking(move || crate::ai::recommend_actions(&cfg2, provider, &prompt, now)).await;
+    match result {
+        Ok(Ok(result)) => {
+            audit(&st, &me.username, "ai.recommend", None, json!({"alert_id": id, "provider": provider}));
+            Ok(Json(RecommendResp { provider, result }).into_response())
         }
         Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
         Err(_) => Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),

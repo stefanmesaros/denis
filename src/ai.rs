@@ -43,6 +43,10 @@ pub struct AiFeatures {
     /// a replacement for it. Independent of `alert_explanations` — either, both, or neither.
     #[serde(default)]
     pub alert_triage: bool,
+    /// Recommended actions (`recommend_actions` below): a short advisory list of next steps for
+    /// one alert, on click. Independent of the other two — DENIS never acts on this list itself.
+    #[serde(default)]
+    pub recommended_actions: bool,
 }
 
 /// One API key per provider an administrator has set up, and which one the "Explain" button
@@ -112,13 +116,25 @@ commentary before or after): {\"assessment\": one of \"likely_benign\", \"suspic
 sentence of advisory next step}. This is an additional signal alongside DENIS's own severity score, never a \
 replacement for it - do not claim to change or override anything. Do not invent facts not given to you.";
 
+/// `http_status_as_error` (ureq's own default) turns a non-2xx response into a bare
+/// `Error::StatusCode(code)` with the body already discarded — so a provider's actual reason (bad
+/// model name, over quota, malformed request) never reached an administrator, who saw only a
+/// generic "answered with an error" and, once that crossed this app's own `BAD_GATEWAY` wrapping,
+/// nothing at all. Disabled here so a non-2xx response is read like any other: the status is
+/// checked explicitly and the provider's own error body (most of them return `{"error": {...}}` or
+/// similar) is surfaced instead of being thrown away.
 fn call_ureq_json(url: &str, headers: &[(&str, String)], body: &serde_json::Value) -> Result<serde_json::Value> {
-    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(30))).build().into();
+    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(30))).http_status_as_error(false).build().into();
     let mut req = agent.post(url).header("Content-Type", "application/json");
     for (k, v) in headers {
         req = req.header(*k, v);
     }
-    let mut resp = req.send_json(body.clone()).map_err(|e| anyhow!("the provider could not be reached, or answered with an error: {e}"))?;
+    let mut resp = req.send_json(body.clone()).map_err(|e| anyhow!("the provider could not be reached: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.body_mut().read_to_string().unwrap_or_default();
+        return Err(anyhow!("the provider answered with {status}: {}", if text.is_empty() { "(no body)" } else { text.trim() }));
+    }
     resp.body_mut().read_json::<serde_json::Value>().map_err(|e| anyhow!("the provider's answer was not valid JSON: {e}"))
 }
 
@@ -238,6 +254,67 @@ fn parse_triage(text: &str, now: i64) -> Result<TriageResult> {
     Ok(TriageResult { assessment, confidence, reasoning, recommended_action, generated_at: now })
 }
 
+/// Recommended actions' own system prompt (spec section 15): distinct from triage's single
+/// `recommended_action` sentence — a short, concrete list for someone about to actually go
+/// investigate, not a one-line hint. Advisory only: nothing in this codebase ever acts on this
+/// list itself (spec: "do not automatically execute network changes").
+const RECOMMEND_SYSTEM_PROMPT: &str = "You are suggesting concrete next steps for a network administrator \
+investigating one security alert from DENIS, a network monitoring tool. You are given the alert's own summary, \
+its scored reasons, and the device it concerns — nothing else about their network. Reply with exactly one JSON \
+object and nothing else (no markdown fencing, no commentary before or after): {\"actions\": [\"...\", ...]}, \
+2 to 5 short, concrete, advisory steps (e.g. \"check the device's DNS history\", \"compare with similar devices\", \
+\"consider isolating the device\") - never a command DENIS itself could execute, never a claim that anything was \
+already done. Do not invent facts not given to you.";
+
+/// Advisory next steps for one significant alert (spec section 15) — a short list, not DENIS
+/// acting on anything itself. Distinct from `TriageResult.recommended_action` (one sentence,
+/// bundled with an assessment); this is its own capability, its own toggle, a slightly deeper list
+/// for someone about to actually go investigate.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecommendedActions {
+    pub actions: Vec<String>,
+    pub generated_at: i64,
+}
+
+/// Bounds on `actions`: fewer than 2 is not really "a list", more than a handful stops being
+/// concise advice and starts being noise nobody will actually read - both symptoms of a provider
+/// not really following the prompt, worth surfacing as a real answer either way rather than
+/// silently truncating or padding.
+const MIN_ACTIONS: usize = 1;
+const MAX_ACTIONS: usize = 8;
+
+/// Ask one provider for recommended actions on `prompt`, returning DENIS's own validated list.
+pub fn recommend_actions(cfg: &AiConfig, provider: &str, prompt: &str, now: i64) -> Result<RecommendedActions> {
+    let text = ask(cfg, provider, RECOMMEND_SYSTEM_PROMPT, prompt)?;
+    parse_recommended_actions(&text, now)
+}
+
+/// Extracts and validates a `RecommendedActions` from a provider's raw text — same "find the first
+/// `{...}` span" tolerance as `parse_triage`, for the same reason. An empty, missing, or
+/// wildly-oversized list fails rather than being silently coerced into something usable, since
+/// either is more likely a provider that ignored the prompt than legitimate advice.
+fn parse_recommended_actions(text: &str, now: i64) -> Result<RecommendedActions> {
+    let start = text.find('{').ok_or_else(|| anyhow!("no JSON object in the response: {text}"))?;
+    let end = text.rfind('}').ok_or_else(|| anyhow!("no JSON object in the response: {text}"))?;
+    if end < start {
+        return Err(anyhow!("no JSON object in the response: {text}"));
+    }
+    let v: serde_json::Value = serde_json::from_str(&text[start..=end]).map_err(|e| anyhow!("the response was not valid JSON: {e}"))?;
+    let actions: Vec<String> = v["actions"]
+        .as_array()
+        .ok_or_else(|| anyhow!("the response's \"actions\" was missing or not a list: {v}"))?
+        .iter()
+        .filter_map(|a| a.as_str())
+        .map(|a| a.trim().to_string())
+        .filter(|a| !a.is_empty())
+        .take(MAX_ACTIONS)
+        .collect();
+    if actions.len() < MIN_ACTIONS {
+        return Err(anyhow!("the response gave no usable actions: {v}"));
+    }
+    Ok(RecommendedActions { actions, generated_at: now })
+}
+
 /// The prompt for one alert: exactly what the console already shows for it, nothing more.
 pub fn alert_prompt(alert_type: &str, score: i32, severity: &str, summary: &str, reasons: &[String], device_label: &str) -> String {
     format!(
@@ -314,5 +391,40 @@ mod tests {
     fn triage_needs_a_key_same_as_explain() {
         let cfg = AiConfig::default();
         assert!(triage(&cfg, "claude", "x", 1000).is_err());
+    }
+
+    #[test]
+    fn a_clean_recommended_actions_response_parses_exactly() {
+        let r = parse_recommended_actions(r#"{"actions": ["Check the device's DNS history", "Compare with similar devices"]}"#, 1000).unwrap();
+        assert_eq!(r, RecommendedActions { actions: vec!["Check the device's DNS history".into(), "Compare with similar devices".into()], generated_at: 1000 });
+    }
+
+    #[test]
+    fn recommended_actions_fencing_and_prose_are_tolerated() {
+        let text = "Here you go:\n```json\n{\"actions\": [\"Investigate the destination\"]}\n```\nHope that helps.";
+        let r = parse_recommended_actions(text, 1000).unwrap();
+        assert_eq!(r.actions, vec!["Investigate the destination".to_string()]);
+    }
+
+    #[test]
+    fn an_empty_or_missing_actions_list_is_a_hard_error() {
+        assert!(parse_recommended_actions(r#"{"actions": []}"#, 1000).is_err());
+        assert!(parse_recommended_actions(r#"{"actions": ["", "  "]}"#, 1000).is_err(), "blank-only entries are not usable actions");
+        assert!(parse_recommended_actions(r#"{}"#, 1000).is_err(), "missing actions entirely");
+        assert!(parse_recommended_actions("not json at all", 1000).is_err());
+    }
+
+    #[test]
+    fn an_oversized_actions_list_is_capped_not_rejected() {
+        let many: Vec<String> = (0..20).map(|i| format!("\"step {i}\"")).collect();
+        let text = format!(r#"{{"actions": [{}]}}"#, many.join(","));
+        let r = parse_recommended_actions(&text, 1000).unwrap();
+        assert_eq!(r.actions.len(), MAX_ACTIONS);
+    }
+
+    #[test]
+    fn recommend_actions_needs_a_key_same_as_explain() {
+        let cfg = AiConfig::default();
+        assert!(recommend_actions(&cfg, "claude", "x", 1000).is_err());
     }
 }

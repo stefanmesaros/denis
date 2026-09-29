@@ -35,7 +35,17 @@ already fits.
    an `Event`. `web_ai.rs`'s `status` endpoint now reports `alert_explanations`/`alert_triage` as
    separate flags (previously the single `providers` array itself doubled as the explanations
    on/off signal, which stopped scaling once a second feature needed its own independent gate).
-4-11: not started.
+4. **Recommended actions** — done (2026-09-29). On click only, its own independent
+   `features.recommended_actions` toggle. Deliberately distinct from triage's own single-sentence
+   `recommended_action` field (spec section 15 is its own capability): a short advisory list of 1–8
+   concrete next steps (`ai::RecommendedActions{actions, generated_at}`), parsed and validated the
+   same way as triage (`ai::parse_recommended_actions` finds the first `{...}` span for
+   markdown/prose tolerance, requires at least one non-blank action, caps at `MAX_ACTIONS` rather
+   than failing on an over-long list). DENIS never acts on anything in the list itself — advisory
+   only, matching the spec's explicit "do not automatically execute network changes." New
+   `POST /api/ai/recommend` endpoint, alert-only (same reasoning as triage: findings already carry
+   their own fixed `fix` text), enforced server-side same as the other two features.
+5-11: not started.
 
 ## Build order (explicit instruction, 2026-09-29)
 

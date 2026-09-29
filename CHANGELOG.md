@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.33.0: AI recommended actions (step 4), and two real AI bugs found live
+
+* **A new "Recommended actions" button on alerts**: a short, advisory list of 1–8 concrete next
+  steps (e.g. check DNS history, compare with similar devices, consider isolating the device) —
+  DENIS never acts on any of them itself. Distinct from triage's own single-sentence
+  `recommended_action` (spec section 15 is its own capability). Its own independent toggle in
+  Settings → AI → Features, off by default. `ai::parse_recommended_actions` validates the
+  provider's JSON the same way `parse_triage` does (tolerant of markdown fencing or prose around
+  it, rejects an empty or all-blank list as a hard error, caps an over-long one at 8 rather than
+  failing outright).
+* **Two real bugs found and fixed while diagnosing a live "Explain with AI" failure** (thank you
+  for the live access to check):
+  * **A non-2xx response from an AI provider silently lost its own error message.** ureq's default
+    `http_status_as_error` turns any 4xx/5xx into a bare `StatusCode(code)` with the body already
+    discarded, so a provider's actual reason (bad model name, over quota, a malformed request) never
+    reached the administrator — only a generic "answered with an error", which then became an
+    equally generic "Request failed (502)" once the console's error box couldn't parse anything more
+    specific out of it. Fixed: the real status and the provider's own error body are now read and
+    surfaced in full.
+  * **The "Explain"/"Triage"/"Recommended actions" buttons rendered a literal "null" next to
+    themselves** whenever only one provider was configured (so no provider picker was needed).
+    `Element.append(null, button)` — unlike this codebase's own `el()` helper — stringifies a `null`
+    argument into a real text node reading "null" instead of skipping it. Fixed in all three
+    buttons.
+
 ## 2.32.0: AI alert triage (step 3 of the AI assistant)
 
 * **A new "Triage with AI" button on alerts**, alongside the existing "Explain with AI": an

@@ -357,7 +357,7 @@ async function loadOptions() {
 /** Which "Explain with AI" providers, if any, an administrator has set a key for. */
 async function loadAiStatus() {
   const r = await api('GET', '/api/ai');
-  state.ai = r.ok ? r.json : { providers: [], default_provider: '', alert_explanations: false, alert_triage: false };
+  state.ai = r.ok ? r.json : { providers: [], default_provider: '', alert_explanations: false, alert_triage: false, recommended_actions: false };
 }
 
 /** The "Explain with AI" button for one alert or finding, or null when nothing is configured. */
@@ -383,7 +383,8 @@ function aiExplainButton(kind, id) {
         : el('p', { class: 'form-error', text: apiError(r) }));
     },
   });
-  out.append(pick, button);
+  if (pick) out.append(pick);
+  out.append(button);
   return out;
 }
 
@@ -417,7 +418,40 @@ function aiTriageButton(alertId) {
         : el('p', { class: 'form-error', text: apiError(r) }));
     },
   });
-  out.append(pick, button);
+  if (pick) out.append(pick);
+  out.append(button);
+  return out;
+}
+
+/** The "Recommended actions" button for one alert, or null when the feature is off. Advisory-only
+ * list, alert-only, same gating and shape as `aiTriageButton` above. */
+function aiRecommendButton(alertId) {
+  if (!state.ai || !state.ai.providers.length || !state.ai.recommended_actions) return null;
+  const providers = state.ai.providers;
+  const pick = providers.length > 1
+    ? el('select', {}, ...providers.map((p) => el('option', { value: p.id, text: p.name, selected: p.id === state.ai.default_provider })))
+    : null;
+  const out = el('div', { class: 'ai-explain' });
+  const button = el('button', {
+    type: 'button', text: tr('Recommended actions'),
+    onclick: async (ev) => {
+      ev.stopPropagation();
+      button.disabled = true;
+      button.textContent = tr('Asking…');
+      const provider = pick ? pick.value : providers[0].id;
+      const r = await api('POST', '/api/ai/recommend', { id: String(alertId), provider });
+      button.hidden = true;
+      if (pick) pick.hidden = true;
+      out.append(r.ok
+        ? el('p', { class: 'ai-answer' },
+            el('div', { class: 'muted small' }, tr('{provider} suggests:', { provider: providers.find((p) => p.id === provider)?.name || provider })),
+            el('ul', {}, ...r.json.actions.map((a) => el('li', { text: a }))),
+            el('div', { class: 'muted small', text: tr('Advisory only — DENIS does not act on any of these itself.') }))
+        : el('p', { class: 'form-error', text: apiError(r) }));
+    },
+  });
+  if (pick) out.append(pick);
+  out.append(button);
   return out;
 }
 
@@ -1485,6 +1519,7 @@ async function loadAiBox() {
   $('ai-enabled').checked = !!d.enabled;
   $('ai-feature-alert-explanations').checked = !!(d.features && d.features.alert_explanations);
   $('ai-feature-alert-triage').checked = !!(d.features && d.features.alert_triage);
+  $('ai-feature-recommended-actions').checked = !!(d.features && d.features.recommended_actions);
   for (const p of ['claude', 'openai', 'gemini', 'grok']) {
     $('ai-key-' + p).value = '';
     $('ai-key-' + p).placeholder = d.keys_set.includes(p) ? tr('(unchanged)') : '';
@@ -1501,7 +1536,11 @@ $('ai-save').onclick = async () => {
     keys,
     default_provider: $('ai-default').value,
     enabled: $('ai-enabled').checked,
-    features: { alert_explanations: $('ai-feature-alert-explanations').checked, alert_triage: $('ai-feature-alert-triage').checked },
+    features: {
+      alert_explanations: $('ai-feature-alert-explanations').checked,
+      alert_triage: $('ai-feature-alert-triage').checked,
+      recommended_actions: $('ai-feature-recommended-actions').checked,
+    },
   });
   $('ai-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
   if (r.ok) loadAiBox();

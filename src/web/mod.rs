@@ -122,6 +122,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai/settings", get(ai_page::get).put(ai_page::put))
         .route("/api/ai/explain", post(ai_page::explain))
         .route("/api/ai/triage", post(ai_page::triage))
+        .route("/api/ai/recommend", post(ai_page::recommend))
         .route("/api/cmdb/settings", get(cmdb_page::get).put(cmdb_page::put))
         .route("/api/cmdb/sync", post(cmdb_page::sync))
         .route("/api/cmdb/devices", get(cmdb_page::devices))
@@ -1583,6 +1584,16 @@ mod tests {
         // a real triage call still needs a live provider (this test suite has no network egress);
         // ai::tests already covers parse_triage's own JSON validation without one
         let (st, _, v) = send(&app, req("POST", "/api/ai/triage", Some(&editor), Some(serde_json::json!({"id": "999999"})))).await;
+        assert_eq!(st, StatusCode::NOT_FOUND, "{v}");
+
+        // and recommended actions, independently again: off by default even once the other two are on
+        let (st, _, v) = send(&app, req("POST", "/api/ai/recommend", Some(&editor), Some(serde_json::json!({"id": e.id.to_string()})))).await;
+        assert_eq!(st, StatusCode::FORBIDDEN, "{v}");
+        assert_eq!(send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2["recommended_actions"], false);
+
+        send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"default_provider": "claude", "enabled": true, "features": {"alert_explanations": true, "alert_triage": true, "recommended_actions": true}})))).await;
+        assert_eq!(send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2["recommended_actions"], true);
+        let (st, _, v) = send(&app, req("POST", "/api/ai/recommend", Some(&editor), Some(serde_json::json!({"id": "999999"})))).await;
         assert_eq!(st, StatusCode::NOT_FOUND, "{v}");
     }
 
