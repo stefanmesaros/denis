@@ -14,6 +14,23 @@ use crate::model::now_ts;
 use crate::web::common::{blocking, ApiError, AppState, AuthUser};
 use crate::web_admin::{audit, err};
 
+/// Best-effort, same tolerance as `audit`: a failure to record usage must never fail the AI call
+/// that already succeeded, only be logged.
+fn record_usage(st: &AppState, now: i64, tokens: Option<i64>) {
+    if let Err(e) = crate::ai_usage::record(&*st.store, now, tokens) {
+        tracing::error!("AI usage record failed: {e:#}");
+    }
+}
+
+/// Combines two calls' own token counts (`ask`'s "Ask DENIS" needs two) into one: `None` only when
+/// *neither* reported a count, since one real count is still real usage worth keeping.
+fn sum_tokens(a: Option<i64>, b: Option<i64>) -> Option<i64> {
+    match (a, b) {
+        (None, None) => None,
+        (a, b) => Some(a.unwrap_or(0) + b.unwrap_or(0)),
+    }
+}
+
 /// What a per-feature button needs: which providers it may offer, without ever seeing a key, and
 /// which capabilities are actually switched on right now — `providers` is empty whenever AI is
 /// globally off (nothing works regardless of a per-feature flag), so a caller can check either
@@ -179,8 +196,9 @@ pub(crate) async fn explain(State(st): State<AppState>, Extension(AuthUser(me)):
     let cfg2 = cfg.clone();
     let text = tokio::task::spawn_blocking(move || crate::ai::explain(&cfg2, provider, &prompt)).await;
     match text {
-        Ok(Ok(text)) => {
+        Ok(Ok((text, tokens))) => {
             audit(&st, &me.username, "ai.explain", None, json!({"kind": b.kind, "provider": provider}));
+            record_usage(&st, now, tokens);
             Ok(Json(ExplainResp { provider, text }).into_response())
         }
         Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
@@ -242,8 +260,9 @@ pub(crate) async fn triage(State(st): State<AppState>, Extension(AuthUser(me)): 
     let cfg2 = cfg.clone();
     let result = tokio::task::spawn_blocking(move || crate::ai::triage(&cfg2, provider, &prompt, now)).await;
     match result {
-        Ok(Ok(result)) => {
+        Ok(Ok((result, tokens))) => {
             audit(&st, &me.username, "ai.triage", None, json!({"alert_id": id, "provider": provider, "assessment": result.assessment}));
+            record_usage(&st, now, tokens);
             Ok(Json(TriageResp { provider, severity: ev.severity, score: ev.score, result }).into_response())
         }
         Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
@@ -299,8 +318,9 @@ pub(crate) async fn recommend(State(st): State<AppState>, Extension(AuthUser(me)
     let cfg2 = cfg.clone();
     let result = tokio::task::spawn_blocking(move || crate::ai::recommend_actions(&cfg2, provider, &prompt, now)).await;
     match result {
-        Ok(Ok(result)) => {
+        Ok(Ok((result, tokens))) => {
             audit(&st, &me.username, "ai.recommend", None, json!({"alert_id": id, "provider": provider}));
+            record_usage(&st, now, tokens);
             Ok(Json(RecommendResp { provider, result }).into_response())
         }
         Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
@@ -393,8 +413,10 @@ pub(crate) async fn ask(State(st): State<AppState>, Extension(AuthUser(me)): Ext
     let cfg2 = cfg.clone();
     let question = b.question.clone();
     let query = tokio::task::spawn_blocking(move || crate::ai::interpret_question(&cfg2, provider, &question)).await;
-    let query = match query {
-        Ok(Ok(q)) => q,
+    // Both calls' own token counts are summed into one usage record: from the administrator's
+    // point of view this is one "Ask DENIS" use, not two, even though it costs two calls.
+    let (query, total_tokens) = match query {
+        Ok(Ok((q, t))) => (q, t),
         Ok(Err(e)) => return Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
         Err(_) => return Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),
     };
@@ -436,11 +458,19 @@ pub(crate) async fn ask(State(st): State<AppState>, Extension(AuthUser(me)): Ext
     let cfg3 = cfg.clone();
     let answer = tokio::task::spawn_blocking(move || crate::ai::answer_question(&cfg3, provider, &results_prompt)).await;
     match answer {
-        Ok(Ok(answer)) => {
+        Ok(Ok((answer, t2))) => {
             audit(&st, &me.username, "ai.ask", None, json!({"provider": provider, "matched": matched}));
+            record_usage(&st, now, sum_tokens(total_tokens, t2));
             Ok(Json(AskResp { provider, answer, matched }).into_response())
         }
         Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
         Err(_) => Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),
     }
+}
+
+/// AI usage visibility (AI.md section 23): read-only, admin-only (registered under the same
+/// `/api/ai/settings` admin-only path prefix in `web/mod.rs`). Never itself a reason a feature
+/// stops working — see `ai_usage.rs`'s own doc for why recording is always best-effort.
+pub(crate) async fn usage(State(st): State<AppState>) -> Result<Json<crate::ai_usage::UsageRecord>, ApiError> {
+    Ok(Json(blocking(&st.store, |s| crate::ai_usage::load(s)).await?))
 }

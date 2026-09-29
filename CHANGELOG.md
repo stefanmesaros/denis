@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.36.0: AI usage visibility, and a ChatGPT reasoning-token fix
+
+* **Settings → AI now shows a rough usage overview**: AI requests today, this month, when the last
+  one happened, and an estimated token count when a provider's own response reported one (AI.md
+  section 23). Never exact billing — check your provider's own dashboard for that — but enough to
+  notice a change before a bill does. Recording is always best-effort: it can never be the reason
+  an AI feature that already succeeded appears to fail.
+* **Fix: Triage, Recommended actions and Ask DENIS could fail with "no JSON object in the
+  response: " (an empty string) against ChatGPT**: `gpt-5-mini` is a reasoning model, and its
+  internal "thinking" tokens count against the same budget as the visible answer — with the
+  500-token cap this project used, reasoning alone could consume the entire budget, leaving
+  nothing for the actual JSON output. Found live. Fixed by setting `reasoning_effort: "low"` (an
+  OpenAI-specific field, only ever sent to OpenAI — Grok shares this request shape but does not
+  accept it) and raising the token cap to 1500, so there is real room left for the answer either
+  way.
+
 ## 2.35.0: "Ask DENIS" (step 6), and a longer AI request timeout
 
 * **A new "Ask DENIS" box on the dashboard**: ask a plain-language question about recent alert

@@ -73,6 +73,22 @@ already fits.
    them. A question with zero matches still gets a real second call, so the model can say "nothing
    matched" in its own words rather than DENIS synthesizing that message itself. The provider is
    never in a position to answer from anything except what the search actually returned.
+
+Also done, cutting across all of the above (spec section 23, "AI usage visibility") rather than
+its own numbered build step: `src/ai_usage.rs` tracks a call count and, when a provider's own
+response reported one, a token count, bucketed by day and by calendar month, shown in Settings →
+AI → Usage. Every provider function now returns `(text, Option<i64> tokens)`; recording is
+always best-effort (mirrors `audit`'s own tolerance) so it can never be the reason an AI feature
+that already succeeded appears to fail.
+
+Two real bugs found and fixed live while testing steps 1-6 against real accounts, beyond what
+their own CHANGELOG entries cover in full:
+* `gpt-5-mini` could spend its entire token budget on invisible internal reasoning before ever
+  writing the visible JSON answer, leaving Triage/Recommended actions/Ask DENIS's interpretation
+  step failing with an empty response. Fixed with `reasoning_effort: "low"` (OpenAI-only; Grok
+  shares the request shape but rejects the field) and a larger token cap.
+* Every provider's own request timeout was 30s, too short for a "thinking" model (seen live with
+  Gemini). Raised to 60s for all four providers.
 7-11: not started.
 
 ## Build order (explicit instruction, 2026-09-29)

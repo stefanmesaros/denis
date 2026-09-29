@@ -166,7 +166,12 @@ fn call_ureq_json(url: &str, headers: &[(&str, String)], body: &serde_json::Valu
 /// not scoped to a workspace, so this request must include the anthropic-workspace-id header ...")
 /// until that header is added — found live, from a real account's own key. Empty means the key is
 /// already workspace-scoped (the common case), so no such header is sent.
-fn claude(key: &str, workspace_id: &str, system: &str, prompt: &str) -> Result<String> {
+/// Every provider call below returns `(text, tokens)`: `tokens` is the total token count the
+/// provider's own response reported for that one call, when it reported one at all — used only to
+/// give an administrator a rough sense of usage (`ai_usage.rs`), never anything DENIS itself acts
+/// on, so a provider that does not report it (or a shape this code does not recognise) just means
+/// `None` rather than a hard error.
+fn claude(key: &str, workspace_id: &str, system: &str, prompt: &str) -> Result<(String, Option<i64>)> {
     let body = json!({
         "model": "claude-haiku-4-5-20251001",
         "max_tokens": 500,
@@ -178,7 +183,9 @@ fn claude(key: &str, workspace_id: &str, system: &str, prompt: &str) -> Result<S
         headers.push(("anthropic-workspace-id", workspace_id.trim().to_string()));
     }
     let v = call_ureq_json("https://api.anthropic.com/v1/messages", &headers, &body)?;
-    v["content"][0]["text"].as_str().map(str::to_string).ok_or_else(|| anyhow!("no answer in the response: {v}"))
+    let text = v["content"][0]["text"].as_str().map(str::to_string).ok_or_else(|| anyhow!("no answer in the response: {v}"))?;
+    let tokens = v["usage"]["input_tokens"].as_i64().zip(v["usage"]["output_tokens"].as_i64()).map(|(i, o)| i + o);
+    Ok((text, tokens))
 }
 
 /// `token_param`: the request field that caps the reply length — `"max_tokens"` for most
@@ -187,14 +194,27 @@ fn claude(key: &str, workspace_id: &str, system: &str, prompt: &str) -> Result<S
 /// not supported with this model. Use 'max_completion_tokens' instead.") and require
 /// `"max_completion_tokens"` — found live, via a real 400 from OpenAI once `call_ureq_json`
 /// started surfacing a non-2xx response's own body instead of discarding it.
-fn openai_style(url: &str, key: &str, model: &str, token_param: &str, system: &str, prompt: &str) -> Result<String> {
+/// `reasoning_effort`: only OpenAI's own reasoning-family models accept this field at all — Grok,
+/// which shares this same request shape, rejects unknown parameters, so it is only ever set for
+/// the OpenAI call site. Without it, a reasoning model can spend its *entire* token budget on
+/// invisible internal reasoning before ever writing the visible answer, leaving a genuinely empty
+/// completion — found live: Triage and Recommended actions both failed with "no JSON object in
+/// the response: " (an empty string) rather than any real error, because `500` tokens was entirely
+/// consumed by reasoning. `"low"` keeps that spend small enough to leave real room for the answer;
+/// the token budget itself is also raised so a longer answer still has somewhere to go.
+fn openai_style(url: &str, key: &str, model: &str, token_param: &str, reasoning_effort: Option<&str>, system: &str, prompt: &str) -> Result<(String, Option<i64>)> {
     let mut body = json!({
         "model": model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
     });
-    body[token_param] = json!(500);
+    body[token_param] = json!(1500);
+    if let Some(effort) = reasoning_effort {
+        body["reasoning_effort"] = json!(effort);
+    }
     let v = call_ureq_json(url, &[("Authorization", format!("Bearer {key}"))], &body)?;
-    v["choices"][0]["message"]["content"].as_str().map(str::to_string).ok_or_else(|| anyhow!("no answer in the response: {v}"))
+    let text = v["choices"][0]["message"]["content"].as_str().map(str::to_string).ok_or_else(|| anyhow!("no answer in the response: {v}"))?;
+    let tokens = v["usage"]["total_tokens"].as_i64();
+    Ok((text, tokens))
 }
 
 /// A pinned model name (`gemini-2.5-flash`) broke once already when Google retired it for new API
@@ -202,33 +222,36 @@ fn openai_style(url: &str, key: &str, model: &str, token_param: &str, system: &s
 /// in the family — "hot-swapped with every new release", with two weeks' notice by email before
 /// a breaking change — so this should not need another manual update the next time Google moves
 /// the underlying model on.
-fn gemini(key: &str, system: &str, prompt: &str) -> Result<String> {
+fn gemini(key: &str, system: &str, prompt: &str) -> Result<(String, Option<i64>)> {
     let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={key}");
     let body = json!({
         "system_instruction": {"parts": [{"text": system}]},
         "contents": [{"parts": [{"text": prompt}]}],
     });
     let v = call_ureq_json(&url, &[], &body)?;
-    v["candidates"][0]["content"]["parts"][0]["text"].as_str().map(str::to_string).ok_or_else(|| anyhow!("no answer in the response: {v}"))
+    let text = v["candidates"][0]["content"]["parts"][0]["text"].as_str().map(str::to_string).ok_or_else(|| anyhow!("no answer in the response: {v}"))?;
+    let tokens = v["usageMetadata"]["totalTokenCount"].as_i64();
+    Ok((text, tokens))
 }
 
-/// Ask one provider `prompt`, under `system`'s instructions. Shared by `explain` (free-form prose)
-/// and `triage` (must return parseable JSON) — the two differ only in which system prompt and
-/// what they do with the text that comes back.
-fn ask(cfg: &AiConfig, provider: &str, system: &str, prompt: &str) -> Result<String> {
+/// Ask one provider `prompt`, under `system`'s instructions. Shared by every capability below —
+/// they differ only in which system prompt and what they do with the text that comes back.
+/// Returns the trimmed answer plus that call's own token count, when the provider reported one.
+fn ask(cfg: &AiConfig, provider: &str, system: &str, prompt: &str) -> Result<(String, Option<i64>)> {
     let key = cfg.key_for(provider).ok_or_else(|| anyhow!("no API key is set for {}", provider_name(provider)))?;
-    let text = match provider {
+    let (text, tokens) = match provider {
         "claude" => claude(key, &cfg.anthropic_workspace_id, system, prompt)?,
-        "openai" => openai_style("https://api.openai.com/v1/chat/completions", key, "gpt-5-mini", "max_completion_tokens", system, prompt)?,
+        "openai" => openai_style("https://api.openai.com/v1/chat/completions", key, "gpt-5-mini", "max_completion_tokens", Some("low"), system, prompt)?,
         "gemini" => gemini(key, system, prompt)?,
-        "grok" => openai_style("https://api.x.ai/v1/chat/completions", key, "grok-4-fast", "max_tokens", system, prompt)?,
+        "grok" => openai_style("https://api.x.ai/v1/chat/completions", key, "grok-4-fast", "max_tokens", None, system, prompt)?,
         other => return Err(anyhow!("unknown provider {other:?}")),
     };
-    Ok(text.trim().to_string())
+    Ok((text.trim().to_string(), tokens))
 }
 
 /// Ask one provider to explain `prompt` (already built from an alert's or finding's own data).
-pub fn explain(cfg: &AiConfig, provider: &str, prompt: &str) -> Result<String> {
+/// Returns the explanation plus that call's own token count (see `ask`'s own doc).
+pub fn explain(cfg: &AiConfig, provider: &str, prompt: &str) -> Result<(String, Option<i64>)> {
     ask(cfg, provider, SYSTEM_PROMPT, prompt)
 }
 
@@ -272,9 +295,9 @@ pub struct TriageResult {
 /// Ask one provider to triage `prompt`, returning DENIS's own validated structure — never the
 /// provider's raw text. `now` is DENIS's own clock, not trusted from the model (see `TriageResult`
 /// doc: `generated_at` records when *this* triage ran).
-pub fn triage(cfg: &AiConfig, provider: &str, prompt: &str, now: i64) -> Result<TriageResult> {
-    let text = ask(cfg, provider, TRIAGE_SYSTEM_PROMPT, prompt)?;
-    parse_triage(&text, now)
+pub fn triage(cfg: &AiConfig, provider: &str, prompt: &str, now: i64) -> Result<(TriageResult, Option<i64>)> {
+    let (text, tokens) = ask(cfg, provider, TRIAGE_SYSTEM_PROMPT, prompt)?;
+    Ok((parse_triage(&text, now)?, tokens))
 }
 
 /// Extracts and validates one `TriageResult` from a provider's raw text. Tolerant of the common
@@ -327,9 +350,9 @@ const MIN_ACTIONS: usize = 1;
 const MAX_ACTIONS: usize = 8;
 
 /// Ask one provider for recommended actions on `prompt`, returning DENIS's own validated list.
-pub fn recommend_actions(cfg: &AiConfig, provider: &str, prompt: &str, now: i64) -> Result<RecommendedActions> {
-    let text = ask(cfg, provider, RECOMMEND_SYSTEM_PROMPT, prompt)?;
-    parse_recommended_actions(&text, now)
+pub fn recommend_actions(cfg: &AiConfig, provider: &str, prompt: &str, now: i64) -> Result<(RecommendedActions, Option<i64>)> {
+    let (text, tokens) = ask(cfg, provider, RECOMMEND_SYSTEM_PROMPT, prompt)?;
+    Ok((parse_recommended_actions(&text, now)?, tokens))
 }
 
 /// Extracts and validates a `RecommendedActions` from a provider's raw text — same "find the first
@@ -385,7 +408,7 @@ and briefly.";
 
 /// Ask one provider to write the dashboard summary for `prompt` (already built by
 /// `dashboard_summary_prompt`). Free-form prose, same shape as `explain`.
-pub fn summarize(cfg: &AiConfig, provider: &str, prompt: &str) -> Result<String> {
+pub fn summarize(cfg: &AiConfig, provider: &str, prompt: &str) -> Result<(String, Option<i64>)> {
     ask(cfg, provider, SUMMARY_SYSTEM_PROMPT, prompt)
 }
 
@@ -443,9 +466,9 @@ pub struct AskQuery {
 }
 
 /// Ask one provider to translate `question` into an `AskQuery`.
-pub fn interpret_question(cfg: &AiConfig, provider: &str, question: &str) -> Result<AskQuery> {
-    let text = ask(cfg, provider, ASK_INTERPRET_SYSTEM_PROMPT, question)?;
-    parse_ask_query(&text)
+pub fn interpret_question(cfg: &AiConfig, provider: &str, question: &str) -> Result<(AskQuery, Option<i64>)> {
+    let (text, tokens) = ask(cfg, provider, ASK_INTERPRET_SYSTEM_PROMPT, question)?;
+    Ok((parse_ask_query(&text)?, tokens))
 }
 
 fn parse_ask_query(text: &str) -> Result<AskQuery> {
@@ -509,7 +532,7 @@ pub fn ask_results_prompt(question: &str, rows: &[AskResultRow]) -> String {
 }
 
 /// Ask one provider to answer `question` given the real search results already found.
-pub fn answer_question(cfg: &AiConfig, provider: &str, prompt: &str) -> Result<String> {
+pub fn answer_question(cfg: &AiConfig, provider: &str, prompt: &str) -> Result<(String, Option<i64>)> {
     ask(cfg, provider, ASK_ANSWER_SYSTEM_PROMPT, prompt)
 }
 

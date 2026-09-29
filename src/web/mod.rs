@@ -125,6 +125,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai/recommend", post(ai_page::recommend))
         .route("/api/ai/summary", get(ai_page::summary))
         .route("/api/ai/ask", post(ai_page::ask))
+        .route("/api/ai/usage", get(ai_page::usage))
         .route("/api/cmdb/settings", get(cmdb_page::get).put(cmdb_page::put))
         .route("/api/cmdb/sync", post(cmdb_page::sync))
         .route("/api/cmdb/devices", get(cmdb_page::devices))
@@ -1653,6 +1654,20 @@ mod tests {
 
         crate::ai_summary::test_save(&*store, "Network activity has been calm.", 1000, e.id);
         assert_eq!(send(&app, req("GET", "/api/ai/summary", Some(&editor), None)).await.2["stale"], false);
+    }
+
+    #[tokio::test]
+    async fn ai_usage_starts_empty_and_reflects_what_ai_usage_record_actually_wrote() {
+        let (app, store, [viewer, _, _]) = secured().await;
+        let (st, _, v) = send(&app, req("GET", "/api/ai/usage", Some(&viewer), None)).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!((v["day_calls"].as_i64(), v["month_calls"].as_i64(), v["last_call_at"].as_i64()), (Some(0), Some(0), Some(0)));
+
+        crate::ai_usage::record(&*store, 1_700_000_000, Some(120)).unwrap();
+        crate::ai_usage::record(&*store, 1_700_000_060, None).unwrap();
+        let (st, _, v) = send(&app, req("GET", "/api/ai/usage", Some(&viewer), None)).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!((v["day_calls"].as_i64(), v["day_tokens"].as_i64(), v["last_call_at"].as_i64()), (Some(2), Some(120), Some(1_700_000_060)), "a call with no reported tokens still counts, just adds nothing to the token total: {v}");
     }
 
     #[test]

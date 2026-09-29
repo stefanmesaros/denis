@@ -1528,6 +1528,21 @@ async function loadAiBox() {
   }
   $('ai-default').value = d.keys_set.includes(d.default_provider) ? d.default_provider : '';
   $('ai-anthropic-workspace-id').value = d.anthropic_workspace_id || '';
+  loadAiUsage();
+}
+/** AI usage visibility (AI.md section 23): a rough call/token count, never exact billing. */
+async function loadAiUsage() {
+  const r = await api('GET', '/api/ai/usage');
+  const box = $('ai-usage');
+  if (!r.ok) { box.textContent = ''; return; }
+  const d = r.json;
+  const lines = [
+    tr('AI requests today: {n}', { n: d.day_calls }),
+    tr('AI requests this month: {n}', { n: d.month_calls }),
+    tr('Last AI request: {t}', { t: d.last_call_at ? ago(d.last_call_at) : tr('never') }),
+  ];
+  if (d.month_tokens > 0) lines.push(tr('Estimated tokens this month: {n}', { n: d.month_tokens.toLocaleString() }));
+  box.replaceChildren(...lines.map((l) => el('p', { class: 'muted small', text: l })));
 }
 $('ai-save').onclick = async () => {
   const keys = {};

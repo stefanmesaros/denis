@@ -9,6 +9,7 @@ pub mod active;
 pub mod agent;
 pub mod ai;
 pub mod ai_summary;
+pub mod ai_usage;
 pub mod auth;
 pub mod banners;
 pub mod backups;

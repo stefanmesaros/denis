@@ -93,7 +93,8 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    it — recommended actions, a short advisory next-steps list DENIS never acts on itself, a
    dashboard AI summary generated entirely by a background job, never by opening the dashboard, and
    "Ask DENIS", a free-text question box that only ever answers from a real structured search
-   DENIS itself runs — never from facts the model invented).
+   DENIS itself runs — never from facts the model invented — and a Settings → AI usage overview:
+   a rough call/token count, never exact billing).
    Full spec recorded in full in [AI.md](AI.md) (not duplicated here, same
    reasoning as IPV6.md/WINDOWS.md/SSO.md/CMDB.md each being their own document). Key architectural
    requirements: the detection engine stays fully AI-independent (no LLM in the
