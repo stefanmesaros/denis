@@ -575,6 +575,10 @@
             <label>Grok (xAI)<input id="ai-key-grok" type="password" autocomplete="off"></label>
           </div>
           <div class="row">
+            <label>Claude workspace ID (only if needed)<input id="ai-anthropic-workspace-id" placeholder="wrkspc_..."></label>
+          </div>
+          <p class="muted small">Only needed for a Claude API key issued at the organization level rather than scoped to one workspace — such a key is refused outright until this is set. Leave blank otherwise.</p>
+          <div class="row">
             <label>Default provider<select id="ai-default"><option value="">(none configured)</option><option value="claude">Claude</option><option value="openai">ChatGPT</option><option value="gemini">Gemini</option><option value="grok">Grok</option></select></label>
           </div>
           <h4 class="section">Features</h4>

@@ -1544,6 +1544,11 @@ mod tests {
         let (_, _, v) = send(&app, req("GET", "/api/ai", Some(&viewer), None)).await;
         assert_eq!((v["providers"][0]["id"].as_str(), v["default_provider"].as_str()), (Some("claude"), Some("claude")));
 
+        // the Claude workspace id is not a secret - it round-trips as-is, unlike a key
+        let (_, _, v) = send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"default_provider": "claude", "enabled": true, "features": {"alert_explanations": true}, "anthropic_workspace_id": " wrkspc_abc "})))).await;
+        assert_eq!(v["anthropic_workspace_id"].as_str(), Some("wrkspc_abc"), "trimmed, but not otherwise touched: {v}");
+        assert_eq!(send(&app, req("GET", "/api/ai/settings", Some(&admin), None)).await.2["anthropic_workspace_id"].as_str(), Some("wrkspc_abc"));
+
         // asking to explain something that does not exist fails plainly, not a panic (a real
         // provider call needs a live network egress this test suite deliberately does not have)
         assert_eq!(send(&app, req("POST", "/api/ai/explain", Some(&editor), Some(serde_json::json!({"kind": "alert", "id": "999999"})))).await.0, StatusCode::NOT_FOUND);

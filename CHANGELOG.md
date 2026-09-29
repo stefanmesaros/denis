@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.34.3: Support an organization-level Claude API key
+
+* **A Claude API key issued at the organization level, not scoped to one workspace, was refused
+  outright**: Anthropic's API requires an `anthropic-workspace-id` header in that case, and DENIS
+  never sent one. Found live, from a real account's own key. New optional "Claude workspace ID"
+  field in Settings → AI → Provider — leave it blank for the common case (a key already scoped to
+  one workspace); only set it if Claude's own error names this requirement.
+
 ## 2.34.2: Fix Gemini: retired model name
 
 * **Every Gemini call was failing** with a 404: `gemini-2.5-flash` is no longer available to new

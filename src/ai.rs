@@ -71,6 +71,11 @@ pub struct AiConfig {
     pub enabled: bool,
     #[serde(default)]
     pub features: AiFeatures,
+    /// Only needed for an Anthropic API key issued at the organization level rather than scoped
+    /// to one workspace — see `claude`'s own doc for the exact error such a key gets without this.
+    /// Not a secret, unlike `keys`; round-trips to the browser as-is.
+    #[serde(default)]
+    pub anthropic_workspace_id: String,
 }
 
 impl AiConfig {
@@ -145,14 +150,23 @@ fn call_ureq_json(url: &str, headers: &[(&str, String)], body: &serde_json::Valu
     resp.body_mut().read_json::<serde_json::Value>().map_err(|e| anyhow!("the provider's answer was not valid JSON: {e}"))
 }
 
-fn claude(key: &str, system: &str, prompt: &str) -> Result<String> {
+/// `workspace_id`: some Anthropic API keys are issued at the organization level rather than
+/// scoped to one workspace, and the API then rejects every request outright ("This API key is
+/// not scoped to a workspace, so this request must include the anthropic-workspace-id header ...")
+/// until that header is added — found live, from a real account's own key. Empty means the key is
+/// already workspace-scoped (the common case), so no such header is sent.
+fn claude(key: &str, workspace_id: &str, system: &str, prompt: &str) -> Result<String> {
     let body = json!({
         "model": "claude-haiku-4-5-20251001",
         "max_tokens": 500,
         "system": system,
         "messages": [{"role": "user", "content": prompt}],
     });
-    let v = call_ureq_json("https://api.anthropic.com/v1/messages", &[("x-api-key", key.to_string()), ("anthropic-version", "2023-06-01".to_string())], &body)?;
+    let mut headers = vec![("x-api-key", key.to_string()), ("anthropic-version", "2023-06-01".to_string())];
+    if !workspace_id.trim().is_empty() {
+        headers.push(("anthropic-workspace-id", workspace_id.trim().to_string()));
+    }
+    let v = call_ureq_json("https://api.anthropic.com/v1/messages", &headers, &body)?;
     v["content"][0]["text"].as_str().map(str::to_string).ok_or_else(|| anyhow!("no answer in the response: {v}"))
 }
 
@@ -191,7 +205,7 @@ fn gemini(key: &str, system: &str, prompt: &str) -> Result<String> {
 fn ask(cfg: &AiConfig, provider: &str, system: &str, prompt: &str) -> Result<String> {
     let key = cfg.key_for(provider).ok_or_else(|| anyhow!("no API key is set for {}", provider_name(provider)))?;
     let text = match provider {
-        "claude" => claude(key, system, prompt)?,
+        "claude" => claude(key, &cfg.anthropic_workspace_id, system, prompt)?,
         "openai" => openai_style("https://api.openai.com/v1/chat/completions", key, "gpt-5-mini", "max_completion_tokens", system, prompt)?,
         "gemini" => gemini(key, system, prompt)?,
         "grok" => openai_style("https://api.x.ai/v1/chat/completions", key, "grok-4-fast", "max_tokens", system, prompt)?,

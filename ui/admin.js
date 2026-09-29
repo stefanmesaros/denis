@@ -1526,6 +1526,7 @@ async function loadAiBox() {
     $('ai-key-' + p).placeholder = d.keys_set.includes(p) ? tr('(unchanged)') : '';
   }
   $('ai-default').value = d.keys_set.includes(d.default_provider) ? d.default_provider : '';
+  $('ai-anthropic-workspace-id').value = d.anthropic_workspace_id || '';
 }
 $('ai-save').onclick = async () => {
   const keys = {};
@@ -1536,6 +1537,7 @@ $('ai-save').onclick = async () => {
   const r = await api('PUT', '/api/ai/settings', {
     keys,
     default_provider: $('ai-default').value,
+    anthropic_workspace_id: $('ai-anthropic-workspace-id').value.trim(),
     enabled: $('ai-enabled').checked,
     features: {
       alert_explanations: $('ai-feature-alert-explanations').checked,

@@ -59,11 +59,12 @@ pub struct Redacted {
     pub default_provider: String,
     pub enabled: bool,
     pub features: crate::ai::AiFeatures,
+    pub anthropic_workspace_id: String,
 }
 
 pub(crate) async fn get(State(st): State<AppState>) -> Result<Json<Redacted>, ApiError> {
     let cfg = blocking(&st.store, |s| crate::ai::load(s)).await?;
-    Ok(Json(Redacted { keys_set: cfg.configured(), default_provider: cfg.default_provider, enabled: cfg.enabled, features: cfg.features }))
+    Ok(Json(Redacted { keys_set: cfg.configured(), default_provider: cfg.default_provider, enabled: cfg.enabled, features: cfg.features, anthropic_workspace_id: cfg.anthropic_workspace_id }))
 }
 
 #[derive(Deserialize)]
@@ -78,6 +79,8 @@ pub struct PutReq {
     enabled: bool,
     #[serde(default)]
     features: crate::ai::AiFeatures,
+    #[serde(default)]
+    anthropic_workspace_id: String,
 }
 
 pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<PutReq>) -> Result<Response, ApiError> {
@@ -99,6 +102,7 @@ pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Ext
         cfg.default_provider = b.default_provider;
         cfg.enabled = b.enabled;
         cfg.features = b.features;
+        cfg.anthropic_workspace_id = b.anthropic_workspace_id.trim().to_string();
         crate::ai::save(s, &cfg, now_ts())?;
         Ok(Ok(cfg))
     })
@@ -106,7 +110,7 @@ pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Ext
     Ok(match res {
         Ok(cfg) => {
             audit(&st, &me.username, "ai.update", None, json!({"providers": cfg.configured(), "enabled": cfg.enabled, "features": cfg.features}));
-            Json(Redacted { keys_set: cfg.configured(), default_provider: cfg.default_provider, enabled: cfg.enabled, features: cfg.features }).into_response()
+            Json(Redacted { keys_set: cfg.configured(), default_provider: cfg.default_provider, enabled: cfg.enabled, features: cfg.features, anthropic_workspace_id: cfg.anthropic_workspace_id }).into_response()
         }
         Err(e) => err(StatusCode::BAD_REQUEST, e),
     })
