@@ -685,6 +685,25 @@
           <h4 class="section">Imported devices</h4>
           <div id="cmdb-devices"></div>
         </div>
+        <div id="vulnscan-box" hidden>
+          <h3 class="section">Vulnerability scanner (Nessus)</h3>
+          <p class="muted">Pulls the most recently completed scans' findings from a Nessus or Tenable.io instance (an
+            API access/secret key pair, generated in the scanner itself) and matches each host to a device here — by
+            IP first, then hostname, both exact. Read-only: nothing is ever written back to the scanner.</p>
+          <label class="check"><input id="vulnscan-enabled" type="checkbox"> Enabled</label>
+          <div class="row">
+            <label>Server URL<input id="vulnscan-url" placeholder="https://nessus.example.com:8834"></label>
+            <label>Access key<input id="vulnscan-access-key" type="password" autocomplete="off"></label>
+            <label>Secret key<input id="vulnscan-secret-key" type="password" autocomplete="off"></label>
+          </div>
+          <div class="row">
+            <label>Sync every<span class="row"><input id="vulnscan-interval" type="number" min="1" max="720" value="24"> hours</span></label>
+          </div>
+          <p class="muted small" id="vulnscan-keys-status"></p>
+          <div class="row"><button id="vulnscan-save" type="button" class="primary">Save</button><button id="vulnscan-sync" type="button">Sync now</button><span id="vulnscan-msg" class="muted"></span></div>
+          <h4 class="section">Imported findings</h4>
+          <div id="vulnscan-findings"></div>
+        </div>
         <div id="vuln-box" hidden>
           <h3 class="section">Software versions: end of support and known exploits</h3>
           <div id="vuln-body"></div>

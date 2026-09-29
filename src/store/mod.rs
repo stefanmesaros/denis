@@ -229,6 +229,18 @@ pub trait CmdbStore: Send + Sync {
     fn prune_cmdb_devices(&self, keep: &[String]) -> Result<()>;
 }
 
+/// Vulnerability-scanner import (`crate::vulnscan`): findings pulled from an external scanner
+/// (Qualys/Tenable/Nessus). Same untyped-at-the-boundary shape as `CmdbStore` and for the same
+/// reason — `data` is JSON only `vulnscan` interprets.
+pub trait VulnScanStore: Send + Sync {
+    /// Upsert one record by the source's own id.
+    fn save_imported_vuln(&self, external_id: &str, data: &[u8], now: i64) -> Result<()>;
+    fn list_imported_vulns(&self) -> Result<Vec<Vec<u8>>>;
+    /// Removes every previously imported record whose external id is not in `keep` — the plain
+    /// way a sync notices a finding is gone (fixed, or the host rescanned clean) since the last one.
+    fn prune_imported_vulns(&self, keep: &[String]) -> Result<()>;
+}
+
 /// Saved compliance/inventory reports, made by hand or on a schedule.
 pub trait ReportStore: Send + Sync {
     fn add_report(&self, meta: &ReportMeta, content: &[u8]) -> Result<i64>;
@@ -370,4 +382,4 @@ pub trait AdminStore: Send + Sync {
 /// needs, rather than all ~85 methods at once — see the individual traits for what each
 /// area covers. A backend implements the sub-traits it needs, then this one with an empty
 /// body (all its methods already exist via the supertraits).
-pub trait Store: AssetStore + EventStore + MetricStore + SettingsStore + IpCacheStore + ReportStore + AuthStore + AdminStore + CmdbStore {}
+pub trait Store: AssetStore + EventStore + MetricStore + SettingsStore + IpCacheStore + ReportStore + AuthStore + AdminStore + CmdbStore + VulnScanStore {}

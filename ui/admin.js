@@ -231,6 +231,7 @@ async function start() {
   $('sso-box').hidden = !can('admin');
   $('ai-box').hidden = !can('admin');
   $('cmdb-box').hidden = !can('admin');
+  $('vulnscan-box').hidden = !can('admin');
   $('retention-box').hidden = !can('admin');
   for (const b of document.querySelectorAll('#topo-mode button')) b.onclick = () => setTopoMode(b.dataset.mode);
   $('setup-open').onclick = openSetupGuide;
@@ -1141,7 +1142,7 @@ const SETTINGS_CATS = [
   ['security', [['security', 'security-box'], ['sso', 'sso-box'], ['tls', 'tls-box']]],
   ['network', [['interfaces', 'interfaces-box'], ['switches', 'switches-box'], ['ipenrich', 'ipenrich-box']]],
   ['data', [['retention', 'retention-box'], ['vulndata', 'vuln-box'], ['data', 'data-box']]],
-  ['integrations', [['siem', 'siem-box'], ['cmdb', 'cmdb-box']]],
+  ['integrations', [['siem', 'siem-box'], ['cmdb', 'cmdb-box'], ['vulnscan', 'vulnscan-box']]],
   ['ai', [['ai', 'ai-box']]],
   ['branding', [['branding', 'branding-box'], ['overview', 'overview-box']]],
 ];
@@ -1716,6 +1717,57 @@ $('jamf-sync').onclick = async () => {
   $('jamf-sync').disabled = false;
   $('jamf-msg').textContent = r.ok && r.json.ok ? tr('Imported {n} device(s).', { n: r.json.imported }) : (r.ok ? r.json.error : apiError(r));
   if (r.ok && r.json.ok) loadCmdbBox();
+};
+
+const VULNSCAN_SEVERITY_LABEL = (s) => ({ critical: tr('critical'), high: tr('high'), medium: tr('medium'), low: tr('low'), info: tr('info') }[s] || s);
+
+async function loadVulnscanBox() {
+  if (!can('admin')) return;
+  const [s, f] = await Promise.all([api('GET', '/api/vulnscan/settings'), api('GET', '/api/vulnscan/findings')]);
+  if (s.ok) {
+    $('vulnscan-enabled').checked = s.json.enabled;
+    $('vulnscan-url').value = s.json.server_url || '';
+    $('vulnscan-interval').value = s.json.sync_interval_hours || 24;
+    $('vulnscan-access-key').value = '';
+    $('vulnscan-access-key').placeholder = s.json.access_key_set ? tr('(unchanged)') : '';
+    $('vulnscan-secret-key').value = '';
+    $('vulnscan-secret-key').placeholder = s.json.secret_key_set ? tr('(unchanged)') : '';
+    $('vulnscan-keys-status').textContent = s.json.access_key_set && s.json.secret_key_set
+      ? tr('An access key and secret key are saved.')
+      : tr('No access/secret key saved yet.');
+  }
+  const findings = f.ok ? f.json : [];
+  $('vulnscan-findings').replaceChildren(...findings.map((v) => {
+    const asset = v.matched_asset_id != null ? assetById(v.matched_asset_id) : null;
+    return el('div', { class: 'ip-context-row' },
+      el('div', {},
+        el('b', { text: v.plugin_name }), ' ',
+        el('span', { class: 'sev ' + (v.severity === 'critical' ? 'high' : v.severity), text: VULNSCAN_SEVERITY_LABEL(v.severity) }),
+        el('div', { class: 'muted small' }, v.host + ' · ' + tr('last synced {t}', { t: ago(v.last_synced_at) })),
+        asset
+          ? el('div', { class: 'muted small' }, tr('Matched:') + ' ', el('button', { type: 'button', class: 'chip', text: deviceLabel(asset, '#' + v.matched_asset_id), onclick: () => showDetail(asset.id) }))
+          : el('div', { class: 'muted small', text: tr('No matching device found by IP or hostname.') })));
+  }));
+  if (f.ok && !findings.length) $('vulnscan-findings').replaceChildren(el('p', { class: 'muted', text: tr('Nothing imported yet.') }));
+}
+$('vulnscan-save').onclick = async () => {
+  const r = await api('PUT', '/api/vulnscan/settings', {
+    enabled: $('vulnscan-enabled').checked,
+    server_url: $('vulnscan-url').value.trim(),
+    sync_interval_hours: Number($('vulnscan-interval').value) || 24,
+    access_key: $('vulnscan-access-key').value,
+    secret_key: $('vulnscan-secret-key').value,
+  });
+  $('vulnscan-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
+  if (r.ok) loadVulnscanBox();
+};
+$('vulnscan-sync').onclick = async () => {
+  $('vulnscan-sync').disabled = true;
+  $('vulnscan-msg').textContent = tr('Syncing…');
+  const r = await api('POST', '/api/vulnscan/sync');
+  $('vulnscan-sync').disabled = false;
+  $('vulnscan-msg').textContent = r.ok && r.json.ok ? tr('Imported {n} finding(s).', { n: r.json.imported }) : (r.ok ? r.json.error : apiError(r));
+  if (r.ok && r.json.ok) loadVulnscanBox();
 };
 
 function siemForm() {

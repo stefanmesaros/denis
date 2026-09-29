@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.47.0: Vulnerability-scanner import (Nessus)
+
+* **Pulls the most recently completed scans' findings from a Nessus or Tenable.io instance**
+  (Settings → Integrations → Vulnerability scanner) — an access/secret API key pair, its own
+  schedule, matched to a device here by IP first, then hostname, both exact, same discipline as
+  the CMDB sources. Read-only: nothing is ever written back to the scanner. Complements, not
+  replaces, DENIS's own banner/version-based end-of-support and known-exploited-vulnerability
+  matching, which reads only what its own passive fingerprinting already sees.
+* Its own store table rather than reusing the CMDB devices list or the Findings page: a scanner
+  reports zero or more dynamic findings per host, each with its own severity and plugin id, which
+  neither existing shape has room for.
+* Qualys and Tenable.io's own distinct API (Nessus's shape covers self-hosted Nessus and
+  Tenable.io's compatible endpoint already) are not yet covered — same "narrowest useful slice
+  first" choice the CMDB sources made before adding a second, third and fourth source. Like every
+  CMDB source, the exact API shape has not been exercised against a real Nessus/Tenable.io
+  instance.
+
 ## 2.46.0: On-demand AI model picker, instead of an always-visible dropdown
 
 * **Every "ask AI" button (Explain with AI, Triage with AI, Recommended actions, Explain behavior

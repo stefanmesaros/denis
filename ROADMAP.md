@@ -133,11 +133,16 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    bar already held elsewhere in this roadmap (IPv6's rotation-burst rule, NAC) — so the first cut
    should ship deliberately conservative (longer debounce, fewer auto-triggered capabilities) rather
    than guessed-generous.
-10. **Vulnerability-scanner import** (Qualys/Tenable/Nessus). *(effort: 4/10)* Same integration shape as CMDB import
-    — pull findings for devices DENIS already tracks, merge into the register — and it plugs a real
-    gap: DENIS's own vulnerability data today comes only from its own banner/version fingerprinting,
-    not from a dedicated scanner's much deeper (and often authenticated/credentialed) checks.
-    Complements, not replaces, DENIS's own detections.
+10. ~~**Vulnerability-scanner import** (Qualys/Tenable/Nessus).~~ Nessus done (2026-09-29); Qualys
+    and Tenable.io (a slightly different API, same shape) not yet started. Deliberately its own
+    store table (`imported_vulns`, `vulnscan.rs`) rather than folding into `CmdbDevice`'s one-row-
+    per-device shape or into `findings.rs`'s fixed, compile-time-known kinds: a scanner reports
+    zero or more dynamic findings per host, each with its own severity and plugin id, which neither
+    existing shape has room for. Matched to a device by IP first, then hostname, both exact —
+    IP-first because a scanner speaks about hosts by address, not name. Complements, not replaces,
+    DENIS's own banner/version-based EOL and known-exploited-vulnerability matching (`vulndata.rs`).
+    Like every CMDB source, the exact API shape used has not been exercised against a real
+    Nessus/Tenable.io instance — see CMDB.md's own honesty accounting.
 11. **Windows collectors.** *(effort: 7/10)* Partial groundwork already exists (`WINDOWS.md`, Win32 calls in
     `net.rs`/`health.rs`, the `windows-sys` dependency), none of it verified on a real Windows
     machine. Grows what DENIS can *observe* (a large share of real networks are Windows-centric and
