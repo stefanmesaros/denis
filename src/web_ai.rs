@@ -46,6 +46,7 @@ pub struct PublicStatus {
     pub dashboard_summary: bool,
     pub ask_denis: bool,
     pub device_behavior: bool,
+    pub rule_assistant: bool,
 }
 
 #[derive(Serialize)]
@@ -70,6 +71,7 @@ pub(crate) async fn status(State(st): State<AppState>) -> Result<Json<PublicStat
         dashboard_summary: cfg.enabled && cfg.features.dashboard_summary,
         ask_denis: cfg.enabled && cfg.features.ask_denis,
         device_behavior: cfg.enabled && cfg.features.device_behavior,
+        rule_assistant: cfg.enabled && cfg.features.rule_assistant,
     }))
 }
 
@@ -543,6 +545,66 @@ async fn ask_destination(
             audit(&st, &me.username, "ai.ask", None, json!({"provider": provider, "matched": matched, "destination": hunted}));
             record_usage(&st, now, provider, sum_tokens(total_tokens, t2));
             Ok(Json(AskResp { provider, answer, matched }).into_response())
+        }
+        Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
+        Err(_) => Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct SuggestRuleReq {
+    description: String,
+    #[serde(default)]
+    provider: Option<String>,
+}
+
+#[derive(Serialize)]
+struct SuggestRuleResp {
+    provider: &'static str,
+    name: String,
+    proto: String,
+    ports_mode: String,
+    ports: Vec<u16>,
+    remotes_mode: String,
+    remotes: Vec<String>,
+    min_kb: i64,
+    score: i32,
+    cooldown_minutes: i32,
+}
+
+/// Step 11, the AI detection-rule assistant: turn a plain-language description into one draft
+/// network watch, the same shape the form's own built-in presets already fill it with — a dynamic
+/// preset, never a rule written on its own. On click only, one call (unlike Ask DENIS's two: there
+/// is no DENIS-side fact to fetch first, only a shape for the administrator to review, edit and
+/// submit themselves in the ordinary form).
+pub(crate) async fn suggest_rule(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<SuggestRuleReq>) -> Result<Response, ApiError> {
+    let now = now_ts();
+    let cfg = blocking(&st.store, |s| crate::ai::load(s)).await?;
+    if !cfg.enabled {
+        return Ok(err(StatusCode::FORBIDDEN, "AI is turned off in Settings → AI"));
+    }
+    if !cfg.features.rule_assistant {
+        return Ok(err(StatusCode::FORBIDDEN, "the AI detection-rule assistant is turned off in Settings → AI"));
+    }
+    if b.description.trim().is_empty() {
+        return Ok(err(StatusCode::BAD_REQUEST, "describe what to watch for first"));
+    }
+    let provider = b.provider.filter(|p| !p.is_empty()).unwrap_or(cfg.default_provider.clone());
+    let provider: &'static str = match crate::ai::PROVIDERS.iter().find(|p| **p == provider) {
+        Some(p) => p,
+        None => return Ok(err(StatusCode::BAD_REQUEST, "choose a configured provider")),
+    };
+    let description = b.description.clone();
+    let result = tokio::task::spawn_blocking(move || crate::ai::suggest_rule(&cfg, provider, &description)).await;
+    match result {
+        Ok(Ok((s, tokens))) => {
+            audit(&st, &me.username, "ai.suggest_rule", None, json!({"provider": provider}));
+            record_usage(&st, now, provider, tokens);
+            Ok(Json(SuggestRuleResp {
+                provider, name: s.name, proto: s.proto, ports_mode: s.ports_mode, ports: s.ports,
+                remotes_mode: s.remotes_mode, remotes: s.remotes, min_kb: s.min_kb, score: s.score, cooldown_minutes: s.cooldown_minutes,
+            })
+            .into_response())
         }
         Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
         Err(_) => Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),

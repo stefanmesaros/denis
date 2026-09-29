@@ -67,10 +67,11 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    NDP-mismatch signal, conflict/gateway detection) or is a materially larger, separate mechanism
    (full active discovery of brand-new addresses via multicast). Full detailed scoping lives in
    IPV6.md, not duplicated here, to avoid the two documents drifting out of sync with each other.
-7. **CMDB import: Jamf (and similar MDM sources).** *(effort: 2/10)* Same shape as the Entra ID/Intune/Active
-   Directory sources already built (own settings/credentials/schedule, upsert into the shared
-   imported-device table, source-scoped pruning) — the smallest remaining item on this list, and a
-   natural next step right after IPv6 while that CMDB pattern is fresh.
+7. ~~**CMDB import: Jamf (and similar MDM sources).**~~ Done in v2.29.0 (2026-09-29). Same shape as
+   the Entra ID/Intune/Active Directory sources already built (own settings/credentials/schedule,
+   own Jamf Pro API client id/secret via OAuth2 client-credentials, upsert into the shared
+   imported-device table, source-scoped pruning so a Jamf sync can never delete another source's
+   rows).
 8. ~~**A documented public API.**~~ Done 2026-09-29: scoped by reading the existing surface first
    rather than assuming — the routing, auth (`dnt_` viewer/editor tokens) and docs scaffolding
    (`docs/api.md`, already fairly complete) all already existed, so this was hardening and
@@ -84,26 +85,30 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    is called out as intentionally free-form. Chosen over inventing a parallel versioned surface
    because nothing about this product's usage yet demands one, and a speculative version prefix
    with nothing on the other side of a "v2" is complexity without a customer to justify it.
-9. **AI security assistant** — a configurable, event-driven layer on top of the existing AI alert
-   explanation feature. *(effort: 1/10 remaining)* In progress (2026-09-29): shipped
-   feature-by-feature per an explicit instruction, a minor release after each step, so partial
-   progress always stays usable — see AI.md's own "Status" section for exactly what is done (so
-   far: the Settings → AI page, a global on/off switch, and independent toggles for alert
-   explanations, alert triage — an assessment alongside DENIS's own severity, never replacing
-   it — recommended actions, a short advisory next-steps list DENIS never acts on itself, a
-   dashboard AI summary generated entirely by a background job, never by opening the dashboard,
-   "Ask DENIS", a free-text question box that only ever answers from a real structured search
-   DENIS itself runs — never from facts the model invented — a Settings → AI usage overview,
-   broken down per provider — an AI summary section on the existing periodic Reports, written once
-   when a report is generated, never a dependency for the report itself to succeed — and a fifth,
-   self-hosted "Local model" provider (Ollama, LM Studio, llama.cpp's own server, ...), verified
-   end-to-end against a real local Ollama instance, not just a fake-server test — Device
-   behavioral analysis: an "Explain behavior change" button offered only on the alert kinds that
-   already describe a change from a device's own stored baseline, never a fresh analysis of raw
-   traffic — and AI threat hunting: folded into "Ask DENIS" as a second query shape rather than a
-   separate feature, so a question like "has anything talked to 1.2.3.4?" searches every device's
-   own already-tracked baseline instead of the event log, still only ever describing real rows
-   DENIS itself found).
+9. ~~**AI security assistant**~~ — a configurable, event-driven layer on top of the existing AI
+   alert explanation feature. Done (2026-09-29): shipped feature-by-feature per an explicit
+   instruction, a minor release after each step, so partial progress always stayed usable — see
+   AI.md's own "Status" section for exactly what shipped at each step (the Settings → AI page, a
+   global on/off switch, and independent toggles for alert explanations, alert triage — an
+   assessment alongside DENIS's own severity, never replacing it — recommended actions, a short
+   advisory next-steps list DENIS never acts on itself, a dashboard AI summary generated entirely
+   by a background job, never by opening the dashboard, "Ask DENIS", a free-text question box that
+   only ever answers from a real structured search DENIS itself runs — never from facts the model
+   invented — a Settings → AI usage overview, broken down per provider — an AI summary section on
+   the existing periodic Reports, written once when a report is generated, never a dependency for
+   the report itself to succeed — a fifth, self-hosted "Local model" provider (Ollama, LM Studio,
+   llama.cpp's own server, ...), verified end-to-end against a real local Ollama instance, not just
+   a fake-server test — Device behavioral analysis: an "Explain behavior change" button offered
+   only on the alert kinds that already describe a change from a device's own stored baseline,
+   never a fresh analysis of raw traffic — AI threat hunting: folded into "Ask DENIS" as a second
+   query shape rather than a separate feature, so a question like "has anything talked to
+   1.2.3.4?" searches every device's own already-tracked baseline instead of the event log, still
+   only ever describing real rows DENIS itself found — and the AI detection-rule assistant:
+   "Suggest a rule with AI" in the network watch form, a free-text description translated into one
+   draft watch, the same shape the form's own built-in presets already fill it with — always still
+   shown in the ordinary editable form before it is saved, never written or enabled on its own).
+   Not part of the numbered spec but still discussed and approved alongside it, and not yet built:
+   a proactive, dismissible "this kind of rule would suit your traffic" banner on the Rules page.
    Full spec recorded in full in [AI.md](AI.md) (not duplicated here, same
    reasoning as IPV6.md/WINDOWS.md/SSO.md/CMDB.md each being their own document). Key architectural
    requirements: the detection engine stays fully AI-independent (no LLM in the

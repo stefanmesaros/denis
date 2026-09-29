@@ -358,7 +358,7 @@ async function loadOptions() {
 /** Which "Explain with AI" providers, if any, an administrator has set a key for. */
 async function loadAiStatus() {
   const r = await api('GET', '/api/ai');
-  state.ai = r.ok ? r.json : { providers: [], default_provider: '', alert_explanations: false, alert_triage: false, recommended_actions: false, dashboard_summary: false, ask_denis: false, device_behavior: false };
+  state.ai = r.ok ? r.json : { providers: [], default_provider: '', alert_explanations: false, alert_triage: false, recommended_actions: false, dashboard_summary: false, ask_denis: false, device_behavior: false, rule_assistant: false };
   refreshAskDenisButton();
 }
 
@@ -1561,6 +1561,7 @@ async function loadAiBox() {
   $('ai-feature-ask-denis').checked = !!(d.features && d.features.ask_denis);
   $('ai-feature-security-reports').checked = !!(d.features && d.features.security_reports);
   $('ai-feature-device-behavior').checked = !!(d.features && d.features.device_behavior);
+  $('ai-feature-rule-assistant').checked = !!(d.features && d.features.rule_assistant);
   for (const p of ['claude', 'openai', 'gemini', 'grok', 'local']) {
     $('ai-key-' + p).value = '';
     $('ai-key-' + p).placeholder = d.keys_present.includes(p) ? tr('(unchanged)') : '';
@@ -1615,6 +1616,7 @@ $('ai-save').onclick = async () => {
       ask_denis: $('ai-feature-ask-denis').checked,
       security_reports: $('ai-feature-security-reports').checked,
       device_behavior: $('ai-feature-device-behavior').checked,
+      rule_assistant: $('ai-feature-rule-assistant').checked,
     },
   });
   $('ai-msg').textContent = r.ok ? tr('Saved.') : apiError(r);

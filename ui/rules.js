@@ -529,17 +529,54 @@ function openItWatchForm(prefill, done) {
   const score = el('input', { type: 'number', min: 1, max: 100, value: String(w.score) });
   const gap = el('input', { type: 'number', min: 1, max: 1440, value: String(w.cooldown_minutes) });
   const enabled = el('input', { type: 'checkbox', checked: w.enabled });
-  preset.onchange = () => {
-    const p = IT_PRESETS()[Number(preset.value)];
-    if (!p) return;
+  /** Fills the form fields from a preset or an AI suggestion — same shape either way, so both
+   * apply through this one place. Only the name is ever left alone if already typed. */
+  const applyPreset = (p) => {
     proto.value = p.proto || 'any';
     portsMode.value = p.ports_mode || 'any';
     ports.value = (p.ports || []).join(', ');
     remotesMode.value = p.remotes_mode || 'any';
     remotes.value = (p.remotes || []).join(', ');
     minKb.value = String(p.min_kb || 0);
-    if (!nameIn.value.trim()) nameIn.value = p.label;
+    if (p.score != null) score.value = String(p.score);
+    if (p.cooldown_minutes != null) gap.value = String(p.cooldown_minutes);
+    if (!nameIn.value.trim() && p.label) nameIn.value = p.label;
+    if (!nameIn.value.trim() && p.name) nameIn.value = p.name;
   };
+  preset.onchange = () => {
+    const p = IT_PRESETS()[Number(preset.value)];
+    if (p) applyPreset(p);
+  };
+  /** "Suggest a rule with AI" (AI.md section 18, step 11): a free-text, AI-filled stand-in for
+   * the preset dropdown above — never writes or enables anything itself, only fills the same
+   * fields the administrator can still see, edit and choose not to keep before saving. */
+  const aiSuggest = isNew && state.ai && state.ai.providers.length && state.ai.rule_assistant ? (() => {
+    const providers = state.ai.providers;
+    const pick = providers.length > 1
+      ? el('select', {}, ...providers.map((p) => el('option', { value: p.id, text: p.name, selected: p.id === state.ai.default_provider })))
+      : null;
+    const desc = el('input', { placeholder: tr('e.g. cameras should never reach the internet'), maxLength: 300 });
+    const msg = el('span', { class: 'muted small' });
+    const button = el('button', {
+      type: 'button', text: tr('Suggest'),
+      onclick: async () => {
+        if (!desc.value.trim()) { desc.focus(); return; }
+        button.disabled = true;
+        button.textContent = tr('Asking…');
+        const provider = pick ? pick.value : providers[0].id;
+        const r = await api('POST', '/api/ai/suggest-rule', { description: desc.value.trim(), provider });
+        button.disabled = false;
+        button.textContent = tr('Suggest');
+        if (!r.ok) { msg.textContent = apiError(r); msg.className = 'form-error small'; return; }
+        applyPreset(r.json);
+        msg.textContent = tr('Suggested below — review and adjust it, then save.');
+        msg.className = 'muted small';
+      },
+    });
+    return el('div', { class: 'field-wide ai-suggest-rule' },
+      el('span', { class: 'label', text: tr('Or describe what to watch for and let AI suggest a starting point') }),
+      el('div', { class: 'row' }, desc, pick, button), msg);
+  })() : null;
   const sourcesBox = el('div', {});
   const exceptBox = el('div', {});
   const drawScopes = () => {
@@ -555,6 +592,7 @@ function openItWatchForm(prefill, done) {
     flowsWarning,
     el('div', { class: 'field-wide' }, field(tr('Name'), nameIn)),
     isNew ? field(tr('Start from a ready-made watch, then adjust it below (optional)'), preset) : null,
+    aiSuggest,
     field(tr('Protocol'), proto),
     el('div', { class: 'field-wide' }, el('span', { class: 'label', text: tr('For these devices (empty: any device)') }), sourcesBox),
     el('details', { class: 'field-wide exceptions', open: except.length > 0 },

@@ -126,6 +126,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai/summary", get(ai_page::summary))
         .route("/api/ai/ask", post(ai_page::ask))
         .route("/api/ai/behavior", post(ai_page::behavior))
+        .route("/api/ai/suggest-rule", post(ai_page::suggest_rule))
         .route("/api/ai/usage", get(ai_page::usage))
         .route("/api/cmdb/settings", get(cmdb_page::get).put(cmdb_page::put))
         .route("/api/cmdb/sync", post(cmdb_page::sync))
@@ -1692,6 +1693,21 @@ mod tests {
         let (st, _, v) = send(&app, req("POST", "/api/ai/ask", Some(&editor), Some(serde_json::json!({"question": "   "})))).await;
         assert_eq!(st, StatusCode::BAD_REQUEST, "{v}");
         let (st, _, v) = send(&app, req("POST", "/api/ai/ask", Some(&editor), Some(serde_json::json!({"question": "what changed today?", "provider": "nonsense"})))).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{v}");
+
+        // and the AI detection-rule assistant, independently again: off by default even once the others are on
+        let (st, _, v) = send(&app, req("POST", "/api/ai/suggest-rule", Some(&editor), Some(serde_json::json!({"description": "cameras should never reach the internet"})))).await;
+        assert_eq!(st, StatusCode::FORBIDDEN, "{v}");
+        assert_eq!(send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2["rule_assistant"], false);
+
+        send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"default_provider": "claude", "enabled": true, "features": {"alert_explanations": true, "alert_triage": true, "recommended_actions": true, "ask_denis": true, "rule_assistant": true}})))).await;
+        assert_eq!(send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2["rule_assistant"], true);
+        // a blank description, or an unconfigured provider, is refused before ever reaching a
+        // provider (same reasoning as Ask DENIS above; ai::tests covers parse_rule_suggestion's
+        // own JSON validation without one)
+        let (st, _, v) = send(&app, req("POST", "/api/ai/suggest-rule", Some(&editor), Some(serde_json::json!({"description": "   "})))).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{v}");
+        let (st, _, v) = send(&app, req("POST", "/api/ai/suggest-rule", Some(&editor), Some(serde_json::json!({"description": "cameras should never reach the internet", "provider": "nonsense"})))).await;
         assert_eq!(st, StatusCode::BAD_REQUEST, "{v}");
     }
 

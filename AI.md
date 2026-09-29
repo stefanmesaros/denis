@@ -152,7 +152,18 @@ correctness/performance improvement either way (no pointless reflow when nothing
     search, then a second call that only ever describes the real rows DENIS found), still on click
     only.
 
-11: not started.
+11. **AI detection-rule assistant** — done (2026-09-29). "Suggest a rule with AI" in the network
+    watch form (Rules page): a free-text description is translated into one draft watch — the same
+    shape (`proto`/`ports_mode`/`ports`/`remotes_mode`/`remotes`/`min_kb`/`score`/
+    `cooldown_minutes`) the form's own built-in ready-made presets already fill it with, so it is a
+    dynamic, AI-filled preset rather than a separate mechanism. One call, not Ask DENIS's two:
+    there is no DENIS-side fact to fetch first, only a shape for the administrator to review, edit
+    and submit themselves in the ordinary form — never written or enabled on its own, matching this
+    section's own "always needs explicit admin activation, never auto-enabled". Its own independent
+    `features.rule_assistant` toggle. The originally-discussed proactive "this kind of rule would
+    suit your traffic" banner is a separate, not-yet-built follow-on to this step, not part of it.
+
+This completes the AI feature roadmap's numbered steps 1-11.
 
 ## Build order (explicit instruction, 2026-09-29)
 

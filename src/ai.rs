@@ -75,6 +75,13 @@ pub struct AiFeatures {
     /// continuously ask the AI to analyze every device".
     #[serde(default)]
     pub device_behavior: bool,
+    /// Step 11, the AI detection-rule assistant: "Suggest a rule with AI" in the network-watch
+    /// form (`suggest_rule` below), on click only — describe what to watch for in plain language
+    /// and get back a draft the same shape as picking one of the built-in presets, always still
+    /// shown in the ordinary editable form before it is saved. Never writes a rule itself; the
+    /// administrator always reviews and submits it, same as every other rule.
+    #[serde(default)]
+    pub rule_assistant: bool,
 }
 
 /// One API key per provider an administrator has set up, and which one the "Explain" button
@@ -733,6 +740,88 @@ pub fn answer_destination_question(cfg: &AiConfig, provider: &str, prompt: &str)
     ask(cfg, provider, ASK_DESTINATION_ANSWER_SYSTEM_PROMPT, prompt)
 }
 
+/// Step 11, the AI detection-rule assistant: translate a plain-language description of what to
+/// watch for into a draft network watch, the exact same shape the UI's own built-in presets
+/// already fill a blank watch form with (`ui/rules.js`'s `IT_PRESETS`) — this is a dynamic,
+/// free-text preset, never a rule written and saved on its own. `web_ai::suggest_rule` (one call,
+/// not two like Ask DENIS: there is no DENIS-side search to run first, nothing here asserts a
+/// fact about the network — only a shape the administrator reviews, edits and submits themselves
+/// in the ordinary form, matching AI.md section 18's "never auto-enabled").
+const RULE_SUGGEST_SYSTEM_PROMPT: &str = "You are turning a network administrator's plain-language description of what \
+they want to be alerted about into one draft network watch for DENIS, a network monitoring tool. Reply with exactly one \
+JSON object and nothing else (no markdown fencing, no commentary before or after): {\"name\": a short name for the \
+watch (a few words), \"proto\": one of \"any\", \"tcp\", \"udp\", \"icmp\" (default \"any\" if not implied), \
+\"ports_mode\": one of \"any\", \"only\", \"except\" (default \"any\"), \"ports\": a list of port numbers (1-65535, \
+empty unless ports_mode is \"only\" or \"except\"), \"remotes_mode\": one of \"any\", \"only\", \"except\" (default \
+\"only\"), \"remotes\": a list of addresses - the words \"public\" (the internet) or \"private\" (the local network), \
+single IPs, or CIDR networks (default [\"public\"] unless the description implies otherwise), \"min_kb\": kilobytes \
+that must move in 10 seconds before this fires, a whole number, 0 unless the description mentions a large transfer, \
+\"score\": how serious a match is, 1-100 (default 60), \"cooldown_minutes\": minutes between repeat alerts for the \
+same device/address/port, 1-1440 (default 30)}. Never invent devices or specific addresses not named in the \
+description; describe the traffic pattern only.";
+
+/// One draft network watch, and nothing more — the only thing the rule-suggestion call is allowed
+/// to produce. Every field is validated the same way a hand-filled form would be: an invented
+/// mode/protocol is a hard error, a port or number outside range is clamped or rejected, never
+/// silently guessed into something plausible-looking.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuleSuggestion {
+    pub name: String,
+    pub proto: String,
+    pub ports_mode: String,
+    pub ports: Vec<u16>,
+    pub remotes_mode: String,
+    pub remotes: Vec<String>,
+    pub min_kb: i64,
+    pub score: i32,
+    pub cooldown_minutes: i32,
+}
+
+/// Ask one provider to translate `description` into a `RuleSuggestion`.
+pub fn suggest_rule(cfg: &AiConfig, provider: &str, description: &str) -> Result<(RuleSuggestion, Option<i64>)> {
+    let (text, tokens) = ask(cfg, provider, RULE_SUGGEST_SYSTEM_PROMPT, description)?;
+    Ok((parse_rule_suggestion(&text)?, tokens))
+}
+
+fn parse_rule_suggestion(text: &str) -> Result<RuleSuggestion> {
+    let start = text.find('{').ok_or_else(|| anyhow!("no JSON object in the response: {text}"))?;
+    let end = text.rfind('}').ok_or_else(|| anyhow!("no JSON object in the response: {text}"))?;
+    if end < start {
+        return Err(anyhow!("no JSON object in the response: {text}"));
+    }
+    let v: serde_json::Value = serde_json::from_str(&text[start..=end]).map_err(|e| anyhow!("the response was not valid JSON: {e}"))?;
+    let name = v.get("name").and_then(|s| s.as_str()).map(str::trim).filter(|s| !s.is_empty()).unwrap_or("Suggested watch").to_string();
+    let mode = |field: &str, default: &str| -> Result<String> {
+        match v.get(field).and_then(|s| s.as_str()) {
+            None => Ok(default.to_string()),
+            Some(s) if ["any", "only", "except"].contains(&s) => Ok(s.to_string()),
+            Some(s) => Err(anyhow!("the response named an unknown {field} {s:?}")),
+        }
+    };
+    let proto = match v.get("proto").and_then(|s| s.as_str()) {
+        None => "any".to_string(),
+        Some(s) if ["any", "tcp", "udp", "icmp"].contains(&s) => s.to_string(),
+        Some(s) => return Err(anyhow!("the response named an unknown proto {s:?}")),
+    };
+    let ports_mode = mode("ports_mode", "any")?;
+    let ports: Vec<u16> = v
+        .get("ports")
+        .and_then(|p| p.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_i64()).filter(|n| *n >= 1 && *n <= 65535).map(|n| n as u16).collect())
+        .unwrap_or_default();
+    let remotes_mode = mode("remotes_mode", "only")?;
+    let remotes: Vec<String> = v
+        .get("remotes")
+        .and_then(|p| p.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_str()).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect())
+        .filter(|v: &Vec<String>| !v.is_empty())
+        .unwrap_or_else(|| vec!["public".to_string()]);
+    let min_kb = v["min_kb"].as_i64().unwrap_or(0).clamp(0, 100_000_000);
+    let score = v["score"].as_i64().unwrap_or(60).clamp(1, 100) as i32;
+    let cooldown_minutes = v["cooldown_minutes"].as_i64().unwrap_or(30).clamp(1, 1440) as i32;
+    Ok(RuleSuggestion { name, proto, ports_mode, ports, remotes_mode, remotes, min_kb, score, cooldown_minutes })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -946,6 +1035,44 @@ mod tests {
         assert!(parse_ask_query(r#"{"severity": "critical"}"#).is_err());
         assert!(parse_ask_query(r#"{"kind": "made_up_alert_type"}"#).is_err());
         assert!(parse_ask_query("not json at all").is_err());
+    }
+
+    #[test]
+    fn a_rule_suggestion_parses_with_the_same_defaults_a_blank_form_would_have() {
+        let s = parse_rule_suggestion(
+            r#"{"name": "Cameras online", "proto": "tcp", "ports_mode": "any", "remotes_mode": "only", "remotes": ["public"], "min_kb": 0, "score": 70, "cooldown_minutes": 15}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            s,
+            RuleSuggestion {
+                name: "Cameras online".into(), proto: "tcp".into(), ports_mode: "any".into(), ports: vec![],
+                remotes_mode: "only".into(), remotes: vec!["public".into()], min_kb: 0, score: 70, cooldown_minutes: 15,
+            }
+        );
+        let bare = parse_rule_suggestion(r#"{}"#).unwrap();
+        assert_eq!(
+            bare,
+            RuleSuggestion {
+                name: "Suggested watch".into(), proto: "any".into(), ports_mode: "any".into(), ports: vec![],
+                remotes_mode: "only".into(), remotes: vec!["public".into()], min_kb: 0, score: 60, cooldown_minutes: 30,
+            },
+            "sensible defaults when the model omits nearly everything"
+        );
+    }
+
+    #[test]
+    fn a_rule_suggestion_with_an_invented_mode_or_protocol_is_a_hard_error() {
+        assert!(parse_rule_suggestion(r#"{"proto": "bluetooth"}"#).is_err());
+        assert!(parse_rule_suggestion(r#"{"ports_mode": "sometimes"}"#).is_err());
+        assert!(parse_rule_suggestion(r#"{"remotes_mode": "occasionally"}"#).is_err());
+    }
+
+    #[test]
+    fn a_rule_suggestion_drops_out_of_range_ports_and_clamps_numbers() {
+        let s = parse_rule_suggestion(r#"{"ports": [22, 0, 99999, 3389], "score": 500, "cooldown_minutes": -5, "min_kb": -10}"#).unwrap();
+        assert_eq!(s.ports, vec![22, 3389], "0 and 99999 are outside 1-65535");
+        assert_eq!((s.score, s.cooldown_minutes, s.min_kb), (100, 1, 0));
     }
 
     #[test]

@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.42.0: AI detection-rule assistant (step 11)
+
+* **"Suggest a rule with AI" in the network watch form** (Rules page): describe what you want to
+  watch for in plain language ("cameras should never reach the internet") and get back a draft
+  filled in — protocol, ports, addresses, score, cooldown — the same as picking one of the
+  built-in ready-made starting points, just from your own words instead of a fixed list. Always
+  still shown in the ordinary editable form before you save it: it never writes or enables a rule
+  by itself, and if you'd rather not use the suggestion (or the form was already fine as you typed
+  it), just fill it in yourself as before. Its own independent Settings → AI toggle, off by
+  default.
+* This completes the AI feature roadmap's numbered steps 1 through 11 (see AI.md's "Status"
+  section for the full list of what shipped along the way, one minor release at a time).
+
 ## 2.41.0: AI threat hunting (step 10), folded into Ask DENIS
 
 * **"Ask DENIS" can now hunt for a destination across every device's own history**, not just
