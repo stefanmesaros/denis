@@ -232,8 +232,13 @@ home master).
   been reviewed by a native-speaking security professional).
 * SSO (OIDC) against a real identity provider, not a mock (see SSO.md for exactly what is and is
   not verified) — signature verification end to end is the specific gap.
-* IPv6 device discovery (opt-in, `--ipv6`) on a genuine dual-stack network — verified so far only
-  with hand-built frames (see IPV6.md).
+* IPv6 (opt-in, `--ipv6`/`--ipv6-subnet`: passive discovery, flow accounting, remote-agent
+  reporting, the active liveness check) on a genuine dual-stack network — verified so far only
+  with hand-built frames and integration tests, not real ICMPv6/NDP traffic or a real socket send.
+  Also still IPv4-only: rule parity (rotation-burst suppression, `new_port`, OT decoding, the
+  threat list, network watches, `lan_scan`), an NDP-mismatch signal, IPv6 conflict/gateway
+  detection, and full active discovery of brand-new addresses (see IPV6.md for the complete,
+  itemised accounting).
 * No PostgreSQL backend, no Windows build.
 * **An independent penetration test.** Required, and not yet done, before relying on DENIS in a commercial
   production setting. If you are able to run one, please [get in touch](SECURITY.md).
@@ -306,11 +311,11 @@ commercial license (there is no self-service purchase yet — open a GitHub issu
 
 ## Roadmap
 
-A single priority-ordered list of what's missing and planned — IPv6 (passive discovery shipped,
-opt-in; the rest in progress), a Jamf/MDM CMDB source, a Windows collector, vulnerability-scanner
-import, SAML (OIDC SSO already works), cloud asset discovery, a documented public API,
-multi-tenancy, PostgreSQL/HA, and NAC — plus verification still owed before a commercial launch:
-see [ROADMAP.md](ROADMAP.md).
+A single priority-ordered list of what's missing and planned — IPv6 (most of it shipped, opt-in;
+see IPV6.md for what's left), a Jamf/MDM CMDB source, a documented public API,
+vulnerability-scanner import, a Windows collector, SAML (OIDC SSO already works), cloud asset
+discovery, multi-tenancy, PostgreSQL/HA, and NAC — plus verification still owed before a
+commercial launch: see [ROADMAP.md](ROADMAP.md).
 
 ## Contributing
 
@@ -335,7 +340,7 @@ issue: [SECURITY.md](SECURITY.md).
 
 ```
 src/parse.rs        Ethernet frame -> observations (pure, fuzzed)
-src/ipv6.rs         IPv6 header + Neighbor Discovery parser; passive discovery only, opt-in (--ipv6, see IPV6.md)
+src/ipv6.rs         IPv6 header + Neighbor Discovery/echo-reply parser; opt-in (--ipv6/--ipv6-subnet, see IPV6.md)
 src/ot.rs           industrial protocol + LLDP/CDP/PROFINET decoders (pure, tested from the specs)
 src/flow.rs         per-window aggregation of flows and conversations (capture thread)
 src/capture.rs      libpcap thread, kernel filter, throttling
