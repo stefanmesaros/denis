@@ -890,6 +890,7 @@ function renderDashboard() {
 
   loadDashboardTrends();
   loadAiSummaryCard();
+  setupAskDenisCard();
 }
 
 /** The dashboard's own "AI Security Summary" card: read-only, never triggers generation itself
@@ -906,6 +907,36 @@ async function loadAiSummaryCard() {
   if (d.generating) meta.push(tr('Updating AI summary…'));
   else if (d.stale) meta.push(tr('Updated after significant network change'));
   $('ai-summary-meta').textContent = meta.join(' · ');
+}
+
+/** The dashboard's "Ask DENIS" box: a free-text question, answered from DENIS's own alert search
+ * (never from facts the AI invented — see ai_summary's sibling, ai.rs's AskQuery doc). Rebinds its
+ * handlers on every call, which is safe since `.onclick`/`.onkeydown` assignment simply replaces
+ * the previous one rather than stacking listeners. */
+function setupAskDenisCard() {
+  const card = $('ask-denis-card');
+  card.hidden = !(state.ai && state.ai.ask_denis);
+  if (card.hidden) return;
+  const input = $('ask-denis-input');
+  const button = $('ask-denis-button');
+  const answer = $('ask-denis-answer');
+  const go = async () => {
+    const question = input.value.trim();
+    if (!question) return;
+    button.disabled = true;
+    const original = button.textContent;
+    button.textContent = tr('Asking…');
+    const r = await api('POST', '/api/ai/ask', { question });
+    button.disabled = false;
+    button.textContent = original;
+    answer.replaceChildren(r.ok
+      ? el('div', {},
+          el('p', { text: r.json.answer }),
+          el('p', { class: 'muted small', text: r.json.matched ? tr('Based on {n} alert(s).', { n: r.json.matched }) : tr('No matching alerts were found.') }))
+      : el('p', { class: 'form-error', text: apiError(r) }));
+  };
+  button.onclick = go;
+  input.onkeydown = (ev) => { if (ev.key === 'Enter') go(); };
 }
 
 /** The two trend charts (alerts raised, devices online) over the dashboard's own period picker —

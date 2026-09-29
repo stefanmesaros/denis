@@ -124,6 +124,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai/triage", post(ai_page::triage))
         .route("/api/ai/recommend", post(ai_page::recommend))
         .route("/api/ai/summary", get(ai_page::summary))
+        .route("/api/ai/ask", post(ai_page::ask))
         .route("/api/cmdb/settings", get(cmdb_page::get).put(cmdb_page::put))
         .route("/api/cmdb/sync", post(cmdb_page::sync))
         .route("/api/cmdb/devices", get(cmdb_page::devices))
@@ -1601,6 +1602,22 @@ mod tests {
         assert_eq!(send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2["recommended_actions"], true);
         let (st, _, v) = send(&app, req("POST", "/api/ai/recommend", Some(&editor), Some(serde_json::json!({"id": "999999"})))).await;
         assert_eq!(st, StatusCode::NOT_FOUND, "{v}");
+
+        // and Ask DENIS, independently again: off by default even once the others are on
+        let (st, _, v) = send(&app, req("POST", "/api/ai/ask", Some(&editor), Some(serde_json::json!({"question": "what changed today?"})))).await;
+        assert_eq!(st, StatusCode::FORBIDDEN, "{v}");
+        assert_eq!(send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2["ask_denis"], false);
+
+        send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"default_provider": "claude", "enabled": true, "features": {"alert_explanations": true, "alert_triage": true, "recommended_actions": true, "ask_denis": true}})))).await;
+        assert_eq!(send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2["ask_denis"], true);
+        // a blank question, or an unconfigured provider, is refused before ever reaching a
+        // provider (this test suite deliberately has no live network egress; ai::tests already
+        // covers parse_ask_query's own JSON validation, and interpret_question/answer_question
+        // needing a key, without one)
+        let (st, _, v) = send(&app, req("POST", "/api/ai/ask", Some(&editor), Some(serde_json::json!({"question": "   "})))).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{v}");
+        let (st, _, v) = send(&app, req("POST", "/api/ai/ask", Some(&editor), Some(serde_json::json!({"question": "what changed today?", "provider": "nonsense"})))).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{v}");
     }
 
     #[tokio::test]

@@ -27,6 +27,7 @@ pub struct PublicStatus {
     pub alert_triage: bool,
     pub recommended_actions: bool,
     pub dashboard_summary: bool,
+    pub ask_denis: bool,
 }
 
 #[derive(Serialize)]
@@ -49,6 +50,7 @@ pub(crate) async fn status(State(st): State<AppState>) -> Result<Json<PublicStat
         alert_triage: cfg.enabled && cfg.features.alert_triage,
         recommended_actions: cfg.enabled && cfg.features.recommended_actions,
         dashboard_summary: cfg.enabled && cfg.features.dashboard_summary,
+        ask_denis: cfg.enabled && cfg.features.ask_denis,
     }))
 }
 
@@ -338,4 +340,107 @@ pub(crate) async fn summary(State(st): State<AppState>) -> Result<Json<SummaryRe
         generating: st.ai_summary_generating.load(std::sync::atomic::Ordering::SeqCst),
         available,
     }))
+}
+
+/// How many of the recent alerts matching an "Ask DENIS" query are actually shown to the answer
+/// call — kept small so the second prompt stays compact and cheap (AI.md section 11), and because
+/// past this many individually-named rows an answer stops being readable anyway.
+const ASK_MAX_ROWS: usize = 20;
+/// How many of the most recent alerts are scanned to find matches — generous enough to almost
+/// always cover a 720-hour (30-day) window without scanning the whole alert history, same
+/// reasoning as `ai_summary::CONTEXT_SCAN_LIMIT`.
+const ASK_SCAN_LIMIT: usize = 1000;
+
+#[derive(Deserialize)]
+pub struct AskReq {
+    question: String,
+    #[serde(default)]
+    provider: Option<String>,
+}
+
+#[derive(Serialize)]
+struct AskResp {
+    provider: &'static str,
+    answer: String,
+    /// How many alerts DENIS's own search actually found — lets the UI show e.g. "based on 3
+    /// alerts" without the caller having to parse that back out of the prose answer.
+    matched: usize,
+}
+
+/// A free-text question about the network (AI.md section 16), on click only. Two AI calls, never
+/// one: the first only ever chooses *how* DENIS should search its own alerts (`ai::AskQuery`,
+/// validated the same way `parse_triage` is — an invented severity or alert kind is a hard error,
+/// never guessed); DENIS itself runs that exact search; the second call only ever describes what
+/// DENIS actually found. The model is never in a position to answer from facts it invented.
+pub(crate) async fn ask(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<AskReq>) -> Result<Response, ApiError> {
+    let store = st.store.clone();
+    let now = now_ts();
+    let cfg = blocking(&store, |s| crate::ai::load(s)).await?;
+    if !cfg.enabled {
+        return Ok(err(StatusCode::FORBIDDEN, "AI is turned off in Settings → AI"));
+    }
+    if !cfg.features.ask_denis {
+        return Ok(err(StatusCode::FORBIDDEN, "the Ask DENIS AI feature is turned off in Settings → AI"));
+    }
+    if b.question.trim().is_empty() {
+        return Ok(err(StatusCode::BAD_REQUEST, "ask a question first"));
+    }
+    let provider = b.provider.filter(|p| !p.is_empty()).unwrap_or(cfg.default_provider.clone());
+    let provider: &'static str = match crate::ai::PROVIDERS.iter().find(|p| **p == provider) {
+        Some(p) => p,
+        None => return Ok(err(StatusCode::BAD_REQUEST, "choose a configured provider")),
+    };
+    let cfg2 = cfg.clone();
+    let question = b.question.clone();
+    let query = tokio::task::spawn_blocking(move || crate::ai::interpret_question(&cfg2, provider, &question)).await;
+    let query = match query {
+        Ok(Ok(q)) => q,
+        Ok(Err(e)) => return Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
+        Err(_) => return Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),
+    };
+    let q2 = crate::store::EventQuery { alerts_only: true, limit: ASK_SCAN_LIMIT, ..Default::default() };
+    let hours = query.hours;
+    let severity = query.severity.clone();
+    let kind = query.kind.clone();
+    let device = query.device.clone();
+    let rows = blocking(&store, move |s| {
+        let cutoff = now - hours * 3600;
+        let mut matched: Vec<crate::ai::AskResultRow> = Vec::new();
+        for e in s.list_events(&q2)? {
+            if e.timestamp < cutoff {
+                continue;
+            }
+            if severity.as_deref().is_some_and(|sev| sev != e.severity) {
+                continue;
+            }
+            if kind.as_deref().is_some_and(|k| k != e.kind) {
+                continue;
+            }
+            let label = s.get_asset(e.asset_id)?.map(|a| a.label()).unwrap_or_else(|| format!("device #{}", e.asset_id));
+            if let Some(d) = &device {
+                if !label.to_lowercase().contains(&d.to_lowercase()) {
+                    continue;
+                }
+            }
+            let summary = e.raw_details["summary"].as_str().unwrap_or_default().to_string();
+            matched.push(crate::ai::AskResultRow { kind: e.kind, severity: e.severity, score: e.score, device_label: label, summary, age_secs: now - e.timestamp });
+            if matched.len() >= ASK_MAX_ROWS {
+                break;
+            }
+        }
+        Ok(matched)
+    })
+    .await?;
+    let matched = rows.len();
+    let results_prompt = crate::ai::ask_results_prompt(&b.question, &rows);
+    let cfg3 = cfg.clone();
+    let answer = tokio::task::spawn_blocking(move || crate::ai::answer_question(&cfg3, provider, &results_prompt)).await;
+    match answer {
+        Ok(Ok(answer)) => {
+            audit(&st, &me.username, "ai.ask", None, json!({"provider": provider, "matched": matched}));
+            Ok(Json(AskResp { provider, answer, matched }).into_response())
+        }
+        Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
+        Err(_) => Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),
+    }
 }

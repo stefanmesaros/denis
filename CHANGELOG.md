@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.35.0: "Ask DENIS" (step 6), and a longer AI request timeout
+
+* **A new "Ask DENIS" box on the dashboard**: ask a plain-language question about recent alert
+  activity ("What changed in the last 24 hours?", "Why is the Baby Monitor generating alerts?").
+  Two AI calls, never one: the first only ever translates the question into one structured alert
+  search (a time window, and optionally a severity, an exact alert kind, or a device name —
+  validated the same rigor as triage; an invented severity or alert kind is a hard error, never
+  guessed); DENIS itself runs that exact search against its own data; the second call only ever
+  describes what was actually found, capped at the 20 highest-scored matches. The model is never
+  in a position to answer from anything it invented. Its own independent Settings → AI → Features
+  toggle, off by default.
+* **Fix: every AI call's own timeout was 30 seconds, too short for a "thinking"/reasoning model.**
+  Found live with Gemini, whose current default model spends unpredictable time reasoning before
+  answering (and whose `-latest` alias can land on a generation that does not support turning
+  thinking off at all) — a real request timed out rather than completing slowly. Raised to 60
+  seconds for every provider.
+
 ## 2.34.4: Gemini: stop pinning a dated model name
 
 * Switched from a pinned model (`gemini-2.5-flash`, then `gemini-3.8-flash` after v2.34.2) to

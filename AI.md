@@ -62,7 +62,18 @@ already fits.
    report "Updating…" without needing to persist that as part of the stored record; the dashboard
    always shows the last valid summary regardless (section 10: never blank while regeneration is
    in flight or has failed).
-6-11: not started.
+6. **Ask DENIS** — done (2026-09-29). A free-text question box on the dashboard, on click only,
+   its own independent `features.ask_denis` toggle. Deliberately two AI calls, never one, matching
+   section 16's own architecture diagram: `ai::interpret_question` translates the question into one
+   structured `ai::AskQuery` (`{hours, severity?, kind?, device?}`, validated the same rigor as
+   triage — `severity` must be one of the three real values, `kind` must pass
+   `detect::is_alertable_kind`, either is a hard error if the model invented one); `web_ai::ask`
+   then runs that exact search against the store itself (never lets the model touch the database);
+   `ai::answer_question` gets only the real rows found (capped at `ASK_MAX_ROWS = 20`) and describes
+   them. A question with zero matches still gets a real second call, so the model can say "nothing
+   matched" in its own words rather than DENIS synthesizing that message itself. The provider is
+   never in a position to answer from anything except what the search actually returned.
+7-11: not started.
 
 ## Build order (explicit instruction, 2026-09-29)
 

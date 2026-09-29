@@ -54,6 +54,12 @@ pub struct AiFeatures {
     /// as `AiConfig.enabled` off.
     #[serde(default)]
     pub dashboard_summary: bool,
+    /// "Ask DENIS" (`interpret_question`/`answer_question` below): a free-text question about the
+    /// network, on click, never automatic. The AI never answers from its own invented facts — it
+    /// only ever translates the question into one structured alert search DENIS itself runs, then
+    /// summarizes exactly what came back (AI.md section 16).
+    #[serde(default)]
+    pub ask_denis: bool,
 }
 
 /// One API key per provider an administrator has set up, and which one the "Explain" button
@@ -135,8 +141,13 @@ replacement for it - do not claim to change or override anything. Do not invent 
 /// nothing at all. Disabled here so a non-2xx response is read like any other: the status is
 /// checked explicitly and the provider's own error body (most of them return `{"error": {...}}` or
 /// similar) is surfaced instead of being thrown away.
+/// 60s, not 30: a "thinking"/reasoning model (seen live with Gemini, whose current default model
+/// spends unpredictable time reasoning before answering — and which alias resolution can move
+/// between generations that do or do not support turning thinking off at all) can genuinely take
+/// longer than 30s for a short prompt. Every provider gets the same budget; none of these calls
+/// are on a request path a person is blocked on beyond clicking a button and waiting.
 fn call_ureq_json(url: &str, headers: &[(&str, String)], body: &serde_json::Value) -> Result<serde_json::Value> {
-    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(30))).http_status_as_error(false).build().into();
+    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(60))).http_status_as_error(false).build().into();
     let mut req = agent.post(url).header("Content-Type", "application/json");
     for (k, v) in headers {
         req = req.header(*k, v);
@@ -404,6 +415,104 @@ pub fn dashboard_summary_prompt(window_hours: i64, by_severity: &[(&str, i64)], 
     out
 }
 
+/// "Ask DENIS" (AI.md section 16) is deliberately two separate calls, never one: the model is
+/// never trusted to answer from what it already "knows" about the question, only from DENIS's own
+/// data. First it translates the free-text question into one structured `AskQuery` (this prompt);
+/// DENIS itself runs that exact query (see `web_ai::ask`) and hands the real results to a second
+/// call (`ASK_ANSWER_SYSTEM_PROMPT` below) whose only job is to describe what came back.
+const ASK_INTERPRET_SYSTEM_PROMPT: &str = "You are translating a network administrator's plain-language question about \
+their network into one structured alert search against DENIS, a network monitoring tool. You do not know anything about \
+their network yourself - you only ever choose how to search it. Reply with exactly one JSON object and nothing else (no \
+markdown fencing, no commentary before or after): {\"hours\": how many hours back to search (a whole number from 1 to \
+720; default to 24 if the question does not imply a period), \"severity\": one of \"low\", \"medium\", \"high\", or omit \
+entirely if the question does not ask about a specific severity, \"kind\": the exact alert-type keyword if the question \
+clearly names one kind of alert (e.g. \"new_destination\", \"new_device\", \"volume_anomaly\", \"new_port\", \
+\"unusual_hours\", \"device_silent\"), otherwise omit, \"device\": a device name or partial name if the question names \
+one device, otherwise omit}. Never invent a device or alert kind not implied by the question.";
+
+/// One structured alert search, and nothing more than that — the only thing the interpretation
+/// call is allowed to produce, and the only thing `web_ai::ask` is allowed to run against the
+/// store. `kind`, if present, is validated against `detect::is_alertable_kind` so a hallucinated
+/// alert type is a hard error rather than silently searching for nothing.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AskQuery {
+    pub hours: i64,
+    pub severity: Option<String>,
+    pub kind: Option<String>,
+    pub device: Option<String>,
+}
+
+/// Ask one provider to translate `question` into an `AskQuery`.
+pub fn interpret_question(cfg: &AiConfig, provider: &str, question: &str) -> Result<AskQuery> {
+    let text = ask(cfg, provider, ASK_INTERPRET_SYSTEM_PROMPT, question)?;
+    parse_ask_query(&text)
+}
+
+fn parse_ask_query(text: &str) -> Result<AskQuery> {
+    let start = text.find('{').ok_or_else(|| anyhow!("no JSON object in the response: {text}"))?;
+    let end = text.rfind('}').ok_or_else(|| anyhow!("no JSON object in the response: {text}"))?;
+    if end < start {
+        return Err(anyhow!("no JSON object in the response: {text}"));
+    }
+    let v: serde_json::Value = serde_json::from_str(&text[start..=end]).map_err(|e| anyhow!("the response was not valid JSON: {e}"))?;
+    let hours = v["hours"].as_i64().unwrap_or(24).clamp(1, 720);
+    let severity = match v.get("severity").and_then(|s| s.as_str()) {
+        None => None,
+        Some(s) if ["low", "medium", "high"].contains(&s) => Some(s.to_string()),
+        Some(s) => return Err(anyhow!("the response named an unknown severity {s:?}")),
+    };
+    let kind = match v.get("kind").and_then(|s| s.as_str()) {
+        None => None,
+        Some(s) if crate::detect::is_alertable_kind(s) => Some(s.to_string()),
+        Some(s) => return Err(anyhow!("the response named an unknown alert kind {s:?}")),
+    };
+    let device = v.get("device").and_then(|s| s.as_str()).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    Ok(AskQuery { hours, severity, kind, device })
+}
+
+/// The answer call's own system prompt: unlike the interpretation prompt, this one only ever sees
+/// real DENIS data - it must never claim anything the given rows don't show.
+const ASK_ANSWER_SYSTEM_PROMPT: &str = "You are answering a network administrator's question about their network, using \
+DENIS, a network monitoring tool. You are given the administrator's original question and the exact alerts DENIS found \
+for the structured search that question was translated into - nothing else about their network. Answer the question in \
+2-5 short sentences, using only what is in the given alerts. If no alerts were found, say so plainly rather than \
+speculating about what might have happened. Do not invent devices, addresses or events not present in the data given \
+to you.";
+
+/// One alert row handed back to the "answer" call — exactly what DENIS itself found, never
+/// anything the AI invented.
+pub struct AskResultRow {
+    pub kind: String,
+    pub severity: String,
+    pub score: i32,
+    pub device_label: String,
+    pub summary: String,
+    /// Seconds before "now" this alert fired, computed by the caller (which already has "now"
+    /// for the query window itself) — kept this function pure/deterministic, like every other
+    /// prompt builder here.
+    pub age_secs: i64,
+}
+
+/// The prompt for the answer call: the original question plus exactly the rows DENIS found for
+/// the structured search it was translated into.
+pub fn ask_results_prompt(question: &str, rows: &[AskResultRow]) -> String {
+    let mut out = format!("Original question: {question}\n\n");
+    if rows.is_empty() {
+        out.push_str("DENIS found no matching alerts for this search.");
+    } else {
+        out.push_str(&format!("DENIS found {} matching alert(s):\n", rows.len()));
+        for r in rows {
+            out.push_str(&format!("- [{}, score {}, {}s ago] {} on {}: {}\n", r.severity, r.score, r.age_secs, r.kind, r.device_label, r.summary));
+        }
+    }
+    out
+}
+
+/// Ask one provider to answer `question` given the real search results already found.
+pub fn answer_question(cfg: &AiConfig, provider: &str, prompt: &str) -> Result<String> {
+    ask(cfg, provider, ASK_ANSWER_SYSTEM_PROMPT, prompt)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -522,5 +631,42 @@ mod tests {
         let p = dashboard_summary_prompt(24, &[("high", 0), ("medium", 0), ("low", 0)], &[]);
         assert!(p.contains("none"), "{p}");
         assert!(p.contains("No individual alerts"), "{p}");
+    }
+
+    #[test]
+    fn a_clean_ask_query_parses_with_defaults_for_what_was_omitted() {
+        let q = parse_ask_query(r#"{"hours": 48, "severity": "high", "kind": "new_destination", "device": "Baby Monitor"}"#).unwrap();
+        assert_eq!(q, AskQuery { hours: 48, severity: Some("high".into()), kind: Some("new_destination".into()), device: Some("Baby Monitor".into()) });
+        let bare = parse_ask_query(r#"{}"#).unwrap();
+        assert_eq!(bare, AskQuery { hours: 24, severity: None, kind: None, device: None }, "hours defaults to 24, everything else stays unset rather than guessed");
+    }
+
+    #[test]
+    fn ask_query_hours_are_clamped_to_a_sane_range() {
+        assert_eq!(parse_ask_query(r#"{"hours": 0}"#).unwrap().hours, 1);
+        assert_eq!(parse_ask_query(r#"{"hours": 100000}"#).unwrap().hours, 720);
+    }
+
+    #[test]
+    fn an_ask_query_with_an_invented_severity_or_kind_is_a_hard_error_never_guessed() {
+        assert!(parse_ask_query(r#"{"severity": "critical"}"#).is_err());
+        assert!(parse_ask_query(r#"{"kind": "made_up_alert_type"}"#).is_err());
+        assert!(parse_ask_query("not json at all").is_err());
+    }
+
+    #[test]
+    fn the_ask_results_prompt_includes_the_question_and_only_what_denis_actually_found() {
+        let rows = [AskResultRow { kind: "new_destination".into(), severity: "medium".into(), score: 55, device_label: "Baby Monitor (10.0.10.9)".into(), summary: "First contact with 3.113.81.30".into(), age_secs: 3600 }];
+        let p = ask_results_prompt("Why is the Baby Monitor generating alerts?", &rows);
+        assert!(p.contains("Why is the Baby Monitor generating alerts?") && p.contains("Baby Monitor") && p.contains("3.113.81.30"), "{p}");
+        let empty = ask_results_prompt("anything unusual today?", &[]);
+        assert!(empty.contains("no matching alerts"), "{empty}");
+    }
+
+    #[test]
+    fn interpret_and_answer_need_a_key_same_as_explain() {
+        let cfg = AiConfig::default();
+        assert!(interpret_question(&cfg, "claude", "what happened today?").is_err());
+        assert!(answer_question(&cfg, "claude", "x").is_err());
     }
 }

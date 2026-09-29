@@ -327,6 +327,8 @@ tr.row-warn td { background: color-mix(in srgb, var(--warn) 10%, transparent); }
 .ai-summary h3 { margin: 0 0 6px; }
 .ai-summary p { margin: 0 0 4px; color: var(--text); }
 .ai-summary p:last-child { margin-bottom: 0; }
+#ask-denis-input { flex: 1; min-width: 200px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); font: inherit; }
+#ask-denis-answer:not(:empty) { margin-top: 10px; }
 /* the Dashboard's 12 KPI tiles: a fixed column count (always a divisor of 12) instead of
    `.cards`'s own flex-wrap, so every row is completely full edge-to-edge at any width instead of
    trailing off into blank space when a row doesn't happen to fill on its own. */

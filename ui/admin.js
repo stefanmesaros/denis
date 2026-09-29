@@ -357,7 +357,7 @@ async function loadOptions() {
 /** Which "Explain with AI" providers, if any, an administrator has set a key for. */
 async function loadAiStatus() {
   const r = await api('GET', '/api/ai');
-  state.ai = r.ok ? r.json : { providers: [], default_provider: '', alert_explanations: false, alert_triage: false, recommended_actions: false, dashboard_summary: false };
+  state.ai = r.ok ? r.json : { providers: [], default_provider: '', alert_explanations: false, alert_triage: false, recommended_actions: false, dashboard_summary: false, ask_denis: false };
 }
 
 /** The "Explain with AI" button for one alert or finding, or null when nothing is configured. */
@@ -1521,6 +1521,7 @@ async function loadAiBox() {
   $('ai-feature-alert-triage').checked = !!(d.features && d.features.alert_triage);
   $('ai-feature-recommended-actions').checked = !!(d.features && d.features.recommended_actions);
   $('ai-feature-dashboard-summary').checked = !!(d.features && d.features.dashboard_summary);
+  $('ai-feature-ask-denis').checked = !!(d.features && d.features.ask_denis);
   for (const p of ['claude', 'openai', 'gemini', 'grok']) {
     $('ai-key-' + p).value = '';
     $('ai-key-' + p).placeholder = d.keys_set.includes(p) ? tr('(unchanged)') : '';
@@ -1544,6 +1545,7 @@ $('ai-save').onclick = async () => {
       alert_triage: $('ai-feature-alert-triage').checked,
       recommended_actions: $('ai-feature-recommended-actions').checked,
       dashboard_summary: $('ai-feature-dashboard-summary').checked,
+      ask_denis: $('ai-feature-ask-denis').checked,
     },
   });
   $('ai-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
