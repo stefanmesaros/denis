@@ -1657,17 +1657,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ai_usage_starts_empty_and_reflects_what_ai_usage_record_actually_wrote() {
+    async fn ai_usage_starts_empty_and_is_broken_down_per_provider_not_lumped_together() {
         let (app, store, [viewer, _, _]) = secured().await;
         let (st, _, v) = send(&app, req("GET", "/api/ai/usage", Some(&viewer), None)).await;
         assert_eq!(st, StatusCode::OK, "{v}");
-        assert_eq!((v["day_calls"].as_i64(), v["month_calls"].as_i64(), v["last_call_at"].as_i64()), (Some(0), Some(0), Some(0)));
+        assert_eq!(v["by_provider"].as_object().unwrap().len(), 0);
 
-        crate::ai_usage::record(&*store, 1_700_000_000, Some(120)).unwrap();
-        crate::ai_usage::record(&*store, 1_700_000_060, None).unwrap();
+        crate::ai_usage::record(&*store, 1_700_000_000, "claude", Some(120)).unwrap();
+        crate::ai_usage::record(&*store, 1_700_000_060, "claude", None).unwrap();
+        crate::ai_usage::record(&*store, 1_700_000_090, "openai", Some(50)).unwrap();
         let (st, _, v) = send(&app, req("GET", "/api/ai/usage", Some(&viewer), None)).await;
         assert_eq!(st, StatusCode::OK, "{v}");
-        assert_eq!((v["day_calls"].as_i64(), v["day_tokens"].as_i64(), v["last_call_at"].as_i64()), (Some(2), Some(120), Some(1_700_000_060)), "a call with no reported tokens still counts, just adds nothing to the token total: {v}");
+        let claude = &v["by_provider"]["claude"];
+        assert_eq!((claude["day_calls"].as_i64(), claude["day_tokens"].as_i64(), claude["last_call_at"].as_i64()), (Some(2), Some(120), Some(1_700_000_060)), "a call with no reported tokens still counts, just adds nothing to the token total: {v}");
+        assert_eq!(v["by_provider"]["openai"]["day_calls"].as_i64(), Some(1), "each provider is its own bucket: {v}");
+    }
+
+    #[tokio::test]
+    async fn the_local_provider_is_ready_from_a_url_and_model_alone_and_never_claims_a_key_it_does_not_have() {
+        let (app, _store, [_, _, admin]) = secured().await;
+        let (st, _, v) = send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"local_url": "http://localhost:11434/", "local_model": "qwen2.5:14b", "default_provider": "local", "enabled": true})))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(v["local_url"].as_str(), Some("http://localhost:11434"), "a trailing slash is trimmed");
+        assert!(v["keys_set"].as_array().unwrap().iter().any(|p| p == "local"), "ready from url+model alone, no key: {v}");
+        assert!(!v["keys_present"].as_array().unwrap().iter().any(|p| p == "local"), "but no key was ever given, so the key field must not claim one is saved: {v}");
+
+        // giving it a key now makes it show up in both
+        let (_, _, v) = send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"local_url": "http://localhost:11434", "local_model": "qwen2.5:14b", "keys": {"local": "sk-local-x"}, "default_provider": "local", "enabled": true})))).await;
+        assert!(v["keys_present"].as_array().unwrap().iter().any(|p| p == "local"), "{v}");
     }
 
     #[test]

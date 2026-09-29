@@ -102,6 +102,25 @@ their own CHANGELOG entries cover in full:
    the report itself — `ai_security_summary` returns `None` and the report is saved exactly as
    before this feature existed, matching AI.md section 20 ("AI must never become a dependency for
    core DENIS functionality").
+Also done, cutting across every feature above rather than its own numbered step: a fifth,
+self-hosted "local model" provider (`"local"` in `ai::PROVIDERS`) alongside Claude/ChatGPT/Gemini/
+Grok — Ollama, LM Studio, llama.cpp's own server, or anything else speaking the same
+OpenAI-compatible `/v1/chat/completions` shape, configured with a URL and a model name rather than
+a key (`AiConfig.local_url`/`local_model`; most local servers take no key at all, so `configured()`
+now checks per-provider readiness — url+model for `local`, a key for everyone else — instead of
+key presence alone). Verified end-to-end against a real local Ollama instance running `qwen2.5:0.5b`
+(not just a fake-server unit test): a real "Explain with AI" call round-tripped through DENIS's own
+`/api/ai/explain` endpoint in ~3s with a real answer and a real token count recorded. Found live
+during that same verification: the settings API's `keys_set` field had been quietly repurposed by
+this feature to mean "ready to use" rather than "has a key", which made the local API-key field's
+own "(unchanged)" placeholder lie when the provider was ready via url+model alone with no key ever
+set — split into `keys_set` (readiness, unchanged meaning) and a new `keys_present` (literal key
+presence) so the key field asks the right question again. Requested alongside this: usage
+visibility (section 23, shipped earlier) broken down per provider rather than one lumped total —
+`ai_usage::UsageRecord` now keys a `by_provider` map instead of one flat set of counters, so an
+administrator running a local model alongside cloud ones (or several cloud keys at once) can see
+which one is actually being used, not just an aggregate.
+
 8-11: not started.
 
 ## Build order (explicit instruction, 2026-09-29)

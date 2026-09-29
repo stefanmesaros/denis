@@ -1523,31 +1523,42 @@ async function loadAiBox() {
   $('ai-feature-dashboard-summary').checked = !!(d.features && d.features.dashboard_summary);
   $('ai-feature-ask-denis').checked = !!(d.features && d.features.ask_denis);
   $('ai-feature-security-reports').checked = !!(d.features && d.features.security_reports);
-  for (const p of ['claude', 'openai', 'gemini', 'grok']) {
+  for (const p of ['claude', 'openai', 'gemini', 'grok', 'local']) {
     $('ai-key-' + p).value = '';
-    $('ai-key-' + p).placeholder = d.keys_set.includes(p) ? tr('(unchanged)') : '';
+    $('ai-key-' + p).placeholder = d.keys_present.includes(p) ? tr('(unchanged)') : '';
   }
   $('ai-default').value = d.keys_set.includes(d.default_provider) ? d.default_provider : '';
   $('ai-anthropic-workspace-id').value = d.anthropic_workspace_id || '';
+  $('ai-local-url').value = d.local_url || '';
+  $('ai-local-model').value = d.local_model || '';
   loadAiUsage();
 }
 /** AI usage visibility (AI.md section 23): a rough call/token count, never exact billing. */
+const AI_PROVIDER_LABEL = { claude: 'Claude (Anthropic)', openai: 'ChatGPT (OpenAI)', gemini: 'Gemini (Google)', grok: 'Grok (xAI)', local: 'Local model' };
+
+/** One provider's own usage block, broken out rather than lumped into one total — an admin with
+ * several keys configured wants to know which one is actually running up a bill. */
 async function loadAiUsage() {
   const r = await api('GET', '/api/ai/usage');
   const box = $('ai-usage');
   if (!r.ok) { box.textContent = ''; return; }
-  const d = r.json;
-  const lines = [
-    tr('AI requests today: {n}', { n: d.day_calls }),
-    tr('AI requests this month: {n}', { n: d.month_calls }),
-    tr('Last AI request: {t}', { t: d.last_call_at ? ago(d.last_call_at) : tr('never') }),
-  ];
-  if (d.month_tokens > 0) lines.push(tr('Estimated tokens this month: {n}', { n: d.month_tokens.toLocaleString() }));
-  box.replaceChildren(...lines.map((l) => el('p', { class: 'muted small', text: l })));
+  const byProvider = r.json.by_provider || {};
+  const providers = Object.keys(byProvider);
+  if (!providers.length) { box.replaceChildren(el('p', { class: 'muted small', text: tr('No AI calls yet.') })); return; }
+  box.replaceChildren(...providers.map((p) => {
+    const u = byProvider[p];
+    const lines = [
+      tr('{provider} — requests today: {n}', { provider: tr(AI_PROVIDER_LABEL[p] || p), n: u.day_calls }),
+      tr('Requests this month: {n}', { n: u.month_calls }),
+      tr('Last request: {t}', { t: u.last_call_at ? ago(u.last_call_at) : tr('never') }),
+    ];
+    if (u.month_tokens > 0) lines.push(tr('Estimated tokens this month: {n}', { n: u.month_tokens.toLocaleString() }));
+    return el('div', { class: 'ai-usage-provider' }, ...lines.map((l) => el('p', { class: 'muted small', text: l })));
+  }));
 }
 $('ai-save').onclick = async () => {
   const keys = {};
-  for (const p of ['claude', 'openai', 'gemini', 'grok']) {
+  for (const p of ['claude', 'openai', 'gemini', 'grok', 'local']) {
     const v = $('ai-key-' + p).value;
     if (v) keys[p] = v; // blank means "leave alone"; there is no way to clear one from this form
   }
@@ -1555,6 +1566,8 @@ $('ai-save').onclick = async () => {
     keys,
     default_provider: $('ai-default').value,
     anthropic_workspace_id: $('ai-anthropic-workspace-id').value.trim(),
+    local_url: $('ai-local-url').value.trim(),
+    local_model: $('ai-local-model').value.trim(),
     enabled: $('ai-enabled').checked,
     features: {
       alert_explanations: $('ai-feature-alert-explanations').checked,

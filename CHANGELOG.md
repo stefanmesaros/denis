@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.38.0: A local/self-hosted AI provider, and per-provider usage
+
+* **A fifth AI provider option: "Local model"**, for anyone running Ollama, LM Studio, llama.cpp's
+  own server, or anything else that speaks the same OpenAI-compatible API, instead of (or
+  alongside) a cloud provider — nothing leaves your own hardware. New "Local model" section in
+  Settings → AI → Provider: a server URL and a model name (there is no single fixed model the way
+  there is for a cloud provider — it is whatever you have pulled locally), plus an optional API key
+  for a local server that actually needs one. Verified end-to-end against a real local Ollama
+  instance: a real "Explain with AI" call round-tripped through DENIS's own code with a real answer
+  and a real token count recorded, not just a unit test against a fake server.
+* **Settings → AI → Usage is now broken down per provider**, not lumped into one total — requests
+  today/this month, last request, estimated tokens, for each provider you have actually used. If
+  you run a local model alongside a cloud one (or keep several cloud keys configured), you can now
+  see which one is actually being used.
+* **Fix, found live while verifying the local provider: the API key field's "(unchanged)"
+  placeholder could lie.** A local server needs no key at all, so it can be "ready" (URL and model
+  both set) with none ever given — but the settings API's one `keys_set` field had been quietly
+  repurposed to mean "ready to use" rather than "has a key", so the key field claimed one was saved
+  when it was not. Split into `keys_set` (readiness) and a new `keys_present` (literal key
+  presence), so the key field asks the right question again.
+
 ## 2.37.0: AI security summary on periodic reports (step 7)
 
 * **Your existing periodic reports (Settings → Reports) can now include an "AI Security Summary"

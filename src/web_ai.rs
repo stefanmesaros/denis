@@ -16,8 +16,8 @@ use crate::web_admin::{audit, err};
 
 /// Best-effort, same tolerance as `audit`: a failure to record usage must never fail the AI call
 /// that already succeeded, only be logged.
-fn record_usage(st: &AppState, now: i64, tokens: Option<i64>) {
-    if let Err(e) = crate::ai_usage::record(&*st.store, now, tokens) {
+fn record_usage(st: &AppState, now: i64, provider: &str, tokens: Option<i64>) {
+    if let Err(e) = crate::ai_usage::record(&*st.store, now, provider, tokens) {
         tracing::error!("AI usage record failed: {e:#}");
     }
 }
@@ -71,19 +71,32 @@ pub(crate) async fn status(State(st): State<AppState>) -> Result<Json<PublicStat
     }))
 }
 
-/// The administrator's configuration: which providers have a key (never the key itself).
+/// The administrator's configuration: which providers are ready to use — a key for a cloud
+/// provider, or a URL and model name for `local` — never the key itself.
 #[derive(Serialize)]
 pub struct Redacted {
     pub keys_set: Vec<&'static str>,
+    /// Providers that literally have a key value stored, regardless of whether they are otherwise
+    /// ready — distinct from `keys_set` specifically because `local` can be "ready" (url and model
+    /// both set) with no key at all, and the "(unchanged)" placeholder on its own key field must
+    /// not claim one is saved when none is.
+    pub keys_present: Vec<&'static str>,
     pub default_provider: String,
     pub enabled: bool,
     pub features: crate::ai::AiFeatures,
     pub anthropic_workspace_id: String,
+    pub local_url: String,
+    pub local_model: String,
+}
+
+fn redacted(cfg: crate::ai::AiConfig) -> Redacted {
+    let keys_present = crate::ai::PROVIDERS.iter().copied().filter(|p| cfg.key_for(p).is_some()).collect();
+    Redacted { keys_set: cfg.configured(), keys_present, default_provider: cfg.default_provider, enabled: cfg.enabled, features: cfg.features, anthropic_workspace_id: cfg.anthropic_workspace_id, local_url: cfg.local_url, local_model: cfg.local_model }
 }
 
 pub(crate) async fn get(State(st): State<AppState>) -> Result<Json<Redacted>, ApiError> {
     let cfg = blocking(&st.store, |s| crate::ai::load(s)).await?;
-    Ok(Json(Redacted { keys_set: cfg.configured(), default_provider: cfg.default_provider, enabled: cfg.enabled, features: cfg.features, anthropic_workspace_id: cfg.anthropic_workspace_id }))
+    Ok(Json(redacted(cfg)))
 }
 
 #[derive(Deserialize)]
@@ -100,6 +113,10 @@ pub struct PutReq {
     features: crate::ai::AiFeatures,
     #[serde(default)]
     anthropic_workspace_id: String,
+    #[serde(default)]
+    local_url: String,
+    #[serde(default)]
+    local_model: String,
 }
 
 pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<PutReq>) -> Result<Response, ApiError> {
@@ -122,6 +139,8 @@ pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Ext
         cfg.enabled = b.enabled;
         cfg.features = b.features;
         cfg.anthropic_workspace_id = b.anthropic_workspace_id.trim().to_string();
+        cfg.local_url = b.local_url.trim().trim_end_matches('/').to_string();
+        cfg.local_model = b.local_model.trim().to_string();
         crate::ai::save(s, &cfg, now_ts())?;
         Ok(Ok(cfg))
     })
@@ -129,7 +148,7 @@ pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Ext
     Ok(match res {
         Ok(cfg) => {
             audit(&st, &me.username, "ai.update", None, json!({"providers": cfg.configured(), "enabled": cfg.enabled, "features": cfg.features}));
-            Json(Redacted { keys_set: cfg.configured(), default_provider: cfg.default_provider, enabled: cfg.enabled, features: cfg.features, anthropic_workspace_id: cfg.anthropic_workspace_id }).into_response()
+            Json(redacted(cfg)).into_response()
         }
         Err(e) => err(StatusCode::BAD_REQUEST, e),
     })
@@ -198,7 +217,7 @@ pub(crate) async fn explain(State(st): State<AppState>, Extension(AuthUser(me)):
     match text {
         Ok(Ok((text, tokens))) => {
             audit(&st, &me.username, "ai.explain", None, json!({"kind": b.kind, "provider": provider}));
-            record_usage(&st, now, tokens);
+            record_usage(&st, now, provider, tokens);
             Ok(Json(ExplainResp { provider, text }).into_response())
         }
         Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
@@ -262,7 +281,7 @@ pub(crate) async fn triage(State(st): State<AppState>, Extension(AuthUser(me)): 
     match result {
         Ok(Ok((result, tokens))) => {
             audit(&st, &me.username, "ai.triage", None, json!({"alert_id": id, "provider": provider, "assessment": result.assessment}));
-            record_usage(&st, now, tokens);
+            record_usage(&st, now, provider, tokens);
             Ok(Json(TriageResp { provider, severity: ev.severity, score: ev.score, result }).into_response())
         }
         Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
@@ -320,7 +339,7 @@ pub(crate) async fn recommend(State(st): State<AppState>, Extension(AuthUser(me)
     match result {
         Ok(Ok((result, tokens))) => {
             audit(&st, &me.username, "ai.recommend", None, json!({"alert_id": id, "provider": provider}));
-            record_usage(&st, now, tokens);
+            record_usage(&st, now, provider, tokens);
             Ok(Json(RecommendResp { provider, result }).into_response())
         }
         Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
@@ -460,7 +479,7 @@ pub(crate) async fn ask(State(st): State<AppState>, Extension(AuthUser(me)): Ext
     match answer {
         Ok(Ok((answer, t2))) => {
             audit(&st, &me.username, "ai.ask", None, json!({"provider": provider, "matched": matched}));
-            record_usage(&st, now, sum_tokens(total_tokens, t2));
+            record_usage(&st, now, provider, sum_tokens(total_tokens, t2));
             Ok(Json(AskResp { provider, answer, matched }).into_response())
         }
         Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),

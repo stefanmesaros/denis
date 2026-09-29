@@ -16,7 +16,7 @@ use crate::store::SettingsStore;
 
 pub const KEY: &str = "ai";
 
-pub const PROVIDERS: &[&str] = &["claude", "openai", "gemini", "grok"];
+pub const PROVIDERS: &[&str] = &["claude", "openai", "gemini", "grok", "local"];
 
 pub fn provider_name(id: &str) -> &'static str {
     match id {
@@ -24,6 +24,7 @@ pub fn provider_name(id: &str) -> &'static str {
         "openai" => "ChatGPT (OpenAI)",
         "gemini" => "Gemini (Google)",
         "grok" => "Grok (xAI)",
+        "local" => "Local model",
         _ => "AI",
     }
 }
@@ -88,12 +89,33 @@ pub struct AiConfig {
     /// Not a secret, unlike `keys`; round-trips to the browser as-is.
     #[serde(default)]
     pub anthropic_workspace_id: String,
+    /// The "local" provider's own base URL (e.g. `http://localhost:11434` for Ollama), for anyone
+    /// running their own model instead of a cloud one — Ollama, LM Studio, llama.cpp's own server,
+    /// vLLM, or anything else that speaks the same OpenAI-compatible `/v1/chat/completions` shape.
+    /// Not a secret; round-trips to the browser as-is, same as `anthropic_workspace_id`.
+    #[serde(default)]
+    pub local_url: String,
+    /// The exact model name to ask the local server for (e.g. `qwen2.5:14b`) — there is no single
+    /// fixed model the way there is for a cloud provider, since it is whatever the administrator
+    /// has pulled locally.
+    #[serde(default)]
+    pub local_model: String,
 }
 
 impl AiConfig {
-    /// Providers with a key set, in the fixed `PROVIDERS` order (stable for the UI).
+    /// Providers ready to use, in the fixed `PROVIDERS` order (stable for the UI): a key for every
+    /// cloud provider, but the local provider instead needs its URL and model name both set — most
+    /// local servers take no key at all, so key presence would wrongly gate it.
     pub fn configured(&self) -> Vec<&'static str> {
-        PROVIDERS.iter().copied().filter(|p| self.keys.get(*p).is_some_and(|k| !k.is_empty())).collect()
+        PROVIDERS.iter().copied().filter(|p| self.is_ready(p)).collect()
+    }
+
+    fn is_ready(&self, provider: &str) -> bool {
+        if provider == "local" {
+            !self.local_url.trim().is_empty() && !self.local_model.trim().is_empty()
+        } else {
+            self.keys.get(provider).is_some_and(|k| !k.is_empty())
+        }
     }
 
     pub fn key_for(&self, provider: &str) -> Option<&str> {
@@ -208,7 +230,10 @@ fn claude(key: &str, workspace_id: &str, system: &str, prompt: &str) -> Result<(
 /// the response: " (an empty string) rather than any real error, because `500` tokens was entirely
 /// consumed by reasoning. `"low"` keeps that spend small enough to leave real room for the answer;
 /// the token budget itself is also raised so a longer answer still has somewhere to go.
-fn openai_style(url: &str, key: &str, model: &str, token_param: &str, reasoning_effort: Option<&str>, system: &str, prompt: &str) -> Result<(String, Option<i64>)> {
+/// `key`: `None` for a local server that takes no authentication at all (the common case for
+/// Ollama/LM Studio/llama.cpp's own server run on localhost) — the `Authorization` header is then
+/// omitted entirely rather than sent as `Bearer ` with nothing after it.
+fn openai_style(url: &str, key: Option<&str>, model: &str, token_param: &str, reasoning_effort: Option<&str>, system: &str, prompt: &str) -> Result<(String, Option<i64>)> {
     let mut body = json!({
         "model": model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
@@ -217,7 +242,11 @@ fn openai_style(url: &str, key: &str, model: &str, token_param: &str, reasoning_
     if let Some(effort) = reasoning_effort {
         body["reasoning_effort"] = json!(effort);
     }
-    let v = call_ureq_json(url, &[("Authorization", format!("Bearer {key}"))], &body)?;
+    let mut headers = Vec::new();
+    if let Some(k) = key {
+        headers.push(("Authorization", format!("Bearer {k}")));
+    }
+    let v = call_ureq_json(url, &headers, &body)?;
     let text = v["choices"][0]["message"]["content"].as_str().map(str::to_string).ok_or_else(|| anyhow!("no answer in the response: {v}"))?;
     let tokens = v["usage"]["total_tokens"].as_i64();
     Ok((text, tokens))
@@ -244,12 +273,20 @@ fn gemini(key: &str, system: &str, prompt: &str) -> Result<(String, Option<i64>)
 /// they differ only in which system prompt and what they do with the text that comes back.
 /// Returns the trimmed answer plus that call's own token count, when the provider reported one.
 fn ask(cfg: &AiConfig, provider: &str, system: &str, prompt: &str) -> Result<(String, Option<i64>)> {
+    if provider == "local" {
+        if cfg.local_url.trim().is_empty() || cfg.local_model.trim().is_empty() {
+            return Err(anyhow!("the local model's URL and model name are not both set"));
+        }
+        let url = format!("{}/v1/chat/completions", cfg.local_url.trim().trim_end_matches('/'));
+        let (text, tokens) = openai_style(&url, cfg.key_for("local"), cfg.local_model.trim(), "max_tokens", None, system, prompt)?;
+        return Ok((text.trim().to_string(), tokens));
+    }
     let key = cfg.key_for(provider).ok_or_else(|| anyhow!("no API key is set for {}", provider_name(provider)))?;
     let (text, tokens) = match provider {
         "claude" => claude(key, &cfg.anthropic_workspace_id, system, prompt)?,
-        "openai" => openai_style("https://api.openai.com/v1/chat/completions", key, "gpt-5-mini", "max_completion_tokens", Some("low"), system, prompt)?,
+        "openai" => openai_style("https://api.openai.com/v1/chat/completions", Some(key), "gpt-5-mini", "max_completion_tokens", Some("low"), system, prompt)?,
         "gemini" => gemini(key, system, prompt)?,
-        "grok" => openai_style("https://api.x.ai/v1/chat/completions", key, "grok-4-fast", "max_tokens", None, system, prompt)?,
+        "grok" => openai_style("https://api.x.ai/v1/chat/completions", Some(key), "grok-4-fast", "max_tokens", None, system, prompt)?,
         other => return Err(anyhow!("unknown provider {other:?}")),
     };
     Ok((text.trim().to_string(), tokens))
@@ -602,6 +639,28 @@ mod tests {
     }
 
     #[test]
+    fn the_local_provider_needs_its_url_and_model_set_not_a_key() {
+        let mut cfg = AiConfig::default();
+        assert!(!cfg.configured().contains(&"local"));
+        cfg.local_url = "http://localhost:11434".into();
+        assert!(!cfg.configured().contains(&"local"), "url alone is not enough");
+        cfg.local_model = "qwen2.5:14b".into();
+        assert!(cfg.configured().contains(&"local"), "url and model, no key needed");
+        assert!(cfg.is_ready("local"));
+    }
+
+    #[test]
+    fn asking_the_local_provider_without_both_set_fails_before_any_network_call() {
+        let cfg = AiConfig::default();
+        assert!(ask(&cfg, "local", "system", "prompt").is_err());
+        let mut half = AiConfig { local_url: "http://localhost:11434".into(), ..Default::default() };
+        assert!(ask(&half, "local", "system", "prompt").is_err(), "model name still missing");
+        half.local_model = "qwen2.5:14b".into();
+        half.local_url = String::new();
+        assert!(ask(&half, "local", "system", "prompt").is_err(), "url still missing");
+    }
+
+    #[test]
     fn prompts_include_exactly_what_the_console_already_shows_and_nothing_invented() {
         let p = alert_prompt("new_port", 55, "medium", "First use of tcp/22", &["+40 first use".into(), "+15 risky port".into()], "Camera Kitchen (10.0.10.5)");
         assert!(p.contains("new_port") && p.contains("55") && p.contains("Camera Kitchen") && p.contains("+40 first use"));
@@ -750,5 +809,71 @@ mod tests {
         let cfg = AiConfig::default();
         assert!(interpret_question(&cfg, "claude", "what happened today?").is_err());
         assert!(answer_question(&cfg, "claude", "x").is_err());
+    }
+
+    /// A minimal fake OpenAI-compatible server (the shape Ollama/LM Studio/llama.cpp's own server
+    /// all speak): reads the request, hands the body back to the caller (to check the request
+    /// shape — no `Authorization` header for a keyless local server, the right URL, the right
+    /// model name), and answers with a canned chat-completion response.
+    fn fake_local_server() -> (String, std::sync::mpsc::Receiver<(String, String)>) {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", l.local_addr().unwrap());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for conn in l.incoming() {
+                let Ok(mut c) = conn else { return };
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 8192];
+                let (head_end, len) = loop {
+                    let n = c.read(&mut chunk).unwrap_or(0);
+                    if n == 0 {
+                        break (0, 0);
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                    if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&buf[..p]).to_string();
+                        let len = head.to_lowercase().lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse().ok()).unwrap_or(0usize);
+                        break (p + 4, len);
+                    }
+                };
+                while buf.len() < head_end + len {
+                    let n = c.read(&mut chunk).unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                }
+                let head = String::from_utf8_lossy(&buf[..head_end]).to_string();
+                let body = String::from_utf8_lossy(&buf[head_end..head_end + len]).to_string();
+                let _ = tx.send((head, body));
+                let resp = r#"{"choices":[{"message":{"content":"Two devices behaved unusually today."}}],"usage":{"total_tokens":42}}"#;
+                let _ = write!(c, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", resp.len(), resp);
+            }
+        });
+        (url, rx)
+    }
+
+    #[test]
+    fn the_local_provider_sends_no_auth_header_hits_the_right_path_and_parses_the_answer() {
+        let (url, rx) = fake_local_server();
+        let cfg = AiConfig { local_url: url, local_model: "qwen2.5:14b".into(), ..Default::default() };
+        let (text, tokens) = ask(&cfg, "local", "system prompt", "user prompt").unwrap();
+        assert_eq!(text, "Two devices behaved unusually today.");
+        assert_eq!(tokens, Some(42));
+        let (head, body) = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert!(head.starts_with("POST /v1/chat/completions"), "{head}");
+        assert!(!head.to_lowercase().contains("authorization:"), "a keyless local server gets no Authorization header at all: {head}");
+        assert!(body.contains("\"qwen2.5:14b\"") && body.contains("user prompt"), "{body}");
+    }
+
+    #[test]
+    fn a_local_url_with_a_trailing_slash_does_not_produce_a_double_slash_path() {
+        let (url, rx) = fake_local_server();
+        let cfg = AiConfig { local_url: format!("{url}/"), local_model: "qwen2.5:14b".into(), ..Default::default() };
+        ask(&cfg, "local", "s", "p").unwrap();
+        let (head, _) = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert!(head.starts_with("POST /v1/chat/completions"), "{head}");
     }
 }

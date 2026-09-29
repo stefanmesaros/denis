@@ -115,7 +115,7 @@ fn tick(store: &dyn Store, generating: &AtomicBool) -> Result<bool> {
         save(store, &SummaryRecord { text, generated_at: now, source_state_version: version }, now)?;
         // Best-effort, same tolerance as web_ai's own record_usage: this background job already
         // succeeded at generating the summary, a usage-record failure must not undo that.
-        if let Err(e) = crate::ai_usage::record(store, now, tokens) {
+        if let Err(e) = crate::ai_usage::record(store, now, &cfg.default_provider, tokens) {
             tracing::error!("AI usage record failed: {e:#}");
         }
         Ok(())

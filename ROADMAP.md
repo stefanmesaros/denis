@@ -93,10 +93,11 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    it — recommended actions, a short advisory next-steps list DENIS never acts on itself, a
    dashboard AI summary generated entirely by a background job, never by opening the dashboard,
    "Ask DENIS", a free-text question box that only ever answers from a real structured search
-   DENIS itself runs — never from facts the model invented — a Settings → AI usage overview: a
-   rough call/token count, never exact billing — and an AI summary section on the existing
-   periodic Reports, written once when a report is generated, never a dependency for the report
-   itself to succeed).
+   DENIS itself runs — never from facts the model invented — a Settings → AI usage overview,
+   broken down per provider — an AI summary section on the existing periodic Reports, written once
+   when a report is generated, never a dependency for the report itself to succeed — and a fifth,
+   self-hosted "Local model" provider (Ollama, LM Studio, llama.cpp's own server, ...), verified
+   end-to-end against a real local Ollama instance, not just a fake-server test).
    Full spec recorded in full in [AI.md](AI.md) (not duplicated here, same
    reasoning as IPV6.md/WINDOWS.md/SSO.md/CMDB.md each being their own document). Key architectural
    requirements: the detection engine stays fully AI-independent (no LLM in the

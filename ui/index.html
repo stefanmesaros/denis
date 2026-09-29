@@ -586,8 +586,17 @@
             <label>Claude workspace ID (only if needed)<input id="ai-anthropic-workspace-id" placeholder="wrkspc_..."></label>
           </div>
           <p class="muted small">Only needed for a Claude API key issued at the organization level rather than scoped to one workspace — such a key is refused outright until this is set. Leave blank otherwise.</p>
+          <h4 class="section">Local model</h4>
+          <p class="muted small">Run your own model instead of (or alongside) a cloud one — Ollama, LM Studio, llama.cpp's own server, or anything else that speaks the same OpenAI-compatible API. Runs on your own hardware; nothing is sent to a third party. Usually needs no key.</p>
           <div class="row">
-            <label>Default provider<select id="ai-default"><option value="">(none configured)</option><option value="claude">Claude</option><option value="openai">ChatGPT</option><option value="gemini">Gemini</option><option value="grok">Grok</option></select></label>
+            <label>Server URL<input id="ai-local-url" placeholder="http://localhost:11434"></label>
+            <label>Model name<input id="ai-local-model" placeholder="qwen2.5:14b"></label>
+          </div>
+          <div class="row">
+            <label>API key (only if your server needs one)<input id="ai-key-local" type="password" autocomplete="off"></label>
+          </div>
+          <div class="row">
+            <label>Default provider<select id="ai-default"><option value="">(none configured)</option><option value="claude">Claude</option><option value="openai">ChatGPT</option><option value="gemini">Gemini</option><option value="grok">Grok</option><option value="local">Local model</option></select></label>
           </div>
           <h4 class="section">Features</h4>
           <p class="muted small">Each is off by default and only ever calls the provider above for what it says below — nothing runs in the background unless its own description says so.</p>

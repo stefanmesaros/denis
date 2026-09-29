@@ -1,9 +1,11 @@
 //! AI usage visibility (AI.md section 23): a rough sense of how much any of the AI features have
-//! actually been used, for an administrator who wants to know before a bill does. Deliberately
+//! actually been used, broken down per provider — an administrator with several keys configured
+//! wants to know which one is actually running up a bill, not just one lumped total. Deliberately
 //! coarse — a call count and, when the provider's own response reported one, a token count, each
 //! bucketed by day and by calendar month. Never blocks or gates anything; a write here only ever
 //! happens after a real provider call already succeeded (see each call site in `web_ai.rs`/
-//! `ai_summary.rs`), so a failure to record usage can never be why a feature stopped working.
+//! `ai_summary.rs`/`reports.rs`), so a failure to record usage can never be why a feature stopped
+//! working.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -13,20 +15,27 @@ use crate::store::SettingsStore;
 pub const KEY: &str = "ai_usage";
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-pub struct UsageRecord {
-    /// Epoch day (`now / 86400`, UTC) the day counters were last reset for.
-    pub day: i64,
+pub struct ProviderUsage {
     pub day_calls: i64,
     /// Sums only the calls whose provider actually reported a token count; a `None` from `ai::ask`
     /// (a provider that does not report usage, or a shape this code does not recognise) simply
     /// contributes nothing rather than being guessed at.
     pub day_tokens: i64,
-    /// `year * 12 + (month - 1)`, so it increments by exactly 1 each calendar month regardless of
-    /// how many days that month has.
-    pub month: i32,
     pub month_calls: i64,
     pub month_tokens: i64,
     pub last_call_at: i64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct UsageRecord {
+    /// Epoch day (`now / 86400`, UTC) the day counters were last reset for — shared across every
+    /// provider, so they all roll over together.
+    pub day: i64,
+    /// `year * 12 + (month - 1)`, so it increments by exactly 1 each calendar month regardless of
+    /// how many days that month has.
+    pub month: i32,
+    #[serde(default)]
+    pub by_provider: std::collections::BTreeMap<String, ProviderUsage>,
 }
 
 fn day_key(now: i64) -> i64 {
@@ -47,29 +56,34 @@ fn save(store: &dyn SettingsStore, r: &UsageRecord, now: i64) -> Result<()> {
     store.set_setting(KEY, &serde_json::to_vec(r)?, now)
 }
 
-/// Records one successful AI call. `tokens`: that call's own token count, when the provider
-/// reported one (see `ask`'s own doc in `ai.rs`) — `None` otherwise, not a guess.
-pub fn record(store: &dyn SettingsStore, now: i64, tokens: Option<i64>) -> Result<()> {
+/// Records one successful AI call against `provider`. `tokens`: that call's own token count, when
+/// the provider reported one (see `ask`'s own doc in `ai.rs`) — `None` otherwise, not a guess.
+pub fn record(store: &dyn SettingsStore, now: i64, provider: &str, tokens: Option<i64>) -> Result<()> {
     let mut r = load(store)?;
     let day = day_key(now);
     let month = month_key(now);
     if r.day != day {
         r.day = day;
-        r.day_calls = 0;
-        r.day_tokens = 0;
+        for p in r.by_provider.values_mut() {
+            p.day_calls = 0;
+            p.day_tokens = 0;
+        }
     }
     if r.month != month {
         r.month = month;
-        r.month_calls = 0;
-        r.month_tokens = 0;
+        for p in r.by_provider.values_mut() {
+            p.month_calls = 0;
+            p.month_tokens = 0;
+        }
     }
-    r.day_calls += 1;
-    r.month_calls += 1;
+    let e = r.by_provider.entry(provider.to_string()).or_default();
+    e.day_calls += 1;
+    e.month_calls += 1;
     if let Some(t) = tokens {
-        r.day_tokens += t;
-        r.month_tokens += t;
+        e.day_tokens += t;
+        e.month_tokens += t;
     }
-    r.last_call_at = now;
+    e.last_call_at = now;
     save(store, &r, now)
 }
 
@@ -79,32 +93,37 @@ mod tests {
     use crate::store::sqlite::SqliteStore;
 
     #[test]
-    fn a_fresh_record_starts_at_zero() {
+    fn a_fresh_record_starts_empty() {
         let s = SqliteStore::open_in_memory().unwrap();
         assert_eq!(load(&s).unwrap(), UsageRecord::default());
     }
 
     #[test]
-    fn calls_and_tokens_accumulate_within_the_same_day_and_month() {
+    fn calls_and_tokens_accumulate_per_provider_not_lumped_together() {
         let s = SqliteStore::open_in_memory().unwrap();
         let now = 1_700_000_000; // an arbitrary fixed instant, so the test is deterministic
-        record(&s, now, Some(120)).unwrap();
-        record(&s, now + 60, Some(80)).unwrap();
-        record(&s, now + 120, None).unwrap(); // a call whose provider reported no usage
+        record(&s, now, "claude", Some(120)).unwrap();
+        record(&s, now + 60, "claude", Some(80)).unwrap();
+        record(&s, now + 120, "openai", None).unwrap(); // a call whose provider reported no usage
         let r = load(&s).unwrap();
-        assert_eq!((r.day_calls, r.day_tokens, r.month_calls, r.month_tokens, r.last_call_at), (3, 200, 3, 200, now + 120));
+        let claude = &r.by_provider["claude"];
+        assert_eq!((claude.day_calls, claude.day_tokens, claude.month_calls, claude.last_call_at), (2, 200, 2, now + 60));
+        let openai = &r.by_provider["openai"];
+        assert_eq!((openai.day_calls, openai.day_tokens, openai.last_call_at), (1, 0, now + 120), "counted, but contributes no tokens");
+        assert_eq!(r.by_provider.len(), 2, "each provider keeps its own bucket");
     }
 
     #[test]
-    fn a_new_day_resets_the_day_counters_but_not_the_month() {
+    fn a_new_day_resets_every_providers_day_counters_but_not_the_month() {
         let s = SqliteStore::open_in_memory().unwrap();
         let day1 = 1_700_000_000;
         let day2 = day1 + 86400 * 2; // still the same month in practice for this fixed instant
-        record(&s, day1, Some(50)).unwrap();
-        record(&s, day2, Some(30)).unwrap();
+        record(&s, day1, "claude", Some(50)).unwrap();
+        record(&s, day2, "claude", Some(30)).unwrap();
         let r = load(&s).unwrap();
-        assert_eq!((r.day_calls, r.day_tokens), (1, 30), "the day bucket rolled over");
-        assert_eq!((r.month_calls, r.month_tokens), (2, 80), "the month bucket did not");
+        let claude = &r.by_provider["claude"];
+        assert_eq!((claude.day_calls, claude.day_tokens), (1, 30), "the day bucket rolled over");
+        assert_eq!((claude.month_calls, claude.month_tokens), (2, 80), "the month bucket did not");
     }
 
     #[test]

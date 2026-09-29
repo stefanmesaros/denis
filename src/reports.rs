@@ -220,7 +220,7 @@ fn ai_security_summary(store: &dyn Store, data: &crate::report::ReportData, now:
     let prompt = crate::ai::security_report_prompt(data.days, data.devices.len(), new_devices, &by_severity, data.findings.len(), data.accepted.len(), &highlights);
     match crate::ai::write_security_report(&cfg, &cfg.default_provider, &prompt) {
         Ok((text, tokens)) => {
-            if let Err(e) = crate::ai_usage::record(store, now, tokens) {
+            if let Err(e) = crate::ai_usage::record(store, now, &cfg.default_provider, tokens) {
                 tracing::error!("AI usage record failed: {e:#}");
             }
             Some(text)
