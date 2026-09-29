@@ -1609,11 +1609,11 @@ $('ai-save').onclick = async () => {
   if (r.ok) { loadAiBox(); loadAiStatus(); }
 };
 
-const CMDB_SOURCE_LABEL = (source) => (source === 'intune' ? tr('Intune') : source === 'ad' ? tr('Active Directory') : source === 'jamf' ? tr('Jamf Pro') : source === 'azure' ? tr('Azure') : tr('Entra ID'));
+const CMDB_SOURCE_LABEL = (source) => (source === 'intune' ? tr('Intune') : source === 'ad' ? tr('Active Directory') : source === 'jamf' ? tr('Jamf Pro') : source === 'azure' ? tr('Azure') : source === 'aws' ? tr('AWS') : tr('Entra ID'));
 
 async function loadCmdbBox() {
   if (!can('admin')) return;
-  const [s, a, j, z, d] = await Promise.all([api('GET', '/api/cmdb/settings'), api('GET', '/api/ad/settings'), api('GET', '/api/jamf/settings'), api('GET', '/api/azure/settings'), api('GET', '/api/cmdb/devices')]);
+  const [s, a, j, z, w, d] = await Promise.all([api('GET', '/api/cmdb/settings'), api('GET', '/api/ad/settings'), api('GET', '/api/jamf/settings'), api('GET', '/api/azure/settings'), api('GET', '/api/aws/settings'), api('GET', '/api/cmdb/devices')]);
   if (s.ok) {
     $('cmdb-enabled').checked = s.json.enabled;
     $('cmdb-tenant').value = s.json.tenant_id || '';
@@ -1652,6 +1652,15 @@ async function loadCmdbBox() {
     $('azure-client-secret').value = '';
     $('azure-client-secret').placeholder = z.json.client_secret_set ? tr('(unchanged)') : '';
     $('azure-secret-status').textContent = z.json.client_secret_set ? tr('A client secret is saved.') : tr('No client secret saved yet.');
+  }
+  if (w.ok) {
+    $('aws-enabled').checked = w.json.enabled;
+    $('aws-access-key-id').value = w.json.access_key_id || '';
+    $('aws-region').value = w.json.region || '';
+    $('aws-interval').value = w.json.sync_interval_hours || 24;
+    $('aws-secret-access-key').value = '';
+    $('aws-secret-access-key').placeholder = w.json.secret_access_key_set ? tr('(unchanged)') : '';
+    $('aws-secret-status').textContent = w.json.secret_access_key_set ? tr('A secret access key is saved.') : tr('No secret access key saved yet.');
   }
   $('cmdb-devices').replaceChildren(...(d.ok ? d.json : []).map((dev) => {
     const asset = dev.matched_asset_id != null ? assetById(dev.matched_asset_id) : null;
@@ -1746,6 +1755,25 @@ $('azure-sync').onclick = async () => {
   const r = await api('POST', '/api/azure/sync');
   $('azure-sync').disabled = false;
   $('azure-msg').textContent = r.ok && r.json.ok ? tr('Imported {n} device(s).', { n: r.json.imported }) : (r.ok ? r.json.error : apiError(r));
+  if (r.ok && r.json.ok) loadCmdbBox();
+};
+$('aws-save').onclick = async () => {
+  const r = await api('PUT', '/api/aws/settings', {
+    enabled: $('aws-enabled').checked,
+    access_key_id: $('aws-access-key-id').value.trim(),
+    region: $('aws-region').value.trim(),
+    sync_interval_hours: Number($('aws-interval').value) || 24,
+    secret_access_key: $('aws-secret-access-key').value,
+  });
+  $('aws-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
+  if (r.ok) loadCmdbBox();
+};
+$('aws-sync').onclick = async () => {
+  $('aws-sync').disabled = true;
+  $('aws-msg').textContent = tr('Syncing…');
+  const r = await api('POST', '/api/aws/sync');
+  $('aws-sync').disabled = false;
+  $('aws-msg').textContent = r.ok && r.json.ok ? tr('Imported {n} device(s).', { n: r.json.imported }) : (r.ok ? r.json.error : apiError(r));
   if (r.ok && r.json.ok) loadCmdbBox();
 };
 

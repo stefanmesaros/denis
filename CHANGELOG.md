@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.50.0: Cloud asset discovery: AWS EC2 instances
+
+* **Pulls EC2 instance inventory from one AWS region** (Settings → Integrations → CMDB import →
+  AWS) via the EC2 `DescribeInstances` API, and cross-references it into the same shared device
+  list as Entra ID/Intune/Active Directory/Jamf Pro/Azure — matched by hostname (the instance's
+  `Name` tag, falling back to its instance id when unset), shown as extra context, nothing ever
+  written back.
+* **A third, genuinely different authorization model** from both Azure (OAuth2 client-credentials
+  bearer token) and Entra ID/Intune/Jamf (also bearer tokens): AWS has no bearer-token concept for
+  its own APIs at all. Every request is signed from scratch with AWS Signature Version 4, using a
+  long-lived IAM access key id/secret access key pair — no token exchange, no expiry to refresh.
+  The IAM policy attached to that key (`ec2:DescribeInstances`, read-only, is enough) is what
+  limits what it can see.
+* Implemented the SigV4 canonical-request/signing-key chain with `ring`'s existing HMAC-SHA256
+  (already a dependency for TOTP) rather than a new crate, and a small nesting-aware XML tag
+  extractor for `DescribeInstances`' response (EC2's API is XML, not JSON, unlike every other CMDB
+  source here) rather than pulling in a full XML parsing crate for one read-only, well-known-shape
+  call.
+* Verified end to end against the real EC2 endpoint (a fake access key gets a genuine HTTP 401
+  back, confirming the SigV4-signed request reaches and is understood by the real API) but not yet
+  against a real AWS account with real EC2 instances — see CMDB.md for exactly what is and isn't
+  verified.
+* GCP is not yet covered — AWS and Azure were picked first per the "narrowest useful slice first"
+  discipline every CMDB source here follows.
+
 ## 2.49.0: Cloud asset discovery: Azure virtual machines
 
 * **Pulls virtual machine inventory from an Azure subscription** (Settings → Integrations → CMDB

@@ -1,4 +1,4 @@
-# CMDB import (Microsoft Entra ID, Intune, Active Directory, Jamf Pro, and Azure)
+# CMDB import (Microsoft Entra ID, Intune, Active Directory, Jamf Pro, Azure, and AWS)
 
 What DENIS supports, what was actually verified, and what still needs a real tenant to confirm —
 written with the same honesty bar as [SSO.md](SSO.md) and [WINDOWS.md](WINDOWS.md): if something
@@ -15,7 +15,7 @@ OS version, join/enrollment type, compliance state, when the source last saw it)
 merged into or treated as authoritative over a device's own fingerprinted identity, and nothing is
 ever written back to Entra ID or Intune. Import is entirely read-only and one-directional.
 
-Five sources, five independent settings sections:
+Six sources, six independent settings sections:
 
 * **Entra ID device objects** (`Device.Read.All` application permission) — always, once enabled,
   via one app registration (client ID + secret).
@@ -46,13 +46,27 @@ Five sources, five independent settings sections:
   machines only (not storage, databases or other resource types) — same "narrowest useful slice
   first" choice as every source above. `src/azure_cloud.rs`, same `ureq`-based HTTPS client as the
   Graph/Jamf sources.
+* **AWS EC2 instances** (ROADMAP.md's "Cloud asset discovery", second of AWS/Azure/GCP) — a third
+  distinct authorization model again: AWS has no OAuth2/bearer-token concept for its own APIs at
+  all. Every request is signed with **AWS Signature Version 4** using a long-lived IAM access
+  key id/secret access key pair — no token exchange, no expiry, no separate scope; the IAM policy
+  attached to that access key (`ec2:DescribeInstances`, read-only, is enough) is what limits what
+  it can see, the role Azure's RBAC role and Entra ID's application permission play for their own
+  APIs. Scoped to one AWS region per sync, EC2 instances only (not RDS, S3 or other resource
+  types) — same "narrowest useful slice first" choice as every source above. Matched by hostname
+  using the instance's `Name` tag (EC2 has no dedicated hostname field of its own the way an Azure
+  VM resource has a `name`), falling back to the instance id when no `Name` tag is set — that
+  fallback device is still listed, it simply never matches anything by hostname.
+  `src/aws_cloud.rs`, same `ureq`-based HTTPS client as the other sources, with a small hand-rolled
+  SigV4 signer and XML-response reader (EC2's API is XML, not JSON, unlike every other source
+  here) rather than pulling in the full AWS SDK for one read-only call.
 
-All five write into the same imported-device list, each row tagged with which source it came
-from (`entra`/`intune`/`ad`/`jamf`/`azure`) and keyed `<source>:<id>` so the different ID spaces —
-two different Graph GUID spaces, an LDAP distinguished name, a Jamf computer id, and an Azure
-resource id — can never collide even for what is the same physical device. Each source's own sync
-only prunes its own source's rows: no source's sync can ever delete a device another source
-imported, even though each runs on its own independent schedule.
+All six write into the same imported-device list, each row tagged with which source it came
+from (`entra`/`intune`/`ad`/`jamf`/`azure`/`aws`) and keyed `<source>:<id>` so the different ID
+spaces — two different Graph GUID spaces, an LDAP distinguished name, a Jamf computer id, an Azure
+resource id, and an EC2 instance id — can never collide even for what is the same physical device.
+Each source's own sync only prunes its own source's rows: no source's sync can ever delete a
+device another source imported, even though each runs on its own independent schedule.
 
 ## What was actually built and verified
 
@@ -117,18 +131,38 @@ imported, even though each runs on its own independent schedule.
   sync's own pruning is proven to leave the other four sources' rows untouched. The web layer's
   permissions and secret redaction are tested the same way as the other four sources.
 
+* `src/aws_cloud.rs` implements AWS Signature Version 4 request signing from scratch (the
+  canonical-request/string-to-sign/derived-signing-key chain AWS's own algorithm reference
+  describes, using `ring`'s existing HMAC-SHA256 — already a dependency for TOTP in this codebase),
+  a small nesting-aware XML tag extractor for `DescribeInstances`' response (no XML crate
+  dependency was pulled in for one read-only, well-known-shape call), `NextToken`-based pagination
+  (capped at 50 pages, same reasoning as every other source's own page cap), the
+  hostname-matching/upsert/prune logic, and its own periodic background job. Settings and the
+  secret access key round-trip and default to off; `sync_now` refuses cleanly when disabled or
+  unconfigured (missing access key id/region, missing secret); the XML extractor is proven against
+  a real `DescribeInstances`-shaped fixture including nested `reservationSet`/`instancesSet`/
+  `tagSet` blocks that reuse the generic `item` tag at every nesting level (the case a naive,
+  non-nesting-aware string scan would silently mis-split); an instance with no `Name` tag falls
+  back to its instance id; `NextToken` is read when present; the SigV4 canonical-query-string
+  encoder is proven against AWS's own reserved-character rules; an AWS sync's own pruning is proven
+  to leave the other five sources' rows untouched. The web layer's permissions and secret
+  redaction are tested the same way as the other five sources.
+
 ## What is *not* yet verified
 
 * **The actual exchange with a real Entra ID tenant, a real Intune enrollment, a real Active
-  Directory domain controller, a real Jamf Pro instance, and a real Azure subscription have not
-  been run.** Token fetch, Graph pagination against a tenant large enough to actually paginate, the
-  real JSON shape Graph returns for `/devices` and `/deviceManagement/managedDevices`, the real
-  LDAP bind/search/attribute shape a genuine domain controller returns, the real JSON shape (and
-  exact field names) a genuine Jamf Pro instance's `computers-inventory` endpoint returns, and the
-  real Resource Graph response shape (and whether the RBAC-role-not-Graph-permission authorization
-  model actually works the way Microsoft's docs describe) a genuine Azure subscription returns,
-  have not been exercised end to end against the genuine services — only against hand-written
-  JSON/attribute fixtures matching each provider's documented shape. Everything above this point is
+  Directory domain controller, a real Jamf Pro instance, a real Azure subscription, and a real AWS
+  account have not been run.** Token fetch, Graph pagination against a tenant large enough to
+  actually paginate, the real JSON shape Graph returns for `/devices` and
+  `/deviceManagement/managedDevices`, the real LDAP bind/search/attribute shape a genuine domain
+  controller returns, the real JSON shape (and exact field names) a genuine Jamf Pro instance's
+  `computers-inventory` endpoint returns, the real Resource Graph response shape (and whether the
+  RBAC-role-not-Graph-permission authorization model actually works the way Microsoft's docs
+  describe) a genuine Azure subscription returns, and the real `DescribeInstances` XML response
+  shape (and whether the hand-rolled SigV4 signer is byte-for-byte correct against AWS's actual
+  verification, not just against the algorithm reference) a genuine AWS account returns, have not
+  been exercised end to end against the genuine services — only against hand-written JSON/XML/
+  attribute fixtures matching each provider's documented shape. Everything above this point is
   verified; this specific path is not, and should not be treated as working until it is.
 * No mock Graph server, mock LDAP server or mock Jamf Pro server was built for this pass, for the
   same reason none was built for SSO: a correct one is itself real work, and doing it under time
@@ -161,10 +195,18 @@ imported, even though each runs on its own independent schedule.
   rather than at token issuance — the token still succeeds without the role, only the query does
   not). The exact KQL query and JSON field names (`osType`, `powerState`) follow Azure Resource
   Graph's published reference but have not been confirmed against a real response body.
+* Recommended before relying on AWS: an IAM user or role with only `ec2:DescribeInstances`
+  attached (not an administrator's own credentials), and confirm a full sync against a real
+  account — including that a wrong/revoked access key, an access key without the required
+  permission, and an empty or wrong region are each refused with a clear, distinguishable error.
+  Signature errors from a genuinely incorrect SigV4 implementation and a merely-wrong credential
+  both surface as an HTTP 401/403 from EC2 — this codebase has not yet confirmed which one a real
+  mistake in the signer itself would actually produce, only that a deliberately wrong credential
+  against the real endpoint produces the expected-shaped rejection.
 
 ## Configuration
 
-Settings → Integrations → CMDB import (admin only), five independent sections:
+Settings → Integrations → CMDB import (admin only), six independent sections:
 
 * **Entra ID / Intune**: enable, tenant ID, client (application) ID, client secret, sync interval
   (1 hour to 30 days), and the "Also import Intune managed devices" checkbox.
@@ -174,6 +216,7 @@ Settings → Integrations → CMDB import (admin only), five independent section
   secret, sync interval.
 * **Azure**: enable, tenant ID, client (application) ID, client secret, subscription ID, sync
   interval.
+* **AWS**: enable, access key ID, secret access key, region, sync interval.
 
 Each has its own "Sync now" to run one immediately instead of waiting for the schedule, and all
-five feed the one shared imported-device list below. Nothing here needs a restart.
+six feed the one shared imported-device list below. Nothing here needs a restart.

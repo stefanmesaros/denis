@@ -699,6 +699,19 @@
           </div>
           <p class="muted small" id="azure-secret-status"></p>
           <div class="row"><button id="azure-save" type="button" class="primary">Save</button><button id="azure-sync" type="button">Sync now</button><span id="azure-msg" class="muted"></span></div>
+          <h4 class="section">AWS (cloud asset discovery)</h4>
+          <p class="muted">Pulls EC2 instance inventory from one AWS region via the EC2 API, signed with an IAM access key that only needs a read-only <code>ec2:DescribeInstances</code> permission, and cross-references it the same way — matched by hostname (its <code>Name</code> tag), shown as extra context, nothing ever written back.</p>
+          <label class="check"><input id="aws-enabled" type="checkbox"> Enabled</label>
+          <div class="row">
+            <label>Access key ID<input id="aws-access-key-id" placeholder="AKIAIOSFODNN7EXAMPLE"></label>
+            <label>Secret access key<input id="aws-secret-access-key" type="password" autocomplete="off"></label>
+            <label>Region<input id="aws-region" placeholder="eu-central-1"></label>
+          </div>
+          <div class="row">
+            <label>Sync every<span class="row"><input id="aws-interval" type="number" min="1" max="720" value="24"> hours</span></label>
+          </div>
+          <p class="muted small" id="aws-secret-status"></p>
+          <div class="row"><button id="aws-save" type="button" class="primary">Save</button><button id="aws-sync" type="button">Sync now</button><span id="aws-msg" class="muted"></span></div>
           <h4 class="section">Imported devices</h4>
           <div id="cmdb-devices"></div>
         </div>

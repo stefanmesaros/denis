@@ -1,0 +1,14 @@
+# Settings -> Integrations -> CMDB import -> AWS (cloud asset discovery) - ui/index.html's
+# aws-* fields, ui/admin.js's loadCmdbBox/aws-save/aws-sync, CMDB_SOURCE_LABEL.
+AWS || AWS || AWS || AWS || AWS
+AWS (cloud asset discovery) || AWS (Cloud-Asset-Erkennung) || AWS (découverte d'actifs cloud) || AWS (descubrimiento de activos en la nube) || AWS (objavovanie cloud aktív)
+Pulls EC2 instance inventory from one AWS region via the EC2 API, signed with an IAM access key that only needs a read-only || Ruft das EC2-Instanzinventar aus einer AWS-Region über die EC2-API ab, signiert mit einem IAM-Zugriffsschlüssel, der nur eine schreibgeschützte || Récupère l'inventaire des instances EC2 d'une région AWS via l'API EC2, signé avec une clé d'accès IAM qui n'a besoin que d'une autorisation en lecture seule || Obtiene el inventario de instancias EC2 de una región de AWS mediante la API de EC2, firmada con una clave de acceso de IAM que solo necesita un permiso de solo lectura || Stiahne inventár EC2 inštancií z jedného regiónu AWS cez EC2 API, podpísaný IAM prístupovým kľúčom, ktorý potrebuje len oprávnenie
+ec2:DescribeInstances || ec2:DescribeInstances || ec2:DescribeInstances || ec2:DescribeInstances || ec2:DescribeInstances
+permission, and cross-references it the same way — matched by hostname (its || -Berechtigung, und gleicht es auf die gleiche Weise ab — nach Hostname zugeordnet (seinem || permission, et le recoupe de la même manière — associé par nom d'hôte (son tag || permiso, y lo contrasta de la misma manera — asociado por nombre de host (su etiqueta || na čítanie, a rovnakým spôsobom ho porovná — spárované podľa hostname (jeho značky
+tag), shown as extra context, nothing ever written back. || -Tag), als zusätzlicher Kontext angezeigt, es wird nie etwas zurückgeschrieben. || ), affiché comme contexte supplémentaire, rien n'est jamais réécrit. || ), mostrado como contexto adicional, nunca se escribe nada de vuelta. || ), zobrazené ako doplnkový kontext, nikdy sa nič nezapisuje späť.
+AKIAIOSFODNN7EXAMPLE || AKIAIOSFODNN7EXAMPLE || AKIAIOSFODNN7EXAMPLE || AKIAIOSFODNN7EXAMPLE || AKIAIOSFODNN7EXAMPLE
+eu-central-1 || eu-central-1 || eu-central-1 || eu-central-1 || eu-central-1
+Access key ID || Zugriffsschlüssel-ID || ID de clé d'accès || ID de clave de acceso || ID prístupového kľúča
+Secret access key || Geheimer Zugriffsschlüssel || Clé d'accès secrète || Clave de acceso secreta || Tajný prístupový kľúč
+A secret access key is saved. || Ein geheimer Zugriffsschlüssel ist gespeichert. || Une clé d'accès secrète est enregistrée. || Se ha guardado una clave de acceso secreta. || Tajný prístupový kľúč je uložený.
+No secret access key saved yet. || Noch kein geheimer Zugriffsschlüssel gespeichert. || Aucune clé d'accès secrète enregistrée pour le moment. || Aún no se ha guardado ninguna clave de acceso secreta. || Zatiaľ nie je uložený žiadny tajný prístupový kľúč.
