@@ -129,7 +129,7 @@ pub fn assess_with(a: &Asset, alerts: &[&Event], now: i64, criticality: Option<&
         let decay = (1.0 - age_days / 14.0).max(0.0);
         let (weight, bucket) = match e.kind.as_str() {
             "arp_conflict" | "arp_mismatch" | "ndp_mismatch" => (0.6, &mut serious),
-            "ot_control_command" | "ot_internet_exposure" | "threat_list_match" | "rogue_dhcp" => (0.6, &mut serious),
+            "ot_control_command" | "ot_internet_exposure" | "threat_list_match" | "rogue_dhcp" | "rogue_ra" => (0.6, &mut serious),
             "ot_purdue_skip" | "ot_unexpected_writer" => (0.4, &mut serious),
             "volume_anomaly" | "new_port" | "device_silent" | "agent_offline" | "ot_new_conversation" => (0.35, &mut serious),
             _ => (0.25, &mut noisy),

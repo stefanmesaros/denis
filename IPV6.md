@@ -95,21 +95,28 @@ asking for it):**
   now reported as `ndp_mismatch` instead of silently dropped — the IPv6 counterpart of
   `arp_mismatch`, same trust reasoning, same "a disagreement carries no binding, only a signal".
   Deliberately narrower than IPv4's combined `arp_conflict`/`arp_mismatch` handling: no
-  conflict/gateway escalation (that is item 4 below, a materially different signal — a Router
-  Advertisement, not NDP — and still not built), no repeated-claimant burst cap (nothing yet raises
-  enough distinct claims for one to matter). A new parallel type (`model::SignalV6`,
-  `Report.signals_v6`, `Reporter::spool_signals_v6`, `Detector::ingest_signals_v6`), not a widened
-  `Signal`, same "parallel, not merged" reasoning as `ip_history`/`ipv6_history` and
-  `FlowRecord`/`FlowRecordV6` throughout this document. Folds into `new_destination_v6`'s own
-  weight (the only IPv6-specific weight knob that exists yet), the same shortcut `arp_mismatch`
-  takes with `arp_conflict`'s.
+  repeated-claimant burst cap (nothing yet raises enough distinct claims for one to matter). A new
+  parallel type (`model::SignalV6`, `Report.signals_v6`, `Reporter::spool_signals_v6`,
+  `Detector::ingest_signals_v6`), not a widened `Signal`, same "parallel, not merged" reasoning as
+  `ip_history`/`ipv6_history` and `FlowRecord`/`FlowRecordV6` throughout this document. Folds into
+  `new_destination_v6`'s own weight (the only IPv6-specific weight knob that exists yet), the same
+  shortcut `arp_mismatch` takes with `arp_conflict`'s.
+* **`rogue_ra` (2026-09-29, item 4 below's gateway-claim half, also built speculatively).** A
+  device that was not sending IPv6 Router Advertisements during the learning period starts sending
+  them — reported once, remembered across restarts, same shape as the existing `rogue_dhcp` (which
+  it folds its own weight into). Required first fixing a real bug found while scoping this:
+  `ipv6::parse_icmpv6` mapped both Router Solicitation (133, no claim of its own) and Router
+  Advertisement (134, the actual claim) to the same variant, so a solicitation would have been
+  treated as a gateway claim too — now only 134 is. The address-conflict half of item 4 is still
+  not done, deliberately: SLAAC/DAD already prevent most of what IPv4's `arp_conflict` catches, so
+  it stays the lower-value, not-yet-justified half.
 * **Deliberately out of scope still** (each a real, separate piece of work): no rotation-burst
   suppression or `new_port` rule for IPv6 yet (the IPv4 versions exist because of real alert-noise
   data this project doesn't have for IPv6 yet — a CDN/relay that hands out a fresh IPv6 address per
   session may currently repeat-alert more than its IPv4 counterpart would); no OT protocol decoding
   over IPv6 (no `parse_ot_v6`); the threat list and network watches (`it_watch`) are still
   IPv4-address-shaped and do not see IPv6 flows; `lan_scan`'s breadth-based logic has not been
-  ported; no IPv6 conflict/gateway-claim detection.
+  ported; no IPv6 *address*-conflict detection (see `rogue_ra` above for why).
 
 **Not done, and why each is its own step, not a detail of the others:**
 
@@ -126,29 +133,32 @@ asking for it):**
    several need real alert-noise or incident data this project does not have yet for IPv6, the same
    bar the IPv4 rotation-burst fix itself was held to (see the v2.20.0 roadmap entry).
 3. ~~No NDP equivalent of `arp_mismatch`.~~ Done (2026-09-29) — see above.
-4. **No IPv6 conflict/gateway-claim detection.** `Inventory::check_conflict` and `is_gateway` are
-   IPv4-`by_ip`-keyed; an IPv6 analogue (a Router Advertisement is the gateway signal, not ARP/DHCP)
-   is new mechanism, not a type-widen, and is meaningfully lower-value than IPv4's version since
-   IPv6 address conflicts are rare by design (SLAAC/DAD already prevent most of what IPv4's
-   `arp_conflict` catches).
+4. ~~No IPv6 gateway-claim detection~~ — done (2026-09-29, `rogue_ra`, see above). Address-conflict
+   detection (`Inventory::check_conflict`/`is_gateway`'s IPv4-`by_ip`-keyed logic, an IPv6 analogue
+   of which would be new mechanism, not a type-widen) stays undone: meaningfully lower-value than
+   IPv4's version since IPv6 address conflicts are rare by design (SLAAC/DAD already prevent most
+   of what IPv4's `arp_conflict` catches).
 
 ## Suggested order
 
 (1) is the largest remaining piece and the only one that changes discovery's own reach (finding a
 device nobody has seen yet); do it once genuine dual-stack live-network verification is possible
 (see ROADMAP.md), not against hand-built frames alone, given how much more this touches (multicast
-group membership, raw sockets) than anything active/passive so far. (2), (3) and (4) all explicitly
-want real alert-noise or incident data to design well, the same bar already held elsewhere in this
-project — none of them should be invented speculatively just to claim completeness.
+group membership, raw sockets) than anything active/passive so far. (2) still explicitly wants real
+alert-noise or incident data to design well, the same bar already held elsewhere in this project —
+it should not be invented speculatively just to claim completeness. (3) and (4)'s gateway-claim
+half were built speculatively anyway, on explicit instruction overriding that default bar — an
+exception recorded where each is described above, not a change to the bar itself.
 
 ## What this is not
 
 This is not a claim that DENIS has full IPv6 support. Passive device discovery, IPv6 flow
 accounting with one detection rule (`new_destination_v6`), remote-agent reporting, an active
-liveness check for already-known addresses, and CSV/API exposure all work, opt-in, verified with
+liveness check for already-known addresses, CSV/API exposure, an NDP-mismatch signal
+(`ndp_mismatch`), and a gateway-claim signal (`rogue_ra`) all work, opt-in, verified with
 hand-built frames and (for the master/agent and API paths) real integration tests — not yet a
 genuine dual-stack network, see ROADMAP.md's "Verification still owed". What is left: full
 active discovery of brand-new addresses, rule parity with IPv4 (rotation-burst, `new_port`,
-OT-over-IPv6, the threat list, network watches, `lan_scan`), an NDP-mismatch signal, and IPv6
-conflict/gateway detection — the last three of which need real incident data to design well, not
-just effort.
+OT-over-IPv6, the threat list, network watches, `lan_scan`), and IPv6 address-conflict detection
+(deliberately left out — see item 4 above) — rule parity still needs real incident data to design
+well, not just effort.

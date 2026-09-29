@@ -70,6 +70,13 @@ with its own Ethernet source. Score 45, folded into `new_destination_v6`'s own w
 of its own, the same shortcut `arp_mismatch` takes with `arp_conflict`'s weight). At most one alert per
 claimant/address pair per cooldown window.
 
+### `rogue_ra`: an unrecognised IPv6 router *(opt-in, `--ipv6`; see IPV6.md in the repository)*
+`rogue_dhcp`'s IPv6 twin, same shape: a device that was not sending IPv6 Router Advertisements during the
+learning period starts sending them — a rogue router can redirect every IPv6-capable device's traffic through
+itself. Score 70, folded into `rogue_dhcp`'s own weight. Reported once per new router, remembered across
+restarts (`router_advertisers_v6`). Does not cover IPv6 address conflicts (rare by design under SLAAC/DAD,
+deliberately left out — see IPV6.md).
+
 ### `device_silent` / `agent_offline`: a reliable device disappeared
 A device that was online in ≥90% of hours over the last week (and observed ≥48 h) has not been seen for
 `--silent-minutes` (default 120). Score 45, +15 for routers/NAS/servers/cameras, +10 if it was essentially

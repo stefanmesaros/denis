@@ -90,7 +90,11 @@ pub enum Icmpv6 {
     /// carrying it is present (it usually is).
     NeighborAdvertisement { target: Ipv6Addr, source_link_layer: Option<[u8; 6]> },
     /// A router announcing itself: the IPv6 equivalent of noticing something answer as a DHCP/ARP
-    /// gateway would on IPv4. Sent from the router's own link-local address (`Ipv6Header::src`).
+    /// gateway would on IPv4. Sent from the router's own link-local address (`Ipv6Header::src`);
+    /// the claimed router's MAC is the frame's own Ethernet source, the same trust bar every other
+    /// NDP message here uses (see `parse::parse_ndp`'s `rogue_ra` handling). Message type 134 only
+    /// — a Router *Solicitation* (133, an ordinary host asking for one) carries no claim of its
+    /// own and is left as `None`, same as any other uninteresting ICMPv6 type.
     RouterAdvertisement,
     /// A reply to an active liveness ping (`active::icmp_sweep_v6`): the address that answered is
     /// `Ipv6Header::src` itself, not a field of this message (unlike Neighbor Advertisement's
@@ -105,8 +109,7 @@ pub fn parse_icmpv6(data: &[u8]) -> Option<Icmpv6> {
     let ty = *data.first()?;
     match ty {
         129 => Some(Icmpv6::EchoReply),
-        133 => Some(Icmpv6::RouterAdvertisement), // Router Solicitation is not itself interesting
-        134 => Some(Icmpv6::RouterAdvertisement),
+        134 => Some(Icmpv6::RouterAdvertisement), // Router Solicitation (133) carries no claim, left as None
         135 => {
             // type(1) code(1) checksum(2) reserved(4) target(16) [options...]
             let target = Ipv6Addr::from(<[u8; 16]>::try_from(data.get(8..24)?).ok()?);
@@ -235,9 +238,9 @@ mod tests {
     }
 
     #[test]
-    fn router_advertisement_and_solicitation_are_recognised() {
+    fn a_router_advertisement_is_recognised_but_a_mere_solicitation_carries_no_claim() {
         assert_eq!(parse_icmpv6(&[134, 0, 0, 0]), Some(Icmpv6::RouterAdvertisement));
-        assert_eq!(parse_icmpv6(&[133, 0, 0, 0]), Some(Icmpv6::RouterAdvertisement));
+        assert_eq!(parse_icmpv6(&[133, 0, 0, 0]), None, "asking for a router is not itself one");
     }
 
     #[test]

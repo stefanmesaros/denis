@@ -396,6 +396,15 @@ fn parse_ndp(eth_src: Mac, p: &[u8], out: &mut Vec<Observation>) {
                 None => {}
             }
         }
+        // RFC 4861 §6.1.2 requires the same hop-limit-255 guarantee for Router Advertisements as
+        // §7.1.1/7.1.2 does for Neighbor Discovery — same trust boundary, same reasoning as above.
+        // The claimed router's MAC is the frame's own Ethernet source, same as every other NDP
+        // message here; unlike Neighbor Advertisement there is no separate link-layer option to
+        // disagree with, so there is no `_mismatch` counterpart for this one (IPV6.md item 4's
+        // gateway-claim half, `rogue_ra`, handled by `Detector::router_advertisement_v6`).
+        ipv6::Icmpv6::RouterAdvertisement if hdr.hop_limit == 255 => {
+            out.push(Observation::SignalV6(crate::model::SignalV6 { kind: "router_advertisement".into(), ts: 0, mac: eth_src, ip: hdr.src, other_mac: None }));
+        }
         // An Echo Reply is not NDP and carries no hop-limit guarantee (an ordinary ping reply is
         // usually TTL 64 or 128, not 255) — it is trusted the same way a flow sample's source
         // address already is: this device's own Ethernet source sent it, on this capture's wire,
@@ -1082,6 +1091,32 @@ mod tests {
         let mut body = vec![135, 0, 0, 0, 0, 0, 0, 0];
         body.extend_from_slice(&target.octets());
         let f = eth([0x33, 0x33, 0, 0, 0, 1], DEV, ETH_IPV6, &ipv6_pkt(255, "fe80::1".parse().unwrap(), "ff02::1".parse().unwrap(), &body));
+        assert!(parse_frame(&ipv6_ctx(), &f).is_empty());
+    }
+
+    #[test]
+    fn a_router_advertisement_is_a_gateway_claim_signal() {
+        let src: std::net::Ipv6Addr = "fe80::1".parse().unwrap();
+        let f = eth([0x00, 0x1b, 0x63, 1, 1, 1], DEV, ETH_IPV6, &ipv6_pkt(255, src, "ff02::1".parse().unwrap(), &[134, 0, 0, 0]));
+        let obs = parse_frame(&ipv6_ctx(), &f);
+        assert!(
+            matches!(obs.as_slice(), [Observation::SignalV6(s)] if s.kind == "router_advertisement" && s.mac.0 == DEV && s.ip == src && s.other_mac.is_none()),
+            "{obs:?}"
+        );
+    }
+
+    #[test]
+    fn a_router_advertisement_forwarded_by_a_router_is_never_trusted() {
+        // same hop-limit-255 requirement as Neighbor Discovery (RFC 4861 6.1.2): a router in the
+        // path would have decremented it.
+        let f = eth([0x00, 0x1b, 0x63, 1, 1, 1], DEV, ETH_IPV6, &ipv6_pkt(64, "fe80::1".parse().unwrap(), "ff02::1".parse().unwrap(), &[134, 0, 0, 0]));
+        assert!(parse_frame(&ipv6_ctx(), &f).is_empty());
+    }
+
+    #[test]
+    fn a_router_solicitation_claims_no_gateway_binding() {
+        // Solicitations ask for a router, they are not themselves one.
+        let f = eth([0x33, 0x33, 0, 0, 0, 2], DEV, ETH_IPV6, &ipv6_pkt(255, "fe80::1".parse().unwrap(), "ff02::2".parse().unwrap(), &[133, 0, 0, 0]));
         assert!(parse_frame(&ipv6_ctx(), &f).is_empty());
     }
 

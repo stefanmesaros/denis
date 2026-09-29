@@ -53,13 +53,14 @@ pub const RULES: &[&str] = &[
 ];
 
 /// Alertable event kinds that are not in `RULES`: each borrows another rule's own weight/min-score
-/// (`arp_mismatch` folds into `RULE_ARP`'s scoring, `agent_offline` into `RULE_SILENT`'s — see where
-/// each is raised in `Detector`) rather than being independently configurable, so they have no
+/// (`arp_mismatch` folds into `RULE_ARP`'s scoring, `agent_offline` into `RULE_SILENT`'s,
+/// `ndp_mismatch` into `RULE_NEW_DESTINATION_V6`'s, `rogue_ra` into `RULE_DHCP`'s — see where each
+/// is raised in `Detector`) rather than being independently configurable, so they have no
 /// `--rule-weight` entry of their own. They are still real alert kinds a device-scoped exception can
 /// name, since `Overrides::excepted` (rules.rs) filters by the raw event kind string regardless of
-/// `RULES` membership — `rules.rs`'s own settings validation must accept these two for `exceptions`
+/// `RULES` membership — `rules.rs`'s own settings validation must accept these for `exceptions`
 /// even though it rejects them for `weights`/`min_scores`, which genuinely only apply to `RULES`.
-pub const EXTRA_ALERTABLE_KINDS: &[&str] = &["arp_mismatch", "agent_offline", "ndp_mismatch"];
+pub const EXTRA_ALERTABLE_KINDS: &[&str] = &["arp_mismatch", "agent_offline", "ndp_mismatch", "rogue_ra"];
 
 /// Every event kind an alert can actually be raised under: `RULES` plus `EXTRA_ALERTABLE_KINDS`.
 pub fn is_alertable_kind(kind: &str) -> bool {
@@ -104,6 +105,7 @@ pub const ADVICE: &[(&str, &str)] = &[
     (RULE_LAN_SCAN, "A device contacted many different addresses, or many different ports on one address, on your own local network in a short time - the signature of a host sweep or port scan, not ordinary traffic. Check what is actually running on the device (a security scanner and a backup or discovery tool can look the same to this rule); if nothing legitimate explains it, isolate the device and investigate it as a likely compromise."),
     (RULE_NEW_DESTINATION_V6, "A device contacted an outside IPv6 address it has never used. The IPv6 counterpart of \"New destination\" - look up the address and decide whether this device has a reason to talk to it; if it is unexpected, check what is running on the device and consider isolating it until you know."),
     ("ndp_mismatch", "A Neighbor Advertisement (IPv6's ARP reply) carried a different hardware address than its Ethernet sender. Some devices and bridges do this legitimately (redundant gateways, load balancers, VMs); a single event is usually harmless. If it repeats, treat it like an ARP mismatch."),
+    ("rogue_ra", "A device you have not seen announcing itself as a router before has started sending IPv6 Router Advertisements. A rogue router can redirect every IPv6-capable device's traffic through itself (a classic IPv6 man-in-the-middle). Find it (its MAC address is in the alert) and unplug it unless you set it up on purpose. Consider RA Guard on managed switches so only trusted ports may advertise as a router."),
 ];
 
 /// What to do about an alert of this kind, if we have advice for it.
@@ -351,6 +353,11 @@ pub struct Detector {
     /// the learning period and kept in the database (`dhcp_servers`).
     dhcp_known: HashMap<Option<String>, HashSet<Mac>>,
     dhcp_loaded: bool,
+    /// The IPv6 analogue of `dhcp_known`/`dhcp_loaded` (IPV6.md item 4's gateway-claim half): MACs
+    /// already seen sending a Router Advertisement, per collector, learned silently during the
+    /// learning period and kept in the database (`router_advertisers_v6`).
+    ra_known_v6: HashMap<Option<String>, HashSet<Mac>>,
+    ra_loaded_v6: bool,
     /// When recent new devices appeared (for `new_device_burst`).
     new_times: VecDeque<i64>,
     burst_until: i64,
@@ -389,6 +396,8 @@ impl Detector {
             lan_scan_log: HashMap::new(),
             dhcp_known: HashMap::new(),
             dhcp_loaded: false,
+            ra_known_v6: HashMap::new(),
+            ra_loaded_v6: false,
             new_times: VecDeque::new(),
             burst_until: 0,
             threat: Default::default(),
@@ -1506,19 +1515,24 @@ impl Detector {
         events
     }
 
-    /// IPv6's counterpart of the `arp_mismatch` half of `ingest_signals` (IPV6.md item 3): a
-    /// Neighbor Advertisement whose Source Link-Layer option disagreed with the frame's own
-    /// Ethernet source, reported instead of silently dropped as `parse_ndp` used to. Deliberately
-    /// narrower than `ingest_signals`: no conflict/gateway-claim escalation (IPV6.md item 4, not
-    /// this one — a Router Advertisement, not NDP, is IPv6's gateway signal, and address conflicts
-    /// are rare by design under SLAAC/DAD), no repeated-claimant burst cap either, since a single
-    /// mismatching claimant is the only case this raises at all so far. Folds into
-    /// `RULE_NEW_DESTINATION_V6`'s own weight rather than getting a dedicated one, the same
-    /// shortcut `arp_mismatch` takes with `RULE_ARP` (see `EXTRA_ALERTABLE_KINDS`'s own doc) —
-    /// the only IPv6-specific weight knob that exists yet.
+    /// IPv6's counterpart of `ingest_signals`, covering both signals IPV6.md's items 3 and 4 name:
+    /// `ndp_mismatch` (item 3, done) — a Neighbor Advertisement whose Source Link-Layer option
+    /// disagreed with the frame's own Ethernet source, reported instead of silently dropped as
+    /// `parse_ndp` used to — and `rogue_ra` (item 4's gateway-claim half, done; the address-conflict
+    /// half stays undone, deliberately: SLAAC/DAD already prevent most of what IPv4's
+    /// `arp_conflict` catches, so IPV6.md judges it meaningfully lower-value). Deliberately narrower
+    /// than `ingest_signals` for the mismatch case: no repeated-claimant burst cap, since a single
+    /// mismatching claimant is the only case that raises it at all so far. `ndp_mismatch` folds into
+    /// `RULE_NEW_DESTINATION_V6`'s own weight rather than getting a dedicated one, the same shortcut
+    /// `arp_mismatch` takes with `RULE_ARP` (see `EXTRA_ALERTABLE_KINDS`'s own doc) — the only
+    /// IPv6-specific weight knob that exists yet.
     pub fn ingest_signals_v6(&mut self, agent: Option<&str>, signals: &[SignalV6], store: &dyn Store, now: i64) -> Vec<Event> {
         let mut events = Vec::new();
         for s in signals {
+            if s.kind == "router_advertisement" {
+                events.extend(self.router_advertisement_v6(agent, s, store, now));
+                continue;
+            }
             let Some(id) = self.asset_id(agent, &s.mac, store) else { continue };
             if self.ndp_cooldown.get(&(id, s.ip)).is_some_and(|until| now < *until) {
                 continue;
@@ -1535,6 +1549,52 @@ impl Detector {
             }
         }
         events
+    }
+
+    /// A Router Advertisement was seen from `s.mac` (IPV6.md item 4's gateway-claim half, `rogue_ra`)
+    /// — the IPv6 equivalent of `dhcp_server` above, same shape: routers seen during the learning
+    /// period are the normal ones, a new one afterwards is reported once. Unlike `dhcp_server` this
+    /// never carries a `gateway` flag of its own (a router announcing itself *is* the gateway claim,
+    /// there is no separate "is this the gateway" question the way a DHCP server's address is).
+    fn router_advertisement_v6(&mut self, agent: Option<&str>, s: &SignalV6, store: &dyn Store, now: i64) -> Option<Event> {
+        if !self.ra_loaded_v6 {
+            self.ra_loaded_v6 = true;
+            let saved: Vec<(String, String)> = store.get_setting("router_advertisers_v6").ok().flatten().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+            for (ag, mac) in saved {
+                if let Ok(m) = mac.parse::<Mac>() {
+                    self.ra_known_v6.entry(Some(ag).filter(|a| !a.is_empty())).or_default().insert(m);
+                }
+            }
+        }
+        let key = agent.map(str::to_string);
+        if self.ra_known_v6.get(&key).is_some_and(|k| k.contains(&s.mac)) {
+            return None;
+        }
+        // Not stored yet: it will be seen again, and judged then.
+        let id = self.asset_id(agent, &s.mac, store)?;
+        self.ra_known_v6.entry(key).or_default().insert(s.mac);
+        let all: Vec<(String, String)> = self
+            .ra_known_v6
+            .iter()
+            .flat_map(|(ag, set)| set.iter().map(move |m| (ag.clone().unwrap_or_default(), m.to_string())))
+            .take(1000)
+            .collect();
+        if let Ok(b) = serde_json::to_vec(&all) {
+            let _ = store.set_setting("router_advertisers_v6", &b, now);
+        }
+        if now - self.learning_start(agent) < self.cfg.learning_secs {
+            return None; // part of the normal picture
+        }
+        let asset = store.get_asset(id).ok().flatten()?;
+        let label = asset_label(&asset);
+        let raw = 70;
+        let why = vec![format!("+70 {label} started announcing itself as an IPv6 router, and was not doing so during the learning period")];
+        let score = self.cfg.weighted(RULE_DHCP, raw);
+        let details = json!({
+            "summary": format!("New IPv6 router: {label} ({}) is advertising itself as a gateway", s.ip),
+            "server_mac": s.mac, "server_ip": s.ip, "reasons": why,
+        });
+        Some(make_event(&asset, "rogue_ra", score, severity_for(score, self.cfg.min_score), details, now))
     }
 
     /// A DHCP reply (offer or acknowledgement) was seen from `s.mac`. Servers seen during the
@@ -2706,6 +2766,36 @@ mod tests {
         assert_eq!(d.ingest_signals_v6(None, std::slice::from_ref(&one), &s, 100).len(), 1);
         assert!(d.ingest_signals_v6(None, std::slice::from_ref(&one), &s, 200).is_empty(), "same claimant+address: cooldown");
         assert_eq!(d.ingest_signals_v6(None, std::slice::from_ref(&one), &s, 100 + 1800).len(), 1);
+    }
+
+    fn ra_sig(mac: Mac, ip: &str) -> SignalV6 {
+        SignalV6 { kind: "router_advertisement".into(), ts: 0, mac, ip: ip.parse().unwrap(), other_mac: None }
+    }
+
+    #[test]
+    fn a_router_advertiser_that_appears_after_learning_is_reported_once_and_remembered_across_restarts() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let (a, b) = (Mac([0x00, 0x1b, 0x63, 0, 1, 1]), Mac([0x00, 0x1b, 0x63, 0, 1, 2]));
+        asset(&s, a, 0);
+        asset(&s, b, 0);
+        let mut d = Detector::new(cfg(), vec![], 0);
+        // during learning the existing router is simply the normal one
+        assert!(d.ingest_signals_v6(None, &[ra_sig(a, "fe80::1")], &s, 20).is_empty());
+        assert!(d.ingest_signals_v6(None, &[ra_sig(a, "fe80::1")], &s, 3000).is_empty(), "still normal later");
+        // a second one after learning: rogue_ra, once
+        let ev = d.ingest_signals_v6(None, &[ra_sig(b, "fe80::2")], &s, 3000);
+        assert_eq!(kinds(&ev), [("rogue_ra", 70)]);
+        assert!(ev[0].raw_details["summary"].as_str().unwrap().contains("fe80::2"));
+        assert!(d.ingest_signals_v6(None, &[ra_sig(b, "fe80::2")], &s, 3100).is_empty(), "told once");
+        // a restarted detector still knows both
+        let mut d2 = Detector::new(cfg(), vec![], 0);
+        assert!(d2.ingest_signals_v6(None, &[ra_sig(a, "fe80::1"), ra_sig(b, "fe80::2")], &s, 9000).is_empty());
+        // an unstored sender is skipped (seen again later), not remembered
+        assert!(d2.ingest_signals_v6(None, &[ra_sig(Mac([9, 9, 9, 9, 9, 9]), "fe80::9")], &s, 9100).is_empty());
+        // folds into RULE_DHCP's own weight
+        let mut off = Detector::new(DetectConfig { weights: [(RULE_DHCP.to_string(), 0.0)].into(), ..cfg() }, vec![], 0);
+        let ev = off.ingest_signals_v6(None, &[ra_sig(b, "fe80::2")], &SqliteStore::open_in_memory().unwrap(), 9000);
+        assert!(ev.is_empty());
     }
 
     // -------------------------------------------------------- device_silent

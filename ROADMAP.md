@@ -59,15 +59,16 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    original scoping — making `cmdb.rs`'s own pruning source-scoped, since it originally assumed it
    was the only writer to the imported-device table and would have deleted Active Directory's rows
    on its own next sync otherwise.
-6. **IPv6 in capture and the asset model.** *(effort: 2/10 remaining)* In progress (2026-09-29): passive
+6. **IPv6 in capture and the asset model.** *(effort: 1/10 remaining)* In progress (2026-09-29): passive
    discovery, flow accounting with a first detection rule, remote-agent reporting, an active
-   liveness check for already-known addresses, CSV/API exposure, and an `ndp_mismatch` signal (the
-   NDP counterpart of `arp_mismatch`, built speculatively rather than waiting for real incident
-   data, on explicit instruction — see IPV6.md) are all done and shipping, opt-in via
-   `--ipv6`/`--ipv6-subnet`. What remains needs either real alert-noise/incident data to design
-   well (rule parity, conflict/gateway detection) or is a materially larger, separate mechanism
-   (full active discovery of brand-new addresses via multicast). Full detailed scoping lives in
-   IPV6.md, not duplicated here, to avoid the two documents drifting out of sync with each other.
+   liveness check for already-known addresses, CSV/API exposure, an `ndp_mismatch` signal (the NDP
+   counterpart of `arp_mismatch`) and a `rogue_ra` signal (IPv6's rogue-gateway counterpart of
+   `rogue_dhcp`) are all done and shipping, opt-in via `--ipv6`/`--ipv6-subnet` — the latter two
+   built speculatively rather than waiting for real incident data, on explicit instruction (see
+   IPV6.md). What remains is rule parity (needs real alert-noise/incident data to design well) and
+   full active discovery of brand-new addresses (a materially larger, separate mechanism via
+   multicast). Full detailed scoping lives in IPV6.md, not duplicated here, to avoid the two
+   documents drifting out of sync with each other.
 7. ~~**CMDB import: Jamf (and similar MDM sources).**~~ Done in v2.29.0 (2026-09-29). Same shape as
    the Entra ID/Intune/Active Directory sources already built (own settings/credentials/schedule,
    own Jamf Pro API client id/secret via OAuth2 client-credentials, upsert into the shared

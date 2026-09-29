@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.45.0: `rogue_ra` — an IPv6 rogue-gateway signal (opt-in)
+
+* **A device that was not sending IPv6 Router Advertisements during the learning period, and
+  starts, is now reported as a `rogue_ra` alert** — the gateway-claim half of IPV6.md item 4, and
+  the IPv6 counterpart of the existing `rogue_dhcp`: a rogue router can redirect every
+  IPv6-capable device's traffic through itself, a classic IPv6 man-in-the-middle. Reported once
+  per new router, remembered across restarts, folded into `rogue_dhcp`'s own weight.
+* Found and fixed while scoping this: `ipv6::parse_icmpv6` mapped a bare Router *Solicitation*
+  (an ordinary host asking "is anyone a router?", no claim of its own) to the same variant as an
+  actual Router *Advertisement* (the real claim) — harmless while nothing read the variant, but
+  would have made a solicitation register as a gateway claim once something did.
+* Address-conflict detection (two IPv6 addresses fighting, IPv4's `arp_conflict` shape) stays
+  deliberately undone: SLAAC/DAD already prevent most of what it would catch, so it remains the
+  lower-value half of item 4 — see IPV6.md.
+* Built speculatively, on explicit instruction, ahead of the real incident data this project's
+  usual bar asks for before a new IPv6 signal — same exception `ndp_mismatch` (v2.44.0) took.
+
 ## 2.44.0: `ndp_mismatch` — an NDP equivalent of `arp_mismatch` (IPv6, opt-in)
 
 * **A Neighbor Advertisement whose Source Link-Layer option disagrees with its own Ethernet
