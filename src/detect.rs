@@ -1991,6 +1991,7 @@ fn make_event(
         severity: severity.into(),
         score,
         acked: false,
+        ack_reason: None,
         raw_details: details,
     }
 }

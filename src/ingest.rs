@@ -664,7 +664,7 @@ mod tests {
             timestamp: 100,
             severity: "high".into(),
             score: 80,
-            acked: false,
+            acked: false, ack_reason: None,
             raw_details: serde_json::json!({"summary": "a new device appeared"}),
         };
         let sync = crate::msp_relay::Sync {

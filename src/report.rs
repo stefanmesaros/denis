@@ -599,7 +599,7 @@ mod tests {
         for (ts, sev, score) in [(now - 3600, "high", 90), (now - 30 * 86_400, "low", 35), (now - 60, "info", 0)] {
             let mut e = Event {
                 id: 0, agent_id: None, asset_id: evil.id, kind: "new_port".into(), timestamp: ts, severity: sev.into(),
-                score, acked: false, raw_details: serde_json::json!({"summary": "<b>x</b>", "reasons": ["+40 r1", "+10 r2"]}),
+                score, acked: false, ack_reason: None, raw_details: serde_json::json!({"summary": "<b>x</b>", "reasons": ["+40 r1", "+10 r2"]}),
             };
             s.insert_event(&mut e).unwrap();
         }

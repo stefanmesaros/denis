@@ -165,7 +165,7 @@ mod tests {
         Event {
             id: 1, agent_id: None, asset_id: 1, kind: kind.into(), timestamp: ts,
             severity: if score >= 30 { "medium".into() } else { "info".into() },
-            score, acked, raw_details: serde_json::json!({}),
+            score, acked, ack_reason: None, raw_details: serde_json::json!({}),
         }
     }
 

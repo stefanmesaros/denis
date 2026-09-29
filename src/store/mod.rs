@@ -171,7 +171,9 @@ pub trait EventStore: Send + Sync {
     /// "has anything new happened" version marker.
     fn latest_alert_id(&self) -> Result<i64>;
     /// Returns false if no such event.
-    fn set_event_acked(&self, id: i64, acked: bool) -> Result<bool>;
+    /// `reason`, if given, is only ever stored when `acked` is true — unacknowledging always
+    /// clears it (an existing reason no longer applies once the alert is open again).
+    fn set_event_acked(&self, id: i64, acked: bool, reason: Option<&str>) -> Result<bool>;
     /// Delete events older than `before`; returns how many. Part of the general data-retention
     /// setting (Settings → Data retention), independent of trend metrics (`prune_metrics`).
     fn prune_events(&self, before: i64) -> Result<usize>;

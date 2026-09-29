@@ -317,7 +317,7 @@ fn event_doc(e: &crate::model::Event, names: &AssetNames) -> Value {
     let (name, ip, mac) = names.describe(e.asset_id);
     json!({
         "_timestamp": e.timestamp * 1_000_000, "ts": e.timestamp,
-        "id": e.id, "kind": e.kind, "severity": e.severity, "score": e.score, "acked": e.acked,
+        "id": e.id, "kind": e.kind, "severity": e.severity, "score": e.score, "acked": e.acked, "ack_reason": e.ack_reason,
         "agent_id": e.agent_id, "asset_id": e.asset_id,
         "asset_name": name, "asset_ip": ip, "asset_mac": mac,
         "summary": e.raw_details["summary"], "details": e.raw_details,
@@ -457,7 +457,7 @@ mod tests {
         s.save_asset(&mut a).unwrap();
         let mut e = Event {
             id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: 1_000, severity: "high".into(), score: 70,
-            acked: false, raw_details: json!({"summary": "port 23 opened"}),
+            acked: false, ack_reason: None, raw_details: json!({"summary": "port 23 opened"}),
         };
         s.insert_event(&mut e).unwrap();
         (s, a.id)
@@ -499,7 +499,7 @@ mod tests {
         sink.sync_once(&s, 5_020).unwrap();
         assert_eq!(count(&f), 1, "nothing new -> nothing resent");
         // a new event is the only thing that goes out next
-        let mut e = Event { id: 0, agent_id: None, asset_id: 1, kind: "volume".into(), timestamp: 2_000, severity: "medium".into(), score: 40, acked: false, raw_details: json!({}) };
+        let mut e = Event { id: 0, agent_id: None, asset_id: 1, kind: "volume".into(), timestamp: 2_000, severity: "medium".into(), score: 40, acked: false, ack_reason: None, raw_details: json!({}) };
         s.insert_event(&mut e).unwrap();
         sink.sync_once(&s, 5_030).unwrap();
         assert_eq!(count(&f), 2);

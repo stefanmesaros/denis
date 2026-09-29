@@ -12,7 +12,7 @@ use super::{
 };
 use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, ReportMeta, RiskAcceptance, User};
 
-const SCHEMA_VERSION: i64 = 17;
+const SCHEMA_VERSION: i64 = 18;
 
 /// Phase 1 schema.
 const V1: &str = "CREATE TABLE assets (
@@ -251,6 +251,11 @@ const V17: &str = "CREATE TABLE cmdb_devices (
         updated_at  INTEGER NOT NULL
      );";
 
+/// An optional classification alongside `acked`: why the alert was acknowledged, not just that it
+/// was. NULL for an alert acknowledged before this existed, or acknowledged without picking one
+/// (still the default, one-click path) — never backfilled or guessed.
+const V18: &str = "ALTER TABLE events ADD COLUMN ack_reason TEXT;";
+
 /// Phase 3.8: API tokens for scripts and integrations.
 const V7: &str = "CREATE TABLE api_tokens (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -347,7 +352,7 @@ impl SqliteStore {
         }
         // Each step runs in its own transaction and bumps user_version, so a
         // crash mid-migration leaves the database at a consistent older version.
-        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13), (14, V14), (15, V15), (16, V16), (17, V17)] {
+        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13), (14, V14), (15, V15), (16, V16), (17, V17), (18, V18)] {
             if version < target {
                 let tx = conn.unchecked_transaction()?;
                 tx.execute_batch(sql)?;
@@ -680,7 +685,7 @@ impl EventStore for SqliteStore {
     fn list_events(&self, q: &EventQuery) -> Result<Vec<Event>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, agent_id, asset_id, type, timestamp, severity, score, acked, raw_details
+            "SELECT id, agent_id, asset_id, type, timestamp, severity, score, acked, raw_details, ack_reason
              FROM events
              WHERE (?1 IS NULL OR asset_id = ?1)
                AND (?2 = 0 OR severity <> 'info')
@@ -700,6 +705,7 @@ impl EventStore for SqliteStore {
                     score: r.get(6)?,
                     acked: r.get(7)?,
                     raw_details: from_json(r, 8)?,
+                    ack_reason: r.get(9)?,
                 })
             },
         )?;
@@ -709,7 +715,7 @@ impl EventStore for SqliteStore {
         let conn = self.conn();
         Ok(conn
             .query_row(
-                "SELECT id, agent_id, asset_id, type, timestamp, severity, score, acked, raw_details FROM events WHERE id = ?1",
+                "SELECT id, agent_id, asset_id, type, timestamp, severity, score, acked, raw_details, ack_reason FROM events WHERE id = ?1",
                 [id],
                 |r| {
                     Ok(Event {
@@ -722,6 +728,7 @@ impl EventStore for SqliteStore {
                         score: r.get(6)?,
                         acked: r.get(7)?,
                         raw_details: from_json(r, 8)?,
+                        ack_reason: r.get(9)?,
                     })
                 },
             )
@@ -730,20 +737,21 @@ impl EventStore for SqliteStore {
     fn events_after(&self, after: i64, limit: usize) -> Result<Vec<Event>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, agent_id, asset_id, type, timestamp, severity, score, acked, raw_details
+            "SELECT id, agent_id, asset_id, type, timestamp, severity, score, acked, raw_details, ack_reason
              FROM events WHERE id > ?1 ORDER BY id LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![after, limit as i64], |r| {
             Ok(Event {
                 id: r.get(0)?, agent_id: r.get(1)?, asset_id: r.get(2)?, kind: r.get(3)?, timestamp: r.get(4)?,
-                severity: r.get(5)?, score: r.get(6)?, acked: r.get(7)?, raw_details: from_json(r, 8)?,
+                severity: r.get(5)?, score: r.get(6)?, acked: r.get(7)?, raw_details: from_json(r, 8)?, ack_reason: r.get(9)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
-    fn set_event_acked(&self, id: i64, acked: bool) -> Result<bool> {
+    fn set_event_acked(&self, id: i64, acked: bool, reason: Option<&str>) -> Result<bool> {
         let conn = self.conn();
-        Ok(conn.execute("UPDATE events SET acked = ?2 WHERE id = ?1", params![id, acked])? == 1)
+        // Unacknowledging clears any reason too: it no longer applies once the alert is open again.
+        Ok(conn.execute("UPDATE events SET acked = ?2, ack_reason = ?3 WHERE id = ?1", params![id, acked, acked.then_some(reason).flatten()])? == 1)
     }
     fn latest_alert_id(&self) -> Result<i64> {
         let conn = self.conn();
@@ -1465,7 +1473,7 @@ mod tests {
     #[test]
     fn ipv6_history_round_trips_and_defaults_to_empty() {
         let store = SqliteStore::open_in_memory().unwrap();
-        assert_eq!(store.stats(false).unwrap().schema_version, 17);
+        assert_eq!(store.stats(false).unwrap().schema_version, 18);
         let mut a = sample();
         assert!(a.ipv6_history.is_empty(), "nothing sets this yet");
         store.save_asset(&mut a).unwrap();
@@ -1573,6 +1581,7 @@ mod tests {
                 severity: if ts == 20 { "medium" } else { "info" }.into(),
                 score: if ts == 20 { 55 } else { 0 },
                 acked: false,
+                ack_reason: None,
                 raw_details: serde_json::json!({"ts": ts}),
             };
             s.insert_event(&mut e).unwrap();
@@ -1587,10 +1596,10 @@ mod tests {
         let alerts = s.list_events(&EventQuery { alerts_only: true, ..q.clone() }).unwrap();
         assert_eq!(alerts.len(), 1);
         assert_eq!((alerts[0].score, alerts[0].acked), (55, false));
-        assert!(s.set_event_acked(alerts[0].id, true).unwrap());
+        assert!(s.set_event_acked(alerts[0].id, true, None).unwrap());
         assert!(s.list_events(&EventQuery { alerts_only: true, unacked_only: true, ..q.clone() }).unwrap().is_empty());
         assert!(s.list_events(&EventQuery { alerts_only: true, ..q }).unwrap()[0].acked);
-        assert!(!s.set_event_acked(9999, true).unwrap());
+        assert!(!s.set_event_acked(9999, true, None).unwrap());
     }
 
     #[test]
@@ -1599,7 +1608,7 @@ mod tests {
         let mut a = sample();
         s.save_asset(&mut a).unwrap();
         for ts in [10, 30, 20] {
-            let mut e = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_device".into(), timestamp: ts, severity: "info".into(), score: 0, acked: false, raw_details: serde_json::json!({}) };
+            let mut e = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_device".into(), timestamp: ts, severity: "info".into(), score: 0, acked: false, ack_reason: None, raw_details: serde_json::json!({}) };
             s.insert_event(&mut e).unwrap();
         }
         assert_eq!(s.prune_events(20).unwrap(), 1, "only the one before the cutoff");

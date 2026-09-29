@@ -1,0 +1,13 @@
+# Acknowledge-with-reason and bulk acknowledge, Alerts page - ui/app.js's reasonSelect/
+# ackWithReasonPrompt/updateBulkAckBar, ui/index.html's #bulk-ack-bar.
+Reason (optional) || Grund (optional) || Raison (facultatif) || Motivo (opcional) || Dôvod (voliteľný)
+reason… || Grund… || raison… || motivo… || dôvod…
+Resolved || Behoben || Résolu || Resuelto || Vyriešené
+False positive || Fehlalarm || Faux positif || Falso positivo || Falošný poplach
+Expected behavior || Erwartetes Verhalten || Comportement attendu || Comportamiento esperado || Očakávané správanie
+Also add an exception so this does not alert again? || Auch eine Ausnahme hinzufügen, damit dies nicht erneut alarmiert? || Ajouter aussi une exception pour que cela n'alerte plus ? || ¿Añadir también una excepción para que esto no vuelva a alertar? || Pridať aj výnimku, aby toto už znova neupozorňovalo?
+{n} alert{s} selected || {n} Alarm{s} ausgewählt || {n} alerte{s} sélectionnée || {n} alerta{s} seleccionada || {n} alert{s} vybraných
+{n} alert{s} acknowledged. || {n} Alarm{s} bestätigt. || {n} alerte{s} confirmée. || {n} alerta{s} confirmada. || {n} alert{s} potvrdených.
+Reason: || Grund: || Raison : || Motivo: || Dôvod:
+(none) || (keiner) || (aucune) || (ninguno) || (žiadny)
+Acknowledge selected || Auswahl bestätigen || Confirmer la sélection || Confirmar seleccionadas || Potvrdiť vybrané

@@ -172,7 +172,7 @@ mod tests {
     }
 
     fn alert(agent: Option<&str>, sev: &str) -> Event {
-        Event { id: 1, agent_id: agent.map(str::to_string), asset_id: 1, kind: "x".into(), timestamp: 0, severity: sev.into(), score: 50, acked: false, raw_details: serde_json::json!({}) }
+        Event { id: 1, agent_id: agent.map(str::to_string), asset_id: 1, kind: "x".into(), timestamp: 0, severity: sev.into(), score: 50, acked: false, ack_reason: None, raw_details: serde_json::json!({}) }
     }
 
     #[test]

@@ -249,6 +249,11 @@ pub struct Event {
     /// noisy rule can be turned down without being disabled.
     pub score: i32,
     pub acked: bool,
+    /// Why it was acknowledged, when whoever did chose one: `resolved`, `false_positive` or
+    /// `expected_behavior` — optional even then (the one-click path with no reason still works),
+    /// and always cleared when an alert is un-acknowledged, since it no longer applies.
+    #[serde(default)]
+    pub ack_reason: Option<String>,
     pub raw_details: serde_json::Value,
 }
 

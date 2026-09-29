@@ -285,7 +285,7 @@ mod tests {
         assert_eq!(d, 1, "a real change is sent");
 
         // an alert: sent once, not again on the next cycle (cursor moved)
-        let mut ev = Event { id: 0, agent_id: None, asset_id: a1.id, kind: "new_device".into(), timestamp: 400, severity: "high".into(), score: 80, acked: false, raw_details: serde_json::json!({}) };
+        let mut ev = Event { id: 0, agent_id: None, asset_id: a1.id, kind: "new_device".into(), timestamp: 400, severity: "high".into(), score: 80, acked: false, ack_reason: None, raw_details: serde_json::json!({}) };
         store.insert_event(&mut ev).unwrap();
         let (_, e) = relay.sync_once(&store, 500).unwrap();
         assert_eq!(e, 1);

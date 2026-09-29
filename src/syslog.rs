@@ -852,7 +852,7 @@ mod tests {
     use serde_json::json;
 
     fn event(kind: &str, sev: &str, score: i32, summary: &str) -> Event {
-        Event { id: 7, agent_id: None, asset_id: 1, kind: kind.into(), timestamp: 1_789_933_092, severity: sev.into(), score, acked: false, raw_details: json!({"summary": summary, "reasons": ["+40 a", "+20 b"]}) }
+        Event { id: 7, agent_id: None, asset_id: 1, kind: kind.into(), timestamp: 1_789_933_092, severity: sev.into(), score, acked: false, ack_reason: None, raw_details: json!({"summary": summary, "reasons": ["+40 a", "+20 b"]}) }
     }
 
     #[test]

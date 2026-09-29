@@ -81,6 +81,7 @@ fn event(a: &Asset, kind: &str, severity: &str, score: i32, summary: String, acc
         severity: severity.into(),
         score,
         acked: false,
+        ack_reason: None,
         raw_details: serde_json::json!({
             "summary": summary,
             "finding": acc.finding_id,

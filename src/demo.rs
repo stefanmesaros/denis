@@ -285,7 +285,7 @@ pub fn load(store: &dyn Store, now: i64) -> Result<Loaded> {
         if let (Some(d), Some(x)) = (details.as_object_mut(), extra.as_object()) {
             d.extend(x.clone());
         }
-        let mut e = Event { id: 0, agent_id: Some(HQ.into()), asset_id: b.id(asset), kind: kind.into(), timestamp: now - ago_min * 60, severity: crate::detect::severity_for(score, 30).into(), score, acked, raw_details: details };
+        let mut e = Event { id: 0, agent_id: Some(HQ.into()), asset_id: b.id(asset), kind: kind.into(), timestamp: now - ago_min * 60, severity: crate::detect::severity_for(score, 30).into(), score, acked, ack_reason: None, raw_details: details };
         store.insert_event(&mut e)?;
         events += 1;
         Ok(())

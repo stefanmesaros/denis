@@ -109,6 +109,7 @@ fn event_for(store: &Arc<dyn Store>, stage: &Stage, own_mac: Mac, now: i64) -> O
         severity: severity.into(),
         score,
         acked: false,
+        ack_reason: None,
         raw_details: serde_json::json!({ "summary": summary }),
     })
 }

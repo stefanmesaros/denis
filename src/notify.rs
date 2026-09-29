@@ -145,7 +145,7 @@ mod tests {
     fn event(score: i32) -> Event {
         Event {
             id: 1, agent_id: None, asset_id: 1, kind: "new_destination".into(), timestamp: 0,
-            severity: crate::detect::severity_for(score, 30).into(), score, acked: false,
+            severity: crate::detect::severity_for(score, 30).into(), score, acked: false, ack_reason: None,
             raw_details: serde_json::json!({"summary": "First contact with 8.8.4.4"}),
         }
     }

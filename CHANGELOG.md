@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.40.0: Acknowledge with a reason, and bulk-acknowledge a selection
+
+* **Acknowledging an alert can now carry a reason**: Resolved, False positive, or Expected
+  behavior, picked from a dropdown next to the Acknowledge button (left blank, the one-click
+  no-reason flow works exactly as before). Choosing False positive or Expected behavior offers,
+  right there, to also add an exception so the same alert does not fire again — no separate trip
+  to the Rules page needed. The reason is stored on the event, shown in the Alerts/Events API, and
+  cleared again if the alert is un-acknowledged.
+* **Bulk-acknowledge now works on a selection, not just "everything"**: the Alerts page gained the
+  same per-row checkboxes and "select all shown" header checkbox the Devices page already has, plus
+  a bulk-action bar to acknowledge just the selected (and currently filtered/shown) alerts, with an
+  optional shared reason. The existing "Acknowledge all" button (which also clears any older
+  backlog the page does not show) is unchanged; a repeated-alert group's own "Acknowledge all (N)"
+  button now goes through the same reasoned bulk endpoint too.
+
 ## 2.39.0: Device behavioral analysis (step 9), and a Findings bug
 
 * **A new "Explain behavior change" button on alerts**: offered only on the five alert kinds that

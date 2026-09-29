@@ -187,6 +187,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/events", get(events))
         .route("/api/alerts", get(alerts))
         .route("/api/alerts/ack-all", post(ack_all))
+        .route("/api/alerts/ack-bulk", post(ack_bulk))
         .route("/api/alerts/{id}/ack", post(ack))
         .route("/api/alerts/{id}/unack", post(unack))
         .route("/api/agents", get(agents))
@@ -628,7 +629,26 @@ fn decorate_ip_fields(st: &AppState, events: &mut [crate::model::Event]) {
     }
 }
 
-async fn set_ack(st: AppState, me: &User, id: i64, acked: bool) -> Result<Response, ApiError> {
+/// The fixed set an acknowledgement's own `reason` may be — never arbitrary text, the same rigor
+/// applied to every other fixed-choice field in this codebase (an assessment, a severity, ...).
+/// `resolved` needs no exception offer; `false_positive`/`expected_behavior` are exactly the two
+/// the console's own follow-up prompt ("add an exception too?") makes sense for.
+const ACK_REASONS: &[&str] = &["resolved", "false_positive", "expected_behavior"];
+
+fn valid_ack_reason(r: &Option<String>) -> Result<Option<&str>, &'static str> {
+    match r.as_deref() {
+        None | Some("") => Ok(None),
+        Some(s) if ACK_REASONS.contains(&s) => Ok(Some(s)),
+        Some(_) => Err("unknown ack reason"),
+    }
+}
+
+#[derive(Deserialize)]
+struct AckParams {
+    reason: Option<String>,
+}
+
+async fn set_ack(st: AppState, me: &User, id: i64, acked: bool, reason: Option<&str>) -> Result<Response, ApiError> {
     if let Some(e) = blocking(&st.store, move |s| s.get_event(id)).await? {
         if !site_readable(&st, me, &e.agent_id) {
             return Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "not found"}))).into_response());
@@ -637,7 +657,8 @@ async fn set_ack(st: AppState, me: &User, id: i64, acked: bool) -> Result<Respon
             return Ok((StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "read-only access to this site"}))).into_response());
         }
     }
-    let found = blocking(&st.store, move |s| s.set_event_acked(id, acked)).await?;
+    let reason = reason.map(str::to_string);
+    let found = blocking(&st.store, move |s| s.set_event_acked(id, acked, reason.as_deref())).await?;
     Ok(if found {
         StatusCode::NO_CONTENT.into_response()
     } else {
@@ -645,18 +666,24 @@ async fn set_ack(st: AppState, me: &User, id: i64, acked: bool) -> Result<Respon
     })
 }
 
-async fn ack(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    set_ack(st, &me, id, true).await
+async fn ack(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>, Query(p): Query<AckParams>) -> Result<Response, ApiError> {
+    let reason = match valid_ack_reason(&p.reason) {
+        Ok(r) => r,
+        Err(e) => return Ok(admin::err(StatusCode::BAD_REQUEST, e)),
+    };
+    set_ack(st, &me, id, true, reason).await
 }
 
 async fn unack(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(id): Path<i64>) -> Result<Response, ApiError> {
-    set_ack(st, &me, id, false).await
+    set_ack(st, &me, id, false, None).await
 }
 
 /// Acknowledge every alert the caller can write to, unacked or not — the Alerts page itself only
 /// ever fetches a page of the most recent ones, so a backlog older than that page (typically from
 /// before a noisy rule was tuned down) has no other way to reach zero. Site-scoped exactly like
-/// acknowledging one at a time; a site this account cannot write to is left untouched.
+/// acknowledging one at a time; a site this account cannot write to is left untouched. Deliberately
+/// no `reason` here: this is the blunt "clear everything" action, not a considered classification
+/// of each one — `ack_bulk` below is for that, on a caller-chosen subset.
 async fn ack_all(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Json<serde_json::Value>, ApiError> {
     let q = EventQuery { limit: 100_000, alerts_only: true, unacked_only: true, ..Default::default() };
     let unacked = blocking(&st.store, move |s| s.list_events(&q)).await?;
@@ -668,7 +695,7 @@ async fn ack_all(State(st): State<AppState>, Extension(AuthUser(me)): Extension<
             continue;
         }
         let id = e.id;
-        if blocking(&st.store, move |s| s.set_event_acked(id, true)).await? {
+        if blocking(&st.store, move |s| s.set_event_acked(id, true, None)).await? {
             acked += 1;
         }
     }
@@ -676,6 +703,52 @@ async fn ack_all(State(st): State<AppState>, Extension(AuthUser(me)): Extension<
         admin::audit(&st, &me.username, "alerts.ack_all", None, serde_json::json!({"count": acked}));
     }
     Ok(Json(serde_json::json!({"acked": acked, "skipped": skipped})))
+}
+
+#[derive(Deserialize)]
+struct AckBulkReq {
+    ids: Vec<i64>,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+/// Acknowledge exactly a caller-chosen set of alerts — the Alerts page's own selection checkboxes,
+/// scoped to whatever filter is currently shown, unlike `ack_all`'s deliberately unfiltered sweep.
+/// Optionally classified with the same `reason` a single acknowledgement can carry; an id this
+/// account cannot write to, or that does not exist, is silently skipped rather than failing the
+/// whole batch (matching `ack_all`'s own tolerance).
+const MAX_ACK_BULK: usize = 2000;
+
+async fn ack_bulk(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<AckBulkReq>) -> Result<Response, ApiError> {
+    let reason = match valid_ack_reason(&b.reason) {
+        Ok(r) => r.map(str::to_string),
+        Err(e) => return Ok(admin::err(StatusCode::BAD_REQUEST, e)),
+    };
+    if b.ids.len() > MAX_ACK_BULK {
+        return Ok(admin::err(StatusCode::BAD_REQUEST, format!("at most {MAX_ACK_BULK} at a time")));
+    }
+    let mut acked = 0usize;
+    let mut skipped = 0usize;
+    for id in b.ids {
+        let Some(e) = blocking(&st.store, move |s| s.get_event(id)).await? else {
+            skipped += 1;
+            continue;
+        };
+        if !site_writable(&st, &me, &e.agent_id) {
+            skipped += 1;
+            continue;
+        }
+        let r = reason.clone();
+        if blocking(&st.store, move |s| s.set_event_acked(id, true, r.as_deref())).await? {
+            acked += 1;
+        } else {
+            skipped += 1;
+        }
+    }
+    if acked > 0 {
+        admin::audit(&st, &me.username, "alerts.ack_bulk", None, serde_json::json!({"count": acked, "reason": reason}));
+    }
+    Ok(Json(serde_json::json!({"acked": acked, "skipped": skipped})).into_response())
 }
 
 /// The industrial communications matrix, joined with device names so the UI
@@ -1280,7 +1353,7 @@ mod tests {
         let (app, store, [viewer, editor, admin]) = secured().await;
         let mut a = Asset { agent_id: Some("site-a".into()), ..Asset::new(Mac([0x02, 0, 0, 0, 0, 9]), 10) };
         store.save_asset(&mut a).unwrap();
-        let mut e = crate::model::Event { agent_id: Some("site-a".into()), asset_id: a.id, kind: "new_device".into(), timestamp: now_ts(), severity: "high".into(), score: 80, acked: false, raw_details: serde_json::json!({}), id: 0 };
+        let mut e = crate::model::Event { agent_id: Some("site-a".into()), asset_id: a.id, kind: "new_device".into(), timestamp: now_ts(), severity: "high".into(), score: 80, acked: false, ack_reason: None, raw_details: serde_json::json!({}), id: 0 };
         store.insert_event(&mut e).unwrap();
         let eda_id = store.find_user("eda").unwrap().unwrap().user.id;
 
@@ -1566,7 +1639,7 @@ mod tests {
         let (app, store, [_, editor, admin]) = secured().await;
         let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 1, 2, 3]), 100);
         store.save_asset(&mut a).unwrap();
-        let mut e = crate::model::Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: 100, severity: "medium".into(), score: 50, acked: false, raw_details: serde_json::json!({"summary": "x", "reasons": []}) };
+        let mut e = crate::model::Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: 100, severity: "medium".into(), score: 50, acked: false, ack_reason: None, raw_details: serde_json::json!({"summary": "x", "reasons": []}) };
         store.insert_event(&mut e).unwrap();
         send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"keys": {"claude": "sk-ant-x"}, "default_provider": "claude"})))).await;
 
@@ -1645,7 +1718,7 @@ mod tests {
         // a newer alert exists than the one it was generated from - but the text is never blanked
         let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 1, 2, 3]), 100);
         store.save_asset(&mut a).unwrap();
-        let mut e = crate::model::Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: 100, severity: "medium".into(), score: 50, acked: false, raw_details: serde_json::json!({"summary": "x"}) };
+        let mut e = crate::model::Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: 100, severity: "medium".into(), score: 50, acked: false, ack_reason: None, raw_details: serde_json::json!({"summary": "x"}) };
         store.insert_event(&mut e).unwrap();
         crate::ai_summary::test_save(&*store, "Network activity has been calm.", 1000, e.id - 1);
         let (st, _, v) = send(&app, req("GET", "/api/ai/summary", Some(&editor), None)).await;
@@ -1693,7 +1766,7 @@ mod tests {
         let (app, store, [_, editor, admin]) = secured().await;
         let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 1, 2, 3]), 100);
         store.save_asset(&mut a).unwrap();
-        let mut not_behavioral = crate::model::Event { id: 0, agent_id: None, asset_id: a.id, kind: "device_silent".into(), timestamp: 100, severity: "medium".into(), score: 50, acked: false, raw_details: serde_json::json!({"summary": "x"}) };
+        let mut not_behavioral = crate::model::Event { id: 0, agent_id: None, asset_id: a.id, kind: "device_silent".into(), timestamp: 100, severity: "medium".into(), score: 50, acked: false, ack_reason: None, raw_details: serde_json::json!({"summary": "x"}) };
         store.insert_event(&mut not_behavioral).unwrap();
         send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"keys": {"claude": "sk-ant-x"}, "default_provider": "claude"})))).await;
 
@@ -1908,7 +1981,7 @@ mod tests {
         store.save_asset(&mut a).unwrap();
         let mut e = crate::model::Event {
             id: 0, agent_id: None, asset_id: a.id, kind: "new_destination".into(), timestamp: 5,
-            severity: "high".into(), score: 85, acked: false,
+            severity: "high".into(), score: 85, acked: false, ack_reason: None,
             raw_details: serde_json::json!({"summary": "x", "destinations": [{"ip": "8.8.8.8", "proto": "tcp", "port": 443}, {"ip": "10.0.0.9", "proto": "tcp", "port": 80}]}),
         };
         store.insert_event(&mut e).unwrap();
@@ -2012,7 +2085,7 @@ mod tests {
         for (sev, score) in [("info", 0), ("high", 85)] {
             let mut e = Event {
                 id: 0, agent_id: None, asset_id: a.id, kind: "new_destination".into(), timestamp: 5,
-                severity: sev.into(), score, acked: false, raw_details: serde_json::json!({"summary": "x"}),
+                severity: sev.into(), score, acked: false, ack_reason: None, raw_details: serde_json::json!({"summary": "x"}),
             };
             store.insert_event(&mut e).unwrap();
         }
@@ -2032,6 +2105,16 @@ mod tests {
         // acking without the CSRF header is refused
         let bare = axum::http::Request::post(format!("/api/alerts/{id}/ack")).header("host", "localhost").body(Body::empty()).unwrap();
         assert_eq!(app.clone().oneshot(bare).await.unwrap().status(), StatusCode::FORBIDDEN);
+
+        // a reason travels through ?reason= and round-trips on the event; unacking clears it again
+        assert_eq!(app.clone().oneshot(post(format!("/api/alerts/{id}/ack?reason=false_positive"))).await.unwrap().status(), StatusCode::NO_CONTENT);
+        assert_eq!(store.get_event(id).unwrap().unwrap().ack_reason.as_deref(), Some("false_positive"));
+        assert_eq!(get_json(&app, "/api/alerts", "localhost").await.1[0]["ack_reason"], "false_positive");
+        assert_eq!(app.clone().oneshot(post(format!("/api/alerts/{id}/unack"))).await.unwrap().status(), StatusCode::NO_CONTENT);
+        assert!(store.get_event(id).unwrap().unwrap().ack_reason.is_none(), "unacking clears the reason");
+        // an unrecognized reason is refused, and the alert is left untouched
+        assert_eq!(app.clone().oneshot(post(format!("/api/alerts/{id}/ack?reason=nonsense"))).await.unwrap().status(), StatusCode::BAD_REQUEST);
+        assert!(!store.get_event(id).unwrap().unwrap().acked);
 
         // baseline: null until one exists, then destinations come back recent-first
         let (code, v) = get_json(&app, &format!("/api/assets/{}/baseline", a.id), "localhost").await;
@@ -2167,7 +2250,7 @@ mod tests {
         store.save_asset(&mut a).unwrap();
         // far more than any single page fetch would ever show
         for i in 0..250 {
-            let mut e = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: i, severity: "low".into(), score: 40, acked: false, raw_details: serde_json::json!({}) };
+            let mut e = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: i, severity: "low".into(), score: 40, acked: false, ack_reason: None, raw_details: serde_json::json!({}) };
             store.insert_event(&mut e).unwrap();
         }
         assert_eq!(get_json(&app, "/api/status", "localhost").await.1["alerts_unacked"], 250);
@@ -2185,6 +2268,67 @@ mod tests {
         assert!(audit.contains("alerts.ack_all"), "{audit}");
     }
 
+    #[test]
+    fn valid_ack_reason_accepts_blank_and_the_fixed_set_only() {
+        assert_eq!(valid_ack_reason(&None), Ok(None));
+        assert_eq!(valid_ack_reason(&Some(String::new())), Ok(None));
+        assert_eq!(valid_ack_reason(&Some("resolved".into())), Ok(Some("resolved")));
+        assert_eq!(valid_ack_reason(&Some("false_positive".into())), Ok(Some("false_positive")));
+        assert_eq!(valid_ack_reason(&Some("expected_behavior".into())), Ok(Some("expected_behavior")));
+        assert!(valid_ack_reason(&Some("nonsense".into())).is_err());
+    }
+
+    #[tokio::test]
+    async fn ack_bulk_validates_the_reason_caps_the_batch_and_respects_site_access() {
+        use crate::model::Event;
+        let (app, store, [_viewer, editor, admin]) = secured().await;
+        let mut local = Asset::new(Mac([0x10, 0, 0, 0, 0, 1]), 1);
+        store.save_asset(&mut local).unwrap();
+        let mut site_a = Asset { agent_id: Some("site-a".into()), ..Asset::new(Mac([0x10, 0, 0, 0, 0, 2]), 1) };
+        store.save_asset(&mut site_a).unwrap();
+        store
+            .upsert_agent(&crate::model::AgentInfo {
+                id: "site-a".into(), name: "Site A".into(), site: None, version: "0.7.0".into(), subnet: "10.0.1.0/24".into(),
+                first_seen: 10, last_report_at: 10, last_run_id: String::new(), last_seq: 0,
+            })
+            .unwrap();
+        let eda_id = store.find_user("eda").unwrap().unwrap().user.id;
+        send(&app, req("PUT", &format!("/api/users/{eda_id}/site-access"), Some(&admin), Some(serde_json::json!({"grants": [["site-a", "none"]]})))).await;
+
+        let mut e1 = Event { id: 0, agent_id: None, asset_id: local.id, kind: "new_port".into(), timestamp: 1, severity: "low".into(), score: 40, acked: false, ack_reason: None, raw_details: serde_json::json!({}) };
+        store.insert_event(&mut e1).unwrap();
+        let mut e2 = Event { id: 0, agent_id: Some("site-a".into()), asset_id: site_a.id, kind: "new_port".into(), timestamp: 1, severity: "low".into(), score: 40, acked: false, ack_reason: None, raw_details: serde_json::json!({}) };
+        store.insert_event(&mut e2).unwrap();
+
+        // a bad reason is refused before anything is touched
+        let (st, _, v) = send(&app, req("POST", "/api/alerts/ack-bulk", Some(&editor), Some(serde_json::json!({"ids": [e1.id], "reason": "nonsense"})))).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{v}");
+        assert!(!store.get_event(e1.id).unwrap().unwrap().acked);
+
+        // an editor with no access to site-a: e1 is acked with its reason, e2 is silently skipped
+        let (st, _, v) = send(&app, req("POST", "/api/alerts/ack-bulk", Some(&editor), Some(serde_json::json!({"ids": [e1.id, e2.id], "reason": "false_positive"})))).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!((v["acked"].as_i64(), v["skipped"].as_i64()), (Some(1), Some(1)), "{v}");
+        let got1 = store.get_event(e1.id).unwrap().unwrap();
+        assert_eq!((got1.acked, got1.ack_reason.as_deref()), (true, Some("false_positive")));
+        assert!(!store.get_event(e2.id).unwrap().unwrap().acked, "outside the editor's site access");
+
+        // an admin can still reach it; a blank reason is fine
+        let (st, _, v) = send(&app, req("POST", "/api/alerts/ack-bulk", Some(&admin), Some(serde_json::json!({"ids": [e2.id]})))).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["acked"], 1);
+        let got2 = store.get_event(e2.id).unwrap().unwrap();
+        assert!(got2.acked && got2.ack_reason.is_none());
+
+        // more ids than the cap allows is refused outright
+        let many: Vec<i64> = (0..(MAX_ACK_BULK as i64 + 1)).collect();
+        let (st, _, v) = send(&app, req("POST", "/api/alerts/ack-bulk", Some(&admin), Some(serde_json::json!({"ids": many})))).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{v}");
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("alerts.ack_bulk"), "{audit}");
+    }
+
     #[tokio::test]
     async fn assets_carry_a_risk_score_and_open_alerts_raise_it() {
         use crate::model::{Event, OpenPort};
@@ -2200,13 +2344,13 @@ mod tests {
         assert!(v[0]["risk"]["factors"][0].as_str().unwrap().contains("Telnet"));
         let mut e = Event {
             id: 0, agent_id: None, asset_id: a.id, kind: "arp_conflict".into(), timestamp: crate::model::now_ts(),
-            severity: "high".into(), score: 95, acked: false, raw_details: serde_json::json!({}),
+            severity: "high".into(), score: 95, acked: false, ack_reason: None, raw_details: serde_json::json!({}),
         };
         store.insert_event(&mut e).unwrap();
         let (_, v) = get_json(&app, &format!("/api/assets/{}", a.id), "localhost").await;
         assert_eq!(v["risk"]["level"], "high");
         // acknowledging removes the alert's contribution
-        store.set_event_acked(e.id, true).unwrap();
+        store.set_event_acked(e.id, true, None).unwrap();
         assert_eq!(get_json(&app, &format!("/api/assets/{}", a.id), "localhost").await.1["risk"]["score"], 40);
     }
 
@@ -2369,7 +2513,7 @@ mod tests {
         use axum::http::Method as M;
         for (m, p, want) in [
             (M::GET, "/api/assets", "viewer"), (M::GET, "/report", "viewer"), (M::GET, "/api/export/assets.csv", "viewer"),
-            (M::POST, "/api/alerts/1/ack", "editor"), (M::PATCH, "/api/assets/1/meta", "editor"), (M::POST, "/api/assets", "editor"),
+            (M::POST, "/api/alerts/1/ack", "editor"), (M::POST, "/api/alerts/ack-bulk", "editor"), (M::PATCH, "/api/assets/1/meta", "editor"), (M::POST, "/api/assets", "editor"),
             (M::POST, "/api/assets/import", "editor"), (M::POST, "/api/scan", "editor"), (M::DELETE, "/api/assets/1", "admin"),
             (M::GET, "/api/users", "admin"), (M::POST, "/api/users", "admin"), (M::GET, "/api/audit", "admin"),
             (M::GET, "/api/agent-tokens", "admin"), (M::GET, "/api/api-tokens", "admin"), (M::DELETE, "/api/api-tokens/1", "admin"), (M::DELETE, "/api/agent-tokens/x", "admin"),

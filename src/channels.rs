@@ -1086,7 +1086,7 @@ mod tests {
 
     fn event(s: &SqliteStore, asset: i64, kind: &str, score: i32, ts: i64) -> i64 {
         let mut e = Event {
-            id: 0, agent_id: None, asset_id: asset, kind: kind.into(), timestamp: ts, severity: crate::detect::severity_for(score, 30).into(), score, acked: false,
+            id: 0, agent_id: None, asset_id: asset, kind: kind.into(), timestamp: ts, severity: crate::detect::severity_for(score, 30).into(), score, acked: false, ack_reason: None,
             raw_details: json!({"summary": format!("{kind} happened"), "reasons": ["+40 a", "+30 b"]}),
         };
         s.insert_event(&mut e).unwrap();

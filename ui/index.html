@@ -223,9 +223,22 @@
             <label class="check" id="acked-label"><input id="show-acked" type="checkbox"> show acknowledged</label>
           </span>
         </div>
+        <div id="bulk-ack-bar" class="bulk-bar" hidden>
+          <div class="row"><b id="bulk-ack-count"></b><button id="bulk-ack-clear" type="button">Clear selection</button><span id="bulk-ack-msg" class="muted"></span></div>
+          <div class="row">
+            <span class="muted small">Reason:</span>
+            <select id="bulk-ack-reason">
+              <option value="">(none)</option>
+              <option value="resolved">Resolved</option>
+              <option value="false_positive">False positive</option>
+              <option value="expected_behavior">Expected behavior</option>
+            </select>
+            <button id="bulk-ack-apply" type="button">Acknowledge selected</button>
+          </div>
+        </div>
         <div class="table-wrap">
           <table id="alerts-table">
-            <thead><tr><th data-sort="time">Time</th><th data-sort="score">Score</th><th data-sort="type">Type</th><th data-sort="device">Device</th><th data-sort="summary">What happened</th><th></th></tr></thead>
+            <thead><tr><th id="select-all-alerts-th"><input id="select-all-alerts" type="checkbox" aria-label="Select all shown" title="Select all shown"></th><th data-sort="time">Time</th><th data-sort="score">Score</th><th data-sort="type">Type</th><th data-sort="device">Device</th><th data-sort="summary">What happened</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>

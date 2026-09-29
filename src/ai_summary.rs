@@ -157,7 +157,7 @@ mod tests {
         assert_eq!(current_version(&s).unwrap(), 0);
         let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 1, 2, 3]), 100);
         s.save_asset(&mut a).unwrap();
-        let mut e = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: 100, severity: "medium".into(), score: 50, acked: false, raw_details: serde_json::json!({"summary": "x"}) };
+        let mut e = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: 100, severity: "medium".into(), score: 50, acked: false, ack_reason: None, raw_details: serde_json::json!({"summary": "x"}) };
         s.insert_event(&mut e).unwrap();
         assert_eq!(current_version(&s).unwrap(), e.id);
     }
@@ -172,7 +172,7 @@ mod tests {
 
         let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 1, 2, 3]), 100);
         s.save_asset(&mut a).unwrap();
-        let mut e = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: now_ts(), severity: "medium".into(), score: 50, acked: false, raw_details: serde_json::json!({"summary": "x"}) };
+        let mut e = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: now_ts(), severity: "medium".into(), score: 50, acked: false, ack_reason: None, raw_details: serde_json::json!({"summary": "x"}) };
         s.insert_event(&mut e).unwrap();
         // AI globally off (default): a real alert exists, but still nothing happens
         assert!(!tick(&s, &g).unwrap());
@@ -190,7 +190,7 @@ mod tests {
         let s = mem();
         let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 1, 2, 3]), 100);
         s.save_asset(&mut a).unwrap();
-        let mut e = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: now_ts(), severity: "medium".into(), score: 50, acked: false, raw_details: serde_json::json!({"summary": "x"}) };
+        let mut e = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: now_ts(), severity: "medium".into(), score: 50, acked: false, ack_reason: None, raw_details: serde_json::json!({"summary": "x"}) };
         s.insert_event(&mut e).unwrap();
         let v = current_version(&s).unwrap();
         save(&s, &SummaryRecord { text: "stale text".into(), generated_at: 1, source_state_version: v - 1 }, 1).unwrap();
@@ -205,9 +205,9 @@ mod tests {
         let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 1, 2, 3]), 100);
         s.save_asset(&mut a).unwrap();
         let now = now_ts();
-        let mut old = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: now - WINDOW_HOURS * 3600 - 10, severity: "high".into(), score: 90, acked: false, raw_details: serde_json::json!({"summary": "too old to count"}) };
+        let mut old = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: now - WINDOW_HOURS * 3600 - 10, severity: "high".into(), score: 90, acked: false, ack_reason: None, raw_details: serde_json::json!({"summary": "too old to count"}) };
         s.insert_event(&mut old).unwrap();
-        let mut recent = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_destination".into(), timestamp: now - 60, severity: "medium".into(), score: 55, acked: false, raw_details: serde_json::json!({"summary": "recent enough"}) };
+        let mut recent = Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_destination".into(), timestamp: now - 60, severity: "medium".into(), score: 55, acked: false, ack_reason: None, raw_details: serde_json::json!({"summary": "recent enough"}) };
         s.insert_event(&mut recent).unwrap();
         let p = build_prompt(&s, now).unwrap();
         assert!(p.contains("recent enough"), "{p}");

@@ -32,6 +32,7 @@ const state = {
   filters: { device_type: '', location: '', vendor: '', owner: '', os_guess: '' },
   selectedAssets: new Set(), // Devices page: checked rows for bulk tagging (this browser session only)
   expandedAlertGroups: new Set(), // Alerts page: which repeated-alert groups are expanded (this browser tab only)
+  selectedAlerts: new Set(), // Alerts page: checked rows for bulk acknowledge (this browser session only)
 };
 
 function el(tag, props = {}, ...kids) {
@@ -488,22 +489,40 @@ function renderSiteFilter() {
 
 const sevTag = (e) => el('span', { class: 'sev ' + e.severity, text: tr(e.severity) });
 
+/** Reason dropdown shown next to an unacknowledged alert's Acknowledge button. Left blank, the
+ * one-click no-reason flow works exactly as before; a reason of "false_positive" or
+ * "expected_behavior" prompts, after acknowledging, to also add an exception. */
+function reasonSelect(idPrefix) {
+  return el('select', { id: 'ack-reason-' + idPrefix, class: 'ack-reason', title: tr('Reason (optional)'), onclick: (ev) => ev.stopPropagation() },
+    el('option', { value: '', text: tr('reason…') }),
+    el('option', { value: 'resolved', text: tr('Resolved') }),
+    el('option', { value: 'false_positive', text: tr('False positive') }),
+    el('option', { value: 'expected_behavior', text: tr('Expected behavior') }));
+}
+
 /** One alert's row, exactly as before grouping existed: used both for a singleton and for each
  * occurrence inside an expanded group. */
 function alertRow(e, extraClass) {
   const a = assetById(e.asset_id);
   const d = e.raw_details || {};
   const site = e.agent_id ? ' · ' + siteName(e.agent_id) : '';
+  const canBulk = can('editor');
+  const reasonSel = e.acked ? null : reasonSelect(e.id);
   return el('tr', { class: (e.acked ? 'acked ' : '') + (extraClass || ''), onclick: () => showAlert(e, a) },
+    el('td', { onclick: (ev) => ev.stopPropagation(), hidden: !canBulk }, canBulk ? el('input', {
+      type: 'checkbox', checked: state.selectedAlerts.has(e.id),
+      onclick: (ev) => ev.stopPropagation(),
+      onchange: (ev) => { if (ev.target.checked) state.selectedAlerts.add(e.id); else state.selectedAlerts.delete(e.id); updateBulkAckBar(); },
+    }) : null),
     el('td', { class: 'time-cell', title: fmtTime(e.timestamp) }, el('div', { text: ago(e.timestamp) }), el('div', { class: 'muted small', text: fmtExact(e.timestamp) })),
     el('td', {}, sevTag(e), ' ' + e.score),
     el('td', {}, el('span', { class: 'tag', text: e.type })),
     el('td', { text: deviceLabel(a, '#' + e.asset_id) + site }),
     el('td', { class: 'wrap' }, el('div', { text: d.summary || '' }),
       (d.reasons || []).length ? el('div', { class: 'why', text: d.reasons.join(' · ') }) : null),
-    el('td', { class: 'row-actions' }, el('button', {
+    el('td', { class: 'row-actions' }, reasonSel, el('button', {
       type: 'button', text: e.acked ? tr('Undo') : tr('Acknowledge'),
-      onclick: (ev) => { ev.stopPropagation(); ack(e.id, !e.acked); },
+      onclick: (ev) => { ev.stopPropagation(); e.acked ? ack(e.id, false) : ackWithReasonPrompt(e, reasonSel.value); },
     }), can('admin') ? el('button', {
       type: 'button', text: tr('Add exception'), title: exceptionLabel(e),
       onclick: async (ev) => {
@@ -575,19 +594,22 @@ function renderAlerts() {
     const a = assetById(newest.asset_id);
     const d = newest.raw_details || {};
     const site = newest.agent_id ? ' · ' + siteName(newest.agent_id) : '';
+    const groupReasonSel = g.some((e) => !e.acked) ? reasonSelect('group-' + gkey) : null;
     const header = el('tr', { class: 'alert-group-head' + (newest.acked ? ' acked' : ''), onclick: () => { open ? state.expandedAlertGroups.delete(gkey) : state.expandedAlertGroups.add(gkey); renderAlerts(); } },
+      el('td', { onclick: (ev) => ev.stopPropagation(), hidden: !can('editor') }),
       el('td', { class: 'time-cell', title: fmtTime(newest.timestamp) }, el('div', { text: ago(newest.timestamp) }), el('div', { class: 'muted small', text: fmtExact(newest.timestamp) })),
       el('td', {}, sevTag(newest), ' ' + newest.score),
       el('td', {}, el('span', { class: 'tag', text: newest.type })),
       el('td', { text: deviceLabel(a, '#' + newest.asset_id) + site }),
       el('td', { class: 'wrap' }, el('div', {}, el('span', { class: 'expand-caret', text: open ? '▾ ' : '▸ ' }), d.summary || ''),
         el('div', { class: 'muted small', text: tr('×{n}, recurring since {time}', { n: g.length, time: ago(oldest.timestamp) }) })),
-      el('td', { class: 'row-actions' }, g.some((e) => !e.acked) ? el('button', {
+      el('td', { class: 'row-actions' }, groupReasonSel, g.some((e) => !e.acked) ? el('button', {
         type: 'button', text: tr('Acknowledge all ({n})', { n: g.filter((e) => !e.acked).length }),
         onclick: async (ev) => {
           ev.stopPropagation();
           ev.target.disabled = true;
-          await Promise.all(g.filter((e) => !e.acked).map((e) => apiFetch('/api/alerts/' + e.id + '/ack', { method: 'POST', headers: { 'X-Denis': '1' } })));
+          const reason = groupReasonSel.value || undefined;
+          await api('POST', '/api/alerts/ack-bulk', { ids: g.filter((e) => !e.acked).map((e) => e.id), reason });
           refresh();
         },
       }) : null, can('admin') ? el('button', {
@@ -610,6 +632,23 @@ function renderAlerts() {
   $('count-alerts').hidden = !n;
   $('count-alerts').textContent = n;
 
+  // an alert no longer shown (acked and hidden, or aged out of state.alerts) cannot stay selected
+  const stillShown = new Set(rows.map((e) => e.id));
+  for (const id of state.selectedAlerts) if (!stillShown.has(id)) state.selectedAlerts.delete(id);
+  $('select-all-alerts-th').hidden = !can('editor');
+  if (can('editor')) {
+    const shown = rows.map((e) => e.id);
+    const allShown = shown.length > 0 && shown.every((id) => state.selectedAlerts.has(id));
+    $('select-all-alerts').checked = allShown;
+    $('select-all-alerts').indeterminate = !allShown && shown.some((id) => state.selectedAlerts.has(id));
+    $('select-all-alerts').onchange = () => {
+      if ($('select-all-alerts').checked) shown.forEach((id) => state.selectedAlerts.add(id));
+      else shown.forEach((id) => state.selectedAlerts.delete(id));
+      renderAlerts();
+    };
+  }
+  updateBulkAckBar();
+
   const s = state.status;
   const banner = $('learning');
   // this banner is alerts-specific content, but it sits above the shared toolbar (not inside
@@ -627,9 +666,21 @@ function renderAlerts() {
   }
 }
 
-async function ack(id, acked) {
-  await apiFetch('/api/alerts/' + id + (acked ? '/ack' : '/unack'), { method: 'POST', headers: { 'X-Denis': '1' } });
+async function ack(id, acked, reason) {
+  const q = acked && reason ? '?reason=' + encodeURIComponent(reason) : '';
+  await apiFetch('/api/alerts/' + id + (acked ? '/ack' : '/unack') + q, { method: 'POST', headers: { 'X-Denis': '1' } });
   refresh();
+}
+
+/** Acknowledges a single alert with the chosen reason, then — for the two reasons that mean "this
+ * should not have fired" — offers to add an exception in the same flow, so a false positive can be
+ * silenced for good without a second trip to the Rules page. */
+async function ackWithReasonPrompt(e, reason) {
+  await ack(e.id, true, reason);
+  if (can('admin') && (reason === 'false_positive' || reason === 'expected_behavior') && confirm(tr('Also add an exception so this does not alert again?'))) {
+    const err = await exceptFromAlert(e);
+    if (err) showMessage(tr('Alert'), el('p', { text: err }));
+  }
 }
 
 $('ack-all-alerts').onclick = async () => {
@@ -637,6 +688,24 @@ $('ack-all-alerts').onclick = async () => {
   const r = await api('POST', '/api/alerts/ack-all');
   if (!r.ok) { showMessage(tr('Acknowledge all'), el('p', { text: apiError(r) })); return; }
   refresh();
+};
+
+/** Shows/hides the "N selected" bar above the Alerts table, same pattern as the Devices page's
+ * bulk-tag bar: only ever touches `state.selectedAlerts`, works the same whether the table is
+ * grouped, filtered, or not. */
+function updateBulkAckBar() {
+  const n = state.selectedAlerts.size;
+  $('bulk-ack-bar').hidden = !(can('editor') && n > 0);
+  $('bulk-ack-count').textContent = tr('{n} alert{s} selected', { n, s: n === 1 ? '' : 's' });
+}
+$('bulk-ack-clear').onclick = () => { state.selectedAlerts.clear(); renderAlerts(); };
+$('bulk-ack-apply').onclick = async () => {
+  const reason = $('bulk-ack-reason').value || undefined;
+  const r = await api('POST', '/api/alerts/ack-bulk', { ids: [...state.selectedAlerts], reason });
+  $('bulk-ack-msg').textContent = r.ok
+    ? tr('{n} alert{s} acknowledged.', { n: r.json.acked, s: r.json.acked === 1 ? '' : 's' })
+    : apiError(r);
+  if (r.ok) { state.selectedAlerts.clear(); refresh(); }
 };
 
 /** What clicking "Create exception" on this alert would do, in one line — shown as the button's
