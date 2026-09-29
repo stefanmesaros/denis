@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.31.0: Settings → AI — a global switch and per-feature control (step 1 of the AI assistant)
+
+* **A dedicated Settings → AI page**, replacing the AI provider configuration that used to live
+  under Settings → Integrations. First of several planned steps for the "AI security assistant"
+  roadmap item (see AI.md), shipped on its own so it's immediately usable rather than held back
+  until the whole thing is done.
+* **A global "Enable AI features" switch**: while off, DENIS never calls any AI provider for
+  anything, no matter what is configured underneath — enforced server-side (`web_ai.rs`'s
+  `explain` handler refuses directly, not just the button hiding), not only in the UI.
+  **Alert explanations** — the existing "Explain with AI" feature — gets its own toggle
+  underneath, independently switchable now that there's a place for it.
+* **Existing installs keep working exactly as before, without a manual step.** An install that
+  already had a provider key configured never had a separate toggle — the button just worked once
+  a key was set. `ai::load` now recognizes that exact case (the stored config literally predates
+  the new fields) and infers both switches on, so upgrading never silently disables something that
+  already worked. A fresh install still defaults fully off — the administrator opts in explicitly,
+  same as the spec asks.
+* This is deliberately narrow: only the settings page and the one existing feature moved under it.
+  Every other capability in the spec (triage, incident correlation, the dashboard summary, "Ask
+  DENIS", threat hunting, recommended actions, security reports, a detection-rule assistant) is
+  still unbuilt — see AI.md's own build order for what's next.
+
 ## 2.30.0: A documented public API — API-token rate limiting, and a stability commitment
 
 * **API tokens now have real rate limits.** Found while scoping the "documented public API" roadmap

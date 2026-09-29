@@ -1052,7 +1052,7 @@ mod tests {
     use crate::engine::Shared;
     use crate::model::{AssetMeta, Mac};
     use crate::store::sqlite::SqliteStore;
-    use crate::store::Store;
+    use crate::store::{SettingsStore, Store};
     use axum::body::Body;
     use std::net::Ipv4Addr;
     use std::sync::Arc;
@@ -1528,8 +1528,14 @@ mod tests {
         }
         assert_eq!(send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"keys": {"nonsense": "x"}})))).await.0, StatusCode::BAD_REQUEST);
 
+        // a key alone is not enough: AI stays off until the global switch and the feature are
+        // both explicitly turned on (spec: "the administrator must have complete control")
         let (st, _, v) = send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"keys": {"claude": "sk-ant-x"}, "default_provider": "claude"})))).await;
-        assert_eq!((st, v.get("claude"), v["keys_set"].as_array().unwrap().len(), v["default_provider"].as_str()), (StatusCode::OK, None, 1, Some("claude")), "{v}");
+        assert_eq!((st, v.get("claude"), v["keys_set"].as_array().unwrap().len(), v["default_provider"].as_str(), v["enabled"].as_bool()), (StatusCode::OK, None, 1, Some("claude"), Some(false)), "{v}");
+        assert_eq!(send(&app, req("GET", "/api/ai", Some(&viewer), None)).await.2["providers"].as_array().unwrap().len(), 0, "key set, but still off");
+
+        let (st, _, v) = send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"default_provider": "claude", "enabled": true, "features": {"alert_explanations": true}})))).await;
+        assert_eq!((st, v["enabled"].as_bool(), v["features"]["alert_explanations"].as_bool()), (StatusCode::OK, Some(true), Some(true)), "{v}");
 
         // now the button has something to offer, and the key itself was never sent back
         let (_, _, v) = send(&app, req("GET", "/api/ai", Some(&viewer), None)).await;
@@ -1542,6 +1548,54 @@ mod tests {
 
         let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
         assert!(audit.contains("ai.update"), "{audit}");
+    }
+
+    #[tokio::test]
+    async fn ai_explain_is_refused_server_side_when_globally_off_or_the_feature_itself_is_off() {
+        let (app, store, [_, editor, admin]) = secured().await;
+        let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 1, 2, 3]), 100);
+        store.save_asset(&mut a).unwrap();
+        let mut e = crate::model::Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: 100, severity: "medium".into(), score: 50, acked: false, raw_details: serde_json::json!({"summary": "x", "reasons": []}) };
+        store.insert_event(&mut e).unwrap();
+        send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"keys": {"claude": "sk-ant-x"}, "default_provider": "claude"})))).await;
+
+        // globally off (the default): refused before ever reaching the provider call
+        let (st, _, v) = send(&app, req("POST", "/api/ai/explain", Some(&editor), Some(serde_json::json!({"kind": "alert", "id": e.id.to_string()})))).await;
+        assert_eq!(st, StatusCode::FORBIDDEN, "{v}");
+
+        // globally on, but the alert-explanations feature itself off
+        send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"default_provider": "claude", "enabled": true})))).await;
+        let (st, _, v) = send(&app, req("POST", "/api/ai/explain", Some(&editor), Some(serde_json::json!({"kind": "alert", "id": e.id.to_string()})))).await;
+        assert_eq!(st, StatusCode::FORBIDDEN, "{v}");
+        assert_eq!(send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2["providers"].as_array().unwrap().len(), 0, "the button stays hidden too, not just the endpoint refusing");
+    }
+
+    #[test]
+    fn an_install_that_already_had_a_key_before_the_enabled_toggle_existed_keeps_working() {
+        // The `enabled`/`features` fields did not exist before this change; a real install's
+        // already-stored config predates them entirely. Loading it must not silently turn off
+        // something that already worked - see ai::load's own migration doc.
+        let store = SqliteStore::open_in_memory().unwrap();
+        store.set_setting(crate::ai::KEY, br#"{"keys":{"claude":"sk-ant-old"},"default_provider":"claude"}"#, 1).unwrap();
+        let cfg = crate::ai::load(&store).unwrap();
+        assert!(cfg.enabled && cfg.features.alert_explanations, "{cfg:?}");
+
+        // but a fresh install with no config at all defaults to off, same as every new feature
+        let fresh = SqliteStore::open_in_memory().unwrap();
+        let cfg = crate::ai::load(&fresh).unwrap();
+        assert!(!cfg.enabled && !cfg.features.alert_explanations);
+
+        // and once a real save has happened (any save, even one that only touches keys), the
+        // migration no longer applies - the explicit false from then on is respected as saved
+        crate::ai::save(&store, &crate::ai::AiConfig { enabled: false, ..cfg_with_key() }, 2).unwrap();
+        let cfg = crate::ai::load(&store).unwrap();
+        assert!(!cfg.enabled, "an explicit save is never second-guessed");
+    }
+
+    fn cfg_with_key() -> crate::ai::AiConfig {
+        let mut cfg = crate::ai::AiConfig::default();
+        cfg.keys.insert("claude".into(), "sk-ant-x".into());
+        cfg
     }
 
     #[tokio::test]

@@ -85,10 +85,13 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    because nothing about this product's usage yet demands one, and a speculative version prefix
    with nothing on the other side of a "v2" is complexity without a customer to justify it.
 9. **AI security assistant** — a configurable, event-driven layer on top of the existing AI alert
-   explanation feature. *(effort: 8/10)* Full spec received 2026-09-29, recorded in full in
-   [AI.md](AI.md) (not duplicated here, same reasoning as IPV6.md/WINDOWS.md/SSO.md/CMDB.md each
-   being their own document). Key architectural requirements: the detection engine stays fully
-   AI-independent (no LLM in the
+   explanation feature. *(effort: 7/10 remaining)* In progress (2026-09-29): shipped
+   feature-by-feature per an explicit instruction, a minor release after each step, so partial
+   progress always stays usable — see AI.md's own "Status" section for exactly what is done (so
+   far: the Settings → AI page itself, with a global on/off switch and the first per-feature toggle
+   for alert explanations). Full spec recorded in full in [AI.md](AI.md) (not duplicated here, same
+   reasoning as IPV6.md/WINDOWS.md/SSO.md/CMDB.md each being their own document). Key architectural
+   requirements: the detection engine stays fully AI-independent (no LLM in the
    hot path — flows, baselines, first-seen/new-destination/new-port detection, DNS/GeoIP/ASN, alert
    generation/correlation all stay deterministic and local); the AI layer only ever consumes
    compact, already-processed structured context, never raw packets; a dedicated Settings → AI page

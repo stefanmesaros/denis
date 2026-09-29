@@ -15,6 +15,10 @@ use crate::web::common::{blocking, ApiError, AppState, AuthUser};
 use crate::web_admin::{audit, err};
 
 /// What the "Explain" button needs: which providers it may offer, without ever seeing a key.
+/// Empty `providers` whenever AI is globally off or the alert-explanations feature itself is off —
+/// the button's own visibility logic (`!state.ai.providers.length` in `ui/admin.js`) already treats
+/// "no providers" as "nothing to show", so disabling either one hides the button with no UI change
+/// needed beyond this endpoint answering honestly.
 #[derive(Serialize)]
 pub struct PublicStatus {
     pub providers: Vec<ProviderStatus>,
@@ -29,10 +33,12 @@ pub struct ProviderStatus {
 
 pub(crate) async fn status(State(st): State<AppState>) -> Result<Json<PublicStatus>, ApiError> {
     let cfg = blocking(&st.store, |s| crate::ai::load(s)).await?;
-    Ok(Json(PublicStatus {
-        providers: cfg.configured().into_iter().map(|id| ProviderStatus { id, name: crate::ai::provider_name(id) }).collect(),
-        default_provider: cfg.default_provider,
-    }))
+    let providers = if cfg.enabled && cfg.features.alert_explanations {
+        cfg.configured().into_iter().map(|id| ProviderStatus { id, name: crate::ai::provider_name(id) }).collect()
+    } else {
+        Vec::new()
+    };
+    Ok(Json(PublicStatus { providers, default_provider: cfg.default_provider }))
 }
 
 /// The administrator's configuration: which providers have a key (never the key itself).
@@ -40,11 +46,13 @@ pub(crate) async fn status(State(st): State<AppState>) -> Result<Json<PublicStat
 pub struct Redacted {
     pub keys_set: Vec<&'static str>,
     pub default_provider: String,
+    pub enabled: bool,
+    pub features: crate::ai::AiFeatures,
 }
 
 pub(crate) async fn get(State(st): State<AppState>) -> Result<Json<Redacted>, ApiError> {
     let cfg = blocking(&st.store, |s| crate::ai::load(s)).await?;
-    Ok(Json(Redacted { keys_set: cfg.configured(), default_provider: cfg.default_provider }))
+    Ok(Json(Redacted { keys_set: cfg.configured(), default_provider: cfg.default_provider, enabled: cfg.enabled, features: cfg.features }))
 }
 
 #[derive(Deserialize)]
@@ -55,6 +63,10 @@ pub struct PutReq {
     keys: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     default_provider: String,
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default)]
+    features: crate::ai::AiFeatures,
 }
 
 pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<PutReq>) -> Result<Response, ApiError> {
@@ -74,14 +86,16 @@ pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Ext
             return Ok(Err(format!("unknown provider {:?}", b.default_provider)));
         }
         cfg.default_provider = b.default_provider;
+        cfg.enabled = b.enabled;
+        cfg.features = b.features;
         crate::ai::save(s, &cfg, now_ts())?;
         Ok(Ok(cfg))
     })
     .await?;
     Ok(match res {
         Ok(cfg) => {
-            audit(&st, &me.username, "ai.update", None, json!({"providers": cfg.configured()}));
-            Json(Redacted { keys_set: cfg.configured(), default_provider: cfg.default_provider }).into_response()
+            audit(&st, &me.username, "ai.update", None, json!({"providers": cfg.configured(), "enabled": cfg.enabled, "features": cfg.features}));
+            Json(Redacted { keys_set: cfg.configured(), default_provider: cfg.default_provider, enabled: cfg.enabled, features: cfg.features }).into_response()
         }
         Err(e) => err(StatusCode::BAD_REQUEST, e),
     })
@@ -107,6 +121,15 @@ struct ExplainResp {
 pub(crate) async fn explain(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<ExplainReq>) -> Result<Response, ApiError> {
     let store = st.store.clone();
     let now = now_ts();
+    // Defense in depth: the button is already hidden when either is off (see `status` above), but
+    // this is the actual boundary that must refuse a direct call, not just the UI hiding a button.
+    let cfg = blocking(&store, |s| crate::ai::load(s)).await?;
+    if !cfg.enabled {
+        return Ok(err(StatusCode::FORBIDDEN, "AI is turned off in Settings → AI"));
+    }
+    if !cfg.features.alert_explanations {
+        return Ok(err(StatusCode::FORBIDDEN, "the alert-explanations AI feature is turned off in Settings → AI"));
+    }
     let prompt = match b.kind.as_str() {
         "alert" => {
             let id: i64 = match b.id.parse() {
@@ -131,7 +154,6 @@ pub(crate) async fn explain(State(st): State<AppState>, Extension(AuthUser(me)):
         }
         _ => return Ok(err(StatusCode::BAD_REQUEST, "kind must be \"alert\" or \"finding\"")),
     };
-    let cfg = blocking(&store, |s| crate::ai::load(s)).await?;
     let provider = b.provider.filter(|p| !p.is_empty()).unwrap_or(cfg.default_provider.clone());
     let provider: &'static str = match crate::ai::PROVIDERS.iter().find(|p| **p == provider) {
         Some(p) => p,

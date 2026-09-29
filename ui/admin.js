@@ -1053,7 +1053,8 @@ const SETTINGS_CATS = [
   ['security', [['security', 'security-box'], ['sso', 'sso-box'], ['tls', 'tls-box']]],
   ['network', [['interfaces', 'interfaces-box'], ['switches', 'switches-box'], ['ipenrich', 'ipenrich-box']]],
   ['data', [['retention', 'retention-box'], ['vulndata', 'vuln-box'], ['data', 'data-box']]],
-  ['integrations', [['siem', 'siem-box'], ['ai', 'ai-box'], ['cmdb', 'cmdb-box']]],
+  ['integrations', [['siem', 'siem-box'], ['cmdb', 'cmdb-box']]],
+  ['ai', [['ai', 'ai-box']]],
   ['branding', [['branding', 'branding-box'], ['overview', 'overview-box']]],
 ];
 const SETTINGS_DEFAULT = 'system';
@@ -1447,6 +1448,8 @@ async function loadAiBox() {
   const r = await api('GET', '/api/ai/settings');
   if (!r.ok) return;
   const d = r.json;
+  $('ai-enabled').checked = !!d.enabled;
+  $('ai-feature-alert-explanations').checked = !!(d.features && d.features.alert_explanations);
   for (const p of ['claude', 'openai', 'gemini', 'grok']) {
     $('ai-key-' + p).value = '';
     $('ai-key-' + p).placeholder = d.keys_set.includes(p) ? tr('(unchanged)') : '';
@@ -1459,7 +1462,12 @@ $('ai-save').onclick = async () => {
     const v = $('ai-key-' + p).value;
     if (v) keys[p] = v; // blank means "leave alone"; there is no way to clear one from this form
   }
-  const r = await api('PUT', '/api/ai/settings', { keys, default_provider: $('ai-default').value });
+  const r = await api('PUT', '/api/ai/settings', {
+    keys,
+    default_provider: $('ai-default').value,
+    enabled: $('ai-enabled').checked,
+    features: { alert_explanations: $('ai-feature-alert-explanations').checked },
+  });
   $('ai-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
   if (r.ok) loadAiBox();
 };

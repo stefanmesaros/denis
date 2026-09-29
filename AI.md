@@ -12,6 +12,21 @@ dashboard architecture, background workers and configuration persistence *before
 and extend existing DENIS components rather than building parallel infrastructure where one
 already fits.
 
+## Status
+
+1. **Settings → AI page** — done (2026-09-29). `AiConfig` gained `enabled: bool` (the global
+   switch) and `features: AiFeatures` (one field so far: `alert_explanations`), both enforced
+   server-side in `web_ai.rs::explain` (not just hidden client-side) and in `status` (the button's
+   own visibility). A real migration question came up building this: an install that already had a
+   provider key configured before these fields existed had no separate toggle — alert explanation
+   just worked whenever a key was set. `ai::load` now infers `enabled = true` for exactly that case
+   (the stored JSON literally predates the `"enabled"` key, and a key is already configured), so
+   upgrading never silently turns off something that already worked; a fresh install still defaults
+   fully off, and any explicit save from then on is respected as saved, never second-guessed.
+2. **Alert explanations** — done, as part of step 1 above (moving its toggle in, not building it
+   new; the feature itself is unchanged).
+3-11: not started.
+
 ## Build order (explicit instruction, 2026-09-29)
 
 Ship this feature-by-feature, not as one large change: **a minor version release after each step**,

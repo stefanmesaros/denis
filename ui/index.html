@@ -80,6 +80,7 @@
             <button type="button" class="subtab" data-cat="network">Network</button>
             <button type="button" class="subtab" data-cat="data">Data</button>
             <button type="button" class="subtab" data-cat="integrations">Integrations</button>
+            <button type="button" class="subtab" data-cat="ai">AI</button>
             <button type="button" class="subtab" data-cat="branding">Branding &amp; MSP</button>
           </div>
           <button class="tab" data-tab="audit" type="button" id="tab-audit" hidden><span class="label">Audit log</span></button>
@@ -555,8 +556,11 @@
           <div class="row"><button id="sso-save" type="button" class="primary">Save</button><span id="sso-msg" class="muted"></span></div>
         </div>
         <div id="ai-box" hidden>
-          <h3 class="section">Explain with AI</h3>
-          <p class="muted">Optional, bring-your-own-key: adds an "Explain with AI" button to alerts and findings, one plain-language summary per click — never automatic, never sent anywhere unless someone clicks it. Each call is billed to your own account with the provider you choose; DENIS runs none of this itself. Only what the console already shows for that one alert or finding is sent — nothing else about your network.</p>
+          <h3 class="section">AI</h3>
+          <p class="muted">Optional, bring-your-own-key: DENIS can use an AI provider you configure for a growing set of individually-switchable features below. Each call is billed to your own account with the provider you choose — DENIS runs and hosts none of this itself. Only compact, already-processed context (an alert's own summary and reasons, a device's label) is ever sent — never raw traffic, never more than what the feature you enable actually needs.</p>
+          <label class="check"><input id="ai-enabled" type="checkbox"> Enable AI features</label>
+          <p class="muted small">The master switch: while off, DENIS never calls any AI provider for any feature below, no matter what is configured or enabled underneath.</p>
+          <h4 class="section">Provider</h4>
           <div class="row">
             <label>Claude (Anthropic)<input id="ai-key-claude" type="password" autocomplete="off"></label>
             <label>ChatGPT (OpenAI)<input id="ai-key-openai" type="password" autocomplete="off"></label>
@@ -568,6 +572,10 @@
           <div class="row">
             <label>Default provider<select id="ai-default"><option value="">(none configured)</option><option value="claude">Claude</option><option value="openai">ChatGPT</option><option value="gemini">Gemini</option><option value="grok">Grok</option></select></label>
           </div>
+          <h4 class="section">Features</h4>
+          <p class="muted small">Each is off by default and only ever calls the provider above for what it says below — nothing runs in the background unless its own description says so.</p>
+          <label class="check"><input id="ai-feature-alert-explanations" type="checkbox"> Alert explanations</label>
+          <p class="muted small">Adds an "Explain with AI" button to alerts and findings: one plain-language summary per click. Never automatic — only called when you click the button, sending only that one alert or finding's own summary, reasons and device label.</p>
           <div class="row"><button id="ai-save" type="button" class="primary">Save</button><span id="ai-msg" class="muted"></span></div>
         </div>
         <div id="cmdb-box" hidden>

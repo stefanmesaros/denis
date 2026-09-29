@@ -28,6 +28,19 @@ pub fn provider_name(id: &str) -> &'static str {
     }
 }
 
+/// Individually-controllable AI capabilities (see AI.md's build order: shipped one at a time, a
+/// field added here as each one lands). Every field defaults to `false` for a fresh install —
+/// the administrator opts in per capability, never gets one silently turned on — except where
+/// `load`'s own migration logic below preserves what an existing install already had.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct AiFeatures {
+    /// "Explain with AI" on one alert or finding, on click — the only capability that exists so
+    /// far (see `explain` below). Not the same thing as the global `AiConfig.enabled` switch: both
+    /// must be on for the button to appear or the endpoint to answer.
+    #[serde(default)]
+    pub alert_explanations: bool,
+}
+
 /// One API key per provider an administrator has set up, and which one the "Explain" button
 /// uses by default. Keys are never sent back to the browser once saved (see `web_ai::Redacted`).
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -36,6 +49,13 @@ pub struct AiConfig {
     pub keys: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     pub default_provider: String,
+    /// Global on/off switch (AI.md section 4): when `false`, no AI call is ever made for any
+    /// capability, regardless of what `features` below says — checked first, everywhere this is
+    /// checked at all.
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub features: AiFeatures,
 }
 
 impl AiConfig {
@@ -49,8 +69,22 @@ impl AiConfig {
     }
 }
 
+/// Loads the config, migrating a pre-`enabled`/`features` install (every one saved before this
+/// pair of fields existed) so it keeps working exactly as it did: if a provider key was already
+/// configured, alert explanation effectively already worked (there was no separate toggle for it),
+/// so both the global switch and the alert-explanations feature default to *on* for that install —
+/// never for a fresh one, which opts in explicitly. This only ever applies once: the check is
+/// against the raw stored JSON literally lacking an `"enabled"` key, so a later, real save (which
+/// always writes one, `true` or `false`) is respected exactly as saved from then on.
 pub fn load(store: &dyn SettingsStore) -> Result<AiConfig> {
-    Ok(store.get_setting(KEY)?.and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default())
+    let raw = store.get_setting(KEY)?;
+    let mut cfg: AiConfig = raw.as_deref().and_then(|b| serde_json::from_slice(b).ok()).unwrap_or_default();
+    let pre_migration = raw.as_deref().and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok()).is_some_and(|v| v.get("enabled").is_none());
+    if pre_migration && !cfg.keys.is_empty() {
+        cfg.enabled = true;
+        cfg.features.alert_explanations = true;
+    }
+    Ok(cfg)
 }
 
 pub fn save(store: &dyn SettingsStore, c: &AiConfig, now: i64) -> Result<()> {
