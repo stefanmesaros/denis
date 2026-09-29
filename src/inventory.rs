@@ -167,6 +167,12 @@ impl Inventory {
                 self.entry(mac, now);
                 self.finish(mac, Some(ip), false, now);
             }
+            Observation::Ndp { mac, ip, link_local } => {
+                self.entry(mac, now);
+                let a = self.assets.get_mut(&mac).expect("entry() ran first");
+                let changed = note_ipv6(a, ip, link_local, now);
+                self.finish(mac, None, changed, now);
+            }
             Observation::Dhcp {
                 mac,
                 ip,
@@ -444,6 +450,23 @@ fn note_ip(a: &mut Asset, ip: Ipv4Addr, now: i64) -> bool {
     true
 }
 
+/// The IPv6 analogue of `note_ip`. Unlike an IPv4 address there is no single "current" one to
+/// compare against — a device normally holds a permanent link-local address *and* one or more
+/// global ones at once (see `model::Ipv6Record`'s own doc) — so this only ever tracks presence
+/// in the list, not a "did the current address change" signal the way `note_ip` does.
+fn note_ipv6(a: &mut Asset, ip: std::net::Ipv6Addr, link_local: bool, now: i64) -> bool {
+    if let Some(r) = a.ipv6_history.iter_mut().find(|r| r.ip == ip) {
+        r.last_seen = now;
+        return false; // already known: seeing it again is not itself a change worth persisting early
+    }
+    a.ipv6_history.push(crate::model::Ipv6Record { ip, link_local, first_seen: now, last_seen: now });
+    if a.ipv6_history.len() > MAX_IP_HISTORY {
+        a.ipv6_history.sort_by_key(|r| r.last_seen);
+        a.ipv6_history.remove(0);
+    }
+    true
+}
+
 fn add_hostname(a: &mut Asset, h: String) -> bool {
     if a.hostnames.contains(&h) || a.hostnames.len() >= MAX_HOSTNAMES {
         return false;
@@ -507,6 +530,31 @@ mod tests {
 
         inv.apply(Observation::Arp { mac: A, ip: ip(5) }, 102);
         assert!(inv.flush(&store).unwrap().is_empty());
+    }
+
+    #[test]
+    fn ndp_folds_into_ipv6_history_alongside_the_ipv4_one_never_replacing_it() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let mut inv = Inventory::new(vec![], None, None);
+        let global: std::net::Ipv6Addr = "2001:db8::42".parse().unwrap();
+        let link_local: std::net::Ipv6Addr = "fe80::42".parse().unwrap();
+        inv.apply(Observation::Arp { mac: A, ip: ip(5) }, 100);
+        inv.apply(Observation::Ndp { mac: A, ip: global, link_local: false }, 100);
+        inv.apply(Observation::Ndp { mac: A, ip: link_local, link_local: true }, 101);
+        inv.flush(&store).unwrap();
+
+        let a = inv.get(&A).unwrap();
+        // a device normally holds a permanent link-local address *and* a global one at once - both
+        // are kept, unlike ip_history's single "current" IPv4 address
+        assert_eq!(a.current_ip(), Some(ip(5)), "the IPv4 binding is untouched by IPv6 observations");
+        assert_eq!(a.ipv6_history.len(), 2);
+        assert!(a.ipv6_history.iter().any(|r| r.ip == global && !r.link_local));
+        assert!(a.ipv6_history.iter().any(|r| r.ip == link_local && r.link_local));
+
+        // seeing the same address again just touches last_seen, no duplicate entry
+        inv.apply(Observation::Ndp { mac: A, ip: global, link_local: false }, 200);
+        assert_eq!(inv.get(&A).unwrap().ipv6_history.len(), 2);
+        assert_eq!(inv.get(&A).unwrap().ipv6_history.iter().find(|r| r.ip == global).unwrap().last_seen, 200);
     }
 
     fn signals(inv: &mut Inventory) -> Vec<Signal> {

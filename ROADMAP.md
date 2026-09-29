@@ -59,18 +59,55 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    original scoping — making `cmdb.rs`'s own pruning source-scoped, since it originally assumed it
    was the only writer to the imported-device table and would have deleted Active Directory's rows
    on its own next sync otherwise.
-6. **IPv6 in capture and the asset model.** See below for the detailed scoping.
-7. **Windows collectors.** Partial groundwork already exists (`WINDOWS.md`, Win32 calls in
+6. **IPv6 in capture and the asset model.** In progress (2026-09-29): the address-type-widening
+   groundwork is done and shipping — see IPV6.md for exactly what is and is not wired up yet
+   (currently: passive Neighbor Discovery, opt-in via `--ipv6`, off by default; no active discovery,
+   no flows/detection/CIDR-scope awareness of IPv6 yet). Full detailed scoping lives in IPV6.md, not
+   duplicated here, to avoid the two documents drifting out of sync with each other.
+7. **CMDB import: Jamf (and similar MDM sources).** Same shape as the Entra ID/Intune/Active
+   Directory sources already built (own settings/credentials/schedule, upsert into the shared
+   imported-device table, source-scoped pruning) — the smallest remaining item on this list, and a
+   natural next step right after IPv6 while that CMDB pattern is fresh.
+8. **Windows collectors.** Partial groundwork already exists (`WINDOWS.md`, Win32 calls in
    `net.rs`/`health.rs`, the `windows-sys` dependency), none of it verified on a real Windows
-   machine. Picked ahead of SAML: it grows what DENIS can *observe* (a large share of real
-   networks are Windows-centric and cannot run DENIS at all today), where SAML only changes how
-   admins sign in — valuable for enterprise procurement, but it doesn't expand the product's
-   actual capability. Do this first while the existing groundwork's context is still fresh.
-8. **SAML.** OIDC SSO already exists; SAML is a separate protocol (XML signatures, metadata
-   exchange, an ACS endpoint) with a real CVE history (signature-wrapping attacks) and
-   meaningfully less mature Rust tooling than OIDC's. Ordered after Windows collectors per an
-   explicit priority call, not because it is unimportant — revisit the order if a specific
-   customer's procurement is blocked on it.
+   machine. Grows what DENIS can *observe* (a large share of real networks are Windows-centric and
+   cannot run DENIS at all today) rather than just how admins sign in — the highest-value item left
+   after IPv6/Jamf, but needs a real Windows machine to verify against, so it is scheduled for
+   whenever one is actually available to test on.
+9. **Vulnerability-scanner import** (Qualys/Tenable/Nessus). Same integration shape as CMDB import
+   — pull findings for devices DENIS already tracks, merge into the register — and it plugs a real
+   gap: DENIS's own vulnerability data today comes only from its own banner/version fingerprinting,
+   not from a dedicated scanner's much deeper (and often authenticated/credentialed) checks.
+   Complements, not replaces, DENIS's own detections.
+10. **SAML.** OIDC SSO already exists (Settings → Single sign-on); SAML is a separate protocol
+    (XML signatures, metadata exchange, an ACS endpoint) with a real CVE history
+    (signature-wrapping attacks) and meaningfully less mature Rust tooling than OIDC's — valuable
+    for enterprise procurement, but a materially bigger, riskier piece of work than the OIDC path
+    already shipped. Revisit the order if a specific customer's procurement is blocked on it.
+11. **Cloud asset discovery** (AWS/Azure/GCP inventory as another CMDB-like source). On-prem and
+    directory-based device inventory is now well covered (Entra ID, Intune, Active Directory, soon
+    Jamf); most real networks these days are hybrid, so this is the natural next inventory source
+    once the on-prem side is rounded out — but it is a new integration shape (cloud provider APIs,
+    not LDAP/Graph), not a small extension of the CMDB work like Jamf is.
+12. **A documented public API** for third-party integrations (SOAR, ticketing systems beyond
+    Jira/ServiceNow, custom dashboards). Today's API is internal-only (built for this product's own
+    UI, not for third parties to depend on). Ordered after the integration sources above so the API
+    surface it documents has had more real integrations shape it first, rather than freezing a
+    contract too early.
+13. **Multi-tenancy** for managed-service providers (white-label branding already exists; tenant
+    isolation does not). A real architectural change (data isolation between tenants, not just
+    cosmetic branding), ordered after the integration work above since it's a scaling concern for
+    an MSP customer base DENIS does not have a lot of yet.
+14. **An alternative database (PostgreSQL) and high availability.** These two are grouped because
+    they are related: SQLite (this project's only backend today) is a real ceiling for HA (no
+    built-in replication) and for a multi-tenant MSP's scale, so PostgreSQL support is the
+    prerequisite, not HA itself. Large, invasive changes (every `Store` implementation, every
+    query) — ordered last among the concrete features because nothing above *needs* them yet.
+15. **Policy enforcement (NAC): DENIS observes and alerts, it does not block.** Kept last
+    deliberately: this is a different product category (active network control, not passive
+    visibility) with a much larger blast radius when it gets something wrong (a false positive
+    blocks a real device, not just a false alert) — worth a deliberate product decision before any
+    scoping work, not just the next item to pick up.
 
 ## Verification still owed
 * ~~Master/agent across a real network~~ Verified 2026-09-29: a real agent, built from source and
@@ -88,28 +125,14 @@ year. This is what is still missing, in rough order. Pull requests welcome.
 * OpenObserve, syslog, Elasticsearch/OpenSearch and the chat/e-mail/PagerDuty/Jira/ServiceNow integrations
   against the real services (each is tested against a local fake server, not the genuine article).
 * Detections on real industrial traffic (verified with hand-built frames and replay).
+* IPv6 passive discovery (`--ipv6`) on a genuine dual-stack network — verified so far only with
+  hand-built frames (see IPV6.md).
 * An independent penetration test.
 
-## Features competitors have that DENIS does not (yet)
-* **IPv6 in capture and the asset model.** Investigated in depth (2026-09-28): the IP-enrichment
-  subsystem (GeoIP, reverse DNS, classification) already works on any `IpAddr` and needs nothing
-  further. Everything upstream of it does not: `parse.rs` never recognises an IPv6 frame at all
-  (no EtherType `0x86dd` handling), and `FlowRecord.remote`/`Asset.ip_history`/`Scope`'s CIDR
-  matching are `Ipv4Addr` throughout — widening any one of them without the others would accept
-  IPv6 syntax that can never actually match real traffic, which is worse than not offering it.
-  A real implementation needs, at minimum: IPv6 header decode in `parse.rs`, an address type each
-  of `Observation`, `FlowRecord`, `Ctx::is_local`, `Inventory` and `Scope::matches` can carry
-  (`Asset.ipv6_history` already exists as an unused stub for exactly this), and an NDP-based
-  equivalent of the ARP-based device-discovery/gateway-conflict logic. This is a multi-day
-  capture-and-model change, not a UI or API addition — deliberately not started as a same-day
-  slice alongside CMDB import and the UI redesign; a good first PR would be the address-type
-  widening alone, with IPv6 frames still dropped, as a non-behaviour-changing groundwork step.
-* Windows collectors, an alternative database (PostgreSQL) and high availability.
-* Other MDM sources (Jamf and similar) in CMDB import — Entra ID, Intune and Active Directory
-  already work (Settings → Integrations → CMDB import, see CMDB.md). Ticketing already exists too:
-  Jira and ServiceNow each file a real issue/incident per alert (Settings → Alerting → Add a
-  channel), alongside the signed generic webhook for anything else.
-* **SAML**. SSO via OIDC already exists (Settings → Single sign-on); forcing passkey-only sign-in
-  also already exists (Settings → Sign-in & security).
-* **Multi-tenancy** for managed-service providers (white-label branding exists; tenant isolation does not).
-* Policy enforcement (NAC): DENIS observes and alerts, it does not block.
+## Notes on items already covered above
+Ticketing already exists: Jira and ServiceNow each file a real issue/incident per alert (Settings →
+Alerting → Add a channel), alongside the signed generic webhook for anything else — not a gap.
+Forcing passkey-only sign-in already exists too (Settings → Sign-in & security). These used to be
+listed as gaps in a separate "features competitors have" section here; that section is gone now —
+it drifted out of sync with "Next up, in order" more than once (the same feature ending up listed
+as both done and missing), so there is now exactly one prioritised list of what remains, above.

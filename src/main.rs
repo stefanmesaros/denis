@@ -73,6 +73,12 @@ struct Collect {
     /// specific ports at all.
     #[arg(long)]
     no_extended_banners: bool,
+    /// Experimental, off by default (see IPV6.md): also decode IPv6 Neighbor Discovery
+    /// (folded into each device's `ipv6_history`, shown nowhere yet) and widen the kernel filter
+    /// to admit ICMPv6. No active IPv6 discovery, no IPv6 in flows/detection/the UI yet — this
+    /// only turns on the passive groundwork.
+    #[arg(long)]
+    ipv6: bool,
 }
 
 impl Collect {
@@ -91,6 +97,7 @@ impl Collect {
             exclude: self.exclude,
             arp_pace: Duration::from_millis(if ot { 50 } else { 2 }),
             extended_banners: !self.no_extended_banners,
+            ipv6: self.ipv6,
             ..Default::default()
         }
     }

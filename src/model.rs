@@ -252,6 +252,15 @@ pub enum Observation {
         mac: Mac,
         ip: Ipv4Addr,
     },
+    /// The IPv6 analogue of `Arp`: a Neighbor Advertisement whose claimed address is trusted
+    /// because its Source Link-Layer option agrees with the frame's own Ethernet source (see
+    /// `parse::parse_ndp`). Opt-in (`--ipv6`), folded into `Asset.ipv6_history`, same shape as
+    /// `Arp` folding into `ip_history` — see IPV6.md for what is and is not wired up yet.
+    Ndp {
+        mac: Mac,
+        ip: std::net::Ipv6Addr,
+        link_local: bool,
+    },
     Dhcp {
         mac: Mac,
         ip: Option<Ipv4Addr>,

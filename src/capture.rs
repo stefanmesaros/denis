@@ -25,14 +25,14 @@ const THROTTLE: Duration = Duration::from_secs(5);
 
 /// Open the interface and install the kernel filter. Fails fast, with an
 /// actionable hint, when the process lacks capture privileges.
-pub fn open(iface: &Iface, flows: bool) -> Result<Capture<Active>> {
-    open_named(&iface.name, flows)
+pub fn open(iface: &Iface, flows: bool, ipv6: bool) -> Result<Capture<Active>> {
+    open_named(&iface.name, flows, ipv6)
 }
 
 /// As `open`, but by interface name alone: no IPv4 address is required. A
 /// mirror/SPAN destination port never has (or needs) an address of its own,
 /// so this is what a second, capture-only interface uses.
-pub fn open_named(name: &str, flows: bool) -> Result<Capture<Active>> {
+pub fn open_named(name: &str, flows: bool, ipv6: bool) -> Result<Capture<Active>> {
     let builder = || {
         Capture::from_device(name).map(|c| {
             c.snaplen(1600)
@@ -57,7 +57,7 @@ pub fn open_named(name: &str, flows: bool) -> Result<Capture<Active>> {
             cap.get_datalink()
         );
     }
-    cap.filter(bpf_filter(flows), true)
+    cap.filter(&bpf_filter(flows, ipv6), true)
         .context("installing BPF filter")?;
     Ok(cap)
 }

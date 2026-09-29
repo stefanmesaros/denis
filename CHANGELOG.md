@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.26.0: IPv6 groundwork — passive device discovery, opt-in
+
+* **DENIS can now passively discover IPv6 addresses**, behind a new `--ipv6` flag (off by
+  default — every existing installation's capture is unchanged unless this is turned on).
+  Neighbor Discovery (NDP), IPv6's replacement for ARP, is decoded the same way ARP already is:
+  a Neighbor Advertisement whose Source Link-Layer option agrees with its own frame's Ethernet
+  source is trusted as a real (MAC, address) binding, folded into a new "IPv6 addresses" section
+  on the device panel (read-only for now). Unlike an IPv4 address, there is no single "current"
+  IPv6 address — a device keeping both its permanent link-local address and one or more global
+  ones at once is normal, not a conflict, so all of them are kept.
+* Trusting a Neighbor Advertisement needed no subnet-membership check the way ARP's does: NDP
+  requires an IP hop limit of exactly 255, and a conforming host discards anything with a lower
+  one (a router would have decremented it) — so anything this reaches was necessarily sent by a
+  device on the same physical link, by protocol guarantee, not a heuristic. This resolved one of
+  the two open questions from IPV6.md's own scoping (its item 6) for the passive-discovery case,
+  without needing to invent what IPv6 subnet membership means in general.
+* This is deliberately a narrow, groundwork-only slice: no active IPv6 discovery yet (a /64's
+  address space makes an ARP-sweep-style approach meaningless), no IPv6 in flows, detection rules
+  or CIDR-based rule scopes, no NDP-mismatch signal analogous to `arp_mismatch`. See IPV6.md for
+  the full "done vs. not done" accounting, and ROADMAP.md for what's next.
+* Also: every remaining roadmap item has been consolidated into a single priority-ordered list
+  (the old, separate "features competitors have" section drifted out of sync with "next up" more
+  than once, so it's gone now) — three new items added on their own merit: vulnerability-scanner
+  import (Qualys/Tenable/Nessus), cloud asset discovery (AWS/Azure/GCP), and a documented public
+  API for third-party integrations.
+* README's "Security and limitations" section refreshed: the master/agent-across-a-real-network
+  item is now verified (done in v2.25.0's release testing), SSO and IPv6 moved from "does not
+  exist" to "exists, here's exactly what's still unverified", stale module-map/schema-version
+  entries fixed.
+
 ## 2.25.0: Delete a site from the console, configure the agent listener from Settings, and fix two real bugs from live testing
 
 * **Sites can now be deleted from the console** (Settings/Sites page, admin-only): removes a whole

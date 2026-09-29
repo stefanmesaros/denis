@@ -209,18 +209,19 @@ Only what is actually implemented is listed above — see [ROADMAP.md](ROADMAP.m
 
 DENIS is security software; its own trustworthiness matters. Here is the honest state, not a marketing gloss.
 
-**Verified today:** 500+ unit tests and an end-to-end replay of a simulated industrial network through the whole
+**Verified today:** 650+ unit tests and an end-to-end replay of a simulated industrial network through the whole
 pipeline; fuzz tests of every parser; `cargo audit` clean; a master and agent talking over HTTP; the UI exercised
 in a browser (sign-in, forced password change, editing, users, OT, topology, trends, reports); a real Linux server
 running DENIS as a permanent `systemd` service, including a real one-click self-update (backup, verified
 signature, atomic swap, automatic rollback on failure); ARP-conflict detection on a real, live network (confirmed
-in production, not only against hand-built frames and replay).
+in production, not only against hand-built frames and replay); agent ↔ master **across a real network** (a genuine
+agent, built from source, run on a VPS in a different country over Tailscale, reporting real devices back to a
+home master).
 
 **Not yet independently verified:**
 
-* Agent ↔ master **across a real network** (loopback only so far). Built-in TLS (`--tls-cert/--tls-key`, agent
-  `--master-ca`) was verified on loopback with a private CA, not yet with a public certificate authority or a
-  reverse proxy in front.
+* Agent ↔ master with TLS from a **public** certificate authority (verified so far only with the built-in
+  self-signed one, over Tailscale) or behind a reverse proxy.
 * Industrial (OT) detections on **real** industrial traffic (tested with hand-built frames and replay; no real
   OT traffic generated on a live network yet — ARP-conflict detection itself is confirmed in production, see above).
 * The OpenObserve, SIEM (syslog: CEF/LEEF/JSON; ECS over Elasticsearch/OpenSearch's Bulk API) and Jira/ServiceNow
@@ -229,7 +230,11 @@ in production, not only against hand-built frames and replay).
   hand-built packets matching each protocol's specification only).
 * German, French and Spanish translations (complete — a test fails if a string is missing — but only Slovak has
   been reviewed by a native-speaking security professional).
-* No SSO, no PostgreSQL backend, no IPv6, no Windows build.
+* SSO (OIDC) against a real identity provider, not a mock (see SSO.md for exactly what is and is
+  not verified) — signature verification end to end is the specific gap.
+* IPv6 device discovery (opt-in, `--ipv6`) on a genuine dual-stack network — verified so far only
+  with hand-built frames (see IPV6.md).
+* No PostgreSQL backend, no Windows build.
 * **An independent penetration test.** Required, and not yet done, before relying on DENIS in a commercial
   production setting. If you are able to run one, please [get in touch](SECURITY.md).
 
@@ -301,9 +306,11 @@ commercial license (there is no self-service purchase yet — open a GitHub issu
 
 ## Roadmap
 
-What is missing and planned, including gaps competitors already cover (SAML — OIDC SSO already works; other MDM
-sources such as Jamf — Entra ID, Intune and Active Directory already work in CMDB import; multi-tenancy; IPv6; a
-Windows collector) and verification still owed before a commercial launch: see [ROADMAP.md](ROADMAP.md).
+A single priority-ordered list of what's missing and planned — IPv6 (passive discovery shipped,
+opt-in; the rest in progress), a Jamf/MDM CMDB source, a Windows collector, vulnerability-scanner
+import, SAML (OIDC SSO already works), cloud asset discovery, a documented public API,
+multi-tenancy, PostgreSQL/HA, and NAC — plus verification still owed before a commercial launch:
+see [ROADMAP.md](ROADMAP.md).
 
 ## Contributing
 
@@ -328,6 +335,7 @@ issue: [SECURITY.md](SECURITY.md).
 
 ```
 src/parse.rs        Ethernet frame -> observations (pure, fuzzed)
+src/ipv6.rs         IPv6 header + Neighbor Discovery parser; passive discovery only, opt-in (--ipv6, see IPV6.md)
 src/ot.rs           industrial protocol + LLDP/CDP/PROFINET decoders (pure, tested from the specs)
 src/flow.rs         per-window aggregation of flows and conversations (capture thread)
 src/capture.rs      libpcap thread, kernel filter, throttling
@@ -367,7 +375,7 @@ src/agent.rs        agent reporter
 src/tls.rs          optional built-in HTTPS (rustls)
 src/update.rs       one-click self-update: signed release check, download, verify, backup, atomic swap, rollback
 src/engine.rs       collector + detector + web wiring (`run`, `run_agent`)
-src/store/          `Store` trait (split into focused sub-traits) + SQLite (schema v14, transactional migrations)
+src/store/          `Store` trait (split into focused sub-traits) + SQLite (schema v17, transactional migrations)
 src/branding.rs     white-label settings and safe logo handling
 src/channels.rs     notification channels (Slack/Teams/Discord/PagerDuty/Pushover/ntfy/e-mail/Jira/ServiceNow/webhook)
 src/syslog.rs       log export: syslog (CEF/LEEF/JSON) or Elasticsearch/OpenSearch (ECS over the Bulk API)

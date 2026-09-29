@@ -14,6 +14,7 @@ use ipnet::Ipv4Net;
 
 use crate::model::{FlowSample, LinkInfo, Mac, Observation, OtSample, Signal, TcpSig, PROTO_ICMP, PROTO_TCP, PROTO_UDP};
 use crate::ot;
+use crate::ipv6;
 
 pub struct Ctx {
     /// Every subnet this capture should treat as "local": the monitored interface's own, plus
@@ -32,6 +33,11 @@ pub struct Ctx {
     /// Decode industrial protocols between local devices (needs the wide
     /// filter too, so it is enabled together with `flows`).
     pub ot: bool,
+    /// Opt-in (`--ipv6`, off by default — see IPV6.md): also decode IPv6 Neighbor Discovery,
+    /// folded into `Asset.ipv6_history` the same way ARP feeds `ip_history`. Needs the kernel
+    /// filter to admit `ip6` too (`bpf_filter`'s own `ipv6` parameter, kept alongside this rather
+    /// than derived from it so a caller can never forget one half of turning this on).
+    pub ipv6: bool,
 }
 
 impl Ctx {
@@ -42,6 +48,7 @@ impl Ctx {
 
 const ETH_ARP: u16 = 0x0806;
 const ETH_IPV4: u16 = 0x0800;
+const ETH_IPV6: u16 = 0x86dd;
 const ETH_VLAN: u16 = 0x8100;
 const ETH_QINQ: u16 = 0x88a8;
 
@@ -61,11 +68,16 @@ pub const BPF_FILTER: &str = "arp \
 /// With flow accounting every IPv4 frame is needed (plus the link-layer set).
 pub const BPF_FILTER_FLOWS: &str = "arp or ip or ether proto 0x88cc or ether proto 0x8892 or ether dst 01:00:0c:cc:cc:cc";
 
-pub fn bpf_filter(flows: bool) -> &'static str {
-    if flows {
-        BPF_FILTER_FLOWS
+/// `ipv6: true` (`--ipv6`, off by default — see IPV6.md) widens whichever of the two filters
+/// above applies to also admit ICMPv6 (Neighbor Discovery lives there; nothing else IPv6-shaped is
+/// decoded yet). Every existing installation's capture is unchanged unless this is turned on: the
+/// kernel filter is exactly what decides whether an IPv6 frame reaches userspace at all.
+pub fn bpf_filter(flows: bool, ipv6: bool) -> String {
+    let base = if flows { BPF_FILTER_FLOWS } else { BPF_FILTER };
+    if ipv6 {
+        format!("({base}) or icmp6")
     } else {
-        BPF_FILTER
+        base.to_string()
     }
 }
 
@@ -123,6 +135,7 @@ pub fn parse_frame(ctx: &Ctx, frame: &[u8]) -> Vec<Observation> {
                 parse_ipv4(ctx, src_mac, payload, &mut out);
             }
         }
+        ETH_IPV6 if !own && ctx.ipv6 => parse_ndp(src_mac, payload, &mut out),
         _ => {}
     }
     out
@@ -284,6 +297,36 @@ fn parse_arp(ctx: &Ctx, eth_src: Mac, p: &[u8], out: &mut Vec<Observation>) {
         return;
     }
     out.push(Observation::Arp { mac: sha, ip: spa });
+}
+
+/// IPv6 Neighbor Discovery's analogue of `parse_arp`: a Neighbor Advertisement is IPv6's ARP
+/// reply, and its Source Link-Layer option is IPv6's sender-hardware-address field. Only a
+/// Neighbor Advertisement yields a binding — Solicitations/Router Advertisements are evidence of
+/// *something* on the link but claim no address the way a reply does.
+///
+/// NDP messages are link-scoped by protocol design (RFC 4861 §7.1.1/7.1.2): a conforming host
+/// discards any of them whose IP hop limit is not 255, since a router would have decremented it,
+/// so anything that reaches this function with `hop_limit == 255` was necessarily sent by a device
+/// on this same link, exactly like the subnet check `parse_arp` needs for the same trust reason —
+/// no separate "is this address local" logic is needed here (nor obviously defined yet for IPv6;
+/// see IPV6.md item 6).
+fn parse_ndp(eth_src: Mac, p: &[u8], out: &mut Vec<Observation>) {
+    let Some(hdr) = ipv6::parse(p) else { return };
+    if hdr.upper_protocol != ipv6::ICMPV6 || hdr.hop_limit != 255 {
+        return;
+    }
+    let Some(msg) = p.get(hdr.payload_offset..).and_then(ipv6::parse_icmpv6) else { return };
+    if let ipv6::Icmpv6::NeighborAdvertisement { target, source_link_layer } = msg {
+        if target.is_unspecified() || target.is_multicast() {
+            return;
+        }
+        // Trust the option's MAC only when it agrees with the frame's own source, the same bar
+        // `parse_arp` holds a claimed address to (a disagreement there is reported as
+        // `arp_mismatch` instead of learned from; NDP has no such signal yet, see IPV6.md).
+        if source_link_layer == Some(eth_src.0) {
+            out.push(Observation::Ndp { mac: eth_src, ip: target, link_local: ipv6::is_link_local(&target) });
+        }
+    }
 }
 
 fn parse_ipv4(ctx: &Ctx, src_mac: Mac, p: &[u8], out: &mut Vec<Observation>) {
@@ -758,6 +801,7 @@ mod tests {
             own_ip: Ipv4Addr::new(192, 168, 1, 10),
             flows: false,
             ot: false,
+            ipv6: false,
         }
     }
 
@@ -847,6 +891,92 @@ mod tests {
         payload.extend(arp(2, DEV, [192, 168, 1, 21], [0; 4]));
         let f = eth([0xff; 6], DEV, ETH_VLAN, &payload);
         assert_eq!(parse_frame(&ctx(), &f).len(), 1);
+    }
+
+    // ------------------------------------------------------------ IPv6 / NDP
+
+    fn ipv6_pkt(hop_limit: u8, src: std::net::Ipv6Addr, dst: std::net::Ipv6Addr, icmpv6: &[u8]) -> Vec<u8> {
+        let mut p = vec![0u8; 40];
+        p[0] = 0x60;
+        p[6] = ipv6::ICMPV6;
+        p[7] = hop_limit;
+        p[8..24].copy_from_slice(&src.octets());
+        p[24..40].copy_from_slice(&dst.octets());
+        p.extend_from_slice(icmpv6);
+        p
+    }
+
+    /// A Neighbor Advertisement whose Source Link-Layer option carries `mac`.
+    fn na(target: std::net::Ipv6Addr, mac: [u8; 6]) -> Vec<u8> {
+        let mut body = vec![136, 0, 0, 0, 0, 0, 0, 0];
+        body.extend_from_slice(&target.octets());
+        body.extend_from_slice(&[1, 1, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]]);
+        body
+    }
+
+    fn ipv6_ctx() -> Ctx {
+        Ctx { ipv6: true, ..ctx() }
+    }
+
+    #[test]
+    fn a_neighbor_advertisement_is_a_valid_ipv6_binding_when_ipv6_is_turned_on() {
+        let target: std::net::Ipv6Addr = "2001:db8::42".parse().unwrap();
+        let src: std::net::Ipv6Addr = "fe80::1".parse().unwrap();
+        let f = eth([0x33, 0x33, 0, 0, 0, 1], DEV, ETH_IPV6, &ipv6_pkt(255, src, "ff02::1".parse().unwrap(), &na(target, DEV)));
+        let obs = parse_frame(&ipv6_ctx(), &f);
+        assert!(matches!(obs.as_slice(), [Observation::Ndp { mac, ip, link_local: false }] if mac.0 == DEV && *ip == target));
+    }
+
+    #[test]
+    fn ipv6_is_ignored_unless_the_flag_is_on() {
+        let target: std::net::Ipv6Addr = "2001:db8::42".parse().unwrap();
+        let src: std::net::Ipv6Addr = "fe80::1".parse().unwrap();
+        let f = eth([0x33, 0x33, 0, 0, 0, 1], DEV, ETH_IPV6, &ipv6_pkt(255, src, "ff02::1".parse().unwrap(), &na(target, DEV)));
+        assert!(parse_frame(&ctx(), &f).is_empty(), "ipv6: false must decode nothing, same bar as any other opt-in");
+    }
+
+    #[test]
+    fn a_link_local_target_is_flagged_as_such() {
+        let target: std::net::Ipv6Addr = "fe80::42".parse().unwrap();
+        let f = eth([0x33, 0x33, 0, 0, 0, 1], DEV, ETH_IPV6, &ipv6_pkt(255, "fe80::1".parse().unwrap(), "ff02::1".parse().unwrap(), &na(target, DEV)));
+        let obs = parse_frame(&ipv6_ctx(), &f);
+        assert!(matches!(obs.as_slice(), [Observation::Ndp { link_local: true, .. }]));
+    }
+
+    #[test]
+    fn a_forwarded_ndp_message_is_never_trusted() {
+        // hop_limit != 255 means a router touched it: NDP must be link-local only (RFC 4861).
+        let target: std::net::Ipv6Addr = "2001:db8::42".parse().unwrap();
+        let f = eth([0x33, 0x33, 0, 0, 0, 1], DEV, ETH_IPV6, &ipv6_pkt(64, "fe80::1".parse().unwrap(), "ff02::1".parse().unwrap(), &na(target, DEV)));
+        assert!(parse_frame(&ipv6_ctx(), &f).is_empty());
+    }
+
+    #[test]
+    fn a_link_layer_option_that_disagrees_with_the_ethernet_source_is_not_learned() {
+        let target: std::net::Ipv6Addr = "2001:db8::42".parse().unwrap();
+        let other_mac = [0x02, 2, 3, 4, 5, 6];
+        let f = eth([0x33, 0x33, 0, 0, 0, 1], DEV, ETH_IPV6, &ipv6_pkt(255, "fe80::1".parse().unwrap(), "ff02::1".parse().unwrap(), &na(target, other_mac)));
+        assert!(parse_frame(&ipv6_ctx(), &f).is_empty());
+    }
+
+    #[test]
+    fn a_neighbor_solicitation_claims_no_binding() {
+        // Solicitations carry no Source Link-Layer binding worth learning from (see IPV6.md):
+        // only a reply (Advertisement) is trusted, the same asymmetry ARP has.
+        let target: std::net::Ipv6Addr = "2001:db8::42".parse().unwrap();
+        let mut body = vec![135, 0, 0, 0, 0, 0, 0, 0];
+        body.extend_from_slice(&target.octets());
+        let f = eth([0x33, 0x33, 0, 0, 0, 1], DEV, ETH_IPV6, &ipv6_pkt(255, "fe80::1".parse().unwrap(), "ff02::1".parse().unwrap(), &body));
+        assert!(parse_frame(&ipv6_ctx(), &f).is_empty());
+    }
+
+    #[test]
+    fn our_own_ipv6_frames_and_truncated_ones_are_ignored() {
+        let c = ipv6_ctx();
+        let target: std::net::Ipv6Addr = "2001:db8::42".parse().unwrap();
+        let own = eth([0x33, 0x33, 0, 0, 0, 1], c.own_mac.0, ETH_IPV6, &ipv6_pkt(255, "fe80::1".parse().unwrap(), "ff02::1".parse().unwrap(), &na(target, c.own_mac.0)));
+        assert!(parse_frame(&c, &own).is_empty());
+        assert!(parse_frame(&c, &eth([0x33, 0x33, 0, 0, 0, 1], DEV, ETH_IPV6, &[0; 10])).is_empty());
     }
 
     fn tcp_syn(flags: u8, window: u16, opts: &[u8]) -> Vec<u8> {
@@ -1416,5 +1546,16 @@ mod tests {
         // and the capture filters really ask the kernel for these frames
         assert!(BPF_FILTER.contains("0x88cc") && BPF_FILTER.contains("0x8892") && BPF_FILTER.contains("01:00:0c:cc:cc:cc"));
         assert!(BPF_FILTER_FLOWS.contains("0x88cc"));
+    }
+
+    #[test]
+    fn the_kernel_filter_only_admits_icmpv6_when_the_flag_is_on() {
+        assert!(!bpf_filter(false, false).contains("icmp6") && !bpf_filter(true, false).contains("icmp6"));
+        assert!(bpf_filter(false, true).contains("icmp6") && bpf_filter(true, true).contains("icmp6"));
+        // widening never drops what was already admitted
+        for flows in [false, true] {
+            let (without, with) = (bpf_filter(flows, false), bpf_filter(flows, true));
+            assert!(with.contains(&without));
+        }
     }
 }

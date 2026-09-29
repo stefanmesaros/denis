@@ -69,6 +69,10 @@ pub struct CollectorConfig {
     /// other banner already read, but `--no-extended-banners` says not to connect to those specific
     /// ports at all.
     pub extended_banners: bool,
+    /// Opt-in (`--ipv6`, off by default — see IPV6.md): also decode IPv6 Neighbor Discovery
+    /// (folded into `Asset.ipv6_history`), and widen the kernel filter to admit it. Every
+    /// existing installation's capture is unchanged unless this is turned on.
+    pub ipv6: bool,
 }
 
 impl CollectorConfig {
@@ -102,6 +106,7 @@ impl Default for CollectorConfig {
             exclude: Vec::new(),
             arp_pace: Duration::from_millis(2),
             extended_banners: true,
+            ipv6: false,
         }
     }
 }
@@ -418,7 +423,7 @@ impl Collector {
 
         // Open capture before anything else so a privilege problem is the first,
         // clearest error rather than a half-started daemon.
-        let cap = capture::open(&iface, cfg.flows)?;
+        let cap = capture::open(&iface, cfg.flows, cfg.ipv6)?;
 
         // The mirror/SPAN interfaces, if any: capture-only, never probed, never
         // used for discovery or as a sweep target. Each rarely has an IPv4
@@ -433,7 +438,7 @@ impl Collector {
             if !net::exists_up(name)? {
                 anyhow::bail!("mirror interface {name:?} not found or not up (try `denis interfaces`)");
             }
-            mirror_caps.push((name.clone(), capture::open_named(name, true)?));
+            mirror_caps.push((name.clone(), capture::open_named(name, true, cfg.ipv6)?));
         }
 
         // Every subnet this install should treat as local, shared by the main capture and every
@@ -531,6 +536,7 @@ impl Collector {
             flows: cfg.flows,
             // Industrial decoding needs the same wide capture as flow accounting.
             ot: cfg.flows,
+            ipv6: cfg.ipv6,
         };
         let capture = capture::spawn(cap, ctx, tx.clone(), frames.clone(), shared.capture_stats.clone());
         // Same known-local subnets and own-address context as the main interface (see `subnets`
@@ -546,6 +552,7 @@ impl Collector {
                     own_ip: iface.ip,
                     flows: true,
                     ot: true,
+                    ipv6: cfg.ipv6,
                 };
                 capture::spawn(cap2, ctx2, tx.clone(), frames.clone(), shared.capture_stats.clone())
             })

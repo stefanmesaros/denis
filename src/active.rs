@@ -161,6 +161,7 @@ mod tests {
             own_ip: Ipv4Addr::new(192, 168, 1, 10),
             flows: false,
             ot: false,
+            ipv6: false,
         };
         let f = build_arp_request(mac, ctx.own_ip, Ipv4Addr::new(192, 168, 1, 20));
         assert!(parse_frame(&ctx, &f).is_empty());
@@ -176,6 +177,7 @@ mod tests {
             own_ip: Ipv4Addr::new(192, 168, 1, 10),
             flows: false,
             ot: false,
+            ipv6: false,
         };
         let f = build_arp_request(other, Ipv4Addr::new(192, 168, 1, 44), Ipv4Addr::new(192, 168, 1, 1));
         assert!(matches!(parse_frame(&ctx, &f).as_slice(), [Observation::Arp { .. }]));
