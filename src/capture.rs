@@ -149,6 +149,10 @@ pub fn spawn(
                         agg.add(s);
                         continue;
                     }
+                    if let Observation::FlowSampleV6(s) = &obs {
+                        agg.add_v6(s);
+                        continue;
+                    }
                     // Every industrial message feeds the conversation matrix; only a
                     // throttled sample goes on to the inventory (roles, identity).
                     if let Observation::Ot(s) = &obs {

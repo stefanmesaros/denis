@@ -263,7 +263,7 @@ impl Inventory {
             }
             // Traffic accounting is handled before the inventory (capture thread
             // -> aggregator -> detector); nothing here.
-            Observation::FlowSample(_) | Observation::Flows(_) => {}
+            Observation::FlowSample(_) | Observation::FlowSampleV6(_) | Observation::Flows(_) => {}
         }
     }
 

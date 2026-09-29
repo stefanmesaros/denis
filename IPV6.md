@@ -48,7 +48,30 @@ asking for it):**
   keeping both its permanent link-local address and one or more global ones live in the list at
   once is normal and expected, not a conflict.
 * The device panel shows whatever `ipv6_history` has (read-only, no detection rule reasons about it
-  yet) — the first slice item 5 below suggested starting with.
+  in the IPv4-style, address-history sense — but see the next section, `new_destination_v6` does
+  reason about IPv6 *flows* now).
+* **IPv6 flow accounting and a first detection rule (2026-09-29), still opt-in.** `--ipv6-subnet`
+  (repeatable, the IPv6 analogue of `--mirror-subnet`) tells `parse::Ctx::is_local_v6` what counts
+  as local — resolving item 3's flow/CIDR-scope question below, deliberately as an explicit flag
+  rather than autodetection, for the same reason `--mirror-subnet` already is: an IPv6 interface
+  can carry several global prefixes plus a permanent link-local one at once, with no single
+  "the subnet" to infer the way `net::select` does for one DHCP-leased IPv4 address. With it (and
+  `--flows`), `parse_flow_v6` accounts IPv6 flows into a **parallel** set of types (`FlowSampleV6`,
+  `FlowRecordV6`, `FlowAgg.map_v6`, `FlowBatch.flows_v6`) rather than widening the existing IPv4
+  ones — the same "parallel, not merged" choice as `ip_history`/`ipv6_history` — so the entire,
+  heavily-tested IPv4 flow path is untouched. `Detector::ingest_asset_v6` then reasons about them:
+  a new rule, `new_destination_v6`, distinct from IPv4's `new_destination` because its scoring is
+  deliberately simpler for now (see below), sharing the *same* `Baseline.typical_destinations`/
+  `typical_ports` maps as IPv4 (already generic, string-keyed) so one device's learning period and
+  destination cap cover both address families together.
+* **Deliberately out of scope in this slice** (each a real, separate piece of work): no
+  rotation-burst suppression or `new_port` rule for IPv6 yet (the IPv4 versions exist because of
+  real alert-noise data this project doesn't have for IPv6 yet — a CDN/relay that hands out a
+  fresh IPv6 address per session may currently repeat-alert more than its IPv4 counterpart would);
+  no OT protocol decoding over IPv6 (no `parse_ot_v6`); the threat list and network watches
+  (`it_watch`) are still IPv4-address-shaped and do not see IPv6 flows; `lan_scan`'s breadth-based
+  logic has not been ported. Remote agents do not yet report IPv6 flows to a master (`Report` has
+  no `flows_v6` field) — only a local/embedded collector's own IPv6 flows are detected today.
 
 **Not done, and why each is its own step, not a detail of the others:**
 
@@ -57,23 +80,24 @@ asking for it):**
    real equivalent is joining the solicited-node multicast groups of addresses already learned
    passively and/or sending Neighbor Solicitations for specific targets — a materially different
    mechanism, not a drop-in replacement for `active::arp_sweep`.
-2. **Detection, flows, CSV export and the API's write side are all still IPv4-shaped.**
-   `detect.rs`'s baselines, every rule that reasons about "a destination", `report.rs`'s CSV
-   writer, and `FlowRecord`/`Scope`'s CIDR matching all assume one current IPv4 address. Each of
-   these is a real, separate piece of work once there is more IPv6 evidence than device addresses
-   to reason about — deliberately not started before there is a rule that would need it.
-3. **No IPv6 equivalent of `--iface`'s subnet-membership check for flows/CIDR scopes.**
-   `parse::Ctx::is_local` decides "is this address ours to track" from `--subnet`/the interface's
-   own IPv4 address, for the *flow-accounting* and *rule-scope* meaning of "local" — a different
-   question from the one NDP's hop-limit check already answers above (which is specifically about
-   trusting a discovery binding, not about scoping a flow or a CIDR rule). An IPv6 equivalent needs
-   its own answer to what "local" means when an interface can carry several global prefixes and a
-   permanent link-local one at once.
-4. **No NDP equivalent of `arp_mismatch`.** A Source Link-Layer option that disagrees with the
+2. **Rule parity with IPv4 flows.** `new_destination_v6` covers the single highest-value rule;
+   rotation-burst suppression, `new_port`, OT-over-IPv6, the threat list and network watches seeing
+   IPv6, and `lan_scan` for IPv6 are each their own scoping decision (see above), not a mechanical
+   port — several need real alert-noise or incident data this project does not have yet for IPv6,
+   the same bar the IPv4 rotation-burst fix itself was held to (see the v2.20.0 roadmap entry).
+3. **Remote-agent IPv6 flow reporting.** `agent.rs`'s at-least-once spooling/re-send pipeline
+   (`Reporter.spool`, `SPOOL_MAX`, `BATCH_FLOWS`) is IPv4-`FlowRecord`-shaped; extending it to also
+   spool `FlowRecordV6` needs the same reliability guarantees, not just a wider `Report` struct —
+   deliberately not rushed alongside the master/embedded-collector path above.
+4. **CSV export and the API's read side are still IPv4-shaped for flows/destinations**
+   (`report.rs`'s CSV writer, per-device baseline endpoint's destination list). Real, separate work
+   once there is a reason an admin needs to see IPv6 flow data outside the device panel's raw
+   `ipv6_history` list.
+5. **No NDP equivalent of `arp_mismatch`.** A Source Link-Layer option that disagrees with the
    frame's own Ethernet source is currently just dropped (see above), the safe default, but ARP's
    `parse_arp` turns the IPv4 equivalent into a reported `Signal` instead of silence — worth adding
    once there is a real incident to design the alert's wording against, not invented speculatively.
-5. **No IPv6 conflict/gateway-claim detection.** `Inventory::check_conflict` and `is_gateway` are
+6. **No IPv6 conflict/gateway-claim detection.** `Inventory::check_conflict` and `is_gateway` are
    IPv4-`by_ip`-keyed; an IPv6 analogue (a Router Advertisement is the gateway signal, not ARP/DHCP)
    is new mechanism, not a type-widen, and is meaningfully lower-value than IPv4's version since
    IPv6 address conflicts are rare by design (SLAAC/DAD already prevent most of what IPv4's
@@ -81,14 +105,17 @@ asking for it):**
 
 ## Suggested order
 
-(1) and (2) are both substantial and can happen in either order; (2) likely wants a real detection
-rule to design against rather than speculative CIDR/flow support. (3) is worth resolving before (2)
-needs it. (4) and (5) are smaller, worth doing once there is a real incident/gateway-detection need
-to shape them against, same reasoning as (4)'s own entry above.
+(1) and (2) are both substantial and can happen in either order; (2) specifically wants real
+alert-noise/incident data to design against, the same bar the IPv4 rotation-burst fix was held to,
+so it should not be rushed just to claim parity. (3) naturally follows once (2) has settled what a
+remote agent would even need to spool. (4), (5) and (6) are smaller, worth doing once there is a
+real need (an admin asking for IPv6 in CSV export, a real spoofing incident, a real gateway-claim
+question) to shape them against.
 
 ## What this is not
 
-This is not a claim that DENIS has full IPv6 support. Passive device discovery works, opt-in, and
-is verified with hand-built frames (unit tests, not yet a genuine dual-stack network — see
-ROADMAP.md's "Verification still owed"). Everything downstream of "what address does this device
-have" (detection, flows, CIDR scopes, active discovery) is still IPv4-only.
+This is not a claim that DENIS has full IPv6 support. Passive device discovery and IPv6 flow
+accounting with one detection rule (`new_destination_v6`) work, opt-in, verified with hand-built
+frames (unit tests, not yet a genuine dual-stack network — see ROADMAP.md's "Verification still
+owed"). Rule parity with IPv4, remote-agent reporting, active discovery, CSV/API exposure and
+conflict/gateway detection are all still IPv4-only or not started.

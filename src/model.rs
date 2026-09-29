@@ -307,6 +307,8 @@ pub enum Observation {
     /// One packet's worth of traffic. Folded into `Flows` by the capture thread
     /// and never reaches the inventory.
     FlowSample(FlowSample),
+    /// The IPv6 analogue of `FlowSample` (see `FlowSampleV6`'s own doc).
+    FlowSampleV6(FlowSampleV6),
     /// A closed aggregation window of flow and conversation records.
     Flows(FlowBatch),
     /// A suspicious fact noticed on the wire (e.g. an ARP sender-address mismatch).
@@ -403,6 +405,11 @@ pub struct ConvRecord {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FlowBatch {
     pub flows: Vec<FlowRecord>,
+    /// IPv6 flows: a separate list rather than widening `FlowRecord.remote` itself, the same
+    /// choice already made for `Asset.ip_history`/`ipv6_history` — avoids touching the entire,
+    /// heavily-tested IPv4 flow path to add a still-opt-in (`--ipv6`), less mature one alongside
+    /// it. Always empty unless `--ipv6` is on.
+    pub flows_v6: Vec<FlowRecordV6>,
     pub convs: Vec<ConvRecord>,
 }
 
@@ -428,6 +435,32 @@ pub struct FlowRecord {
     pub remote: Ipv4Addr,
     pub proto: u8,
     /// Service port: the smaller of the two ports (clients use ephemeral ones).
+    pub port: u16,
+    pub bytes_out: u64,
+    pub bytes_in: u64,
+    pub packets: u64,
+    pub window_start: i64,
+    pub window_secs: u32,
+}
+
+/// The IPv6 analogue of `FlowSample` (see IPV6.md: opt-in via `--ipv6`, a separate type rather
+/// than a widened `remote` field).
+#[derive(Clone, Debug, PartialEq)]
+pub struct FlowSampleV6 {
+    pub mac: Mac,
+    pub remote: std::net::Ipv6Addr,
+    pub proto: u8,
+    pub port: u16,
+    pub bytes: u32,
+    pub outbound: bool,
+}
+
+/// The IPv6 analogue of `FlowRecord`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FlowRecordV6 {
+    pub mac: Mac,
+    pub remote: std::net::Ipv6Addr,
+    pub proto: u8,
     pub port: u16,
     pub bytes_out: u64,
     pub bytes_in: u64,

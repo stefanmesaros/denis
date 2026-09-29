@@ -8,11 +8,11 @@
 //! monitored subnet. Frames routed in from elsewhere carry the router's MAC and
 //! would otherwise pollute the router's IP history.
 
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use ipnet::Ipv4Net;
 
-use crate::model::{FlowSample, LinkInfo, Mac, Observation, OtSample, Signal, TcpSig, PROTO_ICMP, PROTO_TCP, PROTO_UDP};
+use crate::model::{FlowSample, FlowSampleV6, LinkInfo, Mac, Observation, OtSample, Signal, TcpSig, PROTO_ICMP, PROTO_TCP, PROTO_UDP};
 use crate::ot;
 use crate::ipv6;
 
@@ -38,11 +38,22 @@ pub struct Ctx {
     /// filter to admit `ip6` too (`bpf_filter`'s own `ipv6` parameter, kept alongside this rather
     /// than derived from it so a caller can never forget one half of turning this on).
     pub ipv6: bool,
+    /// Every IPv6 prefix this capture should treat as "local" (`--ipv6-subnet`, repeatable) —
+    /// the IPv6 analogue of `subnets`, kept as an explicit, separate list rather than derived
+    /// automatically: unlike an IPv4 interface's one DHCP-leased address, an IPv6 interface can
+    /// carry several global prefixes plus a permanent link-local one at once, with no single
+    /// "the subnet" to infer the way `net::select` does for IPv4 (see IPV6.md). Empty unless
+    /// explicitly configured, in which case flow accounting for IPv6 sees nothing as local.
+    pub ipv6_subnets: Vec<ipnet::Ipv6Net>,
 }
 
 impl Ctx {
     fn is_local(&self, ip: &Ipv4Addr) -> bool {
         self.subnets.iter().any(|n| n.contains(ip))
+    }
+
+    fn is_local_v6(&self, ip: &Ipv6Addr) -> bool {
+        self.ipv6_subnets.iter().any(|n| n.contains(ip))
     }
 }
 
@@ -135,7 +146,14 @@ pub fn parse_frame(ctx: &Ctx, frame: &[u8]) -> Vec<Observation> {
                 parse_ipv4(ctx, src_mac, payload, &mut out);
             }
         }
-        ETH_IPV6 if !own && ctx.ipv6 => parse_ndp(src_mac, payload, &mut out),
+        ETH_IPV6 if ctx.ipv6 => {
+            if ctx.flows {
+                parse_flow_v6(ctx, src_mac, dst_mac, payload, &mut out);
+            }
+            if !own {
+                parse_ndp(src_mac, payload, &mut out);
+            }
+        }
         _ => {}
     }
     out
@@ -150,6 +168,11 @@ fn is_external(ctx: &Ctx, ip: Ipv4Addr) -> bool {
         && !ip.is_loopback()
         && !ip.is_link_local()
         && !ip.is_unspecified()
+}
+
+/// The IPv6 analogue of `is_external`.
+fn is_external_v6(ctx: &Ctx, ip: Ipv6Addr) -> bool {
+    !ctx.is_local_v6(&ip) && !ip.is_multicast() && !ip.is_loopback() && !ipv6::is_link_local(&ip) && !ip.is_unspecified()
 }
 
 /// Industrial protocol decoding for traffic between two *local* devices (the
@@ -261,6 +284,35 @@ fn parse_flow(ctx: &Ctx, src_mac: Mac, dst_mac: Mac, p: &[u8], own: bool, out: &
             bytes: total,
             outbound: false,
         }));
+    }
+}
+
+/// The IPv6 analogue of `parse_flow`: opt-in (`--ipv6`, needs `ctx.ipv6_subnets` configured or
+/// nothing is ever "local" to attribute traffic to), and deliberately narrower for now — no
+/// TLS/JA3 fingerprinting or ARP-equivalent binding reveal yet, just bytes/direction accounting
+/// (see IPV6.md: a real, separate piece of work once there is more IPv6 evidence to reason about
+/// than this).
+fn parse_flow_v6(ctx: &Ctx, src_mac: Mac, dst_mac: Mac, p: &[u8], out: &mut Vec<Observation>) {
+    let Some(hdr) = ipv6::parse(p) else { return };
+    let proto = hdr.upper_protocol;
+    let l4 = &p[hdr.payload_offset..];
+    let port = match proto {
+        PROTO_TCP | PROTO_UDP if l4.len() >= 4 => {
+            let (s, d) = (u16::from_be_bytes([l4[0], l4[1]]), u16::from_be_bytes([l4[2], l4[3]]));
+            s.min(d)
+        }
+        ipv6::ICMPV6 => 0, // mirrors PROTO_ICMP's own port-less accounting
+        PROTO_TCP | PROTO_UDP => return,
+        _ => 0,
+    };
+    // IPv6 has no "total length includes header" TSO quirk the way IPv4's does: the payload
+    // length field is exactly the payload, unaffected by checksum offload.
+    let total = (p.len() - hdr.payload_offset + 40) as u32;
+
+    if ctx.is_local_v6(&hdr.src) && is_external_v6(ctx, hdr.dst) {
+        out.push(Observation::FlowSampleV6(FlowSampleV6 { mac: src_mac, remote: hdr.dst, proto, port, bytes: total, outbound: true }));
+    } else if ctx.is_local_v6(&hdr.dst) && is_external_v6(ctx, hdr.src) && dst_mac.is_valid() {
+        out.push(Observation::FlowSampleV6(FlowSampleV6 { mac: dst_mac, remote: hdr.src, proto, port, bytes: total, outbound: false }));
     }
 }
 
@@ -802,6 +854,7 @@ mod tests {
             flows: false,
             ot: false,
             ipv6: false,
+            ipv6_subnets: vec![],
         }
     }
 
@@ -896,13 +949,19 @@ mod tests {
     // ------------------------------------------------------------ IPv6 / NDP
 
     fn ipv6_pkt(hop_limit: u8, src: std::net::Ipv6Addr, dst: std::net::Ipv6Addr, icmpv6: &[u8]) -> Vec<u8> {
+        ipv6_ip(ipv6::ICMPV6, hop_limit, src, dst, icmpv6)
+    }
+
+    /// A minimal, valid IPv6 header (no extension headers) carrying `next_header` with `l4`
+    /// (the upper-layer payload) appended right after it.
+    fn ipv6_ip(next_header: u8, hop_limit: u8, src: std::net::Ipv6Addr, dst: std::net::Ipv6Addr, l4: &[u8]) -> Vec<u8> {
         let mut p = vec![0u8; 40];
         p[0] = 0x60;
-        p[6] = ipv6::ICMPV6;
+        p[6] = next_header;
         p[7] = hop_limit;
         p[8..24].copy_from_slice(&src.octets());
         p[24..40].copy_from_slice(&dst.octets());
-        p.extend_from_slice(icmpv6);
+        p.extend_from_slice(l4);
         p
     }
 
@@ -916,6 +975,10 @@ mod tests {
 
     fn ipv6_ctx() -> Ctx {
         Ctx { ipv6: true, ..ctx() }
+    }
+
+    fn ipv6_flow_ctx() -> Ctx {
+        Ctx { ipv6: true, flows: true, ipv6_subnets: vec!["2001:db8::/32".parse().unwrap()], ..ctx() }
     }
 
     #[test]
@@ -977,6 +1040,57 @@ mod tests {
         let own = eth([0x33, 0x33, 0, 0, 0, 1], c.own_mac.0, ETH_IPV6, &ipv6_pkt(255, "fe80::1".parse().unwrap(), "ff02::1".parse().unwrap(), &na(target, c.own_mac.0)));
         assert!(parse_frame(&c, &own).is_empty());
         assert!(parse_frame(&c, &eth([0x33, 0x33, 0, 0, 0, 1], DEV, ETH_IPV6, &[0; 10])).is_empty());
+    }
+
+    #[test]
+    fn outbound_ipv6_flow_to_the_internet_is_attributed_to_the_sender() {
+        let router = [0x00, 0x1b, 0x63, 1, 1, 1];
+        let (src, dst): (std::net::Ipv6Addr, std::net::Ipv6Addr) = ("2001:db8::30".parse().unwrap(), "2606:2800:220:1:248:1893:25c8:1946".parse().unwrap());
+        let f = eth(router, DEV, ETH_IPV6, &ipv6_ip(PROTO_TCP, 64, src, dst, &tcp_hdr(51234, 443)));
+        let obs = parse_frame(&ipv6_flow_ctx(), &f);
+        let sample = obs.iter().find_map(|o| match o { Observation::FlowSampleV6(s) => Some(s), _ => None }).unwrap();
+        assert_eq!(sample.mac.0, DEV);
+        assert_eq!(sample.remote, dst);
+        assert_eq!((sample.proto, sample.port, sample.outbound), (PROTO_TCP, 443, true));
+        assert_eq!(sample.bytes, 60); // 40-byte IPv6 header + 20-byte TCP header
+    }
+
+    #[test]
+    fn inbound_ipv6_flow_is_attributed_by_ethernet_destination() {
+        let router = [0x00, 0x1b, 0x63, 1, 1, 1];
+        let (src, dst): (std::net::Ipv6Addr, std::net::Ipv6Addr) = ("2606:2800:220:1:248:1893:25c8:1946".parse().unwrap(), "2001:db8::30".parse().unwrap());
+        let f = eth(DEV, router, ETH_IPV6, &ipv6_ip(PROTO_TCP, 52, src, dst, &tcp_hdr(443, 51234)));
+        let obs = parse_frame(&ipv6_flow_ctx(), &f);
+        let [Observation::FlowSampleV6(s)] = obs.as_slice() else { panic!("{obs:?}") };
+        assert_eq!((s.mac.0, s.outbound, s.port), (DEV, false, 443));
+    }
+
+    #[test]
+    fn ipv6_flows_need_ipv6_subnet_configured_or_nothing_is_local() {
+        let (src, dst): (std::net::Ipv6Addr, std::net::Ipv6Addr) = ("2001:db8::30".parse().unwrap(), "2606:2800:220:1:248:1893:25c8:1946".parse().unwrap());
+        let f = eth([0xff; 6], DEV, ETH_IPV6, &ipv6_ip(PROTO_TCP, 64, src, dst, &tcp_hdr(51234, 443)));
+        // ipv6 + flows on, but no --ipv6-subnet given: nothing is ever "local" to attribute traffic to
+        let c = Ctx { ipv6: true, flows: true, ..ctx() };
+        assert!(parse_frame(&c, &f).is_empty());
+    }
+
+    #[test]
+    fn lan_local_ipv6_multicast_link_local_and_disabled_flows_are_not_flows() {
+        let c = ipv6_flow_ctx();
+        let has_flow = |c: &Ctx, f: &[u8]| parse_frame(c, f).iter().any(|o| matches!(o, Observation::FlowSampleV6(_)));
+        // device-to-device inside the configured subnet: neither side is "external"
+        let (a, b): (std::net::Ipv6Addr, std::net::Ipv6Addr) = ("2001:db8::30".parse().unwrap(), "2001:db8::31".parse().unwrap());
+        let lan = eth([0x3c, 0x22, 0xfb, 9, 9, 9], DEV, ETH_IPV6, &ipv6_ip(PROTO_TCP, 64, a, b, &tcp_hdr(1000, 22)));
+        assert!(!has_flow(&c, &lan));
+        for dst in ["ff02::1", "fe80::1"] {
+            let f = eth([0x33, 0x33, 0, 0, 0, 1], DEV, ETH_IPV6, &ipv6_ip(PROTO_UDP, 1, a, dst.parse().unwrap(), &udp(5000, 5000, b"x")));
+            assert!(!has_flow(&c, &f), "{dst}");
+        }
+        let out = eth([0xff; 6], DEV, ETH_IPV6, &ipv6_ip(PROTO_TCP, 64, a, "2606:2800:220:1:248:1893:25c8:1946".parse().unwrap(), &tcp_hdr(1000, 443)));
+        assert!(has_flow(&c, &out));
+        // disabled (ctx.flows: false) sees nothing at all
+        let c_no_flows = Ctx { flows: false, ..ipv6_flow_ctx() };
+        assert!(!has_flow(&c_no_flows, &out));
     }
 
     fn tcp_syn(flags: u8, window: u16, opts: &[u8]) -> Vec<u8> {

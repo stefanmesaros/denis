@@ -45,6 +45,10 @@ pub struct CollectorConfig {
     /// itself rarely has an IPv4 address to auto-detect this from; when one of the ports above
     /// does have one, `Collector::start` adds it automatically, on top of whatever is given here.
     pub mirror_subnets: Vec<Ipv4Net>,
+    /// IPv6 prefixes this install should treat as local, for flow accounting (`--ipv6-subnet`,
+    /// repeatable). Only used when `ipv6` is also on; see `parse::Ctx::ipv6_subnets`'s own doc for
+    /// why this needs an explicit flag rather than auto-detection (IPV6.md item 3).
+    pub ipv6_subnets: Vec<ipnet::Ipv6Net>,
     pub db: PathBuf,
     /// How often to re-run the ARP sweep.
     pub sweep_interval: Duration,
@@ -96,6 +100,7 @@ impl Default for CollectorConfig {
             iface: None,
             mirror_ifaces: Vec::new(),
             mirror_subnets: Vec::new(),
+            ipv6_subnets: Vec::new(),
             db: PathBuf::from("denis.db"),
             sweep_interval: Duration::from_secs(300),
             rescan_interval: Duration::from_secs(1800),
@@ -537,6 +542,7 @@ impl Collector {
             // Industrial decoding needs the same wide capture as flow accounting.
             ot: cfg.flows,
             ipv6: cfg.ipv6,
+            ipv6_subnets: cfg.ipv6_subnets.clone(),
         };
         let capture = capture::spawn(cap, ctx, tx.clone(), frames.clone(), shared.capture_stats.clone());
         // Same known-local subnets and own-address context as the main interface (see `subnets`
@@ -553,6 +559,7 @@ impl Collector {
                     flows: true,
                     ot: true,
                     ipv6: cfg.ipv6,
+                    ipv6_subnets: cfg.ipv6_subnets.clone(),
                 };
                 capture::spawn(cap2, ctx2, tx.clone(), frames.clone(), shared.capture_stats.clone())
             })
@@ -1061,6 +1068,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
         while let Some(batch) = flow_rx.recv().await {
             let now = now_ts();
             let mut ev = d.lock().unwrap().ingest_flows(None, &batch.flows, &*s, now);
+            ev.extend(d.lock().unwrap().ingest_flows_v6(None, &batch.flows_v6, &*s, now));
             ev.extend(d.lock().unwrap().ingest_conversations(None, &batch.convs, &*s, now));
             al.emit(ev);
         }

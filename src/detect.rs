@@ -14,7 +14,7 @@ use anyhow::Result;
 use serde_json::json;
 
 use crate::model::{
-    proto_name, Asset, Baseline, ConvRecord, Conversation, DestStat, Event, FlowRecord, Mac, Presence, Signal,
+    proto_name, Asset, Baseline, ConvRecord, Conversation, DestStat, Event, FlowRecord, FlowRecordV6, Mac, Presence, Signal,
     PROTO_ICMP, PROTO_TCP, PROTO_UDP,
 };
 use crate::ot::ot_proto_for_port;
@@ -39,12 +39,17 @@ pub const RULE_OT_WATCH: &str = "ot_command_watch";
 pub const RULE_OT_ESCALATION: &str = "ot_write_escalation";
 pub const RULE_IT_WATCH: &str = "it_watch";
 pub const RULE_LAN_SCAN: &str = "lan_scan";
+/// IPv6's counterpart to `RULE_NEW_DESTINATION` — a distinct rule id, not the same one reused,
+/// since its scoring is deliberately simpler for now (see `ingest_asset_v6`'s doc: no rotation-burst
+/// suppression, no new-port rule yet) and it deserves its own tuning/documentation rather than
+/// silently sharing a rule whose behaviour it does not fully match.
+pub const RULE_NEW_DESTINATION_V6: &str = "new_destination_v6";
 
 /// Every rule name accepted by `--rule-weight`.
 pub const RULES: &[&str] = &[
     RULE_NEW_DEVICE, RULE_NEW_DESTINATION, RULE_VOLUME, RULE_NEW_PORT, RULE_HOURS, RULE_ARP, RULE_SILENT,
     RULE_OT_NEW_CONV, RULE_OT_CONTROL, RULE_OT_EXPOSURE, RULE_DHCP, RULE_BURST, RULE_OT_PURDUE, RULE_OT_WRITER, RULE_THREAT,
-    RULE_OT_WATCH, RULE_OT_ESCALATION, RULE_IT_WATCH, RULE_LAN_SCAN,
+    RULE_OT_WATCH, RULE_OT_ESCALATION, RULE_IT_WATCH, RULE_LAN_SCAN, RULE_NEW_DESTINATION_V6,
 ];
 
 /// Every event kind that can be raised as an alert, with what the person who
@@ -73,6 +78,7 @@ pub const ADVICE: &[(&str, &str)] = &[
     (RULE_OT_ESCALATION, "A path that only ever read from an industrial device has started writing to it. That is how a monitoring or reporting connection turns into a controlling one. Confirm with operations that the change was intended (a new function, a commissioning, a maintenance task); if not, treat the sender as compromised or misconfigured and block the path at the firewall between the zones."),
     (RULE_OT_EXPOSURE, "An industrial protocol crossed the network boundary. These protocols have no authentication of their own, so nothing outside should reach them. Find the firewall or NAT rule, or the bridging device, that allows it and close it."),
     (RULE_LAN_SCAN, "A device contacted many different addresses, or many different ports on one address, on your own local network in a short time - the signature of a host sweep or port scan, not ordinary traffic. Check what is actually running on the device (a security scanner and a backup or discovery tool can look the same to this rule); if nothing legitimate explains it, isolate the device and investigate it as a likely compromise."),
+    (RULE_NEW_DESTINATION_V6, "A device contacted an outside IPv6 address it has never used. The IPv6 counterpart of \"New destination\" - look up the address and decide whether this device has a reason to talk to it; if it is unexpected, check what is running on the device and consider isolating it until you know."),
 ];
 
 /// What to do about an alert of this kind, if we have advice for it.
@@ -275,6 +281,8 @@ pub struct Detector {
     dirty: HashSet<i64>,
     /// remote address -> assets that have contacted it (for "nobody else has").
     global_dests: HashMap<Ipv4Addr, HashSet<i64>>,
+    /// The IPv6 analogue of `global_dests`, used by `ingest_asset_v6`.
+    global_dests_v6: HashMap<std::net::Ipv6Addr, HashSet<i64>>,
     /// (asset, bucket start) -> outbound bytes so far.
     buckets: HashMap<(i64, i64), u64>,
     /// (asset, rule) -> until when further alerts are suppressed.
@@ -331,6 +339,7 @@ impl Detector {
             baselines: HashMap::new(),
             dirty: HashSet::new(),
             global_dests: HashMap::new(),
+            global_dests_v6: HashMap::new(),
             buckets: HashMap::new(),
             cooldown: HashMap::new(),
             learning_start: HashMap::new(),
@@ -361,6 +370,8 @@ impl Detector {
             for k in b.typical_destinations.keys() {
                 if let Ok(ip) = k.parse() {
                     d.global_dests.entry(ip).or_default().insert(b.asset_id);
+                } else if let Ok(ip6) = k.parse() {
+                    d.global_dests_v6.entry(ip6).or_default().insert(b.asset_id);
                 }
             }
             d.baselines.insert(b.asset_id, b);
@@ -420,6 +431,7 @@ impl Detector {
         self.baselines.clear();
         self.dirty.clear();
         self.global_dests.clear();
+        self.global_dests_v6.clear();
         self.buckets.clear();
     }
 
@@ -571,6 +583,139 @@ impl Detector {
             self.global_dests.clear(); // only weakens a scoring bonus
         }
         events
+    }
+
+    /// The IPv6 analogue of `ingest_flows`, for `FlowBatch.flows_v6` (opt-in, `--ipv6` with
+    /// `--ipv6-subnet` — see IPV6.md). Deliberately narrower than the IPv4 path for now: only
+    /// `new_destination_v6`, not the threat list, network watches or LAN-scan detection (each of
+    /// those is real, separate work — the threat list and watches are IPv4-address-shaped today,
+    /// and LAN-scan's breadth-based logic has not been ported), and no rotation-burst/new-port
+    /// logic within `new_destination_v6` itself (see `ingest_asset_v6`'s own doc).
+    pub fn ingest_flows_v6(&mut self, agent: Option<&str>, flows: &[FlowRecordV6], store: &dyn Store, now: i64) -> Vec<Event> {
+        let mut by_mac: BTreeMap<Mac, Vec<&FlowRecordV6>> = BTreeMap::new();
+        for f in flows {
+            by_mac.entry(f.mac).or_default().push(f);
+        }
+        let t = self.traffic.entry(agent.unwrap_or("").to_string()).or_default();
+        for f in flows {
+            t.0 += f.bytes_out;
+            t.1 += f.bytes_in;
+        }
+        let mut events = Vec::new();
+        for (mac, recs) in by_mac {
+            let Some(asset_id) = self.asset_id(agent, &mac, store) else {
+                continue;
+            };
+            let found = self.ingest_asset_v6(asset_id, &recs, now);
+            if found.is_empty() {
+                continue;
+            }
+            if let Ok(Some(asset)) = store.get_asset(asset_id) {
+                for (rule, score, details) in found {
+                    let sev = severity_for(score, self.cfg.min_score);
+                    events.push(make_event(&asset, rule, score, sev, details, now));
+                }
+            }
+        }
+        if self.global_dests_v6.len() > 200_000 {
+            self.global_dests_v6.clear(); // only weakens a scoring bonus
+        }
+        events
+    }
+
+    /// The IPv6 analogue of `ingest_asset`'s `new_destination` handling — deliberately simpler:
+    /// no rotation-burst suppression, no `new_port` rule, no OT-exposure check (there is no IPv6
+    /// OT decoding yet - see IPV6.md). Shares the *same* `Baseline.typical_destinations`/
+    /// `typical_ports` maps as the IPv4 path (they are already generic, string-keyed) rather than
+    /// a parallel baseline, so one device's learning period and destination cap cover both address
+    /// families together.
+    fn ingest_asset_v6(&mut self, asset_id: i64, recs: &[&FlowRecordV6], now: i64) -> Vec<Found> {
+        let Some(first_ts) = recs.iter().map(|r| r.window_start).min() else {
+            return Vec::new();
+        };
+        let b = self.baselines.entry(asset_id).or_insert_with(|| Baseline::new(asset_id, first_ts));
+        b.observed_since = b.observed_since.min(first_ts);
+
+        let mut fresh: Vec<(i32, Vec<String>, &FlowRecordV6)> = Vec::new();
+        for r in recs {
+            let key = r.remote.to_string();
+            let port_key = format!("{}/{}", proto_name(r.proto), r.port);
+            let mature = r.window_start - b.observed_since >= self.cfg.learning_secs;
+            let dest_known = b.typical_destinations.contains_key(&key);
+            if mature && !dest_known {
+                let mut score = 35;
+                let mut why = vec![format!("+35 first contact with {} by this device", r.remote)];
+                let others = self.global_dests_v6.get(&r.remote).is_some_and(|s| s.iter().any(|id| *id != asset_id));
+                if !others {
+                    score += 15;
+                    why.push("+15 no other device on the network has contacted it".into());
+                }
+                fresh.push((score, why, r));
+            }
+            let e = b.typical_destinations.entry(key).or_insert(DestStat {
+                first_seen: r.window_start,
+                last_seen: r.window_start,
+                bytes: 0,
+                bytes_out: 0,
+                bytes_in: 0,
+                port_churn: 0,
+            });
+            e.last_seen = e.last_seen.max(r.window_start);
+            e.bytes += r.bytes_out + r.bytes_in;
+            e.bytes_out += r.bytes_out;
+            e.bytes_in += r.bytes_in;
+            *b.typical_ports.entry(port_key).or_default() += 1;
+            self.global_dests_v6.entry(r.remote).or_default().insert(asset_id);
+        }
+        b.updated_at = now;
+        while b.typical_destinations.len() > self.cfg.max_destinations {
+            let Some(oldest) = b.typical_destinations.iter().min_by_key(|(_, s)| s.last_seen).map(|(k, _)| k.clone()) else { break };
+            b.typical_destinations.remove(&oldest);
+        }
+        self.dirty.insert(asset_id);
+
+        let mut out = Vec::new();
+        if !fresh.is_empty() {
+            fresh.sort_by_key(|(s, _, _)| -s);
+            let count = fresh.len() as i32;
+            let (top, top_why, _) = &fresh[0];
+            let mut reasons = top_why.clone();
+            let extra = (count - 1).min(10);
+            if extra > 0 {
+                reasons.push(format!("+{extra} {} other new destinations in the same window", count - 1));
+            }
+            let score = self.cfg.weighted(RULE_NEW_DESTINATION_V6, (top + extra).clamp(0, 100));
+            if score >= self.cfg.min_score {
+                let dests: Vec<_> = fresh
+                    .iter()
+                    .take(10)
+                    .map(|(s, why, r)| {
+                        json!({
+                            "ip": r.remote, "proto": proto_name(r.proto), "port": r.port,
+                            "bytes_out": r.bytes_out, "bytes_in": r.bytes_in, "score": s, "reasons": why,
+                        })
+                    })
+                    .collect();
+                let first = fresh[0].2;
+                out.push((
+                    RULE_NEW_DESTINATION_V6,
+                    score,
+                    json!({
+                        "summary": format!(
+                            "First contact with {} ({}/{}){}",
+                            first.remote,
+                            proto_name(first.proto),
+                            first.port,
+                            if count > 1 { format!(" and {} more", count - 1) } else { String::new() }
+                        ),
+                        "count": count,
+                        "destinations": dests,
+                        "reasons": reasons,
+                    }),
+                ));
+            }
+        }
+        out
     }
 
     /// The administrator's own watches on ordinary traffic. Explicit requests, so learning does not apply.

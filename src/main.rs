@@ -73,12 +73,19 @@ struct Collect {
     /// specific ports at all.
     #[arg(long)]
     no_extended_banners: bool,
-    /// Experimental, off by default (see IPV6.md): also decode IPv6 Neighbor Discovery
-    /// (folded into each device's `ipv6_history`, shown nowhere yet) and widen the kernel filter
-    /// to admit ICMPv6. No active IPv6 discovery, no IPv6 in flows/detection/the UI yet — this
-    /// only turns on the passive groundwork.
+    /// Experimental, off by default (see IPV6.md): also decode IPv6 Neighbor Discovery (folded
+    /// into each device's `ipv6_history`, shown read-only on the device panel) and widen the
+    /// kernel filter to admit ICMPv6. Combine with --ipv6-subnet to also account IPv6 flows
+    /// (input for the anomaly rules); without it, no IPv6 address is ever "local" so no IPv6 flow
+    /// is ever attributed to a device. No active IPv6 discovery yet.
     #[arg(long)]
     ipv6: bool,
+    /// An IPv6 prefix this install should treat as local (repeatable) — the IPv6 analogue of
+    /// --mirror-subnet, needed because (unlike one DHCP-leased IPv4 address) an IPv6 interface
+    /// can carry several global prefixes plus a permanent link-local one at once, with no single
+    /// "the subnet" to infer automatically. Only used when --ipv6 is also given.
+    #[arg(long = "ipv6-subnet", value_name = "CIDR")]
+    ipv6_subnets: Vec<ipnet::Ipv6Net>,
 }
 
 impl Collect {
@@ -98,6 +105,7 @@ impl Collect {
             arp_pace: Duration::from_millis(if ot { 50 } else { 2 }),
             extended_banners: !self.no_extended_banners,
             ipv6: self.ipv6,
+            ipv6_subnets: self.ipv6_subnets,
             ..Default::default()
         }
     }

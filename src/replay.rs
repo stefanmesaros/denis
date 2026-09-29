@@ -34,7 +34,15 @@ pub fn run(path: &Path, subnet: Option<Ipv4Net>, learning_secs: i64) -> Result<R
     if cap.get_datalink() != pcap::Linktype::ETHERNET {
         bail!("only Ethernet captures can be replayed (this one is link type {})", cap.get_datalink().0);
     }
-    let ctx = Ctx { subnets: vec![subnet.unwrap_or_else(|| "0.0.0.0/0".parse().expect("literal"))], own_mac: Mac([0; 6]), own_ip: std::net::Ipv4Addr::UNSPECIFIED, flows: true, ot: true, ipv6: true };
+    let ctx = Ctx {
+        subnets: vec![subnet.unwrap_or_else(|| "0.0.0.0/0".parse().expect("literal"))],
+        own_mac: Mac([0; 6]),
+        own_ip: std::net::Ipv4Addr::UNSPECIFIED,
+        flows: true,
+        ot: true,
+        ipv6: true,
+        ipv6_subnets: vec!["::/0".parse().expect("literal")],
+    };
     let mut inv = Inventory::new(vec![], None, None);
     let mut agg: Option<FlowAgg> = None;
     let mut batches = Vec::new();

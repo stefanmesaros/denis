@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.27.0: IPv6 flow accounting and its first detection rule, opt-in
+
+* **DENIS can now account IPv6 traffic and raise its first IPv6-aware alert**, behind the new
+  `--ipv6-subnet` flag (repeatable, alongside `--ipv6` and `--flows` — the IPv6 analogue of
+  `--mirror-subnet`, needed because an IPv6 interface can carry several global prefixes plus a
+  permanent link-local one at once, with no single "the subnet" to infer automatically). A new
+  rule, **New destination (IPv6)**, flags a device's first contact with an outside IPv6 address it
+  has never used — the IPv6 counterpart of the existing "New destination" rule.
+* Built as a **parallel** set of types (`FlowRecordV6`, `FlowSampleV6`, a second map inside
+  `FlowAgg`) rather than widening the existing IPv4 ones — the same "parallel, not merged" choice
+  already made for `ip_history`/`ipv6_history` — so the entire, heavily-tested IPv4 flow-accounting
+  and detection path is untouched by this change. The new rule shares the *same*
+  `Baseline.typical_destinations`/`typical_ports` maps as IPv4 (already generic, string-keyed), so
+  one device's learning period and destination cap cover both address families together.
+* Deliberately simpler than IPv4's `new_destination` for now, and documented as such (IPV6.md): no
+  rotation-burst suppression yet (the IPv4 version exists because of real alert-noise data this
+  project doesn't have for IPv6 yet — see v2.20.0), no `new_port` rule, no OT-over-IPv6 decoding,
+  the threat list and network watches do not see IPv6 flows yet, and a remote agent does not yet
+  report IPv6 flows to a master (only a local/embedded collector's own traffic is covered today).
+* Also: the roadmap's remaining items are now explicitly reordered by priority (see ROADMAP.md),
+  with rough effort estimates (1-10) on each, and the previously one-line "Policy enforcement
+  (NAC)" item broken out into an actual ordered list of which network vendor to integrate with
+  first (SNMP port shutdown, then RADIUS CoA, then pfSense/OPNsense/UniFi, then the major commercial
+  firewall vendors roughly by fit for DENIS's own SMB/homelab-leaning audience).
+
 ## 2.26.0: IPv6 groundwork — passive device discovery, opt-in
 
 * **DENIS can now passively discover IPv6 addresses**, behind a new `--ipv6` flag (off by

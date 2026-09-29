@@ -3,15 +3,16 @@
 //! agent, the network).
 
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
-use crate::model::{ConvRecord, FlowBatch, FlowRecord, FlowSample, Mac, OtClass, OtSample};
+use crate::model::{ConvRecord, FlowBatch, FlowRecord, FlowRecordV6, FlowSample, FlowSampleV6, Mac, OtClass, OtSample};
 
 /// Upper bound on distinct (device, remote, proto, port) keys per window; a
 /// port scan or P2P swarm must not be able to exhaust memory.
 pub const MAX_KEYS: usize = 50_000;
 
 type Key = (Mac, Ipv4Addr, u8, u16);
+type KeyV6 = (Mac, Ipv6Addr, u8, u16);
 
 /// (client, server, protocol, server port)
 type ConvKey = (Mac, Mac, &'static str, u16);
@@ -36,6 +37,9 @@ pub struct FlowAgg {
     window_secs: i64,
     window_start: i64,
     map: HashMap<Key, (u64, u64, u64)>,
+    /// IPv6 flows (opt-in, `--ipv6`): a separate map rather than widening `map`'s key, the same
+    /// "parallel, not merged" choice made throughout the IPv6 groundwork (see IPV6.md).
+    map_v6: HashMap<KeyV6, (u64, u64, u64)>,
     convs: HashMap<ConvKey, ConvAcc>,
     pub dropped: u64,
 }
@@ -47,6 +51,7 @@ impl FlowAgg {
             window_secs: w,
             window_start: now / w * w,
             map: HashMap::new(),
+            map_v6: HashMap::new(),
             convs: HashMap::new(),
             dropped: 0,
         }
@@ -59,6 +64,21 @@ impl FlowAgg {
             return;
         }
         let e = self.map.entry(key).or_default();
+        if s.outbound {
+            e.0 += s.bytes as u64;
+        } else {
+            e.1 += s.bytes as u64;
+        }
+        e.2 += 1;
+    }
+
+    pub fn add_v6(&mut self, s: &FlowSampleV6) {
+        let key = (s.mac, s.remote, s.proto, s.port);
+        if !self.map_v6.contains_key(&key) && self.map_v6.len() >= MAX_KEYS {
+            self.dropped += 1;
+            return;
+        }
+        let e = self.map_v6.entry(key).or_default();
         if s.outbound {
             e.0 += s.bytes as u64;
         } else {
@@ -124,6 +144,21 @@ impl FlowAgg {
                 window_secs: secs,
             })
             .collect();
+        let records_v6: Vec<FlowRecordV6> = self
+            .map_v6
+            .drain()
+            .map(|((mac, remote, proto, port), (out, inb, pk))| FlowRecordV6 {
+                mac,
+                remote,
+                proto,
+                port,
+                bytes_out: out,
+                bytes_in: inb,
+                packets: pk,
+                window_start: start,
+                window_secs: secs,
+            })
+            .collect();
         let convs: Vec<ConvRecord> = self
             .convs
             .drain()
@@ -145,7 +180,7 @@ impl FlowAgg {
                 window_secs: secs,
             })
             .collect();
-        (!records.is_empty() || !convs.is_empty()).then_some(FlowBatch { flows: records, convs })
+        (!records.is_empty() || !records_v6.is_empty() || !convs.is_empty()).then_some(FlowBatch { flows: records, flows_v6: records_v6, convs })
     }
 }
 
@@ -237,6 +272,35 @@ mod tests {
         assert_eq!(a.dropped, 100);
         // existing keys still accumulate at the cap
         a.add(&FlowSample { mac: M, remote: Ipv4Addr::from(0u32), proto: 6, port: 1, bytes: 5, outbound: true });
+        assert_eq!(a.dropped, 100);
+    }
+
+    fn sample_v6(out: bool, bytes: u32, port: u16) -> FlowSampleV6 {
+        FlowSampleV6 { mac: M, remote: "2001:db8::1".parse().unwrap(), proto: 6, port, bytes, outbound: out }
+    }
+
+    #[test]
+    fn ipv6_packets_aggregate_per_key_and_direction_independently_of_ipv4() {
+        let mut a = FlowAgg::new(10, 1000);
+        a.add(&sample(true, 100, 443)); // an IPv4 sample in the same window
+        a.add_v6(&sample_v6(true, 200, 443));
+        a.add_v6(&sample_v6(true, 50, 443));
+        a.add_v6(&sample_v6(false, 1400, 443));
+        let batch = a.take_if_due(1010).unwrap();
+        assert_eq!(batch.flows.len(), 1, "the IPv4 flow is untouched by IPv6 accounting");
+        assert_eq!(batch.flows_v6.len(), 1);
+        let r = &batch.flows_v6[0];
+        assert_eq!((r.port, r.bytes_out, r.bytes_in, r.packets, r.window_start, r.window_secs), (443, 250, 1400, 3, 1000, 10));
+    }
+
+    #[test]
+    fn ipv6_key_explosion_is_capped_independently_of_ipv4() {
+        let mut a = FlowAgg::new(10, 0);
+        for p in 0..(MAX_KEYS as u32 + 100) {
+            let s = FlowSampleV6 { mac: M, remote: std::net::Ipv6Addr::from(u128::from(p)), proto: 6, port: 1, bytes: 1, outbound: true };
+            a.add_v6(&s);
+        }
+        assert_eq!(a.map_v6.len(), MAX_KEYS);
         assert_eq!(a.dropped, 100);
     }
 }
