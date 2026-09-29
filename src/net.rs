@@ -15,7 +15,15 @@ use crate::model::Mac;
 
 #[derive(Clone, Debug)]
 pub struct Iface {
+    /// The identifier capture actually opens (`pcap::Capture::from_device`) — on Unix this is the
+    /// same string a human would recognise (`eth0`, `en0`); on Windows it is Npcap's own device
+    /// name (`\Device\NPF_{GUID}`), never the human-readable one, which Npcap's capture API does
+    /// not accept at all (confirmed on a real Windows machine — see `windows_ifaces::Adapter`'s doc).
     pub name: String,
+    /// What a person recognises this interface as — identical to `name` on Unix; on Windows, the
+    /// adapter's own `FriendlyName` ("Wi-Fi", "Ethernet 2", …), for anywhere this is shown in the
+    /// console rather than handed to `pcap`.
+    pub display_name: String,
     pub mac: Mac,
     pub ip: Ipv4Addr,
     pub net: Ipv4Net,
@@ -64,6 +72,7 @@ pub fn list_interfaces() -> Result<Vec<Iface>> {
             continue;
         };
         out.push(Iface {
+            display_name: name.clone(),
             name,
             mac,
             ip,
@@ -89,6 +98,18 @@ pub fn list_all_up() -> Result<Vec<String>> {
     Ok(names.into_iter().collect())
 }
 
+/// Npcap's own device-naming convention: the adapter's GUID (as `GetAdaptersAddresses`' own
+/// `AdapterName` field gives it, curly braces included), turned into the string
+/// `pcap::Capture::from_device` actually needs to open it. Not a Win32 API detail — Npcap's own
+/// choice, but a stable and well-known one every WinPcap-API tool builds the same way. Kept as a
+/// plain function (not inlined into the `#[cfg(windows)]` block below) so it can be unit-tested
+/// on every platform, not just checked for compiling on Windows — only actually called from
+/// there, hence the `dead_code` allowance everywhere else.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn npf_device_name(adapter_guid: &str) -> String {
+    format!(r"\Device\NPF_{adapter_guid}")
+}
+
 // ---------------------------------------------------------------------------------- Windows
 //
 // getifaddrs(3) has no Windows equivalent; GetAdaptersAddresses is the documented replacement
@@ -108,8 +129,17 @@ mod windows_ifaces {
     /// One adapter's name, MAC, up/down state and IPv4 addresses (with prefix length), read from
     /// one `GetAdaptersAddresses` call. `list_interfaces`/`list_all_up` each filter/map this the
     /// same way the Unix `getifaddrs` loop does.
+    ///
+    /// `name` is the Npcap/WinPcap **device** identifier (`\Device\NPF_{GUID}`, built from the
+    /// call's own `AdapterName`), not the human-readable `FriendlyName` Explorer/Settings shows
+    /// (kept separately, as `display_name`) — confirmed on a real Windows machine (Npcap 1.8x) that
+    /// passing `FriendlyName` to `pcap::Capture::from_device` fails with "Error opening adapter:
+    /// The filename, directory name, or volume label syntax is incorrect. (123)": Npcap's capture
+    /// API never accepted the friendly name at all, on any Windows version — this was wrong from
+    /// the first (unverified) version of this module, not a regression.
     struct Adapter {
         name: String,
+        display_name: String,
         mac: Option<Mac>,
         up: bool,
         v4: Vec<(Ipv4Addr, u8)>, // address, prefix length
@@ -148,7 +178,12 @@ mod windows_ifaces {
         let mut cur = buf.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
         while !cur.is_null() {
             let a = unsafe { &*cur };
-            let name = unsafe { widestring_to_string(a.FriendlyName) };
+            let display_name = unsafe { widestring_to_string(a.FriendlyName) };
+            // Npcap's own device naming convention (undocumented by Microsoft, since it is Npcap's
+            // choice, not a Win32 API — but stable and well-known: pcap_findalldevs and every other
+            // WinPcap-API tool builds the same string from this same field): `AdapterName` is the
+            // adapter's GUID alone, with no `\Device\NPF_` prefix.
+            let name = unsafe { ansi_to_string(a.AdapterName) }.map(|guid| npf_device_name(&guid));
             let mac = (a.PhysicalAddressLength == 6).then(|| Mac(a.PhysicalAddress[..6].try_into().unwrap()));
             let up = a.OperStatus == IfOperStatusUp;
             let mut v4 = Vec::new();
@@ -167,12 +202,30 @@ mod windows_ifaces {
                 }
                 ua = u.Next;
             }
-            if let Some(name) = name {
-                out.push(Adapter { name, mac, up, v4 });
+            if let (Some(name), Some(display_name)) = (name, display_name) {
+                out.push(Adapter { name, display_name, mac, up, v4 });
             }
             cur = a.Next;
         }
         Ok(out)
+    }
+
+    /// A Win32 `PSTR` (NUL-terminated ANSI) as an owned `String`. `None` for a null pointer or
+    /// invalid UTF-8 rather than panicking — `AdapterName` is documented as ASCII (a GUID), but
+    /// nothing here should ever panic on a value this process did not itself construct.
+    unsafe fn ansi_to_string(p: windows_sys::core::PSTR) -> Option<String> {
+        if p.is_null() {
+            return None;
+        }
+        let mut len = 0isize;
+        while *p.offset(len) != 0 {
+            len += 1;
+            if len > 4096 {
+                return None;
+            }
+        }
+        let slice = std::slice::from_raw_parts(p, len as usize);
+        std::str::from_utf8(slice).ok().map(str::to_string)
     }
 
     /// A Win32 `PWSTR` (NUL-terminated UTF-16) as an owned `String`. `None` for a null pointer or
@@ -204,7 +257,7 @@ mod windows_ifaces {
                     continue;
                 }
                 let Ok(net) = Ipv4Net::new(*ip, *prefix) else { continue };
-                out.push(Iface { name: a.name.clone(), mac, ip: *ip, net: net.trunc() });
+                out.push(Iface { name: a.name.clone(), display_name: a.display_name.clone(), mac, ip: *ip, net: net.trunc() });
             }
         }
         Ok(out)
@@ -352,6 +405,19 @@ pub fn local_hostname() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn npf_device_name_wraps_the_adapter_guid_unchanged() {
+        // Confirmed on a real Windows machine (Npcap 1.8x): passing `FriendlyName`
+        // ("Wireless Network Connection" and similar, localized) straight to
+        // `pcap::Capture::from_device` fails with "Error opening adapter: The filename, directory
+        // name, or volume label syntax is incorrect. (123)" — Npcap only ever accepts this
+        // `\Device\NPF_{GUID}` form, built from `AdapterName`, never the friendly name.
+        assert_eq!(
+            npf_device_name("{4D36E972-E325-11CE-BFC1-08002BE10318}"),
+            r"\Device\NPF_{4D36E972-E325-11CE-BFC1-08002BE10318}"
+        );
+    }
 
     #[test]
     fn sweep_excludes_self_and_edges() {

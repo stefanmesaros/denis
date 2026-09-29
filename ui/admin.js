@@ -1480,7 +1480,7 @@ async function loadInterfacesBox() {
   const d = r.json;
   const iface = $('iface-select');
   iface.querySelectorAll('option:not(:first-child)').forEach((o) => o.remove());
-  for (const m of d.mains) iface.append(el('option', { value: m.name, text: m.name }));
+  for (const m of d.mains) iface.append(el('option', { value: m.name, text: m.display_name || m.name }));
   iface.value = d.configured_iface || '';
 
   const mirrorSel = $('mirror-iface-select');

@@ -1,16 +1,44 @@
 # A Windows build: what exists, what does not, and the plan
 
-DENIS has no Windows build today (see README's Status section and ROADMAP.md). This document
-tracks the groundwork for one: an honest audit of what already works, what is missing, and a
-phased plan. There is still no Windows machine in this environment, so nothing here has been *run*
-on Windows — but as of the second pass below, the parts that can be checked by actually
-cross-compiling (installed a real `x86_64-w64-mingw32` toolchain via Homebrew rather than guessing)
-have been, and this document only claims what that real compiler output actually showed. Writing
-untested platform-specific code and calling it a "Windows agent" would be exactly the kind of
-unverified claim this project's own README explicitly refuses to make elsewhere (self-update,
+DENIS has no finished Windows build today (see README's Status section and ROADMAP.md), but as of
+2026-09-29 real progress exists: a real Windows 11 machine (via `--target x86_64-pc-windows-gnu`
+cross-compilation for everything checked from this side, and a genuine `cargo build --release` run
+on the Windows machine itself for everything in the next section) has actually built and run parts
+of it. This document tracks the groundwork: an honest audit of what already works, what is
+missing, and a phased plan, updated only with what was actually run, not what "should" work.
+Writing untested platform-specific code and calling it a "Windows agent" would be exactly the kind
+of unverified claim this project's own README explicitly refuses to make elsewhere (self-update,
 ARP-conflict detection, the SMB/MSSQL banner readers all carry a stated verification bar before
 they are called done — a Windows build deserves the same bar, not a lower one because it's harder
 to check).
+
+## Verified on a real Windows machine (2026-09-29)
+
+* **The Npcap SDK's linking blocker (below) is resolved in practice**: pointing the `LIB`
+  environment variable at the Npcap SDK's `Lib\x64` folder (`set LIB=%LIB%;C:\npcap-sdk\Lib\x64`)
+  before `cargo build --release` is enough — a real `denis.exe` linked successfully, once Visual
+  Studio Build Tools' "Desktop development with C++" workload was also installed (the other half
+  of that same blocker: `link.exe`/`wpcap.lib` are two separate missing pieces, not one). No code
+  change was needed for this part; it was a build-environment gap, not a source gap.
+* **`denis.exe agent` reached a real master over Tailscale and authenticated successfully**: built
+  from source on the Windows machine, run against a master's `--ingest-listen` address bound to a
+  Tailscale-only interface, with a real agent token and `--master-ca`. This is the agent-forwarding
+  path (`denis.exe agent`, not local capture) — confirms the reporting/HTTP/TLS/auth side of the
+  Windows binary genuinely works end to end against a real DENIS master, independent of capture.
+* **`denis.exe run` (local capture) failed, and the fix is now identified and cross-compile-clean,
+  but not yet re-verified live**: opening the discovered interface failed with `libpcap error:
+  Error opening adapter: The filename, directory name, or volume label syntax is incorrect. (123)`.
+  Root cause: `net.rs`'s Windows interface discovery (written and cross-compile-checked, but never
+  run for real, in the previous pass below) used `GetAdaptersAddresses`' `FriendlyName` (the
+  localized, human-readable name Explorer shows — "Pripojenie bezdrôtovej siete" in this case) as
+  the identifier handed to `pcap::Capture::from_device`. Npcap's capture API never accepts that —
+  only its own device-name convention, `\Device\NPF_{GUID}`, built from the same call's
+  `AdapterName` field. Fixed: `Iface` now carries both `name` (the Npcap device string, what
+  capture actually opens) and `display_name` (`FriendlyName`, for the Settings interface picker,
+  which showed only `name` before and would otherwise show the same illegible GUID string a person
+  cannot recognise as "their Wi-Fi"). This exact class of gap — code that only ever compiled
+  clean, never ran — is precisely why this document does not call anything "done" from a
+  cross-compile alone; the next real Windows run is what confirms the fix, not this one.
 
 ## Verified by actually cross-compiling (`--target x86_64-pc-windows-gnu`)
 
@@ -19,12 +47,13 @@ to check).
   this document's "already fine" list, plus the interface-discovery and local-time/hostname code
   below that turned out **not** to be fine (see next section): the whole non-capture codebase now
   actually type-checks and lints for Windows, not just "looks like it probably would."
-* `cargo build` (which additionally *links* a real `.exe`) **fails**: the linker cannot find
-  `wpcap.lib`/`libwpcap.a` — `pcap`'s Windows backend needs the **Npcap SDK's import library at
-  link time**, not just at runtime. This confirms bullet 1 below is a real, immediate blocker, not
-  a theoretical one: even a Windows build of DENIS that never opens a capture handle still needs
-  the Npcap SDK present just to produce a binary, unless capture is made an optional Cargo feature
-  (not done — see "Suggested order").
+* `cargo build` (which additionally *links* a real `.exe`) **fails** from this cross-compile
+  environment specifically, because it has no Npcap SDK on its own `LIB` path — the linker cannot
+  find `wpcap.lib`/`libwpcap.a`, confirming `pcap`'s Windows backend needs the **Npcap SDK's import
+  library at link time**, not just at runtime. Resolved in practice on a real Windows machine (see
+  the section above) simply by pointing `LIB` at the SDK's `Lib\x64` folder — no code change, no
+  Cargo feature needed after all; the earlier "make capture optional" idea in "Suggested order"
+  below was a hedge against this being harder than it turned out to be.
 
 ## Fixed this pass (previously Unix-only, now has a real `#[cfg(windows)]` implementation)
 
@@ -60,9 +89,13 @@ nothing on macOS/Linux.
 ## What is genuinely missing, and why each is its own step
 
 1. **Packet capture.** DENIS captures via the `pcap` crate, which links libpcap on macOS/Linux and
-   would need **Npcap** (WinPcap's actively maintained successor) on Windows — a separate driver
-   the user must install first, with its own licensing to check (Npcap's free tier restricts
-   redistribution; bundling it into an installer is a licensing decision, not a code change).
+   needs **Npcap** (WinPcap's actively maintained successor) on Windows — a separate driver the
+   user must install first (confirmed: build-time needs the Npcap *SDK*, runtime needs the Npcap
+   *driver* itself — two different downloads from npcap.com), with its own licensing to check
+   (Npcap's free tier restricts redistribution; bundling it into an installer is a licensing
+   decision, not a code change). The interface-naming bug found and fixed this pass (see "Verified
+   on a real Windows machine" above) was the actual immediate blocker, not licensing — that fix is
+   cross-compile-clean but still needs a real re-run to confirm capture genuinely opens now.
    Capture also needs elevated privileges on Windows (raw sockets require Administrator, or Npcap's
    "WinPcap API-compatible Mode" with specific driver options) — there is no Windows equivalent of
    Linux's `setcap`/`AmbientCapabilities` that lets an unprivileged service open a capture handle,
@@ -97,19 +130,21 @@ kind of "should work" code this project's own testing standard exists to prevent
 
 1. ~~A Windows CI job that just builds the existing code~~ — done for `cargo check`/`clippy` (see
    above); a real `cargo build` needs step 2 first.
-2. Get the Npcap SDK's import library into the build, one way or another: either check in a
-   pre-converted `.a` (mingw-compatible) copy for CI/cross-builds, or make `pcap`/capture an
-   optional Cargo feature so a Windows build can at least link *without* capture until this is
-   resolved for real. Either is a real decision (licensing of redistributing a converted SDK
-   artifact; whether a capture-less Windows build is worth shipping as an interim step) that this
-   document flags rather than picks unilaterally.
+2. ~~Get the Npcap SDK's import library into the build~~ — resolved in practice on a real machine:
+   point `LIB` at the SDK's `Lib\x64` folder, no code or CI change needed. A real Windows *CI* job
+   would still need the SDK fetched into the runner first (a licensing question for redistributing
+   it in CI, not for a person building locally themselves), so CI itself is still `check`/`clippy`
+   only — this step is done for a local/manual build, not yet for CI.
 3. ~~Fill in the remaining small `#[cfg(windows)]` gaps (certs.rs, health.rs)~~ — done, checked the
    same way net.rs's were (`cargo check`/`clippy --target x86_64-pc-windows-gnu`, both clean).
 4. Decide the capture/privilege story (Npcap *runtime* licensing for end users, which account the
    service runs as) — a product decision, not code.
 5. A minimal `denis.exe` that can `run` interactively (no service yet) against Npcap, verified on a
-   real Windows machine with real traffic — the same bar `docs/security.md`'s "not yet verified"
-   list already holds every other platform-sensitive capability to.
+   real Windows machine with real traffic — in progress: `denis.exe agent` (the reporting path) is
+   confirmed working end to end against a real master; `denis.exe run` (local capture) hit a real
+   bug (interface naming, found and fixed this pass, not yet re-verified) before it could be judged
+   either way. The same bar `docs/security.md`'s "not yet verified" list already holds every other
+   platform-sensitive capability to.
 6. The service wrapper and installer, once (5) has actually been run for real.
 
 ## For IPv6

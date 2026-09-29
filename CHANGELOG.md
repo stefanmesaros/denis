@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.48.0: Fix: Windows capture could never open an adapter, found on real hardware
+
+* **Fix: Windows interface discovery handed capture the wrong identifier.** `net.rs`'s Windows
+  code (previously verified only by cross-compiling, never run) passed the adapter's localized,
+  human-readable name (what Explorer/Settings shows — "Wireless Network Connection" and similar)
+  to `pcap::Capture::from_device`, which Npcap's capture API has never accepted — confirmed live on
+  a real Windows 11 machine as `libpcap error: Error opening adapter: The filename, directory name,
+  or volume label syntax is incorrect. (123)`. It now passes Npcap's own device-name convention
+  (`\Device\NPF_{GUID}`, built from the same `GetAdaptersAddresses` call), and keeps the friendly
+  name separately for the Settings interface picker to show instead of an unreadable GUID string.
+* Also confirmed live this pass, no code change needed: the Npcap SDK linking blocker documented in
+  WINDOWS.md is resolved simply by pointing the `LIB` environment variable at the SDK's `Lib\x64`
+  folder before `cargo build --release`, and `denis.exe agent` reaches a real master and
+  authenticates successfully over Tailscale, end to end. `denis.exe run`'s local capture, this
+  fix's actual target, is not yet re-verified live — see WINDOWS.md.
+
 ## 2.47.0: Vulnerability-scanner import (Nessus)
 
 * **Pulls the most recently completed scans' findings from a Nessus or Tenable.io instance**

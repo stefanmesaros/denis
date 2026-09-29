@@ -143,11 +143,14 @@ year. This is what is still missing, in rough order. Pull requests welcome.
     DENIS's own banner/version-based EOL and known-exploited-vulnerability matching (`vulndata.rs`).
     Like every CMDB source, the exact API shape used has not been exercised against a real
     Nessus/Tenable.io instance — see CMDB.md's own honesty accounting.
-11. **Windows collectors.** *(effort: 7/10)* Partial groundwork already exists (`WINDOWS.md`, Win32 calls in
-    `net.rs`/`health.rs`, the `windows-sys` dependency), none of it verified on a real Windows
-    machine. Grows what DENIS can *observe* (a large share of real networks are Windows-centric and
-    cannot run DENIS at all today) rather than just how admins sign in, but needs a real Windows
-    machine to verify against, so it is scheduled for whenever one is actually available to test on.
+11. **Windows collectors.** *(effort: 6/10)* In progress (2026-09-29): a real Windows 11 machine
+    became available and moved this from groundwork to real verification — `denis.exe agent`
+    (reporting over Tailscale to a real master, real token, real TLS) confirmed working end to end;
+    `denis.exe run` (local capture) found and fixed a real bug (Windows interface discovery handed
+    capture the localized display name instead of Npcap's own device-name convention, so it could
+    never have opened a capture handle at all until now — see `WINDOWS.md`), not yet re-verified.
+    Still needs: the fix confirmed live, the service wrapper, and the installer — each its own step,
+    see `WINDOWS.md`'s own "Suggested order".
 12. **SAML.** *(effort: 6/10)* OIDC SSO already exists (Settings → Single sign-on); SAML is a separate protocol
     (XML signatures, metadata exchange, an ACS endpoint) with a real CVE history
     (signature-wrapping attacks) and meaningfully less mature Rust tooling than OIDC's — valuable

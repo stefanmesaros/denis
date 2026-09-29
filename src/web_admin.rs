@@ -423,7 +423,7 @@ pub(crate) async fn license_delete(State(st): State<AppState>, Extension(AuthUse
 /// the console says so; this only lets you queue the change.
 pub(crate) async fn interfaces_get(State(st): State<AppState>) -> Result<Json<Value>, ApiError> {
     let (mains, all) = tokio::task::spawn_blocking(|| {
-        let mains: Vec<Value> = crate::net::list_interfaces().unwrap_or_default().iter().map(|i| json!({ "name": i.name, "ip": i.ip.to_string() })).collect();
+        let mains: Vec<Value> = crate::net::list_interfaces().unwrap_or_default().iter().map(|i| json!({ "name": i.name, "display_name": i.display_name, "ip": i.ip.to_string() })).collect();
         let all: Vec<String> = crate::net::list_all_up().unwrap_or_default();
         (mains, all)
     })
