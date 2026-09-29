@@ -186,11 +186,13 @@ fn openai_style(url: &str, key: &str, model: &str, token_param: &str, system: &s
     v["choices"][0]["message"]["content"].as_str().map(str::to_string).ok_or_else(|| anyhow!("no answer in the response: {v}"))
 }
 
-/// `gemini-2.5-flash` is no longer available to new API keys as of this writing ("This model ...
-/// is no longer available to new users" - a real 404 seen live from a fresh key); Google's own
-/// error names `gemini-3.8-flash` as its replacement.
+/// A pinned model name (`gemini-2.5-flash`) broke once already when Google retired it for new API
+/// keys. `gemini-flash-latest` is Google's own stable alias for the current fast/economical model
+/// in the family — "hot-swapped with every new release", with two weeks' notice by email before
+/// a breaking change — so this should not need another manual update the next time Google moves
+/// the underlying model on.
 fn gemini(key: &str, system: &str, prompt: &str) -> Result<String> {
-    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={key}");
+    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={key}");
     let body = json!({
         "system_instruction": {"parts": [{"text": system}]},
         "contents": [{"parts": [{"text": prompt}]}],

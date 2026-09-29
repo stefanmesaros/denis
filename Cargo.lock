@@ -755,7 +755,7 @@ dependencies = [
 
 [[package]]
 name = "denis"
-version = "2.34.3"
+version = "2.34.4"
 dependencies = [
  "anyhow",
  "argon2",

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.34.4: Gemini: stop pinning a dated model name
+
+* Switched from a pinned model (`gemini-2.5-flash`, then `gemini-3.8-flash` after v2.34.2) to
+  Google's own `gemini-flash-latest` alias, which Google itself "hot-swaps with every new release"
+  of its fast/economical model, with two weeks' notice by email before a breaking change. This
+  class of bug — a hardcoded dated model name getting retired out from under DENIS — should not
+  recur for Gemini specifically now that nothing here pins a version.
+
 ## 2.34.3: Support an organization-level Claude API key
 
 * **A Claude API key issued at the organization level, not scoped to one workspace, was refused
