@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.34.2: Fix Gemini: retired model name
+
+* **Every Gemini call was failing** with a 404: `gemini-2.5-flash` is no longer available to new
+  API keys ("This model ... is no longer available to new users"). Found live, right after
+  Grok was confirmed working end-to-end on a real key. Switched to `gemini-3.8-flash`, the
+  replacement Google's own error message names.
+
 ## 2.34.1: Fix ChatGPT explain/triage/recommend: wrong token-limit parameter
 
 * **Every ChatGPT (OpenAI) call was failing** with a 400 from OpenAI, invisible until v2.33.0's own
