@@ -107,8 +107,9 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    "Suggest a rule with AI" in the network watch form, a free-text description translated into one
    draft watch, the same shape the form's own built-in presets already fill it with — always still
    shown in the ordinary editable form before it is saved, never written or enabled on its own).
-   Not part of the numbered spec but still discussed and approved alongside it, and not yet built:
-   a proactive, dismissible "this kind of rule would suit your traffic" banner on the Rules page.
+   Not part of the numbered spec but still discussed and approved alongside it: a proactive,
+   dismissible "this kind of rule would suit your traffic" banner on the Rules page, computed
+   cheaply from already-tracked baseline data with no AI call of its own.
    Full spec recorded in full in [AI.md](AI.md) (not duplicated here, same
    reasoning as IPV6.md/WINDOWS.md/SSO.md/CMDB.md each being their own document). Key architectural
    requirements: the detection engine stays fully AI-independent (no LLM in the

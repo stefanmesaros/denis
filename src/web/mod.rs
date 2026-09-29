@@ -3524,6 +3524,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rules_proactively_suggests_a_watch_when_traffic_reaches_the_internet_unwatched() {
+        use crate::model::{Baseline, DestStat};
+        let (app, store, [viewer, _editor, admin]) = secured().await;
+        let mut a = Asset::new(Mac([0x02, 0, 0, 0, 0, 7]), 1);
+        store.save_asset(&mut a).unwrap();
+
+        // nothing tracked yet: no suggestion
+        assert_eq!(send(&app, req("GET", "/api/rules", Some(&viewer), None)).await.2["rule_suggestion"], serde_json::Value::Null);
+
+        // the device has already talked to the public internet, and nothing watches for it
+        let mut b = Baseline::new(a.id, 0);
+        b.typical_destinations.insert("8.8.4.4".into(), DestStat { first_seen: 0, last_seen: 10, bytes: 500, bytes_out: 500, bytes_in: 0, port_churn: 0 });
+        store.save_baseline(&b).unwrap();
+        let (_, _, v) = send(&app, req("GET", "/api/rules", Some(&viewer), None)).await;
+        assert_eq!(v["rule_suggestion"], "internet_traffic_unwatched");
+
+        // adding a watch that covers public addresses silences it again
+        let watch = serde_json::json!({"id": "net1", "name": "Internet traffic", "enabled": true, "sources": [], "except_sources": [],
+            "proto": "any", "ports_mode": "any", "ports": [], "remotes_mode": "only", "remotes": ["public"], "min_kb": 0, "score": 70, "cooldown_minutes": 30});
+        send(&app, req("PUT", "/api/rules", Some(&admin), Some(serde_json::json!({"it_watches": [watch]})))).await;
+        assert_eq!(send(&app, req("GET", "/api/rules", Some(&viewer), None)).await.2["rule_suggestion"], serde_json::Value::Null);
+    }
+
+    #[tokio::test]
     async fn notification_channels_are_admin_only_never_reveal_secrets_and_can_be_tested() {
         use std::io::{Read, Write};
         // a stand-in for Slack: answers 200 to anything and remembers the last body

@@ -1,0 +1,5 @@
+# Proactive rule-suggestion banner on the Rules page (rule_suggest.rs, ui/rules.js's
+# renderRuleSuggestion) - "this kind of rule would suit your traffic".
+Devices on your network are already reaching the internet, but no rule is watching that traffic. || Geräte in Ihrem Netzwerk erreichen bereits das Internet, aber keine Regel überwacht diesen Datenverkehr. || Des appareils de votre réseau accèdent déjà à Internet, mais aucune règle ne surveille ce trafic. || Los dispositivos de tu red ya acceden a Internet, pero ninguna regla vigila ese tráfico. || Zariadenia vo vašej sieti už majú prístup na internet, ale žiadne pravidlo túto prevádzku nesleduje.
+Add a rule for it || Regel dafür hinzufügen || Ajouter une règle pour cela || Añadir una regla para ello || Pridať naň pravidlo
+Dismiss || Verwerfen || Ignorer || Descartar || Zavrieť

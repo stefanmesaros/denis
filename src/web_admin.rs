@@ -987,11 +987,16 @@ pub(crate) async fn maintenance_put(State(st): State<AppState>, Extension(AuthUs
 
 // ------------------------------------------------------------------- rules
 
-/// The detection rules with their effective and default settings.
+/// The detection rules with their effective and default settings, plus (see `rule_suggest.rs`)
+/// a proactive, non-AI "this kind of rule would suit your traffic" nudge computed fresh from
+/// already-tracked baseline data — `null` when nothing currently applies.
 pub(crate) async fn rules_get(State(st): State<AppState>) -> Result<Json<Value>, ApiError> {
     let base = st.shared.detect_base().unwrap_or_default();
-    let o = blocking(&st.store, |s| crate::rules::load(s)).await?;
-    Ok(Json(crate::rules::describe(&base, &o, now_ts())))
+    let (o, baselines) = blocking(&st.store, |s| Ok((crate::rules::load(s)?, s.load_baselines()?))).await?;
+    let suggestion = crate::rule_suggest::suggest(&o.it_watches, &baselines);
+    let mut body = crate::rules::describe(&base, &o, now_ts());
+    body["rule_suggestion"] = json!(suggestion);
+    Ok(Json(body))
 }
 
 /// The raw overrides (weights, thresholds, exceptions, watches) as a file to save and

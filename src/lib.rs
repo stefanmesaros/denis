@@ -57,6 +57,7 @@ pub mod reverify;
 pub mod reports;
 pub mod risk;
 pub mod rules;
+pub mod rule_suggest;
 pub mod sink;
 pub mod snmp;
 pub mod store;

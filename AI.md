@@ -160,8 +160,14 @@ correctness/performance improvement either way (no pointless reflow when nothing
     there is no DENIS-side fact to fetch first, only a shape for the administrator to review, edit
     and submit themselves in the ordinary form — never written or enabled on its own, matching this
     section's own "always needs explicit admin activation, never auto-enabled". Its own independent
-    `features.rule_assistant` toggle. The originally-discussed proactive "this kind of rule would
-    suit your traffic" banner is a separate, not-yet-built follow-on to this step, not part of it.
+    `features.rule_assistant` toggle.
+
+Also done (2026-09-29), as a separate, smaller follow-on to step 11 rather than part of it: the
+originally-discussed proactive "this kind of rule would suit your traffic" banner on the Rules
+page (`rule_suggest.rs`) — deliberately not an AI feature (no model call, nothing sent anywhere):
+a dismissible nudge, computed fresh and cheaply from already-tracked baseline data each time the
+page loads, currently covering one case (devices reach the internet, nothing watches it) and
+opening into the same pre-filled "New Rule" form the AI assistant above also fills.
 
 This completes the AI feature roadmap's numbered steps 1-11.
 

@@ -176,10 +176,52 @@ function drawLearningBox(learning) {
 }
 
 /** Draw the rules. Everyone can read them; only administrators get editable fields. */
+/** What each proactive suggestion id (see `rule_suggest.rs`) says, and which built-in preset
+ * "Add a rule" should open pre-filled with — one entry today, more can join the same way. */
+const RULE_SUGGESTIONS = () => ({
+  internet_traffic_unwatched: { text: tr('Devices on your network are already reaching the internet, but no rule is watching that traffic.'), preset: 0 },
+});
+
+/** Dismissals are a per-browser convenience only (nothing saved server-side): once dismissed, a
+ * given suggestion id stays hidden on this browser until it reappears after being addressed and
+ * showing again later, same pattern as the theme/sidebar preferences in admin.js. */
+function dismissedRuleSuggestions() {
+  try { return new Set(JSON.parse(localStorage.getItem('denis-dismissed-rule-suggestions') || '[]')); } catch (e) { return new Set(); }
+}
+function dismissRuleSuggestion(id) {
+  const d = dismissedRuleSuggestions();
+  d.add(id);
+  try { localStorage.setItem('denis-dismissed-rule-suggestions', JSON.stringify([...d])); } catch (e) { /* ignore */ }
+}
+
+function renderRuleSuggestion(id) {
+  const banner = $('rule-suggestion-banner');
+  const s = id && RULE_SUGGESTIONS()[id];
+  if (!s || !can('admin') || dismissedRuleSuggestions().has(id)) { banner.hidden = true; return; }
+  banner.hidden = false;
+  banner.replaceChildren(
+    el('span', { text: s.text }),
+    el('button', {
+      type: 'button', text: tr('Add a rule for it'),
+      onclick: () => { const p = IT_PRESETS()[s.preset]; openItWatchForm({ name: p.label, ...p }, (nw) => saveWatch(nw)); },
+    }),
+    el('button', { type: 'button', class: 'chip-x', 'aria-label': tr('Dismiss'), text: '×', onclick: () => { dismissRuleSuggestion(id); banner.hidden = true; } }));
+}
+
+/** Adding a watch from the suggestion banner (no existing `saveNow` in scope out there) — reuses
+ * the exact same PUT the "New Rule" button's own form submission goes through. */
+async function saveWatch(nw) {
+  const list = (rulesData.it_watches || []).concat([nw]);
+  const res = await api('PUT', '/api/rules', { it_watches: list });
+  if (res.ok) loadRules();
+  return res;
+}
+
 async function loadRules() {
   const r = await api('GET', '/api/rules');
   if (!r.ok) return;
   rulesData = r.json;
+  renderRuleSuggestion(rulesData.rule_suggestion);
   const edit = can('admin');
   $('rules-actions').hidden = !edit;
   const numInput = (value, min, max, step, disabled, attrs = {}) =>

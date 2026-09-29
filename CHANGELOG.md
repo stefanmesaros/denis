@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.43.0: A proactive rule suggestion on the Rules page
+
+* **A dismissible banner on the Rules page**: "Devices on your network are already reaching the
+  internet, but no rule is watching that traffic" — appears only when it is true (at least one
+  device's own already-tracked baseline shows a real public-internet destination, and no enabled
+  network watch currently covers internet-bound traffic at all), and disappears again on its own
+  once either stops being true. "Add a rule for it" opens the same "New Rule" form, pre-filled the
+  same way the built-in "Devices talking to the internet" starting point would. Dismissing it is a
+  per-browser convenience, remembered locally, not sent to the server. Deliberately not an AI
+  feature: no model call, nothing sent anywhere, computed fresh and cheaply from data DENIS
+  already has each time the Rules page loads — same cost as the existing baseline-destinations
+  search.
+* This was discussed alongside step 11 (the AI detection-rule assistant) and approved as a
+  smaller follow-on to it, not part of the AI roadmap's numbered steps.
+
 ## 2.42.0: AI detection-rule assistant (step 11)
 
 * **"Suggest a rule with AI" in the network watch form** (Rules page): describe what you want to

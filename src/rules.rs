@@ -424,7 +424,7 @@ pub fn is_public_addr(ip: std::net::Ipv4Addr) -> bool {
     !is_private_addr(ip) && !ip.is_multicast() && !ip.is_broadcast() && !ip.is_loopback() && !ip.is_unspecified()
 }
 
-fn remote_entry_matches(entry: &str, ip: std::net::Ipv4Addr) -> bool {
+pub(crate) fn remote_entry_matches(entry: &str, ip: std::net::Ipv4Addr) -> bool {
     match entry {
         "private" => is_private_addr(ip),
         "public" => is_public_addr(ip),
