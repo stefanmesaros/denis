@@ -191,11 +191,53 @@ pub fn compliance_now(store: &dyn Store, shared: &impl ReportStatus, now: i64) -
     Ok(crate::compliance::assess(&inputs))
 }
 
+/// AI.md section 19: written once, as the report itself is generated (on the existing schedule,
+/// or an explicit "Generate now" — never on its own timer). `None` when the feature is off, no
+/// provider is configured, or the one call failed — a report is always still generated and saved
+/// either way, matching "AI must never become a dependency for core DENIS functionality".
+fn ai_security_summary(store: &dyn Store, data: &crate::report::ReportData, now: i64) -> Option<String> {
+    let cfg = crate::ai::load(store).ok()?;
+    if !cfg.enabled || !cfg.features.security_reports {
+        return None;
+    }
+    let cutoff = now - data.days * 86_400;
+    let new_devices = data.devices.iter().filter(|d| d.asset.first_seen >= cutoff).count();
+    let by_severity: Vec<(&str, i64)> = ["high", "medium", "low"]
+        .into_iter()
+        .map(|sev| (sev, data.alerts.iter().filter(|e| e.severity == sev).count() as i64))
+        .collect();
+    let mut ranked: Vec<_> = data.alerts.iter().collect();
+    ranked.sort_by_key(|e| std::cmp::Reverse(e.score));
+    let highlights: Vec<crate::ai::SummaryHighlight> = ranked
+        .into_iter()
+        .take(8)
+        .map(|e| {
+            let device_label = data.devices.iter().find(|d| d.asset.id == e.asset_id).map(|d| d.name()).unwrap_or_else(|| format!("device #{}", e.asset_id));
+            let summary = e.raw_details["summary"].as_str().unwrap_or_default().to_string();
+            crate::ai::SummaryHighlight { kind: e.kind.clone(), severity: e.severity.clone(), score: e.score, device_label, summary }
+        })
+        .collect();
+    let prompt = crate::ai::security_report_prompt(data.days, data.devices.len(), new_devices, &by_severity, data.findings.len(), data.accepted.len(), &highlights);
+    match crate::ai::write_security_report(&cfg, &cfg.default_provider, &prompt) {
+        Ok((text, tokens)) => {
+            if let Err(e) = crate::ai_usage::record(store, now, tokens) {
+                tracing::error!("AI usage record failed: {e:#}");
+            }
+            Some(text)
+        }
+        Err(e) => {
+            tracing::warn!("AI security-report summary failed, report generated without one: {e:#}");
+            None
+        }
+    }
+}
+
 /// Make a report and keep it. `kind` is `manual` or `scheduled`.
 pub fn generate(store: &dyn Store, shared: &impl ReportStatus, kind: &str, days: i64, by: &str, now: i64) -> Result<ReportMeta> {
     let days = days.clamp(1, 365);
     let mut data = crate::report::gather(store, days, now)?;
     data.compliance = Some(compliance_now(store, shared, now)?);
+    data.ai_summary = ai_security_summary(store, &data, now);
     let html = crate::report::html(&data);
     let mut meta = ReportMeta {
         id: 0,
@@ -296,6 +338,20 @@ mod tests {
         assert_eq!(share_token_of(&store, 1).unwrap(), None);
         assert_eq!(report_id_for_token(&store, &t1).unwrap(), None, "the old link stops working");
         assert_eq!(share_token_of(&store, 2).unwrap(), Some(t2), "unsharing one report leaves another alone");
+    }
+
+    #[test]
+    fn the_report_has_no_ai_summary_unless_the_feature_is_on_and_a_provider_is_configured() {
+        let store = crate::store::sqlite::SqliteStore::open_in_memory().unwrap();
+        let data = crate::report::gather(&store, 7, 1000).unwrap();
+        // AI off entirely (the default): no summary, and no network call ever attempted
+        assert_eq!(ai_security_summary(&store, &data, 1000), None);
+
+        // feature on, but no provider key configured: still no summary, still no call attempted
+        let mut cfg = crate::ai::AiConfig { enabled: true, ..Default::default() };
+        cfg.features.security_reports = true;
+        crate::ai::save(&store, &cfg, 1000).unwrap();
+        assert_eq!(ai_security_summary(&store, &data, 1000), None);
     }
 
     #[test]

@@ -85,16 +85,18 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    because nothing about this product's usage yet demands one, and a speculative version prefix
    with nothing on the other side of a "v2" is complexity without a customer to justify it.
 9. **AI security assistant** — a configurable, event-driven layer on top of the existing AI alert
-   explanation feature. *(effort: 3/10 remaining)* In progress (2026-09-29): shipped
+   explanation feature. *(effort: 2/10 remaining)* In progress (2026-09-29): shipped
    feature-by-feature per an explicit instruction, a minor release after each step, so partial
    progress always stays usable — see AI.md's own "Status" section for exactly what is done (so
    far: the Settings → AI page, a global on/off switch, and independent toggles for alert
    explanations, alert triage — an assessment alongside DENIS's own severity, never replacing
    it — recommended actions, a short advisory next-steps list DENIS never acts on itself, a
-   dashboard AI summary generated entirely by a background job, never by opening the dashboard, and
+   dashboard AI summary generated entirely by a background job, never by opening the dashboard,
    "Ask DENIS", a free-text question box that only ever answers from a real structured search
-   DENIS itself runs — never from facts the model invented — and a Settings → AI usage overview:
-   a rough call/token count, never exact billing).
+   DENIS itself runs — never from facts the model invented — a Settings → AI usage overview: a
+   rough call/token count, never exact billing — and an AI summary section on the existing
+   periodic Reports, written once when a report is generated, never a dependency for the report
+   itself to succeed).
    Full spec recorded in full in [AI.md](AI.md) (not duplicated here, same
    reasoning as IPV6.md/WINDOWS.md/SSO.md/CMDB.md each being their own document). Key architectural
    requirements: the detection engine stays fully AI-independent (no LLM in the

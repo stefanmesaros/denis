@@ -42,6 +42,10 @@ pub struct ReportData {
     pub step_secs: i64,
     /// The compliance overview, when the report includes one (saved reports do).
     pub compliance: Option<crate::compliance::Report>,
+    /// The AI-written summary (AI.md section 19), when the "Security reports" AI feature is on and
+    /// a provider is configured — `None` otherwise, or if that one call failed (a report is always
+    /// still generated and saved either way; see `reports::generate`).
+    pub ai_summary: Option<String>,
 }
 
 pub fn gather(store: &dyn Store, days: i64, now: i64) -> Result<ReportData> {
@@ -90,6 +94,7 @@ pub fn gather(store: &dyn Store, days: i64, now: i64) -> Result<ReportData> {
         points,
         step_secs,
         compliance: None,
+        ai_summary: None,
     })
 }
 
@@ -370,6 +375,10 @@ pub fn html(data: &ReportData) -> String {
         "<div class=\"muted\">Alerts by severity: <span class=\"sev high\">high</span> {} <span class=\"sev medium\">medium</span> {} <span class=\"sev low\">low</span> {}</div>",
         count("high"), count("medium"), count("low")
     ));
+
+    if let Some(summary) = &data.ai_summary {
+        h.push_str(&format!("<h2>AI Security Summary</h2><p>{}</p>", esc(summary)));
+    }
 
     if !data.findings.is_empty() {
         h.push_str("<h2>Findings: what to fix</h2><table><tr><th>Severity</th><th>Finding</th><th>What to do</th><th>Devices</th></tr>");
@@ -740,6 +749,16 @@ mod tests {
         assert!(h.contains("No alerts in this period"));
         assert!(h.contains("not enough history yet"));
         assert_eq!(assets_csv(&d).lines().count(), 1);
+    }
+
+    #[test]
+    fn the_ai_summary_section_only_appears_when_one_was_actually_generated() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let mut d = gather(&s, 7, 1_000_000).unwrap();
+        assert!(!html(&d).contains("AI Security Summary"), "no summary was set: no section at all");
+        d.ai_summary = Some("Network activity has been calm this week.".into());
+        let h = html(&d);
+        assert!(h.contains("AI Security Summary") && h.contains("Network activity has been calm this week."), "{h}");
     }
 
     #[test]

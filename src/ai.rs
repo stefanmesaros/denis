@@ -60,6 +60,12 @@ pub struct AiFeatures {
     /// summarizes exactly what came back (AI.md section 16).
     #[serde(default)]
     pub ask_denis: bool,
+    /// The periodic report's own AI summary (AI.md section 19): written once, when the report
+    /// itself is generated — on the existing schedule (Settings → Reports) or an explicit
+    /// "Generate now", never on its own timer and never by opening the Reports page. A failure to
+    /// write it never fails the report itself; the report is still saved without a summary.
+    #[serde(default)]
+    pub security_reports: bool,
 }
 
 /// One API key per provider an administrator has set up, and which one the "Explain" button
@@ -438,6 +444,45 @@ pub fn dashboard_summary_prompt(window_hours: i64, by_severity: &[(&str, i64)], 
     out
 }
 
+/// The periodic security report's own system prompt (AI.md section 19): a fuller picture than the
+/// dashboard summary (device counts, standing findings, accepted risk) over a period that can be
+/// weeks or months, not hours — still 2-5 short sentences, still never inventing anything not
+/// given to it.
+const SECURITY_REPORT_SYSTEM_PROMPT: &str = "You are writing a short \"AI Security Summary\" for a periodic network \
+security report from DENIS, a network monitoring tool, covering the report's own period. You are given: the number \
+of devices known and how many are new in this period; alert counts by severity and a handful of the most \
+significant individual alerts; how many standing findings need attention and how many accepted risks exist — \
+nothing else about the network. In 3-6 short sentences: describe the overall state, name the most significant \
+change or risk if there is one, and note what plausibly deserves investigation before the next report. Do not \
+turn this into a chatbot reply or a bullet-point restatement of the counts already shown elsewhere in the report. \
+Do not invent facts not given to you; if nothing significant happened, say so plainly and briefly.";
+
+/// The prompt for the security report's own summary: everything `SECURITY_REPORT_SYSTEM_PROMPT`
+/// says it is given, and nothing else — built from the same report data every other section of
+/// the report already shows, never a fresh query of its own.
+pub fn security_report_prompt(days: i64, device_count: usize, new_devices: usize, by_severity: &[(&str, i64)], findings_needing_attention: usize, accepted_risks: usize, highlights: &[SummaryHighlight]) -> String {
+    let counts = by_severity.iter().filter(|(_, n)| *n > 0).map(|(sev, n)| format!("{n} {sev}")).collect::<Vec<_>>().join(", ");
+    let mut out = format!(
+        "Report period: {days} day(s).\nDevices known: {device_count} ({new_devices} new this period).\nAlert activity: {}.\nStanding findings needing attention: {findings_needing_attention}.\nAccepted risks: {accepted_risks}.\n",
+        if counts.is_empty() { "none".to_string() } else { counts }
+    );
+    if highlights.is_empty() {
+        out.push_str("No individual alerts stand out enough to name.");
+    } else {
+        out.push_str("The most significant individual alerts:\n");
+        for h in highlights {
+            out.push_str(&format!("- [{}, score {}] {} on {}: {}\n", h.severity, h.score, h.kind, h.device_label, h.summary));
+        }
+    }
+    out
+}
+
+/// Ask one provider to write the periodic security report's own summary for `prompt` (already
+/// built by `security_report_prompt`). Free-form prose, same shape as `explain`/`summarize`.
+pub fn write_security_report(cfg: &AiConfig, provider: &str, prompt: &str) -> Result<(String, Option<i64>)> {
+    ask(cfg, provider, SECURITY_REPORT_SYSTEM_PROMPT, prompt)
+}
+
 /// "Ask DENIS" (AI.md section 16) is deliberately two separate calls, never one: the model is
 /// never trusted to answer from what it already "knows" about the question, only from DENIS's own
 /// data. First it translates the free-text question into one structured `AskQuery` (this prompt);
@@ -654,6 +699,20 @@ mod tests {
         let p = dashboard_summary_prompt(24, &[("high", 0), ("medium", 0), ("low", 0)], &[]);
         assert!(p.contains("none"), "{p}");
         assert!(p.contains("No individual alerts"), "{p}");
+    }
+
+    #[test]
+    fn the_security_report_prompt_includes_device_and_finding_counts_not_just_alerts() {
+        let h = [SummaryHighlight { kind: "new_device".into(), severity: "high".into(), score: 80, device_label: "Unknown (10.0.10.99)".into(), summary: "Never seen before".into() }];
+        let p = security_report_prompt(7, 42, 3, &[("high", 1), ("medium", 0), ("low", 0)], 5, 2, &h);
+        assert!(p.contains("7 day") && p.contains("42") && p.contains("3 new") && p.contains("5") && p.contains("Accepted risks: 2"), "{p}");
+        assert!(p.contains("Unknown") && p.contains("Never seen before"), "{p}");
+    }
+
+    #[test]
+    fn write_security_report_needs_a_key_same_as_explain() {
+        let cfg = AiConfig::default();
+        assert!(write_security_report(&cfg, "claude", "x").is_err());
     }
 
     #[test]

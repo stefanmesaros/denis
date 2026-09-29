@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.37.0: AI security summary on periodic reports (step 7)
+
+* **Your existing periodic reports (Settings → Reports) can now include an "AI Security Summary"
+  section**: devices, new devices this period, alert activity, standing findings and accepted
+  risks, in plain language — written once, exactly when the report itself is generated (on its
+  existing weekly/monthly schedule, or "Generate now"), never on a timer of its own. Built from the
+  very same data every other section of the report already shows — never a fresh AI-driven query.
+  If the AI call fails, the report is still generated and saved exactly as before, without a
+  summary — this was never allowed to become a dependency for the report itself working. Its own
+  independent Settings → AI → Features toggle, off by default.
+
 ## 2.36.0: AI usage visibility, and a ChatGPT reasoning-token fix
 
 * **Settings → AI now shows a rough usage overview**: AI requests today, this month, when the last

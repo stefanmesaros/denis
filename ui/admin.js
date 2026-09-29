@@ -1522,6 +1522,7 @@ async function loadAiBox() {
   $('ai-feature-recommended-actions').checked = !!(d.features && d.features.recommended_actions);
   $('ai-feature-dashboard-summary').checked = !!(d.features && d.features.dashboard_summary);
   $('ai-feature-ask-denis').checked = !!(d.features && d.features.ask_denis);
+  $('ai-feature-security-reports').checked = !!(d.features && d.features.security_reports);
   for (const p of ['claude', 'openai', 'gemini', 'grok']) {
     $('ai-key-' + p).value = '';
     $('ai-key-' + p).placeholder = d.keys_set.includes(p) ? tr('(unchanged)') : '';
@@ -1561,6 +1562,7 @@ $('ai-save').onclick = async () => {
       recommended_actions: $('ai-feature-recommended-actions').checked,
       dashboard_summary: $('ai-feature-dashboard-summary').checked,
       ask_denis: $('ai-feature-ask-denis').checked,
+      security_reports: $('ai-feature-security-reports').checked,
     },
   });
   $('ai-msg').textContent = r.ok ? tr('Saved.') : apiError(r);

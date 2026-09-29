@@ -89,7 +89,20 @@ their own CHANGELOG entries cover in full:
   shares the request shape but rejects the field) and a larger token cap.
 * Every provider's own request timeout was 30s, too short for a "thinking" model (seen live with
   Gemini). Raised to 60s for all four providers.
-7-11: not started.
+7. **Security reports** — done (2026-09-29). Unlike every step above, this extends existing DENIS
+   infrastructure (per this document's own section 26 instruction) rather than adding new
+   infrastructure of its own: DENIS already generates periodic reports (Settings → Reports, on a
+   weekly/monthly schedule or "Generate now" — `reports.rs`/`report.rs`, pre-existing). `reports::
+   generate` now also calls `reports::ai_security_summary` right where it already builds
+   `compliance_now`, which — only when the feature is on and a provider is configured — writes one
+   AI paragraph from the same `ReportData` every other section of the report already shows (device
+   count, new devices this period, alert severity counts, the highest-scored alerts, standing
+   findings, accepted risks) via `ai::security_report_prompt`/`ai::write_security_report`, and
+   `report::html` renders it as its own "AI Security Summary" section. A failed AI call never fails
+   the report itself — `ai_security_summary` returns `None` and the report is saved exactly as
+   before this feature existed, matching AI.md section 20 ("AI must never become a dependency for
+   core DENIS functionality").
+8-11: not started.
 
 ## Build order (explicit instruction, 2026-09-29)
 
