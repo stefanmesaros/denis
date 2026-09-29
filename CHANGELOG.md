@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.49.0: Cloud asset discovery: Azure virtual machines
+
+* **Pulls virtual machine inventory from an Azure subscription** (Settings → Integrations → CMDB
+  import → Azure) via Azure Resource Graph, and cross-references it into the same device list as
+  Entra ID/Intune/Active Directory/Jamf Pro — matched by hostname, shown as extra context, nothing
+  ever written back. Reuses the `CmdbDevice` shape and `cmdb_devices` table (one row per VM, same
+  as the four existing sources) rather than a new table, since a VM genuinely is "another CMDB-like
+  source."
+* The one genuinely new part of this integration shape: authorization is an Azure RBAC "Reader"
+  role assigned at the subscription, not a Microsoft Graph API permission — a different
+  authorization model from Entra ID/Intune/Jamf even though the same app registration's client id
+  and secret can be reused. Token scope is `https://management.azure.com/.default`, not Graph's.
+* `power_state` (running/stopped/deallocated, from Azure's own instance view) is stored in
+  `CmdbDevice.registered_at`, a deliberate reuse of that field for the closest-fitting existing
+  column rather than a new one; `compliant` stays unset for Azure devices, since a VM's power state
+  isn't the same question as posture compliance.
+* Verified end to end against the real Azure AD token endpoint (a fake tenant/client/secret gets a
+  genuine `http status: 400` back, confirming the network path is correct) but not yet against a
+  real Azure subscription with real VMs — see CMDB.md for exactly what is and isn't verified.
+* AWS and GCP are not yet covered; Azure was picked first since it reuses the same Azure AD
+  tenant/app-registration pattern the existing Entra ID/Intune work already established.
+
 ## 2.48.0: Fix: Windows capture could never open an adapter, found on real hardware
 
 * **Fix: Windows interface discovery handed capture the wrong identifier.** `net.rs`'s Windows

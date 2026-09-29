@@ -156,11 +156,14 @@ year. This is what is still missing, in rough order. Pull requests welcome.
     (signature-wrapping attacks) and meaningfully less mature Rust tooling than OIDC's — valuable
     for enterprise procurement, but a materially bigger, riskier piece of work than the OIDC path
     already shipped. Revisit the order if a specific customer's procurement is blocked on it.
-13. **Cloud asset discovery** (AWS/Azure/GCP inventory as another CMDB-like source). *(effort: 6/10)* On-prem and
-    directory-based device inventory is now well covered (Entra ID, Intune, Active Directory, soon
-    Jamf); most real networks these days are hybrid, so this is the natural next inventory source
-    once the on-prem side is rounded out — but it is a new integration shape (cloud provider APIs,
-    not LDAP/Graph), not a small extension of the CMDB work like Jamf is.
+13. **Cloud asset discovery** (AWS/Azure/GCP inventory as another CMDB-like source). *(effort: 4/10
+    remaining)* Azure done (2026-09-29, `azure_cloud.rs`): virtual machine inventory via Azure
+    Resource Graph, into the same shared CMDB device list, matched by hostname the same way as the
+    four directory/MDM sources — but authorized by an Azure RBAC role at the subscription, not a
+    Graph application permission, the genuinely new part of this integration shape. AWS and GCP not
+    yet started; picked Azure first since it reuses the same Azure AD tenant/app-registration
+    pattern the existing Entra ID/Intune work already established, even though the API and
+    authorization model underneath are unrelated. See CMDB.md for exactly what is verified.
 14. **Multi-tenancy** *(effort: 9/10)* for managed-service providers (white-label branding already exists; tenant
     isolation does not). A real architectural change (data isolation between tenants, not just
     cosmetic branding), ordered after the integration work above since it's a scaling concern for

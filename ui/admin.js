@@ -1609,11 +1609,11 @@ $('ai-save').onclick = async () => {
   if (r.ok) { loadAiBox(); loadAiStatus(); }
 };
 
-const CMDB_SOURCE_LABEL = (source) => (source === 'intune' ? tr('Intune') : source === 'ad' ? tr('Active Directory') : source === 'jamf' ? tr('Jamf Pro') : tr('Entra ID'));
+const CMDB_SOURCE_LABEL = (source) => (source === 'intune' ? tr('Intune') : source === 'ad' ? tr('Active Directory') : source === 'jamf' ? tr('Jamf Pro') : source === 'azure' ? tr('Azure') : tr('Entra ID'));
 
 async function loadCmdbBox() {
   if (!can('admin')) return;
-  const [s, a, j, d] = await Promise.all([api('GET', '/api/cmdb/settings'), api('GET', '/api/ad/settings'), api('GET', '/api/jamf/settings'), api('GET', '/api/cmdb/devices')]);
+  const [s, a, j, z, d] = await Promise.all([api('GET', '/api/cmdb/settings'), api('GET', '/api/ad/settings'), api('GET', '/api/jamf/settings'), api('GET', '/api/azure/settings'), api('GET', '/api/cmdb/devices')]);
   if (s.ok) {
     $('cmdb-enabled').checked = s.json.enabled;
     $('cmdb-tenant').value = s.json.tenant_id || '';
@@ -1642,6 +1642,16 @@ async function loadCmdbBox() {
     $('jamf-client-secret').value = '';
     $('jamf-client-secret').placeholder = j.json.client_secret_set ? tr('(unchanged)') : '';
     $('jamf-secret-status').textContent = j.json.client_secret_set ? tr('A client secret is saved.') : tr('No client secret saved yet.');
+  }
+  if (z.ok) {
+    $('azure-enabled').checked = z.json.enabled;
+    $('azure-tenant').value = z.json.tenant_id || '';
+    $('azure-client-id').value = z.json.client_id || '';
+    $('azure-subscription').value = z.json.subscription_id || '';
+    $('azure-interval').value = z.json.sync_interval_hours || 24;
+    $('azure-client-secret').value = '';
+    $('azure-client-secret').placeholder = z.json.client_secret_set ? tr('(unchanged)') : '';
+    $('azure-secret-status').textContent = z.json.client_secret_set ? tr('A client secret is saved.') : tr('No client secret saved yet.');
   }
   $('cmdb-devices').replaceChildren(...(d.ok ? d.json : []).map((dev) => {
     const asset = dev.matched_asset_id != null ? assetById(dev.matched_asset_id) : null;
@@ -1716,6 +1726,26 @@ $('jamf-sync').onclick = async () => {
   const r = await api('POST', '/api/jamf/sync');
   $('jamf-sync').disabled = false;
   $('jamf-msg').textContent = r.ok && r.json.ok ? tr('Imported {n} device(s).', { n: r.json.imported }) : (r.ok ? r.json.error : apiError(r));
+  if (r.ok && r.json.ok) loadCmdbBox();
+};
+$('azure-save').onclick = async () => {
+  const r = await api('PUT', '/api/azure/settings', {
+    enabled: $('azure-enabled').checked,
+    tenant_id: $('azure-tenant').value.trim(),
+    client_id: $('azure-client-id').value.trim(),
+    subscription_id: $('azure-subscription').value.trim(),
+    sync_interval_hours: Number($('azure-interval').value) || 24,
+    client_secret: $('azure-client-secret').value,
+  });
+  $('azure-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
+  if (r.ok) loadCmdbBox();
+};
+$('azure-sync').onclick = async () => {
+  $('azure-sync').disabled = true;
+  $('azure-msg').textContent = tr('Syncing…');
+  const r = await api('POST', '/api/azure/sync');
+  $('azure-sync').disabled = false;
+  $('azure-msg').textContent = r.ok && r.json.ok ? tr('Imported {n} device(s).', { n: r.json.imported }) : (r.ok ? r.json.error : apiError(r));
   if (r.ok && r.json.ok) loadCmdbBox();
 };
 

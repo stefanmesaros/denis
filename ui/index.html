@@ -682,6 +682,23 @@
           </div>
           <p class="muted small" id="jamf-secret-status"></p>
           <div class="row"><button id="jamf-save" type="button" class="primary">Save</button><button id="jamf-sync" type="button">Sync now</button><span id="jamf-msg" class="muted"></span></div>
+          <h4 class="section">Azure (cloud asset discovery)</h4>
+          <p class="muted">Pulls virtual machine inventory from one Azure subscription via Azure Resource Graph (an app
+            registration with an Azure RBAC "Reader" role — not a Graph API permission — assigned at the
+            subscription) and cross-references it the same way — matched by hostname, shown as extra context,
+            nothing ever written back. Can reuse the same app registration as Entra ID/Intune above, or its own.</p>
+          <label class="check"><input id="azure-enabled" type="checkbox"> Enabled</label>
+          <div class="row">
+            <label>Tenant ID<input id="azure-tenant" placeholder="contoso.onmicrosoft.com"></label>
+            <label>Client (application) ID<input id="azure-client-id" placeholder="00000000-0000-0000-0000-000000000000"></label>
+            <label>Client secret<input id="azure-client-secret" type="password" autocomplete="off"></label>
+          </div>
+          <div class="row">
+            <label>Subscription ID<input id="azure-subscription" placeholder="00000000-0000-0000-0000-000000000000"></label>
+            <label>Sync every<span class="row"><input id="azure-interval" type="number" min="1" max="720" value="24"> hours</span></label>
+          </div>
+          <p class="muted small" id="azure-secret-status"></p>
+          <div class="row"><button id="azure-save" type="button" class="primary">Save</button><button id="azure-sync" type="button">Sync now</button><span id="azure-msg" class="muted"></span></div>
           <h4 class="section">Imported devices</h4>
           <div id="cmdb-devices"></div>
         </div>

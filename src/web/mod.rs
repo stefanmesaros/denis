@@ -43,6 +43,7 @@ use crate::web_ai as ai_page;
 use crate::web_ad as ad_page;
 use crate::web_cmdb as cmdb_page;
 use crate::web_jamf as jamf_page;
+use crate::web_azure_cloud as azure_page;
 use crate::web_vulnscan as vulnscan_page;
 use crate::web_ipenrich as ipenrich_page;
 use crate::web_sso as sso_page;
@@ -136,6 +137,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ad/sync", post(ad_page::sync))
         .route("/api/jamf/settings", get(jamf_page::get).put(jamf_page::put))
         .route("/api/jamf/sync", post(jamf_page::sync))
+        .route("/api/azure/settings", get(azure_page::get).put(azure_page::put))
+        .route("/api/azure/sync", post(azure_page::sync))
         .route("/api/vulnscan/settings", get(vulnscan_page::get).put(vulnscan_page::put))
         .route("/api/vulnscan/sync", post(vulnscan_page::sync))
         .route("/api/vulnscan/findings", get(vulnscan_page::findings))
@@ -254,7 +257,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     }
     // `/api/baseline/destinations` (GET) is a read: any viewer may search it, same as the
     // per-device baseline panel it aggregates. Only `/api/baseline/forget-all` (POST) is here.
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/baseline") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path.starts_with("/api/ai/settings") || path.starts_with("/api/cmdb/settings") || path.starts_with("/api/cmdb/sync") || path.starts_with("/api/ad/settings") || path.starts_with("/api/ad/sync") || path.starts_with("/api/jamf/settings") || path.starts_with("/api/jamf/sync") || path.starts_with("/api/vulnscan/settings") || path.starts_with("/api/vulnscan/sync") || path.starts_with("/api/ip-enrichment/settings") || path.starts_with("/api/ip-enrichment/geoip") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/baseline") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path.starts_with("/api/ai/settings") || path.starts_with("/api/cmdb/settings") || path.starts_with("/api/cmdb/sync") || path.starts_with("/api/ad/settings") || path.starts_with("/api/ad/sync") || path.starts_with("/api/jamf/settings") || path.starts_with("/api/jamf/sync") || path.starts_with("/api/azure/settings") || path.starts_with("/api/azure/sync") || path.starts_with("/api/vulnscan/settings") || path.starts_with("/api/vulnscan/sync") || path.starts_with("/api/ip-enrichment/settings") || path.starts_with("/api/ip-enrichment/geoip") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -1961,6 +1964,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn azure_settings_are_admin_only_the_client_secret_never_round_trips_and_sync_needs_configuration_first() {
+        let (app, _store, [viewer, editor, admin]) = secured().await;
+
+        let (st, _, v) = send(&app, req("GET", "/api/azure/settings", Some(&viewer), None)).await;
+        assert_eq!((st, v["enabled"].as_bool(), v["client_secret_set"].as_bool()), (StatusCode::OK, Some(false), Some(false)), "{v}");
+
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("PUT", "/api/azure/settings", Some(c), Some(serde_json::json!({"enabled": false, "tenant_id": "", "client_id": "", "subscription_id": "", "sync_interval_hours": 24})))).await.0, StatusCode::FORBIDDEN);
+            assert_eq!(send(&app, req("POST", "/api/azure/sync", Some(c), None)).await.0, StatusCode::FORBIDDEN);
+        }
+
+        let bad = serde_json::json!({"enabled": true, "tenant_id": "", "client_id": "", "subscription_id": "", "sync_interval_hours": 24});
+        assert_eq!(send(&app, req("PUT", "/api/azure/settings", Some(&admin), Some(bad))).await.0, StatusCode::BAD_REQUEST);
+        let bad2 = serde_json::json!({"enabled": false, "tenant_id": "t1", "client_id": "c1", "subscription_id": "s1", "sync_interval_hours": 0});
+        assert_eq!(send(&app, req("PUT", "/api/azure/settings", Some(&admin), Some(bad2))).await.0, StatusCode::BAD_REQUEST);
+
+        let good = serde_json::json!({"enabled": true, "tenant_id": "contoso.onmicrosoft.com", "client_id": "abc-123", "subscription_id": "sub-1", "sync_interval_hours": 12, "client_secret": "sekret"});
+        let (st, _, v) = send(&app, req("PUT", "/api/azure/settings", Some(&admin), Some(good))).await;
+        assert_eq!((st, v.get("client_secret"), v["client_secret_set"].as_bool(), v["tenant_id"].as_str()), (StatusCode::OK, None, Some(true), Some("contoso.onmicrosoft.com")), "the secret is never echoed back; {v}");
+
+        let unchanged = serde_json::json!({"enabled": true, "tenant_id": "contoso.onmicrosoft.com", "client_id": "abc-123", "subscription_id": "sub-1", "sync_interval_hours": 12});
+        let (_, _, v) = send(&app, req("PUT", "/api/azure/settings", Some(&admin), Some(unchanged))).await;
+        assert_eq!(v["client_secret_set"], true);
+
+        // `/api/azure/sync` itself is not called here: it reaches a real Azure subscription over
+        // the network, which this test suite deliberately never depends on - same reasoning as
+        // cmdb.rs's own Entra ID/Intune sync. `azure_cloud::tests::sync_now_refuses_when_not_enabled_or_not_configured`
+        // covers `sync_now`'s own pre-flight checks without a live call.
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("azure.settings.update"), "{audit}");
+    }
+
+    #[tokio::test]
     async fn vulnscan_settings_are_admin_only_the_keys_never_round_trip_and_findings_are_readable() {
         let (app, store, [viewer, editor, admin]) = secured().await;
 
@@ -2609,6 +2646,7 @@ mod tests {
             (M::GET, "/api/cmdb/settings", "viewer"), (M::PUT, "/api/cmdb/settings", "admin"), (M::POST, "/api/cmdb/sync", "admin"), (M::GET, "/api/cmdb/devices", "viewer"),
             (M::GET, "/api/ad/settings", "viewer"), (M::PUT, "/api/ad/settings", "admin"), (M::POST, "/api/ad/sync", "admin"),
             (M::GET, "/api/jamf/settings", "viewer"), (M::PUT, "/api/jamf/settings", "admin"), (M::POST, "/api/jamf/sync", "admin"),
+            (M::GET, "/api/azure/settings", "viewer"), (M::PUT, "/api/azure/settings", "admin"), (M::POST, "/api/azure/sync", "admin"),
             (M::GET, "/api/vulnscan/settings", "viewer"), (M::PUT, "/api/vulnscan/settings", "admin"), (M::POST, "/api/vulnscan/sync", "admin"), (M::GET, "/api/vulnscan/findings", "viewer"),
         ] {
             assert_eq!(required_role(&m, p), want, "{m} {p}");

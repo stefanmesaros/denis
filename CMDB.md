@@ -1,4 +1,4 @@
-# CMDB import (Microsoft Entra ID, Intune, Active Directory, and Jamf Pro)
+# CMDB import (Microsoft Entra ID, Intune, Active Directory, Jamf Pro, and Azure)
 
 What DENIS supports, what was actually verified, and what still needs a real tenant to confirm —
 written with the same honesty bar as [SSO.md](SSO.md) and [WINDOWS.md](WINDOWS.md): if something
@@ -15,7 +15,7 @@ OS version, join/enrollment type, compliance state, when the source last saw it)
 merged into or treated as authoritative over a device's own fingerprinted identity, and nothing is
 ever written back to Entra ID or Intune. Import is entirely read-only and one-directional.
 
-Four sources, three independent settings sections:
+Five sources, five independent settings sections:
 
 * **Entra ID device objects** (`Device.Read.All` application permission) — always, once enabled,
   via one app registration (client ID + secret).
@@ -36,13 +36,23 @@ Four sources, three independent settings sections:
   shape (`page`/`page-size`/`totalCount` rather than Graph's `@odata.nextLink`). Covers computer
   inventory (`/api/v1/computers-inventory`) only, not mobile devices — the same "narrowest useful
   slice first" choice already made for Entra ID before Intune, and AD before this.
+* **Azure virtual machines** (ROADMAP.md's "Cloud asset discovery", picked first of AWS/Azure/GCP)
+  — a genuinely different integration shape from the four above: not Microsoft Graph or LDAP, but
+  **Azure Resource Graph** (part of Azure Resource Manager), authorized by an **Azure RBAC role**
+  ("Reader" is enough, assigned to the app registration at the subscription) rather than a Graph
+  application permission — the app registration can be the very same one Entra ID/Intune already
+  use, but the permission grant is unrelated and must be added separately, at the subscription, not
+  in Graph's application-permissions blade. Scoped to one subscription id per sync, virtual
+  machines only (not storage, databases or other resource types) — same "narrowest useful slice
+  first" choice as every source above. `src/azure_cloud.rs`, same `ureq`-based HTTPS client as the
+  Graph/Jamf sources.
 
-All four write into the same imported-device list, each row tagged with which source it came
-from (`entra`/`intune`/`ad`/`jamf`) and keyed `<source>:<id>` so the different ID spaces — two
-different Graph GUID spaces, an LDAP distinguished name, and a Jamf computer id — can never
-collide even for what is the same physical device. Each source's own sync only prunes its own
-source's rows: no source's sync can ever delete a device another source imported, even though each
-runs on its own independent schedule.
+All five write into the same imported-device list, each row tagged with which source it came
+from (`entra`/`intune`/`ad`/`jamf`/`azure`) and keyed `<source>:<id>` so the different ID spaces —
+two different Graph GUID spaces, an LDAP distinguished name, a Jamf computer id, and an Azure
+resource id — can never collide even for what is the same physical device. Each source's own sync
+only prunes its own source's rows: no source's sync can ever delete a device another source
+imported, even though each runs on its own independent schedule.
 
 ## What was actually built and verified
 
@@ -96,17 +106,30 @@ runs on its own independent schedule.
   forever against a `totalCount` a buggy server can never actually satisfy; a Jamf sync's own
   pruning is proven to leave the other three sources' rows untouched.
 
+* `src/azure_cloud.rs` implements the OAuth2 client-credentials token fetch against Azure AD's
+  token endpoint (the ARM scope, `https://management.azure.com/.default`, not Graph's), the
+  Resource Graph query and its `$skipToken`-based pagination (capped at 50 pages, same reasoning as
+  every other source's own page cap), the hostname-matching/upsert/prune logic, and its own
+  periodic background job. Settings and the client secret round-trip and default to off; `sync_now`
+  refuses cleanly when disabled or unconfigured (missing tenant/client id/subscription id, missing
+  secret); hostname matching is exact and case-insensitive; the pagination loop's stopping
+  condition is proven not to loop forever once a page returns no skip token or no rows; an Azure
+  sync's own pruning is proven to leave the other four sources' rows untouched. The web layer's
+  permissions and secret redaction are tested the same way as the other four sources.
+
 ## What is *not* yet verified
 
 * **The actual exchange with a real Entra ID tenant, a real Intune enrollment, a real Active
-  Directory domain controller, and a real Jamf Pro instance have not been run.** Token fetch, Graph
-  pagination against a tenant large enough to actually paginate, the real JSON shape Graph returns
-  for `/devices` and `/deviceManagement/managedDevices`, the real LDAP bind/search/attribute shape
-  a genuine domain controller returns, and the real JSON shape (and exact field names) a genuine
-  Jamf Pro instance's `computers-inventory` endpoint returns, have not been exercised end to end
-  against the genuine services — only against hand-written JSON/attribute fixtures matching each
-  provider's documented shape. Everything above this point is verified; this specific path is not,
-  and should not be treated as working until it is.
+  Directory domain controller, a real Jamf Pro instance, and a real Azure subscription have not
+  been run.** Token fetch, Graph pagination against a tenant large enough to actually paginate, the
+  real JSON shape Graph returns for `/devices` and `/deviceManagement/managedDevices`, the real
+  LDAP bind/search/attribute shape a genuine domain controller returns, the real JSON shape (and
+  exact field names) a genuine Jamf Pro instance's `computers-inventory` endpoint returns, and the
+  real Resource Graph response shape (and whether the RBAC-role-not-Graph-permission authorization
+  model actually works the way Microsoft's docs describe) a genuine Azure subscription returns,
+  have not been exercised end to end against the genuine services — only against hand-written
+  JSON/attribute fixtures matching each provider's documented shape. Everything above this point is
+  verified; this specific path is not, and should not be treated as working until it is.
 * No mock Graph server, mock LDAP server or mock Jamf Pro server was built for this pass, for the
   same reason none was built for SSO: a correct one is itself real work, and doing it under time
   pressure risks a mock that "passes" without exercising the same code paths a real server would.
@@ -129,10 +152,19 @@ runs on its own independent schedule.
   The exact JSON field names used (`general.name`, `general.lastEnrolledDate`,
   `general.lastContactTime`, `operatingSystem.name`/`version`) follow Jamf's published API
   reference but have not been confirmed against a real response body.
+* Recommended before relying on Azure: an app registration with the Azure RBAC "Reader" role (not
+  a Graph application permission) assigned at the subscription, and confirm a full sync against a
+  real subscription — including that a wrong tenant/client id/subscription id, a revoked/expired
+  secret, and an app registration without the role assignment are each refused with a clear,
+  distinguishable error (the last of these in particular is a different failure shape than the
+  other four sources' own permission errors, since it fails inside the Resource Graph call itself
+  rather than at token issuance — the token still succeeds without the role, only the query does
+  not). The exact KQL query and JSON field names (`osType`, `powerState`) follow Azure Resource
+  Graph's published reference but have not been confirmed against a real response body.
 
 ## Configuration
 
-Settings → Integrations → CMDB import (admin only), four independent sections:
+Settings → Integrations → CMDB import (admin only), five independent sections:
 
 * **Entra ID / Intune**: enable, tenant ID, client (application) ID, client secret, sync interval
   (1 hour to 30 days), and the "Also import Intune managed devices" checkbox.
@@ -140,6 +172,8 @@ Settings → Integrations → CMDB import (admin only), four independent section
   password, base DN, sync interval.
 * **Jamf Pro**: enable, server URL (`https://yourinstance.jamfcloud.com`), client ID, client
   secret, sync interval.
+* **Azure**: enable, tenant ID, client (application) ID, client secret, subscription ID, sync
+  interval.
 
 Each has its own "Sync now" to run one immediately instead of waiting for the schedule, and all
-four feed the one shared imported-device list below. Nothing here needs a restart.
+five feed the one shared imported-device list below. Nothing here needs a restart.
