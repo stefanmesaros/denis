@@ -25,7 +25,7 @@ use crate::capture::{self, CaptureThread};
 use crate::detect::{DetectConfig, Detector};
 use crate::ingest::{self, Ingest};
 use crate::inventory::{Flushed, Inventory};
-use crate::model::{now_ts, FlowBatch, Mac, Observation, Signal};
+use crate::model::{now_ts, FlowBatch, Mac, Observation, Signal, SignalV6};
 use crate::net::{self, Iface};
 use crate::notify::{self, Alerts};
 use crate::parse::Ctx;
@@ -1094,6 +1094,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
                 .flat_map(|a| d.lock().unwrap().on_new_asset(a, now))
                 .collect();
             ev.extend(d.lock().unwrap().ingest_signals(None, &flushed.signals, &*s, now));
+            ev.extend(d.lock().unwrap().ingest_signals_v6(None, &flushed.signals_v6, &*s, now));
             al.emit(ev);
         }
     }));
@@ -1281,15 +1282,19 @@ pub async fn run_agent(cfg: AgentRunConfig) -> Result<()> {
     // The agent only forwards; judging happens at the master.
     let mut new_rx = std::mem::replace(&mut coll.new_rx, mpsc::unbounded_channel().1);
     let (sig_tx, sig_rx) = mpsc::unbounded_channel::<Vec<Signal>>();
+    let (sig_v6_tx, sig_v6_rx) = mpsc::unbounded_channel::<Vec<SignalV6>>();
     let drain = tokio::spawn(async move {
         while let Some(f) = new_rx.recv().await {
             if !f.signals.is_empty() {
                 let _ = sig_tx.send(f.signals);
             }
+            if !f.signals_v6.is_empty() {
+                let _ = sig_v6_tx.send(f.signals_v6);
+            }
         }
     });
     let flow_rx = std::mem::replace(&mut coll.flow_rx, mpsc::channel(1).1);
-    let reporter = tokio::spawn(agent::run(agent_cfg, coll.inv.clone(), flow_rx, sig_rx));
+    let reporter = tokio::spawn(agent::run(agent_cfg, coll.inv.clone(), flow_rx, sig_rx, sig_v6_rx));
 
     tokio::signal::ctrl_c().await?;
     tracing::info!("shutting down");

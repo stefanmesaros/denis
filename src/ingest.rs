@@ -239,6 +239,7 @@ impl Ingest {
             events.extend(det.ingest_flows(Some(&id), &report.flows, &*self.store, now));
             events.extend(det.ingest_flows_v6(Some(&id), &report.flows_v6, &*self.store, now));
             events.extend(det.ingest_signals(Some(&id), &report.signals, &*self.store, now));
+            events.extend(det.ingest_signals_v6(Some(&id), &report.signals_v6, &*self.store, now));
             events.extend(det.ingest_conversations(Some(&id), &report.conversations, &*self.store, now));
         }
         self.alerts.emit(events);
@@ -456,6 +457,7 @@ mod tests {
             flows,
             flows_v6: vec![],
             signals: vec![],
+            signals_v6: vec![],
             conversations: vec![],
         }
     }
@@ -548,7 +550,7 @@ mod tests {
 
     #[test]
     fn signals_from_agents_become_scored_alerts_and_old_agents_without_them_still_parse() {
-        use crate::model::Signal;
+        use crate::model::{Signal, SignalV6};
         let (ing, store) = setup(1000);
         let other = Mac([0x00, 0x11, 0x22, 3, 3, 3]);
         let mut a = asset(M, [10, 1, 0, 5]);
@@ -558,18 +560,20 @@ mod tests {
         ing.apply(report(1, vec![a, victim], vec![]), 60).unwrap();
         let mut r = report(2, vec![], vec![]);
         r.signals = vec![Signal { kind: "arp_conflict".into(), ts: 70, mac: M, ip: Ipv4Addr::new(10, 1, 0, 1), other_mac: Some(other), gateway: true }];
+        r.signals_v6 = vec![SignalV6 { kind: "ndp_mismatch".into(), ts: 70, mac: M, ip: "2001:db8::42".parse().unwrap(), other_mac: Some(other) }];
         ing.apply(r, 70).unwrap();
         let alerts = store.list_events(&EventQuery { alerts_only: true, ..Default::default() }).unwrap();
-        assert_eq!(alerts.len(), 1);
-        assert_eq!((alerts[0].kind.as_str(), alerts[0].score, alerts[0].severity.as_str()), ("arp_conflict", 95, "high"));
-        assert_eq!(alerts[0].agent_id.as_deref(), Some("site-b"));
-        // a Phase 2 agent's report has no "signals" key at all
+        assert_eq!(alerts.len(), 2);
+        assert!(alerts.iter().any(|e| (e.kind.as_str(), e.score, e.severity.as_str()) == ("arp_conflict", 95, "high")));
+        assert!(alerts.iter().any(|e| e.kind == "ndp_mismatch"), "{alerts:?}");
+        assert!(alerts.iter().all(|e| e.agent_id.as_deref() == Some("site-b")));
+        // a Phase 2 agent's report has no "signals"/"signals_v6" key at all
         let old = serde_json::json!({
             "agent": {"id": "old", "name": "old", "site": null, "version": "0.1", "subnet": "10.0.0.0/24"},
             "run_id": "r", "seq": 1, "sent_at": 0, "assets": [], "flows": []
         });
         let parsed: Report = serde_json::from_value(old).unwrap();
-        assert!(parsed.signals.is_empty());
+        assert!(parsed.signals.is_empty() && parsed.signals_v6.is_empty());
     }
 
     #[test]

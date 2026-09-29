@@ -59,12 +59,13 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    original scoping — making `cmdb.rs`'s own pruning source-scoped, since it originally assumed it
    was the only writer to the imported-device table and would have deleted Active Directory's rows
    on its own next sync otherwise.
-6. **IPv6 in capture and the asset model.** *(effort: 3/10 remaining)* In progress (2026-09-29): passive
+6. **IPv6 in capture and the asset model.** *(effort: 2/10 remaining)* In progress (2026-09-29): passive
    discovery, flow accounting with a first detection rule, remote-agent reporting, an active
-   liveness check for already-known addresses, and CSV/API exposure are all done and shipping,
-   opt-in via `--ipv6`/`--ipv6-subnet` — see IPV6.md for exactly what is and is not wired up yet.
-   What remains needs either real alert-noise/incident data to design well (rule parity, an
-   NDP-mismatch signal, conflict/gateway detection) or is a materially larger, separate mechanism
+   liveness check for already-known addresses, CSV/API exposure, and an `ndp_mismatch` signal (the
+   NDP counterpart of `arp_mismatch`, built speculatively rather than waiting for real incident
+   data, on explicit instruction — see IPV6.md) are all done and shipping, opt-in via
+   `--ipv6`/`--ipv6-subnet`. What remains needs either real alert-noise/incident data to design
+   well (rule parity, conflict/gateway detection) or is a materially larger, separate mechanism
    (full active discovery of brand-new addresses via multicast). Full detailed scoping lives in
    IPV6.md, not duplicated here, to avoid the two documents drifting out of sync with each other.
 7. ~~**CMDB import: Jamf (and similar MDM sources).**~~ Done in v2.29.0 (2026-09-29). Same shape as

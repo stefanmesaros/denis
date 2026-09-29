@@ -4,7 +4,7 @@
 //! master/agent split does not need to reshape stored data.
 
 use std::fmt;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
@@ -331,6 +331,7 @@ pub enum Observation {
     Flows(FlowBatch),
     /// A suspicious fact noticed on the wire (e.g. an ARP sender-address mismatch).
     Signal(Signal),
+    SignalV6(SignalV6),
     /// One industrial-protocol message between two local devices.
     Ot(OtSample),
     /// Self-reported identity from a link-layer or industrial protocol.
@@ -608,6 +609,9 @@ pub struct Report {
     /// Absent in reports from Phase 2 agents.
     #[serde(default)]
     pub signals: Vec<Signal>,
+    /// The IPv6 analogue of `signals` (IPV6.md item 3), same absent-means-empty convention.
+    #[serde(default)]
+    pub signals_v6: Vec<SignalV6>,
     /// Industrial conversations (absent in reports from older agents).
     #[serde(default)]
     pub conversations: Vec<ConvRecord>,
@@ -669,6 +673,23 @@ pub struct Signal {
     pub other_mac: Option<Mac>,
     /// The contested address is the default gateway.
     pub gateway: bool,
+}
+
+/// The IPv6 analogue of `Signal` (IPV6.md item 3), carrying just what `ndp_mismatch` needs — no
+/// `gateway` field, since IPv6 gateway/conflict detection (IPV6.md item 4) is a separate, not yet
+/// built, signal of its own (a Router Advertisement, not NDP, is the gateway claim there).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SignalV6 {
+    /// `ndp_mismatch`: a Neighbor Advertisement's Source Link-Layer option differs from the
+    /// Ethernet source. The only kind today, but a field of its own rather than a bare struct, so
+    /// a second IPv6 signal kind can join later the same way `Signal` already holds several.
+    pub kind: String,
+    pub ts: i64,
+    /// The claimant (the MAC the frame came from).
+    pub mac: Mac,
+    pub ip: Ipv6Addr,
+    /// The hardware address the frame's Source Link-Layer option actually claimed.
+    pub other_mac: Option<Mac>,
 }
 
 /// Hours in which a device was seen, for "was reliably online" judgements.

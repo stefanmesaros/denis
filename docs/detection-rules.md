@@ -61,6 +61,15 @@ interfaces whose hardware addresses differ only in the last byte (seen on ASUS m
 lower, so it is only logged, unless the contested address is the gateway. (A forger who picks a sibling
 address is therefore only caught when the target is the gateway.)
 
+### `new_destination_v6` / `ndp_mismatch`: the IPv6 counterparts *(opt-in, `--ipv6`; see IPV6.md in the repository)*
+`new_destination_v6` is `new_destination`'s IPv6 twin *(needs `--flows`, `--ipv6-subnet`)*: a device contacts an
+outside IPv6 address it has never used. Simpler for now — no rotation-burst suppression yet, so a service that
+hands out a fresh IPv6 address per session may repeat more than its IPv4 counterpart would. `ndp_mismatch` is
+`arp_mismatch`'s IPv6 twin: a Neighbor Advertisement (IPv6's ARP reply) carries a hardware address that disagrees
+with its own Ethernet source. Score 45, folded into `new_destination_v6`'s own weight (no `--rule-weight` entry
+of its own, the same shortcut `arp_mismatch` takes with `arp_conflict`'s weight). At most one alert per
+claimant/address pair per cooldown window.
+
 ### `device_silent` / `agent_offline`: a reliable device disappeared
 A device that was online in ≥90% of hours over the last week (and observed ≥48 h) has not been seen for
 `--silent-minutes` (default 120). Score 45, +15 for routers/NAS/servers/cameras, +10 if it was essentially

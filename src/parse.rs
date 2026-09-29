@@ -377,10 +377,23 @@ fn parse_ndp(eth_src: Mac, p: &[u8], out: &mut Vec<Observation>) {
                 return;
             }
             // Trust the option's MAC only when it agrees with the frame's own source, the same
-            // bar `parse_arp` holds a claimed address to (a disagreement there is reported as
-            // `arp_mismatch` instead of learned from; NDP has no such signal yet, see IPV6.md).
-            if source_link_layer == Some(eth_src.0) {
-                out.push(Observation::Ndp { mac: eth_src, ip: target, link_local: ipv6::is_link_local(&target) });
+            // bar `parse_arp` holds a claimed address to. A disagreement is reported as
+            // `ndp_mismatch` instead of learned from (IPV6.md item 3, done), the IPv6 counterpart
+            // of `arp_mismatch` above.
+            match source_link_layer {
+                Some(mac) if mac == eth_src.0 => {
+                    out.push(Observation::Ndp { mac: eth_src, ip: target, link_local: ipv6::is_link_local(&target) });
+                }
+                Some(mac) => {
+                    out.push(Observation::SignalV6(crate::model::SignalV6 {
+                        kind: "ndp_mismatch".into(),
+                        ts: 0, // stamped by the aggregator: parsing has no clock
+                        mac: eth_src,
+                        ip: target,
+                        other_mac: Some(Mac(mac)),
+                    }));
+                }
+                None => {}
             }
         }
         // An Echo Reply is not NDP and carries no hop-limit guarantee (an ordinary ping reply is
@@ -1050,11 +1063,15 @@ mod tests {
     }
 
     #[test]
-    fn a_link_layer_option_that_disagrees_with_the_ethernet_source_is_not_learned() {
+    fn a_link_layer_option_that_disagrees_with_the_ethernet_source_is_reported_not_learned() {
         let target: std::net::Ipv6Addr = "2001:db8::42".parse().unwrap();
         let other_mac = [0x02, 2, 3, 4, 5, 6];
         let f = eth([0x33, 0x33, 0, 0, 0, 1], DEV, ETH_IPV6, &ipv6_pkt(255, "fe80::1".parse().unwrap(), "ff02::1".parse().unwrap(), &na(target, other_mac)));
-        assert!(parse_frame(&ipv6_ctx(), &f).is_empty());
+        let obs = parse_frame(&ipv6_ctx(), &f);
+        assert!(
+            matches!(obs.as_slice(), [Observation::SignalV6(s)] if s.kind == "ndp_mismatch" && s.mac.0 == DEV && s.ip == target && s.other_mac == Some(Mac(other_mac))),
+            "{obs:?}"
+        );
     }
 
     #[test]

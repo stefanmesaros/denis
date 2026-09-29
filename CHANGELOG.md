@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.44.0: `ndp_mismatch` — an NDP equivalent of `arp_mismatch` (IPv6, opt-in)
+
+* **A Neighbor Advertisement whose Source Link-Layer option disagrees with its own Ethernet
+  source is now reported as an `ndp_mismatch` alert** instead of silently dropped — the IPv6
+  counterpart of the existing `arp_mismatch`, same trust reasoning (a disagreement carries no
+  binding, only a signal worth a look). Opt-in with everything else IPv6 (`--ipv6`), works over a
+  remote agent link too. Deliberately narrower than IPv4's combined ARP handling for now: no
+  conflict/gateway-claim escalation and no repeated-claimant burst cap, since nothing yet raises
+  enough of either for it to matter — see IPV6.md for exactly what is and is not covered.
+* This one item (IPV6.md's item 3) was built speculatively, on explicit instruction, ahead of the
+  real incident data this document's own stated bar normally asks for before adding a new IPv6
+  signal — flagged as such in IPV6.md itself. The remaining IPv6 items (full active discovery,
+  rule parity, conflict/gateway detection) keep to that same bar.
+
 ## 2.43.1: Fix: the Acknowledge reason could reset before it was picked
 
 * **Fix: the reason dropdown next to an alert's Acknowledge button could reset itself a few

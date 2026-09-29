@@ -14,7 +14,7 @@ use anyhow::Result;
 use serde_json::json;
 
 use crate::model::{
-    proto_name, Asset, Baseline, ConvRecord, Conversation, DestStat, Event, FlowRecord, FlowRecordV6, Mac, Presence, Signal,
+    proto_name, Asset, Baseline, ConvRecord, Conversation, DestStat, Event, FlowRecord, FlowRecordV6, Mac, Presence, Signal, SignalV6,
     PROTO_ICMP, PROTO_TCP, PROTO_UDP,
 };
 use crate::ot::ot_proto_for_port;
@@ -59,7 +59,7 @@ pub const RULES: &[&str] = &[
 /// name, since `Overrides::excepted` (rules.rs) filters by the raw event kind string regardless of
 /// `RULES` membership — `rules.rs`'s own settings validation must accept these two for `exceptions`
 /// even though it rejects them for `weights`/`min_scores`, which genuinely only apply to `RULES`.
-pub const EXTRA_ALERTABLE_KINDS: &[&str] = &["arp_mismatch", "agent_offline"];
+pub const EXTRA_ALERTABLE_KINDS: &[&str] = &["arp_mismatch", "agent_offline", "ndp_mismatch"];
 
 /// Every event kind an alert can actually be raised under: `RULES` plus `EXTRA_ALERTABLE_KINDS`.
 pub fn is_alertable_kind(kind: &str) -> bool {
@@ -103,6 +103,7 @@ pub const ADVICE: &[(&str, &str)] = &[
     (RULE_OT_EXPOSURE, "An industrial protocol crossed the network boundary. These protocols have no authentication of their own, so nothing outside should reach them. Find the firewall or NAT rule, or the bridging device, that allows it and close it."),
     (RULE_LAN_SCAN, "A device contacted many different addresses, or many different ports on one address, on your own local network in a short time - the signature of a host sweep or port scan, not ordinary traffic. Check what is actually running on the device (a security scanner and a backup or discovery tool can look the same to this rule); if nothing legitimate explains it, isolate the device and investigate it as a likely compromise."),
     (RULE_NEW_DESTINATION_V6, "A device contacted an outside IPv6 address it has never used. The IPv6 counterpart of \"New destination\" - look up the address and decide whether this device has a reason to talk to it; if it is unexpected, check what is running on the device and consider isolating it until you know."),
+    ("ndp_mismatch", "A Neighbor Advertisement (IPv6's ARP reply) carried a different hardware address than its Ethernet sender. Some devices and bridges do this legitimately (redundant gateways, load balancers, VMs); a single event is usually harmless. If it repeats, treat it like an ARP mismatch."),
 ];
 
 /// What to do about an alert of this kind, if we have advice for it.
@@ -320,6 +321,8 @@ pub struct Detector {
     offline_agents: HashSet<String>,
     /// (claimant asset, address) -> until when repeats are suppressed.
     arp_cooldown: HashMap<(i64, Ipv4Addr), i64>,
+    /// The IPv6 analogue of `arp_cooldown`, for `ndp_mismatch`.
+    ndp_cooldown: HashMap<(i64, std::net::Ipv6Addr), i64>,
     /// claimant MAC -> (when, address) of its recent ARP conflicts.
     arp_claims: HashMap<Mac, VecDeque<(i64, Ipv4Addr)>>,
     /// bytes (out, in) per collector since the last `take_traffic`.
@@ -374,6 +377,7 @@ impl Detector {
             presence_dirty: HashSet::new(),
             offline_agents: HashSet::new(),
             arp_cooldown: HashMap::new(),
+            ndp_cooldown: HashMap::new(),
             arp_claims: HashMap::new(),
             traffic: HashMap::new(),
             convs: HashMap::new(),
@@ -1502,6 +1506,37 @@ impl Detector {
         events
     }
 
+    /// IPv6's counterpart of the `arp_mismatch` half of `ingest_signals` (IPV6.md item 3): a
+    /// Neighbor Advertisement whose Source Link-Layer option disagreed with the frame's own
+    /// Ethernet source, reported instead of silently dropped as `parse_ndp` used to. Deliberately
+    /// narrower than `ingest_signals`: no conflict/gateway-claim escalation (IPV6.md item 4, not
+    /// this one — a Router Advertisement, not NDP, is IPv6's gateway signal, and address conflicts
+    /// are rare by design under SLAAC/DAD), no repeated-claimant burst cap either, since a single
+    /// mismatching claimant is the only case this raises at all so far. Folds into
+    /// `RULE_NEW_DESTINATION_V6`'s own weight rather than getting a dedicated one, the same
+    /// shortcut `arp_mismatch` takes with `RULE_ARP` (see `EXTRA_ALERTABLE_KINDS`'s own doc) —
+    /// the only IPv6-specific weight knob that exists yet.
+    pub fn ingest_signals_v6(&mut self, agent: Option<&str>, signals: &[SignalV6], store: &dyn Store, now: i64) -> Vec<Event> {
+        let mut events = Vec::new();
+        for s in signals {
+            let Some(id) = self.asset_id(agent, &s.mac, store) else { continue };
+            if self.ndp_cooldown.get(&(id, s.ip)).is_some_and(|until| now < *until) {
+                continue;
+            }
+            self.ndp_cooldown.insert((id, s.ip), now + self.cfg.conflict_cooldown_secs);
+            let other = s.other_mac.map(|m| m.to_string()).unwrap_or_else(|| "an address the frame's own Ethernet source did not match".into());
+            let why = vec![format!("+45 Neighbor Advertisement Source Link-Layer address ({other}) differs from the Ethernet source ({})", s.mac)];
+            let summary = format!("Malformed NDP for {} from {}", s.ip, s.mac);
+            let score = self.cfg.weighted(RULE_NEW_DESTINATION_V6, 45);
+            if let Ok(Some(claimant)) = store.get_asset(id) {
+                let sev = severity_for(score, self.cfg.min_score);
+                let details = json!({ "summary": summary, "ip": s.ip, "claimant_mac": s.mac, "claimant_vendor": claimant.vendor, "other_mac": s.other_mac, "reasons": why });
+                events.push(make_event(&claimant, "ndp_mismatch", score, sev, details, now));
+            }
+        }
+        events
+    }
+
     /// A DHCP reply (offer or acknowledgement) was seen from `s.mac`. Servers seen during the
     /// learning period are the normal ones; a new one afterwards is reported once.
     fn dhcp_server(&mut self, agent: Option<&str>, s: &Signal, store: &dyn Store, now: i64) -> Option<Event> {
@@ -1590,6 +1625,7 @@ impl Detector {
         }
         self.cooldown.retain(|_, until| now < *until);
         self.arp_cooldown.retain(|_, until| now < *until);
+        self.ndp_cooldown.retain(|_, until| now < *until);
         events
     }
 
@@ -2638,6 +2674,38 @@ mod tests {
         assert!(d.ingest_signals(None, &[sig("arp_conflict", Mac([0x00, 9, 9, 9, 9, 9]), [1, 1, 1, 1], None, false)], &s, 100).is_empty());
         // and signals are scoped to their agent like everything else
         assert!(d.ingest_signals(Some("site-b"), &[sig("arp_conflict", MAC, [1, 1, 1, 1], None, false)], &s, 100).is_empty());
+    }
+
+    // ----------------------------------------------------------- NDP signals (IPV6.md item 3)
+
+    fn sig_v6(mac: Mac, ip: &str, other: Option<Mac>) -> SignalV6 {
+        SignalV6 { kind: "ndp_mismatch".into(), ts: 0, mac, ip: ip.parse().unwrap(), other_mac: other }
+    }
+
+    #[test]
+    fn ndp_mismatch_is_scored_and_weighted_off_new_destination_v6() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let mut c = cfg();
+        c.weights.insert(RULE_NEW_DESTINATION_V6.into(), 0.5);
+        let mut d = Detector::new(c, vec![], 0);
+        asset(&s, MAC, 0);
+        let ev = d.ingest_signals_v6(None, &[sig_v6(MAC, "2001:db8::42", Some(MAC2))], &s, 100);
+        assert_eq!((ev[0].kind.as_str(), ev[0].score), ("ndp_mismatch", 23)); // round(45 * 0.5)
+        // a claimant we have no asset for cannot be attributed: ignored
+        assert!(d.ingest_signals_v6(None, &[sig_v6(Mac([0x00, 9, 9, 9, 9, 9]), "2001:db8::99", None)], &s, 100).is_empty());
+        // and signals are scoped to their agent like everything else
+        assert!(d.ingest_signals_v6(Some("site-b"), &[sig_v6(MAC, "2001:db8::1", None)], &s, 100).is_empty());
+    }
+
+    #[test]
+    fn the_same_ndp_mismatch_is_not_repeated_until_its_cooldown_passes() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let mut d = Detector::new(cfg(), vec![], 0);
+        asset(&s, MAC, 0);
+        let one = sig_v6(MAC, "2001:db8::42", Some(MAC2));
+        assert_eq!(d.ingest_signals_v6(None, std::slice::from_ref(&one), &s, 100).len(), 1);
+        assert!(d.ingest_signals_v6(None, std::slice::from_ref(&one), &s, 200).is_empty(), "same claimant+address: cooldown");
+        assert_eq!(d.ingest_signals_v6(None, std::slice::from_ref(&one), &s, 100 + 1800).len(), 1);
     }
 
     // -------------------------------------------------------- device_silent

@@ -9,7 +9,7 @@ use std::net::Ipv4Addr;
 use anyhow::Result;
 
 use crate::fingerprint::{guess, vendor_for};
-use crate::model::{Asset, IpRecord, LinkInfo, Mac, Observation, OtRole, OtSample, Signal};
+use crate::model::{Asset, IpRecord, LinkInfo, Mac, Observation, OtRole, OtSample, Signal, SignalV6};
 use crate::store::{Store};
 
 const MAX_IP_HISTORY: usize = 20;
@@ -35,6 +35,8 @@ pub struct Inventory {
     rev: u64,
     asset_rev: HashMap<Mac, u64>,
     signals: Vec<Signal>,
+    /// The IPv6 analogue of `signals` (IPV6.md item 3), same discipline.
+    signals_v6: Vec<SignalV6>,
 }
 
 /// A host worth probing, with what the scan policy needs to know about it.
@@ -52,11 +54,13 @@ pub struct Flushed {
     /// Assets first seen since the last flush (already stored, with ids).
     pub new_assets: Vec<Asset>,
     pub signals: Vec<Signal>,
+    /// The IPv6 analogue of `signals` (IPV6.md item 3), same discipline.
+    pub signals_v6: Vec<SignalV6>,
 }
 
 impl Flushed {
     pub fn is_empty(&self) -> bool {
-        self.new_assets.is_empty() && self.signals.is_empty()
+        self.new_assets.is_empty() && self.signals.is_empty() && self.signals_v6.is_empty()
     }
 }
 
@@ -70,6 +74,7 @@ impl Inventory {
         self.new_devices.clear();
         self.asset_rev.clear();
         self.signals.clear();
+        self.signals_v6.clear();
         self.rev += 1;
     }
 
@@ -87,6 +92,7 @@ impl Inventory {
             rev: 1,
             asset_rev: HashMap::new(),
             signals: Vec::new(),
+            signals_v6: Vec::new(),
         };
         // Oldest first so the most recent holder of an IP wins the index.
         let mut loaded = loaded;
@@ -276,6 +282,10 @@ impl Inventory {
                 sig.gateway = Some(sig.ip) == self.gateway;
                 self.push_signal(sig);
             }
+            Observation::SignalV6(mut sig) => {
+                sig.ts = now;
+                self.push_signal_v6(sig);
+            }
             // Traffic accounting is handled before the inventory (capture thread
             // -> aggregator -> detector); nothing here.
             Observation::FlowSample(_) | Observation::FlowSampleV6(_) | Observation::Flows(_) => {}
@@ -347,6 +357,12 @@ impl Inventory {
     fn push_signal(&mut self, s: Signal) {
         if self.signals.len() < MAX_SIGNALS {
             self.signals.push(s);
+        }
+    }
+
+    fn push_signal_v6(&mut self, s: SignalV6) {
+        if self.signals_v6.len() < MAX_SIGNALS {
+            self.signals_v6.push(s);
         }
     }
 
@@ -436,6 +452,7 @@ impl Inventory {
                 .filter_map(|m| self.assets.get(m).cloned())
                 .collect(),
             signals: std::mem::take(&mut self.signals),
+            signals_v6: std::mem::take(&mut self.signals_v6),
         })
     }
 
@@ -603,6 +620,10 @@ mod tests {
         inv.flush(&SqliteStore::open_in_memory().unwrap()).unwrap().signals
     }
 
+    fn signals_v6(inv: &mut Inventory) -> Vec<SignalV6> {
+        inv.flush(&SqliteStore::open_in_memory().unwrap()).unwrap().signals_v6
+    }
+
     #[test]
     fn a_second_mac_claiming_a_live_address_is_a_conflict() {
         let mut inv = Inventory::new(vec![], None, None);
@@ -648,6 +669,15 @@ mod tests {
         inv.apply(Observation::Signal(Signal { kind: "arp_mismatch".into(), ts: 0, mac: B, ip: ip(1), other_mac: Some(A), gateway: false }), 500);
         let s = signals(&mut inv);
         assert_eq!((s[0].ts, s[0].gateway), (500, true));
+    }
+
+    #[test]
+    fn ndp_mismatch_signals_are_stamped_and_flushed_separately_from_ipv4_ones() {
+        let mut inv = Inventory::new(vec![], Some(ip(1)), None);
+        let target: std::net::Ipv6Addr = "2001:db8::42".parse().unwrap();
+        inv.apply(Observation::SignalV6(SignalV6 { kind: "ndp_mismatch".into(), ts: 0, mac: B, ip: target, other_mac: Some(A) }), 700);
+        let s = signals_v6(&mut inv);
+        assert_eq!((s.len(), s[0].ts, s[0].kind.as_str()), (1, 700, "ndp_mismatch"));
     }
 
     #[test]

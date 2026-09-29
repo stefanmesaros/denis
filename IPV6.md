@@ -88,13 +88,28 @@ asking for it):**
   already operate on `Baseline.typical_destinations`' plain string keys / `IpAddr` generically, so
   an IPv6 destination `new_destination_v6` writes there was already exposed correctly — confirmed
   with a new regression test, not just read as likely-fine.
+* **`ndp_mismatch` (2026-09-29, item 3 below, built speculatively rather than waiting for a real
+  incident — an explicit, deliberate exception to this document's own stated bar for items 2-4,
+  made on direct instruction rather than triggered by real alert-noise data).** A Neighbor
+  Advertisement's Source Link-Layer option that disagrees with the frame's own Ethernet source is
+  now reported as `ndp_mismatch` instead of silently dropped — the IPv6 counterpart of
+  `arp_mismatch`, same trust reasoning, same "a disagreement carries no binding, only a signal".
+  Deliberately narrower than IPv4's combined `arp_conflict`/`arp_mismatch` handling: no
+  conflict/gateway escalation (that is item 4 below, a materially different signal — a Router
+  Advertisement, not NDP — and still not built), no repeated-claimant burst cap (nothing yet raises
+  enough distinct claims for one to matter). A new parallel type (`model::SignalV6`,
+  `Report.signals_v6`, `Reporter::spool_signals_v6`, `Detector::ingest_signals_v6`), not a widened
+  `Signal`, same "parallel, not merged" reasoning as `ip_history`/`ipv6_history` and
+  `FlowRecord`/`FlowRecordV6` throughout this document. Folds into `new_destination_v6`'s own
+  weight (the only IPv6-specific weight knob that exists yet), the same shortcut `arp_mismatch`
+  takes with `arp_conflict`'s.
 * **Deliberately out of scope still** (each a real, separate piece of work): no rotation-burst
   suppression or `new_port` rule for IPv6 yet (the IPv4 versions exist because of real alert-noise
   data this project doesn't have for IPv6 yet — a CDN/relay that hands out a fresh IPv6 address per
   session may currently repeat-alert more than its IPv4 counterpart would); no OT protocol decoding
   over IPv6 (no `parse_ot_v6`); the threat list and network watches (`it_watch`) are still
   IPv4-address-shaped and do not see IPv6 flows; `lan_scan`'s breadth-based logic has not been
-  ported; no NDP equivalent of `arp_mismatch`; no IPv6 conflict/gateway-claim detection.
+  ported; no IPv6 conflict/gateway-claim detection.
 
 **Not done, and why each is its own step, not a detail of the others:**
 
@@ -110,10 +125,7 @@ asking for it):**
    IPv6, and `lan_scan` for IPv6 are each their own scoping decision, not a mechanical port —
    several need real alert-noise or incident data this project does not have yet for IPv6, the same
    bar the IPv4 rotation-burst fix itself was held to (see the v2.20.0 roadmap entry).
-3. **No NDP equivalent of `arp_mismatch`.** A Source Link-Layer option that disagrees with the
-   frame's own Ethernet source is currently just dropped, the safe default, but ARP's `parse_arp`
-   turns the IPv4 equivalent into a reported `Signal` instead of silence — worth adding once there
-   is a real incident to design the alert's wording against, not invented speculatively.
+3. ~~No NDP equivalent of `arp_mismatch`.~~ Done (2026-09-29) — see above.
 4. **No IPv6 conflict/gateway-claim detection.** `Inventory::check_conflict` and `is_gateway` are
    IPv4-`by_ip`-keyed; an IPv6 analogue (a Router Advertisement is the gateway signal, not ARP/DHCP)
    is new mechanism, not a type-widen, and is meaningfully lower-value than IPv4's version since

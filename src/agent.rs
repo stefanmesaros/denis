@@ -13,7 +13,7 @@ use anyhow::{bail, Context, Result};
 use tokio::sync::mpsc;
 
 use crate::inventory::Inventory;
-use crate::model::{now_ts, AgentMeta, ConvRecord, FlowBatch, FlowRecord, FlowRecordV6, Report, ReportAck, Signal};
+use crate::model::{now_ts, AgentMeta, ConvRecord, FlowBatch, FlowRecord, FlowRecordV6, Report, ReportAck, Signal, SignalV6};
 
 /// Flow windows held while the master is unreachable (~ hours at typical rates).
 pub const SPOOL_MAX: usize = 200_000;
@@ -73,6 +73,8 @@ pub struct Reporter {
     spool_v6: VecDeque<FlowRecordV6>,
     convs: VecDeque<ConvRecord>,
     signals: VecDeque<Signal>,
+    /// The IPv6 analogue of `signals` (IPV6.md item 3), same spool discipline.
+    signals_v6: VecDeque<SignalV6>,
     pub dropped: u64,
     pending: Option<Pending>,
     last_sent: Option<Instant>,
@@ -92,6 +94,7 @@ impl Reporter {
             spool_v6: VecDeque::new(),
             convs: VecDeque::new(),
             signals: VecDeque::new(),
+            signals_v6: VecDeque::new(),
             dropped: 0,
             pending: None,
             last_sent: None,
@@ -138,6 +141,16 @@ impl Reporter {
         }
     }
 
+    pub fn spool_signals_v6(&mut self, signals: Vec<SignalV6>) {
+        for s in signals {
+            if self.signals_v6.len() >= SIGNALS_MAX {
+                self.signals_v6.pop_front();
+                self.dropped += 1;
+            }
+            self.signals_v6.push_back(s);
+        }
+    }
+
     pub fn spooled(&self) -> usize {
         self.spool.len()
     }
@@ -150,12 +163,13 @@ impl Reporter {
             let take = self.spool.len().min(BATCH_FLOWS);
             let take_v6 = self.spool_v6.len().min(BATCH_FLOWS);
             let heartbeat_due = self.last_sent.is_none_or(|t| t.elapsed() >= HEARTBEAT);
-            if assets.is_empty() && take == 0 && take_v6 == 0 && self.signals.is_empty() && self.convs.is_empty() && !heartbeat_due {
+            if assets.is_empty() && take == 0 && take_v6 == 0 && self.signals.is_empty() && self.signals_v6.is_empty() && self.convs.is_empty() && !heartbeat_due {
                 return None;
             }
             let flows: Vec<FlowRecord> = self.spool.drain(..take).collect();
             let flows_v6: Vec<FlowRecordV6> = self.spool_v6.drain(..take_v6).collect();
             let signals: Vec<Signal> = self.signals.drain(..).collect();
+            let signals_v6: Vec<SignalV6> = self.signals_v6.drain(..).collect();
             let conversations: Vec<ConvRecord> = self.convs.drain(..self.convs.len().min(BATCH_CONVS)).collect();
             self.seq += 1;
             self.pending = Some(Pending {
@@ -168,6 +182,7 @@ impl Reporter {
                     flows,
                     flows_v6,
                     signals,
+                    signals_v6,
                     conversations,
                 },
                 rev,
@@ -282,6 +297,7 @@ pub async fn run(
     inv: Arc<Mutex<Inventory>>,
     mut flow_rx: mpsc::Receiver<FlowBatch>,
     mut signal_rx: mpsc::UnboundedReceiver<Vec<Signal>>,
+    mut signal_v6_rx: mpsc::UnboundedReceiver<Vec<SignalV6>>,
 ) {
     let client = match resolve_ca_pem(cfg.ca_cert.as_deref(), cfg.ca_pem.as_deref()).and_then(|pem| http_client(pem.as_deref())) {
         Ok(c) => c,
@@ -302,6 +318,7 @@ pub async fn run(
                 rep.spool_convs(batch.convs);
             }
             Some(sigs) = signal_rx.recv() => rep.spool_signals(sigs),
+            Some(sigs) = signal_v6_rx.recv() => rep.spool_signals_v6(sigs),
             _ = tick.tick() => {
                 if Instant::now() < retry_at {
                     continue;
@@ -457,10 +474,11 @@ mod tests {
         r.on_ack(&ReportAck { seq: 1, assets: 1, flows: 0, duplicate: false });
         assert!(r.next_batch(&inv, 2).is_none(), "idle");
         r.spool_signals(vec![Signal { kind: "arp_conflict".into(), ts: 5, mac: Mac([0x3c, 0, 0, 0, 0, 9]), ip: Ipv4Addr::new(10, 0, 0, 1), other_mac: None, gateway: true }]);
+        r.spool_signals_v6(vec![SignalV6 { kind: "ndp_mismatch".into(), ts: 5, mac: Mac([0x3c, 0, 0, 0, 0, 9]), ip: "2001:db8::1".parse().unwrap(), other_mac: None }]);
         let b = r.next_batch(&inv, 3).unwrap().clone();
-        assert_eq!((b.seq, b.signals.len(), b.assets.len()), (2, 1, 0));
+        assert_eq!((b.seq, b.signals.len(), b.signals_v6.len(), b.assets.len()), (2, 1, 1, 0));
         // and are re-sent unchanged until acknowledged
-        assert_eq!(r.next_batch(&inv, 9).unwrap().signals.len(), 1);
+        assert_eq!((r.next_batch(&inv, 9).unwrap().signals.len(), r.next_batch(&inv, 9).unwrap().signals_v6.len()), (1, 1));
     }
 
     #[test]
