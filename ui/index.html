@@ -605,6 +605,10 @@
           <div class="row">
             <label>Default provider<select id="ai-default"><option value="">(none configured)</option><option value="claude">Claude</option><option value="openai">ChatGPT</option><option value="gemini">Gemini</option><option value="grok">Grok</option><option value="local">Local model</option></select></label>
           </div>
+          <div class="row">
+            <label class="check"><input id="ai-model-per-action" type="checkbox" checked> Use default model for all actions</label>
+          </div>
+          <p class="muted small">When on (the default), every on-click AI button just runs against the default provider above. When off and more than one provider is configured, clicking one instead asks which model to use, right there — never shown at all with only one provider configured.</p>
           <h4 class="section">Features</h4>
           <p class="muted small">Each is off by default and only ever calls the provider above for what it says below — nothing runs in the background unless its own description says so.</p>
           <label class="check"><input id="ai-feature-alert-explanations" type="checkbox"> Alert explanations</label>

@@ -593,31 +593,29 @@ function openItWatchForm(prefill, done) {
    * the preset dropdown above — never writes or enables anything itself, only fills the same
    * fields the administrator can still see, edit and choose not to keep before saving. */
   const aiSuggest = isNew && state.ai && state.ai.providers.length && state.ai.rule_assistant ? (() => {
-    const providers = state.ai.providers;
-    const pick = providers.length > 1
-      ? el('select', {}, ...providers.map((p) => el('option', { value: p.id, text: p.name, selected: p.id === state.ai.default_provider })))
-      : null;
     const desc = el('input', { placeholder: tr('e.g. cameras should never reach the internet'), maxLength: 300 });
     const msg = el('span', { class: 'muted small' });
+    const runSuggest = async (provider) => {
+      button.disabled = true;
+      button.textContent = tr('Asking…');
+      const r = await api('POST', '/api/ai/suggest-rule', { description: desc.value.trim(), provider });
+      button.disabled = false;
+      button.textContent = tr('Suggest');
+      if (!r.ok) { msg.textContent = apiError(r); msg.className = 'form-error small'; return; }
+      applyPreset(r.json);
+      msg.textContent = tr('Suggested below — review and adjust it, then save.');
+      msg.className = 'muted small';
+    };
     const button = el('button', {
       type: 'button', text: tr('Suggest'),
-      onclick: async () => {
+      onclick: () => {
         if (!desc.value.trim()) { desc.focus(); return; }
-        button.disabled = true;
-        button.textContent = tr('Asking…');
-        const provider = pick ? pick.value : providers[0].id;
-        const r = await api('POST', '/api/ai/suggest-rule', { description: desc.value.trim(), provider });
-        button.disabled = false;
-        button.textContent = tr('Suggest');
-        if (!r.ok) { msg.textContent = apiError(r); msg.className = 'form-error small'; return; }
-        applyPreset(r.json);
-        msg.textContent = tr('Suggested below — review and adjust it, then save.');
-        msg.className = 'muted small';
+        resolveAiProvider(button, runSuggest);
       },
     });
     return el('div', { class: 'field-wide ai-suggest-rule' },
       el('span', { class: 'label', text: tr('Or describe what to watch for and let AI suggest a starting point') }),
-      el('div', { class: 'row' }, desc, pick, button), msg);
+      el('div', { class: 'row' }, desc, button), msg);
   })() : null;
   const sourcesBox = el('div', {});
   const exceptBox = el('div', {});

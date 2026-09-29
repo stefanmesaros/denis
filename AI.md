@@ -171,6 +171,17 @@ opening into the same pre-filled "New Rule" form the AI assistant above also fil
 
 This completes the AI feature roadmap's numbered steps 1-11.
 
+Also done (2026-09-29), a cross-cutting UX fix rather than its own step: every on-click "ask AI"
+button across the console (Explain, Triage, Recommended actions, Explain behavior change, Suggest
+a rule) used to show a provider dropdown sitting next to it for as long as it was visible, whenever
+more than one provider was configured. It now opens that dropdown only on click, in place of the
+button, closing the same window a Findings-page poll rebuild or an Alerts-page poll rebuild could
+otherwise wipe a picked-but-not-yet-submitted value through — the same class of bug the Findings
+answer-disappearing fix (step 9's write-up above) and the Acknowledge-reason fix (see CHANGELOG
+v2.43.1) both addressed, generalized here to every provider picker at once rather than fixed one
+site at a time. New Settings → AI checkbox, "Use default model for all actions" (on by default,
+preserving the original one-click behavior); turning it off is what asks per click.
+
 ## Build order (explicit instruction, 2026-09-29)
 
 Ship this feature-by-feature, not as one large change: **a minor version release after each step**,

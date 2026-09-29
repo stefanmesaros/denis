@@ -1778,6 +1778,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ask_model_per_action_defaults_off_and_round_trips_through_settings_and_status() {
+        let (app, _store, [_, editor, admin]) = secured().await;
+        // default: use the default provider for everything, no per-click choice
+        assert_eq!(send(&app, req("GET", "/api/ai/settings", Some(&admin), None)).await.2["ask_model_per_action"], false);
+        assert_eq!(send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2["ask_model_per_action"], false);
+
+        let (st, _, v) = send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"ask_model_per_action": true, "default_provider": "claude", "enabled": true})))).await;
+        assert_eq!((st, v["ask_model_per_action"].clone()), (StatusCode::OK, serde_json::json!(true)));
+        assert_eq!(send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2["ask_model_per_action"], true);
+
+        send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"ask_model_per_action": false})))).await;
+        assert_eq!(send(&app, req("GET", "/api/ai/settings", Some(&admin), None)).await.2["ask_model_per_action"], false);
+    }
+
+    #[tokio::test]
     async fn ai_behavior_is_refused_off_and_only_offered_on_a_behavioral_alert_kind() {
         let (app, store, [_, editor, admin]) = secured().await;
         let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 1, 2, 3]), 100);

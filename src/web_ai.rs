@@ -47,6 +47,7 @@ pub struct PublicStatus {
     pub ask_denis: bool,
     pub device_behavior: bool,
     pub rule_assistant: bool,
+    pub ask_model_per_action: bool,
 }
 
 #[derive(Serialize)]
@@ -72,6 +73,7 @@ pub(crate) async fn status(State(st): State<AppState>) -> Result<Json<PublicStat
         ask_denis: cfg.enabled && cfg.features.ask_denis,
         device_behavior: cfg.enabled && cfg.features.device_behavior,
         rule_assistant: cfg.enabled && cfg.features.rule_assistant,
+        ask_model_per_action: cfg.ask_model_per_action,
     }))
 }
 
@@ -91,11 +93,15 @@ pub struct Redacted {
     pub anthropic_workspace_id: String,
     pub local_url: String,
     pub local_model: String,
+    pub ask_model_per_action: bool,
 }
 
 fn redacted(cfg: crate::ai::AiConfig) -> Redacted {
     let keys_present = crate::ai::PROVIDERS.iter().copied().filter(|p| cfg.key_for(p).is_some()).collect();
-    Redacted { keys_set: cfg.configured(), keys_present, default_provider: cfg.default_provider, enabled: cfg.enabled, features: cfg.features, anthropic_workspace_id: cfg.anthropic_workspace_id, local_url: cfg.local_url, local_model: cfg.local_model }
+    Redacted {
+        keys_set: cfg.configured(), keys_present, default_provider: cfg.default_provider, enabled: cfg.enabled, features: cfg.features,
+        anthropic_workspace_id: cfg.anthropic_workspace_id, local_url: cfg.local_url, local_model: cfg.local_model, ask_model_per_action: cfg.ask_model_per_action,
+    }
 }
 
 pub(crate) async fn get(State(st): State<AppState>) -> Result<Json<Redacted>, ApiError> {
@@ -121,6 +127,8 @@ pub struct PutReq {
     local_url: String,
     #[serde(default)]
     local_model: String,
+    #[serde(default)]
+    ask_model_per_action: bool,
 }
 
 pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<PutReq>) -> Result<Response, ApiError> {
@@ -145,6 +153,7 @@ pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Ext
         cfg.anthropic_workspace_id = b.anthropic_workspace_id.trim().to_string();
         cfg.local_url = b.local_url.trim().trim_end_matches('/').to_string();
         cfg.local_model = b.local_model.trim().to_string();
+        cfg.ask_model_per_action = b.ask_model_per_action;
         crate::ai::save(s, &cfg, now_ts())?;
         Ok(Ok(cfg))
     })

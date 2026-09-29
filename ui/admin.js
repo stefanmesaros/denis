@@ -358,71 +358,90 @@ async function loadOptions() {
 /** Which "Explain with AI" providers, if any, an administrator has set a key for. */
 async function loadAiStatus() {
   const r = await api('GET', '/api/ai');
-  state.ai = r.ok ? r.json : { providers: [], default_provider: '', alert_explanations: false, alert_triage: false, recommended_actions: false, dashboard_summary: false, ask_denis: false, device_behavior: false, rule_assistant: false };
+  state.ai = r.ok ? r.json : { providers: [], default_provider: '', alert_explanations: false, alert_triage: false, recommended_actions: false, dashboard_summary: false, ask_denis: false, device_behavior: false, rule_assistant: false, ask_model_per_action: false };
   refreshAskDenisButton();
+}
+
+/** Resolves which AI provider an action should use: if only one is configured, or Settings → AI's
+ * "Use default model for all actions" is on, calls `onPick` with the default provider right away,
+ * `triggerEl` untouched. Otherwise swaps `triggerEl` for an open dropdown of providers right where
+ * it was (the mouse is already there) — same on-demand-only-when-clicked pattern the Alerts page's
+ * Acknowledge reason picker uses (`ackReasonPicker` in app.js), so a provider dropdown is never
+ * sitting in the UI for as long as the action button is visible, only for the moment it takes to
+ * choose. Restores `triggerEl` in its place as soon as one is chosen, then calls `onPick` — what
+ * happens to `triggerEl` next (hide it, disable it, …) is `onPick`'s own job. */
+function resolveAiProvider(triggerEl, onPick) {
+  const providers = state.ai.providers;
+  if (providers.length <= 1 || !state.ai.ask_model_per_action) {
+    const def = providers.find((p) => p.id === state.ai.default_provider) || providers[0];
+    onPick(def.id);
+    return;
+  }
+  const sel = el('select', {
+    onclick: (ev) => ev.stopPropagation(),
+    onchange: () => {
+      const provider = sel.value;
+      if (!provider) return;
+      sel.replaceWith(triggerEl);
+      onPick(provider);
+    },
+  },
+    el('option', { value: '', text: tr('Choose a model…'), selected: true, disabled: true }),
+    ...providers.map((p) => el('option', { value: p.id, text: p.name })));
+  triggerEl.replaceWith(sel);
+  sel.focus();
+  if (sel.showPicker) { try { sel.showPicker(); } catch (e) { /* needs a direct user gesture; the surrounding click already is one, but ignore if a browser still refuses */ } }
+}
+
+/** One click-to-run AI button, shared by every on-click alert/finding AI feature (Explain, Triage,
+ * Explain behavior change, Recommended actions): `run(provider)` makes the call and returns the
+ * result node to show (success or error) — everything about *which* provider to use and the
+ * button's own on/off states are handled here, once. `null` when nothing is configured or the
+ * feature itself is off. */
+function aiActionButton(label, gate, run) {
+  if (!state.ai || !state.ai.providers.length || !gate) return null;
+  const out = el('div', { class: 'ai-explain' });
+  const btn = el('button', {
+    type: 'button', text: label,
+    onclick: (ev) => {
+      ev.stopPropagation();
+      resolveAiProvider(btn, async (provider) => {
+        btn.disabled = true;
+        btn.textContent = tr('Asking…');
+        out.append(await run(provider));
+        btn.hidden = true;
+      });
+    },
+  });
+  out.append(btn);
+  return out;
 }
 
 /** The "Explain with AI" button for one alert or finding, or null when nothing is configured. */
 function aiExplainButton(kind, id) {
-  if (!state.ai || !state.ai.providers.length || !state.ai.alert_explanations) return null;
-  const providers = state.ai.providers;
-  const pick = providers.length > 1
-    ? el('select', {}, ...providers.map((p) => el('option', { value: p.id, text: p.name, selected: p.id === state.ai.default_provider })))
-    : null;
-  const out = el('div', { class: 'ai-explain' });
-  const button = el('button', {
-    type: 'button', text: tr('Explain with AI'),
-    onclick: async (ev) => {
-      ev.stopPropagation();
-      button.disabled = true;
-      button.textContent = tr('Asking…');
-      const provider = pick ? pick.value : providers[0].id;
-      const r = await api('POST', '/api/ai/explain', { kind, id: String(id), provider });
-      button.hidden = true;
-      if (pick) pick.hidden = true;
-      out.append(r.ok
-        ? el('p', { class: 'ai-answer' }, el('div', { class: 'muted small', text: tr('{provider} says:', { provider: providers.find((p) => p.id === provider)?.name || provider }) }), el('div', { text: r.json.text }))
-        : el('p', { class: 'form-error', text: apiError(r) }));
-    },
+  return aiActionButton(tr('Explain with AI'), state.ai && state.ai.alert_explanations, async (provider) => {
+    const r = await api('POST', '/api/ai/explain', { kind, id: String(id), provider });
+    return r.ok
+      ? el('p', { class: 'ai-answer' }, el('div', { class: 'muted small', text: tr('{provider} says:', { provider: state.ai.providers.find((p) => p.id === provider)?.name || provider }) }), el('div', { text: r.json.text }))
+      : el('p', { class: 'form-error', text: apiError(r) });
   });
-  if (pick) out.append(pick);
-  out.append(button);
-  return out;
 }
 
 /** The "Triage with AI" button for one alert, or null when the feature is off. Alert-only (a
  * finding has no severity of its own for a triage assessment to sit alongside). */
 function aiTriageButton(alertId) {
-  if (!state.ai || !state.ai.providers.length || !state.ai.alert_triage) return null;
-  const providers = state.ai.providers;
-  const pick = providers.length > 1
-    ? el('select', {}, ...providers.map((p) => el('option', { value: p.id, text: p.name, selected: p.id === state.ai.default_provider })))
-    : null;
-  const out = el('div', { class: 'ai-explain' });
   const assessmentLabel = (a) => ({ likely_benign: tr('likely benign'), suspicious: tr('suspicious'), requires_investigation: tr('requires investigation') }[a] || a);
-  const button = el('button', {
-    type: 'button', text: tr('Triage with AI'),
-    onclick: async (ev) => {
-      ev.stopPropagation();
-      button.disabled = true;
-      button.textContent = tr('Asking…');
-      const provider = pick ? pick.value : providers[0].id;
-      const r = await api('POST', '/api/ai/triage', { id: String(alertId), provider });
-      button.hidden = true;
-      if (pick) pick.hidden = true;
-      out.append(r.ok
-        ? el('p', { class: 'ai-answer' },
-            el('div', { class: 'muted small' }, tr('{provider} assesses this as:', { provider: providers.find((p) => p.id === provider)?.name || provider })),
-            el('div', {}, el('b', { text: assessmentLabel(r.json.assessment) }), ' ', el('span', { class: 'muted small', text: `(${Math.round(r.json.confidence * 100)}% ${tr('confidence')})` })),
-            el('div', { text: r.json.reasoning }),
-            r.json.recommended_action ? el('div', { class: 'muted small', text: tr('Suggested: {action}', { action: r.json.recommended_action }) }) : null,
-            el('div', { class: 'muted small', text: tr('This is an additional signal, not a replacement for DENIS\'s own severity above.') }))
-        : el('p', { class: 'form-error', text: apiError(r) }));
-    },
+  return aiActionButton(tr('Triage with AI'), state.ai && state.ai.alert_triage, async (provider) => {
+    const r = await api('POST', '/api/ai/triage', { id: String(alertId), provider });
+    return r.ok
+      ? el('p', { class: 'ai-answer' },
+          el('div', { class: 'muted small' }, tr('{provider} assesses this as:', { provider: state.ai.providers.find((p) => p.id === provider)?.name || provider })),
+          el('div', {}, el('b', { text: assessmentLabel(r.json.assessment) }), ' ', el('span', { class: 'muted small', text: `(${Math.round(r.json.confidence * 100)}% ${tr('confidence')})` })),
+          el('div', { text: r.json.reasoning }),
+          r.json.recommended_action ? el('div', { class: 'muted small', text: tr('Suggested: {action}', { action: r.json.recommended_action }) }) : null,
+          el('div', { class: 'muted small', text: tr('This is an additional signal, not a replacement for DENIS\'s own severity above.') }))
+      : el('p', { class: 'form-error', text: apiError(r) });
   });
-  if (pick) out.append(pick);
-  out.append(button);
-  return out;
 }
 
 /** Alert kinds that describe a change from a device's own established pattern - matches
@@ -433,63 +452,27 @@ const AI_BEHAVIORAL_KINDS = ['new_destination', 'new_destination_v6', 'new_port'
 /** The "Explain behavior change" button for one alert, or null when the feature is off or this
  * alert's own kind has no established baseline to compare against. */
 function aiBehaviorButton(alertId, alertKind) {
-  if (!state.ai || !state.ai.providers.length || !state.ai.device_behavior) return null;
-  if (!AI_BEHAVIORAL_KINDS.includes(alertKind)) return null;
-  const providers = state.ai.providers;
-  const pick = providers.length > 1
-    ? el('select', {}, ...providers.map((p) => el('option', { value: p.id, text: p.name, selected: p.id === state.ai.default_provider })))
-    : null;
-  const out = el('div', { class: 'ai-explain' });
-  const button = el('button', {
-    type: 'button', text: tr('Explain behavior change'),
-    onclick: async (ev) => {
-      ev.stopPropagation();
-      button.disabled = true;
-      button.textContent = tr('Asking…');
-      const provider = pick ? pick.value : providers[0].id;
-      const r = await api('POST', '/api/ai/behavior', { id: String(alertId), provider });
-      button.hidden = true;
-      if (pick) pick.hidden = true;
-      out.append(r.ok
-        ? el('p', { class: 'ai-answer' }, el('div', { class: 'muted small', text: tr('{provider} says:', { provider: providers.find((p) => p.id === provider)?.name || provider }) }), el('div', { text: r.json.text }))
-        : el('p', { class: 'form-error', text: apiError(r) }));
-    },
+  const gate = state.ai && state.ai.device_behavior && AI_BEHAVIORAL_KINDS.includes(alertKind);
+  return aiActionButton(tr('Explain behavior change'), gate, async (provider) => {
+    const r = await api('POST', '/api/ai/behavior', { id: String(alertId), provider });
+    return r.ok
+      ? el('p', { class: 'ai-answer' }, el('div', { class: 'muted small', text: tr('{provider} says:', { provider: state.ai.providers.find((p) => p.id === provider)?.name || provider }) }), el('div', { text: r.json.text }))
+      : el('p', { class: 'form-error', text: apiError(r) });
   });
-  if (pick) out.append(pick);
-  out.append(button);
-  return out;
 }
 
 /** The "Recommended actions" button for one alert, or null when the feature is off. Advisory-only
  * list, alert-only, same gating and shape as `aiTriageButton` above. */
 function aiRecommendButton(alertId) {
-  if (!state.ai || !state.ai.providers.length || !state.ai.recommended_actions) return null;
-  const providers = state.ai.providers;
-  const pick = providers.length > 1
-    ? el('select', {}, ...providers.map((p) => el('option', { value: p.id, text: p.name, selected: p.id === state.ai.default_provider })))
-    : null;
-  const out = el('div', { class: 'ai-explain' });
-  const button = el('button', {
-    type: 'button', text: tr('Recommended actions'),
-    onclick: async (ev) => {
-      ev.stopPropagation();
-      button.disabled = true;
-      button.textContent = tr('Asking…');
-      const provider = pick ? pick.value : providers[0].id;
-      const r = await api('POST', '/api/ai/recommend', { id: String(alertId), provider });
-      button.hidden = true;
-      if (pick) pick.hidden = true;
-      out.append(r.ok
-        ? el('p', { class: 'ai-answer' },
-            el('div', { class: 'muted small' }, tr('{provider} suggests:', { provider: providers.find((p) => p.id === provider)?.name || provider })),
-            el('ul', {}, ...r.json.actions.map((a) => el('li', { text: a }))),
-            el('div', { class: 'muted small', text: tr('Advisory only — DENIS does not act on any of these itself.') }))
-        : el('p', { class: 'form-error', text: apiError(r) }));
-    },
+  return aiActionButton(tr('Recommended actions'), state.ai && state.ai.recommended_actions, async (provider) => {
+    const r = await api('POST', '/api/ai/recommend', { id: String(alertId), provider });
+    return r.ok
+      ? el('p', { class: 'ai-answer' },
+          el('div', { class: 'muted small' }, tr('{provider} suggests:', { provider: state.ai.providers.find((p) => p.id === provider)?.name || provider })),
+          el('ul', {}, ...r.json.actions.map((a) => el('li', { text: a }))),
+          el('div', { class: 'muted small', text: tr('Advisory only — DENIS does not act on any of these itself.') }))
+      : el('p', { class: 'form-error', text: apiError(r) });
   });
-  if (pick) out.append(pick);
-  out.append(button);
-  return out;
 }
 
 /** The words shown for an icon or type name: "smart_plug" -> "smart plug", in the chosen language. */
@@ -1570,6 +1553,7 @@ async function loadAiBox() {
   $('ai-anthropic-workspace-id').value = d.anthropic_workspace_id || '';
   $('ai-local-url').value = d.local_url || '';
   $('ai-local-model').value = d.local_model || '';
+  $('ai-model-per-action').checked = !d.ask_model_per_action;
   loadAiUsage();
 }
 /** AI usage visibility (AI.md section 23): a rough call/token count, never exact billing. */
@@ -1607,6 +1591,7 @@ $('ai-save').onclick = async () => {
     anthropic_workspace_id: $('ai-anthropic-workspace-id').value.trim(),
     local_url: $('ai-local-url').value.trim(),
     local_model: $('ai-local-model').value.trim(),
+    ask_model_per_action: !$('ai-model-per-action').checked,
     enabled: $('ai-enabled').checked,
     features: {
       alert_explanations: $('ai-feature-alert-explanations').checked,

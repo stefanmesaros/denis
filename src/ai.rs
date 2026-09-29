@@ -115,6 +115,14 @@ pub struct AiConfig {
     /// has pulled locally.
     #[serde(default)]
     pub local_model: String,
+    /// When `false` (the default — "Use default model for all actions" checked), every on-click AI
+    /// button (Explain, Triage, Recommended actions, Explain behavior change, Suggest a rule, …)
+    /// just runs against `default_provider`, exactly as before this setting existed. When `true`
+    /// and more than one provider is configured, clicking any of them instead opens a small
+    /// provider picker in place first — never shown when only one provider is configured, since
+    /// there would be nothing to choose.
+    #[serde(default)]
+    pub ask_model_per_action: bool,
 }
 
 impl AiConfig {

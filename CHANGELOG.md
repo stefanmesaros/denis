@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.46.0: On-demand AI model picker, instead of an always-visible dropdown
+
+* **Every "ask AI" button (Explain with AI, Triage with AI, Recommended actions, Explain behavior
+  change on Alerts; Explain with AI on Findings; Suggest a rule with AI on Rules) no longer shows
+  a provider dropdown sitting next to it the whole time**, when more than one provider is
+  configured. Instead, clicking the button opens the dropdown right there, in place — pick one and
+  it runs immediately. With only one provider configured, nothing changes: one click, same as
+  always.
+* **New Settings → AI checkbox: "Use default model for all actions"**, on by default — clicking
+  any of these buttons just runs against the default provider, exactly like before this existed.
+  Turn it off to get the per-click picker described above whenever more than one provider is
+  configured.
+
 ## 2.45.0: `rogue_ra` — an IPv6 rogue-gateway signal (opt-in)
 
 * **A device that was not sending IPv6 Router Advertisements during the learning period, and
