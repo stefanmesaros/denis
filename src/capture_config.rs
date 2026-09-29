@@ -1,12 +1,17 @@
-//! The capture interface(s), settable from Settings instead of only via
-//! `--iface`/`--mirror-iface` on the command line.
+//! The capture interface(s) and the agent ingest listener, settable from Settings instead of only
+//! via `--iface`/`--mirror-iface`/`--ingest-listen` on the command line.
 //!
 //! Like a pasted license, a GUI-set value here takes priority over the
 //! matching CLI flag, so a systemd unit's flags stay a sensible bootstrap
 //! default while the console remains the place to actually change it. Unlike
 //! a license, though, a change here only takes effect after DENIS restarts:
 //! capture is opened once, at start-up, and there is no live hand-off between
-//! `pcap` handles — the console says so.
+//! `pcap` handles — the console says so. The ingest listener is bound once at
+//! start-up too (whether this process is "standalone" or "master" is decided
+//! then, and a fair amount downstream assumes it does not change mid-run),
+//! so it follows the exact same restart-required convention as the
+//! interfaces above it, not the "takes effect within seconds" one most other
+//! settings in this codebase have.
 //!
 //! There is always at most one **discovery** interface (`iface`): it is the
 //! one place ARP sweeps, port scans and the sweep target range come from, so
@@ -16,10 +21,13 @@
 //! capture-only, on the same footing, feeding the same flow accounting — one
 //! switch mirror/SPAN port per VLAN, say, all on one box, no agent needed.
 
+use std::net::SocketAddr;
+
 use crate::store::Store;
 
 pub const IFACE_KEY: &str = "capture.iface";
 pub const MIRROR_KEY: &str = "capture.mirror_ifaces";
+pub const INGEST_LISTEN_KEY: &str = "capture.ingest_listen";
 
 /// The GUI-configured interfaces, if any were set.
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
@@ -61,6 +69,38 @@ pub fn save(store: &dyn Store, iface: Option<&str>, mirror_ifaces: Option<&[Stri
 pub fn effective(store: &dyn Store, cli_iface: Option<String>, cli_mirrors: Vec<String>) -> (Option<String>, Vec<String>) {
     let c = load(store);
     (c.iface.or(cli_iface), c.mirror_ifaces.unwrap_or(cli_mirrors))
+}
+
+/// The GUI-configured ingest listener, if any override was saved: `None` = no override (fall
+/// back to the CLI/env value); `Some(None)` = a deliberate override to "no ingest listener"
+/// (standalone), distinct from never having set one; `Some(Some(addr))` = a deliberate address,
+/// same three-state shape `mirror_ifaces` already uses above.
+pub fn ingest_listen_override(store: &dyn Store) -> Option<Option<SocketAddr>> {
+    let raw = store.get_setting(INGEST_LISTEN_KEY).ok().flatten()?;
+    let s = String::from_utf8_lossy(&raw);
+    if s.is_empty() {
+        return Some(None);
+    }
+    s.parse().ok().map(Some)
+}
+
+/// Persist the GUI's choice. `addr: None` clears the override, falling back to the CLI/env value
+/// again; `Some(None)` is a deliberate override to "no ingest listener"; `Some(Some(a))` sets one.
+pub fn save_ingest_listen(store: &dyn Store, addr: Option<Option<SocketAddr>>, now: i64) -> anyhow::Result<()> {
+    match addr {
+        None => {
+            store.delete_setting(INGEST_LISTEN_KEY)?;
+        }
+        Some(None) => store.set_setting(INGEST_LISTEN_KEY, b"", now)?,
+        Some(Some(a)) => store.set_setting(INGEST_LISTEN_KEY, a.to_string().as_bytes(), now)?,
+    }
+    Ok(())
+}
+
+/// A GUI-set value wins over the CLI/env value, even a deliberate "off"; otherwise the CLI/env
+/// value (which may itself be `None`, meaning standalone) is kept.
+pub fn effective_ingest_listen(store: &dyn Store, cli: Option<SocketAddr>) -> Option<SocketAddr> {
+    ingest_listen_override(store).unwrap_or(cli)
 }
 
 fn get_str(store: &dyn Store, key: &str) -> Option<String> {
@@ -113,5 +153,35 @@ mod tests {
         save(&s, Some("eth1"), None, 1).unwrap();
         save(&s, Some(""), None, 2).unwrap();
         assert_eq!(effective(&s, Some("eth0".into()), vec![]), (Some("eth0".into()), vec![]));
+    }
+
+    #[test]
+    fn ingest_listen_has_no_override_falls_back_to_cli_by_default() {
+        let s = mem();
+        let cli: std::net::SocketAddr = "127.0.0.1:8081".parse().unwrap();
+        assert_eq!(effective_ingest_listen(&s, Some(cli)), Some(cli));
+        assert_eq!(effective_ingest_listen(&s, None), None);
+    }
+
+    #[test]
+    fn a_saved_ingest_listen_address_wins_over_cli_and_can_be_cleared() {
+        let s = mem();
+        let gui: std::net::SocketAddr = "0.0.0.0:8081".parse().unwrap();
+        let cli: std::net::SocketAddr = "127.0.0.1:9999".parse().unwrap();
+        save_ingest_listen(&s, Some(Some(gui)), 1).unwrap();
+        assert_eq!(effective_ingest_listen(&s, Some(cli)), Some(gui));
+        assert_eq!(effective_ingest_listen(&s, None), Some(gui), "wins even when the CLI had none at all");
+
+        // clearing the override (None) falls back to the CLI value again
+        save_ingest_listen(&s, None, 2).unwrap();
+        assert_eq!(effective_ingest_listen(&s, Some(cli)), Some(cli));
+    }
+
+    #[test]
+    fn an_explicit_off_override_wins_even_over_a_cli_address() {
+        let s = mem();
+        let cli: std::net::SocketAddr = "127.0.0.1:9999".parse().unwrap();
+        save_ingest_listen(&s, Some(None), 1).unwrap();
+        assert_eq!(effective_ingest_listen(&s, Some(cli)), None, "a deliberate override to off beats a CLI flag that turned it on");
     }
 }

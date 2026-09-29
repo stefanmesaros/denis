@@ -237,6 +237,9 @@ pub enum BaselineEdit {
 }
 type BaselineEditReply = tokio::sync::oneshot::Sender<Result<(), String>>;
 
+/// Where a whole-site delete's outcome (how many devices were removed) is sent back.
+type AgentDeleteReply = tokio::sync::oneshot::Sender<Result<usize, String>>;
+
 /// State shared between the engine tasks and the web layer.
 pub struct Shared {
     info: Mutex<StatusInfo>,
@@ -249,6 +252,9 @@ pub struct Shared {
     /// Set by `run`: asks the engine to edit a live baseline in memory, not just the stored row
     /// (`None` in viewer mode, where the store alone is authoritative — see `edit_baseline_via_engine`).
     baseline_edit_tx: Mutex<Option<mpsc::Sender<(BaselineEdit, BaselineEditReply)>>>,
+    /// Set by `run`: asks the engine to delete a whole site/agent and its devices, forgetting the
+    /// live detector's in-memory copy of them too (`None` in viewer mode - see `delete_agent_via_engine`).
+    agent_delete_tx: Mutex<Option<mpsc::Sender<(String, AgentDeleteReply)>>>,
     /// Asks the collector to scan devices again (`None` when it cannot: viewer mode, passive-only).
     rescan_tx: Mutex<Option<mpsc::Sender<RescanRequest>>>,
     /// The console's certificate, when it is served over TLS.
@@ -319,6 +325,17 @@ impl Shared {
         let tx = self.baseline_edit_tx.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
         let (reply, answer) = tokio::sync::oneshot::channel();
         tx.send((op, reply)).await.ok()?;
+        Some(answer.await.unwrap_or_else(|_| Err("the engine did not answer".into())))
+    }
+
+    /// Delete a whole site/agent and every device it reported, through the running collector, so
+    /// its in-memory baselines/presence/communications-matrix copies of those devices never write
+    /// themselves back on the next flush. `None` when no collector is running (`denis serve`,
+    /// viewer-only) — the caller then deletes from the store directly, which is authoritative there.
+    pub async fn delete_agent_via_engine(&self, agent_id: &str) -> Option<Result<usize, String>> {
+        let tx = self.agent_delete_tx.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        tx.send((agent_id.to_string(), reply)).await.ok()?;
         Some(answer.await.unwrap_or_else(|_| Err("the engine did not answer".into())))
     }
 
@@ -494,6 +511,7 @@ impl Collector {
             channel_status: Default::default(),
             erase_tx: Mutex::new(None),
             baseline_edit_tx: Mutex::new(None),
+            agent_delete_tx: Mutex::new(None),
         rescan_tx: Mutex::new(None),
             updater: Mutex::new(None),
             tls: Mutex::new(None),
@@ -736,6 +754,7 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
         channel_status: Default::default(),
         erase_tx: Mutex::new(None),
         baseline_edit_tx: Mutex::new(None),
+        agent_delete_tx: Mutex::new(None),
         rescan_tx: Mutex::new(None),
         updater: Mutex::new(None),
         tls: Mutex::new(None),
@@ -780,6 +799,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     let (iface, mirror_ifaces) = crate::capture_config::effective(&*store, cfg.collector.iface.clone(), cfg.collector.mirror_ifaces.clone());
     cfg.collector.iface = iface;
     cfg.collector.mirror_ifaces = mirror_ifaces;
+    cfg.ingest_listen = crate::capture_config::effective_ingest_listen(&*store, cfg.ingest_listen);
     cfg.collector.flows = flows_needed(cfg.collector.flows, &cfg.collector.mirror_ifaces);
     if cfg.no_auth && !cfg.listen.ip().is_loopback() {
         anyhow::bail!("--insecure-no-auth is only allowed when the UI listens on a loopback address");
@@ -921,6 +941,31 @@ pub async fn run(mut cfg: Config) -> Result<()> {
                     }
                 };
                 drop(det);
+                let _ = reply.send(res);
+            }
+        });
+    }
+    // Whole-site delete from the Sites page: forget the live detector's in-memory baselines/
+    // presence/communications-matrix copies of this agent's devices too, or the next periodic
+    // flush would silently write them straight back after the store deletion below.
+    {
+        let (tx, mut rx) = mpsc::channel::<(String, AgentDeleteReply)>(4);
+        *coll.shared.agent_delete_tx.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
+        let (s, d) = (store.clone(), detector.clone());
+        tokio::spawn(async move {
+            while let Some((agent_id, reply)) = rx.recv().await {
+                let res = (|| -> Result<usize, String> {
+                    let ids: std::collections::HashSet<i64> = s
+                        .load_assets()
+                        .map_err(|e| format!("{e:#}"))?
+                        .into_iter()
+                        .filter(|a| a.agent_id.as_deref() == Some(agent_id.as_str()))
+                        .map(|a| a.id)
+                        .collect();
+                    let n = s.delete_agent_and_its_devices(&agent_id).map_err(|e| format!("{e:#}"))?;
+                    d.lock().unwrap().forget_assets(&ids);
+                    Ok(n)
+                })();
                 let _ = reply.send(res);
             }
         });
@@ -1425,6 +1470,7 @@ pub fn test_shared_at(db_path: std::path::PathBuf) -> Arc<Shared> {
         channel_status: Default::default(),
         erase_tx: Mutex::new(None),
         baseline_edit_tx: Mutex::new(None),
+        agent_delete_tx: Mutex::new(None),
         rescan_tx: Mutex::new(None),
         updater: Mutex::new(None),
         tls: Mutex::new(None),

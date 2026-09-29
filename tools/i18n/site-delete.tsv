@@ -1,0 +1,5 @@
+# Sites page: deleting a whole remote site and its devices, admin-only, requires typing the site id back.
+Delete site || Site löschen || Supprimer le site || Eliminar sitio || Vymazať lokalitu
+Type the site id "{id}" to permanently delete it and all its devices: || Gib die Site-ID „{id}" ein, um sie und alle ihre Geräte endgültig zu löschen: || Tapez l'identifiant du site « {id} » pour le supprimer définitivement ainsi que tous ses appareils : || Escriba el id del sitio "{id}" para eliminarlo permanentemente junto con todos sus dispositivos: || Zadaj id lokality "{id}" na jej trvalé vymazanie spolu so všetkými jej zariadeniami:
+Not deleted || Nicht gelöscht || Non supprimé || No eliminado || Nevymazané
+That did not match "{id}". || Das stimmte nicht mit „{id}" überein. || Cela ne correspond pas à « {id} ». || Eso no coincide con "{id}". || To sa nezhodovalo s "{id}".

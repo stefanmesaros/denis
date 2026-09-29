@@ -430,14 +430,19 @@ pub(crate) async fn interfaces_get(State(st): State<AppState>) -> Result<Json<Va
     .await
     .map_err(|e| anyhow::anyhow!(e))?;
     let configured = crate::capture_config::load(&*st.store);
+    // three states, same convention as configured_mirror_ifaces: absent = not configured (falls
+    // back to the CLI flag), "" = a deliberate override to off, an address = a deliberate value.
+    let configured_ingest_listen = crate::capture_config::ingest_listen_override(&*st.store).map(|a| a.map_or_else(String::new, |a| a.to_string()));
     let running = st.shared.snapshot();
     Ok(Json(json!({
         "mains": mains,
         "all": all,
         "configured_iface": configured.iface,
         "configured_mirror_ifaces": configured.mirror_ifaces,
+        "configured_ingest_listen": configured_ingest_listen,
         "running_iface": running.interface,
         "running_mirror_ifaces": running.mirror_interfaces,
+        "running_ingest_listen": running.ingest_listen,
     })))
 }
 
@@ -450,6 +455,11 @@ pub struct InterfacesPut {
     /// deliberate override to "no mirror interfaces".
     #[serde(default)]
     mirror_ifaces: Option<Vec<String>>,
+    /// `None`/omitted clears the override (falls back to `--ingest-listen`); `Some("")` is a
+    /// deliberate override to "no ingest listener" (standalone); `Some("host:port")` sets one.
+    /// Takes effect after a restart, same as the two fields above.
+    #[serde(default)]
+    ingest_listen: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -528,13 +538,35 @@ pub(crate) async fn interfaces_put(State(st): State<AppState>, Extension(AuthUse
             return Ok(err(StatusCode::BAD_REQUEST, format!("no such interface: {missing} (available: {})", up.join(", "))));
         }
     }
+    // Same "never store a value that would crash-loop the next restart" reasoning as the
+    // interface check above: actually try to bind the address right now (then immediately
+    // release it) rather than only checking the syntax parses.
+    let ingest_listen = match b.ingest_listen.as_deref() {
+        None => None,
+        Some("") => Some(None),
+        Some(s) => {
+            let Ok(addr) = s.parse::<std::net::SocketAddr>() else {
+                return Ok(err(StatusCode::BAD_REQUEST, format!("not a valid address:port: {s:?}")));
+            };
+            if let Err(e) = tokio::net::TcpListener::bind(addr).await {
+                return Ok(err(StatusCode::BAD_REQUEST, format!("cannot bind {addr}: {e}")));
+            }
+            Some(Some(addr))
+        }
+    };
     let now = now_ts();
     let store = st.store.clone();
     let (iface, mirrors) = (b.iface.clone(), b.mirror_ifaces.clone());
-    tokio::task::spawn_blocking(move || crate::capture_config::save(&*store, iface.as_deref(), mirrors.as_deref(), now))
-        .await
-        .map_err(|e| anyhow::anyhow!(e))??;
-    audit(&st, &me.username, "interfaces.set", None, json!({ "iface": b.iface, "mirror_ifaces": b.mirror_ifaces }));
+    tokio::task::spawn_blocking(move || {
+        crate::capture_config::save(&*store, iface.as_deref(), mirrors.as_deref(), now)?;
+        if let Some(listen) = ingest_listen {
+            crate::capture_config::save_ingest_listen(&*store, Some(listen), now)?;
+        }
+        Ok::<(), anyhow::Error>(())
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!(e))??;
+    audit(&st, &me.username, "interfaces.set", None, json!({ "iface": b.iface, "mirror_ifaces": b.mirror_ifaces, "ingest_listen": b.ingest_listen }));
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
@@ -1202,6 +1234,40 @@ pub(crate) async fn tokens_delete(State(st): State<AppState>, Extension(AuthUser
         Ok(StatusCode::NO_CONTENT.into_response())
     } else {
         Ok(err(StatusCode::NOT_FOUND, "no revoked token for that agent"))
+    }
+}
+
+#[derive(Deserialize)]
+pub struct DeleteAgentReq {
+    /// The site id, typed back to confirm - this throws away real observed history (devices,
+    /// findings, baselines, presence, the communications matrix), unlike `tokens_delete` above
+    /// (which only forgets a credential).
+    confirm: String,
+}
+
+/// Delete a whole site and every device it reported: the Sites page's own "delete this site"
+/// action. Goes through the running collector when there is one (`delete_agent_via_engine`) so its
+/// live in-memory baselines/presence/communications-matrix copies of the deleted devices are
+/// forgotten too - otherwise the next periodic flush would silently write them straight back. The
+/// agent's own token is untouched; revoke it separately (`tokens_revoke`) if it should never be
+/// able to report again.
+pub(crate) async fn agents_delete(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(agent_id): Path<String>, Json(b): Json<DeleteAgentReq>) -> Result<Response, ApiError> {
+    if b.confirm != agent_id {
+        return Ok(err(StatusCode::BAD_REQUEST, "type the site id to confirm"));
+    }
+    let res = match st.shared.delete_agent_via_engine(&agent_id).await {
+        Some(r) => r,
+        None => {
+            let id = agent_id.clone();
+            blocking(&st.store, move |s| Ok(s.delete_agent_and_its_devices(&id).map_err(|e| e.to_string()))).await?
+        }
+    };
+    match res {
+        Ok(n) => {
+            audit(&st, &me.username, "agent.delete", None, json!({ "agent_id": agent_id, "devices_removed": n }));
+            Ok(Json(json!({ "deleted": true, "devices_removed": n })).into_response())
+        }
+        Err(e) => Ok(err(StatusCode::INTERNAL_SERVER_ERROR, e)),
     }
 }
 

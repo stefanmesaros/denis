@@ -947,7 +947,7 @@ function renderAgents() {
       el('td', {}, el('span', { class: 'dot on' })),
       el('td', { text: tr('local') }), el('td', { text: s.mode === 'master' ? tr('master (embedded collector)') : tr('this machine') }),
       el('td', { class: 'mono', text: s.interface }), el('td', { class: 'mono', text: s.subnet }),
-      el('td', { text: local }), el('td', { text: s.version }), el('td', { text: tr('now') })));
+      el('td', { text: local }), el('td', { text: s.version }), el('td', { text: tr('now') }), el('td', {})));
   }
   for (const g of state.agents) {
     const online = now() - g.last_report_at < 120;
@@ -956,7 +956,8 @@ function renderAgents() {
       el('td', { text: g.name }), el('td', { text: g.site || '' }), el('td', { class: 'mono', text: g.id }),
       el('td', { class: 'mono', text: g.subnet }),
       el('td', { text: state.assets.filter((a) => a.agent_id === g.id).length }),
-      el('td', { text: g.version }), el('td', { text: ago(g.last_report_at), title: fmtTime(g.last_report_at) })));
+      el('td', { text: g.version }), el('td', { text: ago(g.last_report_at), title: fmtTime(g.last_report_at) }),
+      el('td', {}, can('admin') ? el('button', { type: 'button', class: 'danger', text: tr('Delete site'), onclick: () => deleteSite(g.id) }) : null)));
   }
   $('agents-table').tBodies[0].replaceChildren(...rows);
   $('count-agents').textContent = '(' + rows.length + ')';
@@ -1586,7 +1587,11 @@ async function refresh() {
   if (state.selected != null && !$('detail').hidden) showDetail(state.selected);
 }
 
-for (const b of document.querySelectorAll('.tab')) b.onclick = () => setTab(b.dataset.tab);
+// Keep the address bar's hash in sync with whichever tab is actually showing: without this, a
+// deep-link hash from an earlier visit (e.g. #settings/system) stays in the bar forever once
+// clicked, and a later reload lands back on that stale tab even though the person has long since
+// switched away, with no hash change of their own to overwrite it - reported directly by a user.
+for (const b of document.querySelectorAll('.tab')) b.onclick = () => { location.hash = '#' + b.dataset.tab; setTab(b.dataset.tab); };
 $('select-all-th').onclick = (ev) => ev.stopPropagation(); // belt and braces: never reach the sort handler below
 for (const th of $('assets-table').tHead.rows[0].cells) {
   if (!th.dataset.sort) continue; // the leading checkbox column has no sort of its own

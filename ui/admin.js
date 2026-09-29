@@ -594,6 +594,19 @@ async function deleteAsset(a) {
   await refresh();
 }
 
+/** Deleting a site throws away real observed history (devices, findings, baselines, the
+ * communications matrix), unlike revoking its token (which only stops it reporting again) -
+ * typing the site id back, not just an OK/Cancel dialog, matches how "forget all baselines" and
+ * other genuinely destructive admin actions in this product already ask for confirmation. */
+async function deleteSite(agentId) {
+  const typed = prompt(tr('Type the site id "{id}" to permanently delete it and all its devices:', { id: agentId }));
+  if (typed === null) return;
+  if (typed !== agentId) { showMessage(tr('Not deleted'), el('p', { text: tr('That did not match "{id}".', { id: agentId }) })); return; }
+  const r = await api('DELETE', '/api/agents/' + encodeURIComponent(agentId), { confirm: typed });
+  if (!r.ok) { showMessage(tr('Could not delete'), el('p', { text: apiError(r) })); return; }
+  await refresh();
+}
+
 $('add-asset').onclick = () => openAssetForm(null);
 
 // ---------------------------------------------------------------- CSV import
@@ -1387,16 +1400,21 @@ async function loadInterfacesBox() {
   const runningMirrors = d.running_mirror_ifaces || [];
   const fmt = (main, mirrors) => main + (mirrors.length ? ' + ' + mirrors.join(', ') : '');
   const lines = [tr('Running now: {iface}', { iface: fmt(d.running_iface, runningMirrors) })];
-  const configuredChanged = (d.configured_iface || '') !== (d.running_iface || '') || JSON.stringify([...configuredMirrors].sort()) !== JSON.stringify([...runningMirrors].sort());
+  const configuredMirrorsChanged = JSON.stringify([...configuredMirrors].sort()) !== JSON.stringify([...runningMirrors].sort());
+  const configuredIngestListen = d.configured_ingest_listen ?? '';
+  $('ingest-listen-input').value = configuredIngestListen;
+  const configuredChanged = (d.configured_iface || '') !== (d.running_iface || '') || configuredMirrorsChanged || configuredIngestListen !== (d.running_ingest_listen || '');
   if (configuredChanged) {
     lines.push(tr('Configured for next start: {iface} — restart DENIS to apply.', { iface: fmt(d.configured_iface || tr('(auto)'), configuredMirrors) }));
   }
+  lines.push(tr('Remote agents: {state}', { state: d.running_ingest_listen ? tr('accepted at {addr}', { addr: d.running_ingest_listen }) : tr('not accepted') }));
   $('interfaces-status').replaceChildren(...lines.flatMap((t, i) => [i ? el('div', {}) : null, el('div', { text: t })]).filter(Boolean));
 }
 $('interfaces-save').onclick = async () => {
   const iface = $('iface-select').value || null;
   const mirror_ifaces = Array.from($('mirror-iface-select').selectedOptions).map((o) => o.value);
-  const r = await api('PUT', '/api/interfaces', { iface, mirror_ifaces });
+  const ingest_listen = $('ingest-listen-input').value.trim();
+  const r = await api('PUT', '/api/interfaces', { iface, mirror_ifaces, ingest_listen });
   $('interfaces-msg').textContent = r.ok ? tr('Saved. Restart DENIS to apply.') : apiError(r);
   if (r.ok) loadInterfacesBox();
 };

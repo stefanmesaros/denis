@@ -423,6 +423,26 @@ impl Detector {
         self.buckets.clear();
     }
 
+    /// Forgets these devices entirely - not just their baseline, everything the live detector
+    /// might otherwise write back on its next periodic flush (`flush`'s own three sources:
+    /// baselines, presence, the communications matrix). Called when a whole site/agent is deleted
+    /// from the console: without this, a device removed from the store while the collector still
+    /// held it in memory would simply reappear a few ticks later, exactly the same class of bug
+    /// `remove_baseline_destination`/`clear_all_baselines` exist to avoid for baselines alone.
+    /// Cooldown/throttle maps are deliberately left alone: a stale entry for an id that can never
+    /// recur is harmless, and this codebase's own bounded-size sweeps clear them out over time
+    /// like any other.
+    pub fn forget_assets(&mut self, ids: &std::collections::HashSet<i64>) {
+        for id in ids {
+            self.baselines.remove(id);
+            self.dirty.remove(id);
+            self.presence.remove(id);
+            self.presence_dirty.remove(id);
+        }
+        self.convs.retain(|k, _| !ids.contains(&k.0) && !ids.contains(&k.1));
+        self.convs_dirty.retain(|k| !ids.contains(&k.0) && !ids.contains(&k.1));
+    }
+
     /// When observation of this collector began. Only ever moves earlier, so
     /// restarts don't reopen the learning period.
     pub fn set_learning_start(&mut self, agent: Option<&str>, ts: i64) {
@@ -671,15 +691,27 @@ impl Detector {
         }
         let Some(asset) = store.get_asset(asset_id).ok().flatten() else { return events };
         let name = asset_label(&asset);
+        // List what was actually contacted, not just the count - the whole point of surfacing this
+        // alert is so the admin can tell a security scanner from a backup/discovery tool at a glance,
+        // and "4 different addresses" alone forces them to go dig through raw flow logs to find out.
+        const MAX_LISTED: usize = 20;
+        let mut host_list: Vec<Ipv4Addr> = hosts.iter().copied().collect();
+        host_list.sort();
+        let mut port_list: Vec<u16> = ports_per_host.get(&busiest_host).cloned().unwrap_or_default().into_iter().collect();
+        port_list.sort();
         let (summary, reason) = if hosts.len() >= self.cfg.lan_scan_min_hosts {
+            let shown = host_list.iter().take(MAX_LISTED).map(|ip| ip.to_string()).collect::<Vec<_>>().join(", ");
+            let more = if host_list.len() > MAX_LISTED { format!(" (+{} more)", host_list.len() - MAX_LISTED) } else { String::new() };
             (
                 format!("{name} contacted {} different addresses on your local network within {minutes} minutes", hosts.len()),
-                format!("+{raw} {} distinct local addresses in {minutes} minutes - a host sweep, not ordinary traffic", hosts.len()),
+                format!("+{raw} {} distinct local addresses in {minutes} minutes - a host sweep, not ordinary traffic: {shown}{more}", hosts.len()),
             )
         } else {
+            let shown = port_list.iter().take(MAX_LISTED).map(|p| p.to_string()).collect::<Vec<_>>().join(", ");
+            let more = if port_list.len() > MAX_LISTED { format!(" (+{} more)", port_list.len() - MAX_LISTED) } else { String::new() };
             (
                 format!("{name} tried {busiest_ports} different ports on {busiest_host} within {minutes} minutes"),
-                format!("+{raw} {busiest_ports} distinct ports on one local address in {minutes} minutes - a port scan, not ordinary traffic"),
+                format!("+{raw} {busiest_ports} distinct ports on one local address in {minutes} minutes - a port scan, not ordinary traffic: {shown}{more}"),
             )
         };
         self.cooldown.insert((asset_id, RULE_LAN_SCAN), now + self.cfg.lan_scan_cooldown_secs);
@@ -688,6 +720,8 @@ impl Detector {
             "summary": summary,
             "reasons": [reason],
             "hosts": hosts.len(), "busiest_host": busiest_host, "busiest_ports": busiest_ports,
+            "contacted_addresses": host_list.iter().map(|ip| ip.to_string()).collect::<Vec<_>>(),
+            "contacted_ports": port_list,
         });
         events.push(make_event(&asset, RULE_LAN_SCAN, score, severity_for(score, self.cfg.min_score), details, now));
         if self.lan_scan_log.len() > 50_000 {
@@ -2586,6 +2620,34 @@ mod tests {
         // the fresh process still knows this device was reliable
         let ev = d2.tick_presence(&s, T0 + 71 * 3600 + 7200);
         assert_eq!(kinds(&ev), [(RULE_SILENT, 70)]);
+    }
+
+    #[test]
+    fn forgetting_an_asset_drops_its_baseline_presence_and_conversations_but_leaves_others_alone() {
+        let mut d = Detector::new(cfg(), vec![], 0);
+        // one asset (1) to be forgotten, one (2) that must survive, and a conversation between them
+        d.baselines.insert(1, Baseline::new(1, 0));
+        d.dirty.insert(1);
+        d.baselines.insert(2, Baseline::new(2, 0));
+        d.dirty.insert(2);
+        d.presence.insert(1, Presence { asset_id: 1, hours: Default::default(), silent_alerted: false });
+        d.presence.insert(2, Presence { asset_id: 2, hours: Default::default(), silent_alerted: false });
+        d.presence_dirty.insert(1);
+        d.presence_dirty.insert(2);
+        let conv = Conversation { client_id: 1, server_id: 2, proto: "tcp".into(), port: 443, first_seen: 0, last_seen: 0, packets: 1, bytes: 1, reads: 0, writes: 0, controls: 0, note: None, commands: Default::default() };
+        d.convs.insert((1, 2, "tcp".into(), 443), conv);
+        d.convs_dirty.insert((1, 2, "tcp".into(), 443));
+
+        d.forget_assets(&[1].into_iter().collect());
+
+        assert!(!d.baselines.contains_key(&1));
+        assert!(d.baselines.contains_key(&2), "another asset's baseline is untouched");
+        assert!(!d.dirty.contains(&1));
+        assert!(!d.presence.contains_key(&1));
+        assert!(d.presence.contains_key(&2));
+        assert!(!d.presence_dirty.contains(&1));
+        assert!(d.convs.is_empty(), "a conversation naming the forgotten asset on either side is gone");
+        assert!(d.convs_dirty.is_empty());
     }
 
     // ------------------------------------------------------------ OT rules

@@ -320,6 +320,13 @@ pub trait AdminStore: Send + Sync {
     fn backup_to(&self, dest: &std::path::Path) -> Result<()>;
     /// Remove one remote site (or demo site) with all of its trend samples.
     fn delete_agent_data(&self, agent_id: &str) -> Result<()>;
+    /// Remove one remote site *and every device it reported* (and everything derived from those
+    /// devices: findings, baselines, presence, the communications matrix, events) — the Sites
+    /// page's own "delete this site" action, distinct from `delete_agent_data` above (which only
+    /// forgets the site's trend history, keeping its devices). Returns how many devices were
+    /// removed. The agent's own token is not touched here — revoke it separately if it should
+    /// never be able to report again.
+    fn delete_agent_and_its_devices(&self, agent_id: &str) -> Result<usize>;
     /// Empty the inventory and everything derived from it (devices, edits, alerts, baselines,
     /// communications, presence, trends, remote sites). Users, sessions, the audit log,
     /// channels, branding, rule settings and tokens are kept.

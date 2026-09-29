@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.25.0: Delete a site from the console, configure the agent listener from Settings, and fix two real bugs from live testing
+
+* **Sites can now be deleted from the console** (Settings/Sites page, admin-only): removes a whole
+  remote site and every device it reported — findings, baselines, presence, the communications
+  matrix, events — with the site id typed back to confirm, since this throws away real observed
+  history (the agent's own token is untouched; revoke it separately if it should never report
+  again). Found, while designing this, a real correctness risk worth building around rather than
+  shipping past: the live collector's in-memory `Detector` holds its own copies of a device's
+  baseline, presence and conversation-matrix rows, written back to the store on every periodic
+  flush — deleting straight from the store while a collector runs would have had the deleted
+  devices silently reappear a few ticks later. Fixed with a new `Detector::forget_assets` and a
+  dedicated engine channel, the same pattern already used for live baseline edits.
+* **The agent listener (`--ingest-listen`) can now be configured from Settings → Network
+  interfaces**, not just the CLI flag — found missing during real cross-border master/agent
+  testing this week (a paid VPS in a different country, reporting back to a home master over
+  Tailscale): turning it on needed hand-editing the systemd unit and a restart, with no portal
+  option at all. Same "never store a value that would crash-loop the next restart" validation as
+  interface names already get: the address is actually bound (then released) before being saved.
+* **Fixed a real gap in the `lan_scan` alert** (Internal network scan), reported directly from a
+  live alert that only said "*device* contacted 4 different addresses" with no way to tell a
+  security scanner from a legitimate discovery/backup tool without digging through raw flow logs:
+  the alert now lists the actual addresses (or ports, for a single-address port scan) it saw,
+  capped at 20 with a "+N more" tail, both in the human-readable reason text and as structured
+  `contacted_addresses`/`contacted_ports` fields.
+* Fixed a stale-URL-hash bug, also reported directly from real use: switching screens via the
+  sidebar left the previous screen's hash (e.g. `#settings/system`) sitting in the address bar,
+  so a page reload could land back on a screen the person had long since left. Clicking a tab now
+  updates the address bar to match.
+* Verified for real this cycle (see ROADMAP.md's "Verification still owed"): master/agent
+  reporting across a real network, a genuine agent built from source and run on a remote VPS in a
+  different country.
+
 ## 2.24.0: CMDB import — Active Directory (on-premises, LDAP/LDAPS)
 
 * CMDB import (Settings → Integrations) can now also pull computer objects from an **on-premises

@@ -73,7 +73,17 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    customer's procurement is blocked on it.
 
 ## Verification still owed
-* Master/agent across a real network; TLS with a public CA or behind a reverse proxy.
+* ~~Master/agent across a real network~~ Verified 2026-09-29: a real agent, built from source and
+  run on a paid VPS in a different country, reported real devices back to a home master over
+  Tailscale (self-signed CA, not a public one — that half is still owed), confirmed live in the
+  console (a new site, its own subnet, device count, live "last report" ticking down). Found and
+  fixed a real gap while doing this: the ingest listener (`--ingest-listen`) was CLI-flag-only, so
+  turning it on needed hand-editing the systemd unit and a restart — no portal option existed
+  (fixed in v2.25.0: Settings → Network interfaces). A remote agent scanning a shared/hosted
+  network's subnet also risks tripping the host's own abuse detection or alarming other tenants —
+  worth a `--passive-only` flag on future tests like this against anything not fully your own.
+  Still owed: TLS with a public CA (this test used the built-in self-signed one), and behind a
+  reverse proxy.
 * Passkeys with a physical security key or phone (verified with software authenticators only).
 * OpenObserve, syslog, Elasticsearch/OpenSearch and the chat/e-mail/PagerDuty/Jira/ServiceNow integrations
   against the real services (each is tested against a local fake server, not the genuine article).
@@ -95,9 +105,11 @@ year. This is what is still missing, in rough order. Pull requests welcome.
   slice alongside CMDB import and the UI redesign; a good first PR would be the address-type
   widening alone, with IPv6 frames still dropped, as a non-behaviour-changing groundwork step.
 * Windows collectors, an alternative database (PostgreSQL) and high availability.
-* **CMDB import** (Active Directory / Entra ID / Intune / MDM). Ticketing already exists: Jira and ServiceNow
-  each file a real issue/incident per alert (Settings → Alerting → Add a channel), alongside the signed generic
-  webhook for anything else.
-* **SAML**, and forcing passkey-only sign-in. SSO via OIDC already exists (Settings → Single sign-on).
+* Other MDM sources (Jamf and similar) in CMDB import — Entra ID, Intune and Active Directory
+  already work (Settings → Integrations → CMDB import, see CMDB.md). Ticketing already exists too:
+  Jira and ServiceNow each file a real issue/incident per alert (Settings → Alerting → Add a
+  channel), alongside the signed generic webhook for anything else.
+* **SAML**. SSO via OIDC already exists (Settings → Single sign-on); forcing passkey-only sign-in
+  also already exists (Settings → Sign-in & security).
 * **Multi-tenancy** for managed-service providers (white-label branding exists; tenant isolation does not).
 * Policy enforcement (NAC): DENIS observes and alerts, it does not block.

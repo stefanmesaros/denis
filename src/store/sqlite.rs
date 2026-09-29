@@ -1269,6 +1269,29 @@ impl AdminStore for SqliteStore {
         tx.commit()?;
         Ok(())
     }
+    fn delete_agent_and_its_devices(&self, agent_id: &str) -> Result<usize> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let n: i64 = tx.query_row("SELECT COUNT(*) FROM assets WHERE agent_id = ?1", [agent_id], |r| r.get(0))?;
+        let n = n as usize;
+        // Same per-asset cascade as `delete_asset`, just scoped by agent_id via a subquery instead
+        // of one id at a time - far fewer round trips than looping `delete_asset` per device.
+        for sql in [
+            "DELETE FROM asset_meta WHERE asset_id IN (SELECT id FROM assets WHERE agent_id = ?1)",
+            "DELETE FROM risk_acceptances WHERE asset_id IN (SELECT id FROM assets WHERE agent_id = ?1)",
+            "DELETE FROM baselines WHERE asset_id IN (SELECT id FROM assets WHERE agent_id = ?1)",
+            "DELETE FROM presence WHERE asset_id IN (SELECT id FROM assets WHERE agent_id = ?1)",
+            "DELETE FROM conversations WHERE client_id IN (SELECT id FROM assets WHERE agent_id = ?1) OR server_id IN (SELECT id FROM assets WHERE agent_id = ?1)",
+            "DELETE FROM events WHERE asset_id IN (SELECT id FROM assets WHERE agent_id = ?1)",
+            "DELETE FROM assets WHERE agent_id = ?1",
+            "DELETE FROM metrics WHERE agent_id = ?1",
+            "DELETE FROM agents WHERE id = ?1",
+        ] {
+            tx.execute(sql, [agent_id])?;
+        }
+        tx.commit()?;
+        Ok(n)
+    }
     fn stats(&self, with_rows: bool) -> Result<StoreStats> {
         let conn = self.conn();
         let pragma = |name: &str| -> Result<i64> { Ok(conn.query_row(&format!("PRAGMA {name}"), [], |r| r.get(0))?) };
@@ -1833,5 +1856,47 @@ mod tests {
         assert!(s.delete_totp(u).unwrap());
         assert!(!s.delete_totp(u).unwrap());
         assert_eq!((s.recovery_codes_left(u).unwrap(), s.get_totp(u).unwrap().is_none()), (0, true));
+    }
+
+    #[test]
+    fn deleting_a_site_removes_only_its_own_devices_and_everything_derived_from_them() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let mut a1 = sample();
+        a1.agent_id = Some("site-a".into());
+        s.save_asset(&mut a1).unwrap();
+        let mut a2 = Asset::new(Mac([2, 0, 0, 0, 0, 2]), 5);
+        a2.agent_id = Some("site-b".into());
+        s.save_asset(&mut a2).unwrap();
+
+        s.save_baseline(&Baseline { asset_id: a1.id, ..Baseline::new(a1.id, 1) }).unwrap();
+        s.save_baseline(&Baseline { asset_id: a2.id, ..Baseline::new(a2.id, 1) }).unwrap();
+        s.save_presence(&Presence { asset_id: a1.id, hours: Default::default(), silent_alerted: false }).unwrap();
+        s.save_presence(&Presence { asset_id: a2.id, hours: Default::default(), silent_alerted: false }).unwrap();
+        s.save_conversations(&[Conversation {
+            client_id: a1.id,
+            server_id: a2.id,
+            proto: "tcp".into(),
+            port: 443,
+            first_seen: 1,
+            last_seen: 2,
+            packets: 1,
+            bytes: 1,
+            reads: 0,
+            writes: 0,
+            controls: 0,
+            note: None,
+            commands: Default::default(),
+        }])
+        .unwrap();
+
+        let removed = s.delete_agent_and_its_devices("site-a").unwrap();
+        assert_eq!(removed, 1, "only site-a's one device");
+        assert!(s.get_asset(a1.id).unwrap().is_none());
+        assert!(s.get_asset(a2.id).unwrap().is_some(), "site-b's device is untouched");
+        assert!(s.get_baseline(a1.id).unwrap().is_none());
+        assert!(s.get_baseline(a2.id).unwrap().is_some(), "site-b's baseline survives");
+        // the conversation referenced the deleted device on one side: it must go too, even
+        // though the other side (site-b) still exists
+        assert!(s.list_conversations().unwrap().is_empty());
     }
 }

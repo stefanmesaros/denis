@@ -436,7 +436,7 @@
       <section id="view-agents" hidden>
         <div class="table-wrap">
           <table id="agents-table">
-            <thead><tr><th></th><th>Name</th><th>Site</th><th>ID</th><th>Subnet</th><th>Devices</th><th>Version</th><th>Last report</th></tr></thead>
+            <thead><tr><th></th><th>Name</th><th>Site</th><th>ID</th><th>Subnet</th><th>Devices</th><th>Version</th><th>Last report</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -519,6 +519,8 @@
           <div id="interfaces-status" class="muted"></div>
           <label class="field-narrow">Discovery interface<select id="iface-select"><option value="">(auto)</option></select></label>
           <label class="field-narrow">Mirror interfaces (optional; ctrl/cmd-click for more than one)<select id="mirror-iface-select" multiple size="4"></select></label>
+          <label class="field-narrow">Accept remote agents at (host:port, blank = off)<input id="ingest-listen-input" placeholder="e.g. 0.0.0.0:8443"></label>
+          <p class="muted small">Lets other DENIS agents on other networks report to this instance over the internet or a VPN. Leave blank for a standalone install (the normal case).</p>
           <div class="row"><button id="interfaces-save" type="button">Save</button><span id="interfaces-msg" class="muted"></span></div>
         </div>
         <div id="tls-box" hidden>

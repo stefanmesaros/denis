@@ -181,6 +181,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/alerts/{id}/ack", post(ack))
         .route("/api/alerts/{id}/unack", post(unack))
         .route("/api/agents", get(agents))
+        .route("/api/agents/{agent_id}", delete(admin::agents_delete))
         .route("/api/conversations", get(conversations))
         .route("/api/trends", get(trend_points))
         .route("/api/top-talkers", get(top_talkers_get))
@@ -2288,6 +2289,35 @@ mod tests {
         let actions: Vec<&str> = audit.iter().map(|a| a.action.as_str()).collect();
         assert!(actions.contains(&"agent_token.issue") && actions.contains(&"agent_token.revoke") && actions.contains(&"agent_token.delete") && actions.contains(&"auth.login"), "{actions:?}");
         assert!(audit.iter().any(|a| a.action == "agent_token.issue" && a.user == "adam"));
+    }
+
+    #[tokio::test]
+    async fn deleting_a_site_needs_its_id_typed_back_admin_only_and_leaves_other_sites_alone() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        store.upsert_agent(&crate::model::AgentInfo { id: "site-a".into(), name: "HQ".into(), site: None, version: "t".into(), subnet: "10.0.0.0/24".into(), first_seen: 1, last_report_at: 2, last_run_id: "r".into(), last_seq: 1 }).unwrap();
+        store.upsert_agent(&crate::model::AgentInfo { id: "site-b".into(), name: "Branch".into(), site: None, version: "t".into(), subnet: "10.1.0.0/24".into(), first_seen: 1, last_report_at: 2, last_run_id: "r".into(), last_seq: 1 }).unwrap();
+        let mut a1 = Asset::new(Mac([0x00, 0x1b, 0x63, 1, 1, 1]), 100);
+        a1.agent_id = Some("site-a".into());
+        store.save_asset(&mut a1).unwrap();
+        let mut a2 = Asset::new(Mac([0x00, 0x1b, 0x63, 2, 2, 2]), 100);
+        a2.agent_id = Some("site-b".into());
+        store.save_asset(&mut a2).unwrap();
+
+        // viewer/editor cannot delete a site at all; only an admin, and only with the id typed back
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("DELETE", "/api/agents/site-a", Some(c), Some(serde_json::json!({"confirm": "site-a"})))).await.0, StatusCode::FORBIDDEN);
+        }
+        assert_eq!(send(&app, req("DELETE", "/api/agents/site-a", Some(&admin), Some(serde_json::json!({"confirm": "nope"})))).await.0, StatusCode::BAD_REQUEST);
+        assert!(store.get_asset(a1.id).unwrap().is_some(), "refused confirm changes nothing");
+
+        let (st, _, v) = send(&app, req("DELETE", "/api/agents/site-a", Some(&admin), Some(serde_json::json!({"confirm": "site-a"})))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(v["devices_removed"], 1);
+        assert!(store.get_asset(a1.id).unwrap().is_none(), "site-a's device is gone");
+        assert!(store.get_asset(a2.id).unwrap().is_some(), "site-b is untouched");
+
+        let audit = store.list_audit(None, 50).unwrap();
+        assert!(audit.iter().any(|a| a.action == "agent.delete" && a.user == "adam" && a.detail.to_string().contains("site-a")));
     }
 
     #[tokio::test]
