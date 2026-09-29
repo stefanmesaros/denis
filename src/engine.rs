@@ -800,6 +800,7 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
             secure_cookie: false,
             license,
             ipenrich,
+            api_limiter: Arc::new(web::common::ApiRateLimiter::new()),
         },
     )
     .await?;
@@ -1198,6 +1199,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
         secure_cookie: cfg.secure_cookie || tls.is_some(),
         license: crate::license::load(cfg.license_file.as_deref(), &*store),
         ipenrich: ipenrich.clone(),
+        api_limiter: Arc::new(web::common::ApiRateLimiter::new()),
     };
     let scheme = if tls.is_some() { "https" } else { "http" };
     tracing::info!("web UI on {scheme}://{}", cfg.listen);

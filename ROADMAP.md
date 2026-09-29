@@ -71,10 +71,19 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    Directory sources already built (own settings/credentials/schedule, upsert into the shared
    imported-device table, source-scoped pruning) — the smallest remaining item on this list, and a
    natural next step right after IPv6 while that CMDB pattern is fresh.
-8. **A documented public API** *(effort: 5/10)* for third-party integrations (SOAR, ticketing systems beyond
-   Jira/ServiceNow, custom dashboards). Today's API is internal-only (built for this product's own
-   UI, not for third parties to depend on). Moved ahead of the newer integration sources per an
-   explicit priority call: an admin-facing decision, not a technical dependency.
+8. ~~**A documented public API.**~~ Done 2026-09-29: scoped by reading the existing surface first
+   rather than assuming — the routing, auth (`dnt_` viewer/editor tokens) and docs scaffolding
+   (`docs/api.md`, already fairly complete) all already existed, so this was hardening and
+   documenting what's there, not building new infrastructure. A real gap found while scoping this —
+   API tokens had no rate limiting at all, unlike the separate agent protocol — is fixed: a valid
+   token is capped at 300 requests/minute, repeated wrong tokens from one address are throttled,
+   both `429`. `docs/api.md` now documents both limits, the CMDB/AD/Jamf endpoints and site deletion
+   (missing from it), and a new "Stability" section makes an explicit, deliberate choice on
+   versioning: the console UI's own API *is* the public one (no separate curated subset, no
+   `/api/v1/` prefix) — response shapes are additive-stable, not frozen, and `Event.raw_details`
+   is called out as intentionally free-form. Chosen over inventing a parallel versioned surface
+   because nothing about this product's usage yet demands one, and a speculative version prefix
+   with nothing on the other side of a "v2" is complexity without a customer to justify it.
 9. **AI security assistant** — a configurable, event-driven layer on top of the existing AI alert
    explanation feature. *(effort: 8/10)* Full spec received 2026-09-29, recorded in full in
    [AI.md](AI.md) (not duplicated here, same reasoning as IPV6.md/WINDOWS.md/SSO.md/CMDB.md each

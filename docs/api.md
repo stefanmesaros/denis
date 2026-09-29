@@ -2,6 +2,22 @@
 
 The web UI is a client of this JSON API; everything it does you can script.
 
+## Stability
+
+This is the same API the console's own UI uses — there is no separate, narrower surface reserved
+for third-party integrations. In practice that means:
+
+* Endpoint paths and their meaning (`GET /api/assets` lists devices, `POST /api/alerts/{id}/ack`
+  acknowledges an alert, and so on) are stable — the UI depends on them too, so a breaking rename
+  would break DENIS's own console, not just an integration.
+* Response bodies are today's internal data shapes serialized directly (an asset's JSON is close to
+  its stored form). Fields are additive over time — a new field can appear, an existing one keeps
+  its name and meaning — but treat an unfamiliar field as ignorable rather than assuming the shape
+  is closed. `Event.raw_details` in particular is intentionally free-form and varies by alert kind;
+  do not depend on its exact keys beyond what the alert you're handling documents.
+* There is currently one version of this API — no `/api/v1/` prefix, no version header. If a
+  genuinely breaking change is ever needed, it will get one then, rather than speculatively now.
+
 ## Authentication
 
 * **Sign in**: `POST /api/auth/login` with `{"username": "...", "password": "..."}`. The response sets a
@@ -34,6 +50,11 @@ curl -H 'Authorization: Bearer dnt_…' https://denis.example.com/api/assets
 * Only a hash is stored. Revoke with `DELETE /api/api-tokens/{id}`: it stops working immediately. The audit
   log records changes made by a token as `token:<label>`.
 * Prefer a token per integration so one can be revoked without breaking the others.
+* **Rate limits**: a valid token is capped at 300 requests/minute (a sliding window; comfortably above any
+  reasonable polling interval, meant to catch a runaway loop or a compromised token, not to slow down normal
+  use) — `429 {"code": "rate_limited"}` past that. Repeated *wrong* tokens from one address are throttled
+  after 10 failures in 60 seconds, independent of any one token's own limit, so a guessed/brute-forced token
+  cannot be tried indefinitely.
 
 ## Endpoints
 
@@ -95,6 +116,11 @@ Role = the lowest role allowed.
 | `GET/PUT /api/ip-enrichment/settings` | viewer / admin | reverse-DNS resolver/secondary/timeout/on-off, GeoIP source (`{"source":"DbIpLite","auto_update":true,"update_frequency":"Monthly"}` or `{"source":{"CustomMmdb":{"city_path","asn_path"}},"auto_update":false}` — `update_frequency` is `Daily`/`Weekly`/`Monthly`), cache TTLs in seconds, whether a custom API secret is set (never the secret itself); a `PUT` takes effect immediately, no restart |
 | `POST /api/ip-enrichment/geoip/update` | admin | download and install DB-IP Lite's current release now (refused when the source is a custom file — nothing to fetch); `{"ok":true,"version":"2026-09"}` or `{"ok":false,"error":"…"}`; runs automatically on the configured schedule regardless (`auto_update`) |
 | `GET /api/ip-enrichment/{ip}` | viewer | on-demand, fresh lookup for one address: `{ip, classification, hostname, country, country_code, region, city, latitude, longitude, asn, as_org, isp, connection_type, geoip_source, geoip_db_version, dns_source}` — every field but `ip`/`classification` may be absent; `country_code` is the ISO 3166-1 alpha-2 code (for a flag), `country` is the display name |
+| `DELETE /api/agents/{agent_id}` | admin | delete a whole remote site and every device it reported (findings, baselines, presence, the communications matrix, events); `{"confirm": "<agent_id>"}` — the site id typed back — is required. Returns `{"deleted": true, "devices_removed": N}`. The agent's own token is untouched; revoke it separately (see `DELETE /api/agent-tokens/{agent_id}`) |
+| `GET/PUT /api/cmdb/settings` · `POST /api/cmdb/sync` | viewer / admin / admin | CMDB import, Entra ID + Intune (see `CMDB.md` in the repository): `{enabled, tenant_id, client_id, sync_interval_hours, include_intune, client_secret_set}` (`PUT` also takes `client_secret`, write-only) · sync now, `{ok, imported}` or `{ok:false, error}` |
+| `GET/PUT /api/ad/settings` · `POST /api/ad/sync` | viewer / admin / admin | CMDB import, on-premises Active Directory: `{enabled, url, bind_dn, base_dn, sync_interval_hours, bind_password_set}` (`PUT` also takes `bind_password`) · sync now |
+| `GET/PUT /api/jamf/settings` · `POST /api/jamf/sync` | viewer / admin / admin | CMDB import, Jamf Pro: `{enabled, server_url, client_id, sync_interval_hours, client_secret_set}` (`PUT` also takes `client_secret`) · sync now |
+| `GET /api/cmdb/devices` | viewer | every device imported by any of the three CMDB sources above, `source` one of `entra`/`intune`/`ad`/`jamf`, each with `matched_asset_id` (by hostname) when one was found |
 
 ### Editing an asset
 

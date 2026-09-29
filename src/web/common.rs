@@ -4,9 +4,9 @@
 //! from the other — `web_*` modules depend on this file, `web.rs` depends on this file
 //! and on them, and this file depends on neither.
 
-use std::collections::HashMap;
-use std::net::Ipv4Addr;
-use std::sync::Arc;
+use std::collections::{HashMap, VecDeque};
+use std::net::{IpAddr, Ipv4Addr};
+use std::sync::{Arc, Mutex};
 
 use axum::response::{IntoResponse, Response};
 use axum::http::StatusCode;
@@ -38,6 +38,81 @@ pub struct AppState {
     pub license: crate::license::Effective,
     /// IP enrichment (`crate::ipenrich`): reverse DNS + GeoIP/ASN, cached, provider-swappable.
     pub ipenrich: Arc<crate::ipenrich::Service>,
+    /// Throttles `Bearer dnt_` API-token traffic (brute-forced tokens per source IP, and a request
+    /// quota per valid token) — see `ApiRateLimiter`'s own doc for why this exists.
+    pub api_limiter: Arc<ApiRateLimiter>,
+}
+
+/// Rate-limits Bearer `dnt_` API-token traffic on the console/admin API. Mirrors `ingest.rs`'s own
+/// per-IP throttle for the separate agent protocol, plus something the agent protocol does not
+/// need: a per-token request quota, since a console API token is meant to be handed to a
+/// third-party integration (a SOAR, a ticketing sync) that DENIS itself cannot audit the behaviour
+/// of — a misconfigured or compromised one should not be able to hammer the API unbounded just
+/// because its token is genuinely valid. Both windows are deliberately generous defaults, not
+/// (yet) admin-configurable — see ROADMAP.md's public-API item.
+pub struct ApiRateLimiter {
+    /// source IP -> (bad token attempts in the current window, window start)
+    bad_token: Mutex<HashMap<IpAddr, (u32, i64)>>,
+    /// token id -> recent request timestamps within the current window
+    requests: Mutex<HashMap<i64, VecDeque<i64>>>,
+}
+
+const MAX_BAD_TOKEN_ATTEMPTS: u32 = 10;
+const BAD_TOKEN_WINDOW_SECS: i64 = 60;
+/// Generous on purpose: this guards against a runaway loop or a compromised token, not against
+/// legitimate polling (even a naive integration polling every few seconds stays well under this).
+pub const MAX_REQUESTS_PER_TOKEN: usize = 300;
+const REQUEST_WINDOW_SECS: i64 = 60;
+
+impl Default for ApiRateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ApiRateLimiter {
+    pub fn new() -> Self {
+        ApiRateLimiter { bad_token: Mutex::new(HashMap::new()), requests: Mutex::new(HashMap::new()) }
+    }
+
+    /// Seconds a source IP must wait before another bearer-token attempt is even checked, or 0.
+    pub fn bad_token_throttled(&self, ip: IpAddr, now: i64) -> i64 {
+        let m = self.bad_token.lock().unwrap();
+        m.get(&ip)
+            .filter(|(n, start)| *n >= MAX_BAD_TOKEN_ATTEMPTS && now - start < BAD_TOKEN_WINDOW_SECS)
+            .map_or(0, |(_, start)| BAD_TOKEN_WINDOW_SECS - (now - start))
+    }
+
+    pub fn note_bad_token(&self, ip: IpAddr, now: i64) {
+        let mut m = self.bad_token.lock().unwrap();
+        if m.len() > 10_000 {
+            m.retain(|_, (_, start)| now - *start < BAD_TOKEN_WINDOW_SECS);
+        }
+        let e = m.entry(ip).or_insert((0, now));
+        if now - e.1 >= BAD_TOKEN_WINDOW_SECS {
+            *e = (0, now);
+        }
+        e.0 += 1;
+    }
+
+    /// `true` if this (already-verified) token may proceed; records the attempt either way. A
+    /// sliding window: old timestamps are dropped before counting, so a burst right at a window
+    /// boundary can never double the effective limit the way a fixed-bucket reset could.
+    pub fn allow_request(&self, token_id: i64, now: i64) -> bool {
+        let mut m = self.requests.lock().unwrap();
+        if m.len() > 10_000 {
+            m.retain(|_, times| times.back().is_some_and(|t| now - *t < REQUEST_WINDOW_SECS));
+        }
+        let times = m.entry(token_id).or_default();
+        while times.front().is_some_and(|t| now - *t >= REQUEST_WINDOW_SECS) {
+            times.pop_front();
+        }
+        if times.len() >= MAX_REQUESTS_PER_TOKEN {
+            return false;
+        }
+        times.push_back(now);
+        true
+    }
 }
 
 /// Name of the session cookie.
@@ -165,4 +240,38 @@ pub(crate) async fn asset_view(st: &AppState, me: &User, id: i64) -> Result<Opti
     let Some(a) = scoped_asset(st, me, id).await? else { return Ok(None) };
     let (alerts, meta) = blocking(&st.store, move |s| Ok((open_alerts(s)?, s.get_meta(id)?))).await?;
     Ok(Some(view(a, &alerts, meta.unwrap_or_default(), now)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_valid_token_is_capped_at_the_request_quota_then_recovers_once_the_window_slides() {
+        let lim = ApiRateLimiter::new();
+        for i in 0..MAX_REQUESTS_PER_TOKEN {
+            assert!(lim.allow_request(1, 1000), "request {i} should still be inside the quota");
+        }
+        assert!(!lim.allow_request(1, 1000), "the quota-th-plus-one request in the same second is refused");
+        // a different token has its own, independent quota
+        assert!(lim.allow_request(2, 1000));
+        // once the oldest requests fall out of the window, the token can proceed again
+        assert!(lim.allow_request(1, 1000 + REQUEST_WINDOW_SECS));
+    }
+
+    #[test]
+    fn bad_tokens_are_throttled_per_source_ip_and_recover_after_the_window() {
+        let lim = ApiRateLimiter::new();
+        let ip: IpAddr = "10.0.0.5".parse().unwrap();
+        for _ in 0..MAX_BAD_TOKEN_ATTEMPTS {
+            assert_eq!(lim.bad_token_throttled(ip, 1000), 0, "not throttled until the threshold is reached");
+            lim.note_bad_token(ip, 1000);
+        }
+        assert!(lim.bad_token_throttled(ip, 1000) > 0, "throttled once the threshold is reached");
+        // a different address is never affected by another one's failures
+        let other: IpAddr = "10.0.0.6".parse().unwrap();
+        assert_eq!(lim.bad_token_throttled(other, 1000), 0);
+        // the window rolls forward: old failures do not throttle forever
+        assert_eq!(lim.bad_token_throttled(ip, 1000 + BAD_TOKEN_WINDOW_SECS), 0);
+    }
 }

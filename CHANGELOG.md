@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.30.0: A documented public API — API-token rate limiting, and a stability commitment
+
+* **API tokens now have real rate limits.** Found while scoping the "documented public API" roadmap
+  item: `dnt_` console tokens had no throttling at all, unlike the separate agent protocol. Fixed —
+  a valid token is capped at 300 requests/minute (a sliding window, generous enough for any
+  reasonable polling interval, meant to catch a runaway loop or a compromised token); repeated
+  *wrong* tokens from one address are throttled after 10 failures in 60 seconds, independent of any
+  one token's own limit. Both answer `429 {"code": "rate_limited"}`.
+* **`docs/api.md` is now genuinely complete and makes an explicit stability commitment.** Added the
+  CMDB/Active Directory/Jamf Pro endpoints and site deletion, which were missing from it. A new
+  "Stability" section makes a deliberate choice instead of leaving it unstated: the console UI's own
+  API *is* the public one — no separate curated subset, no `/api/v1/` version prefix. Response
+  shapes are additive-stable, not frozen (a new field can appear; an existing one keeps its name),
+  and `Event.raw_details` is called out as intentionally free-form per alert kind. Chosen over
+  inventing a parallel versioned surface because nothing about this product's real usage yet
+  demands one.
+* This closes the "documented public API" roadmap item: the auth (viewer/editor `dnt_` tokens),
+  routing and docs scaffolding all already existed — real work here was closing the rate-limiting
+  gap and making the stability question explicit, not building new infrastructure.
+
 ## 2.29.0: CMDB import: Jamf Pro (fourth source)
 
 * **CMDB import now also pulls computer inventory from Jamf Pro** (Settings → Integrations → CMDB

@@ -265,9 +265,26 @@ async fn authn(State(st): State<AppState>, mut req: Request, next: Next) -> Resp
     let user = if st.no_auth {
         Some(User { id: 0, username: "local".into(), role: "admin".into(), created_at: 0, disabled: false, must_change: false, last_login: None })
     } else if let Some(t) = bearer {
-        st.auth.verify_api_token(&t, now_ts()).map(|t| User {
-            id: -1, username: format!("token:{}", t.label), role: t.role, created_at: t.created_at, disabled: false, must_change: false, last_login: t.last_used,
-        })
+        // Rate-limited: brute-forced tokens per source IP, and a request quota per already-valid
+        // token — see `ApiRateLimiter`'s own doc for why a *valid* token still needs a cap.
+        let peer = req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().map(|c| c.0);
+        let ip = admin::client_ip(peer, req.headers());
+        let now = now_ts();
+        if st.api_limiter.bad_token_throttled(ip, now) > 0 {
+            return (StatusCode::TOO_MANY_REQUESTS, Json(serde_json::json!({"error": "too many attempts", "code": "rate_limited"}))).into_response();
+        }
+        match st.auth.verify_api_token(&t, now) {
+            Some(tok) => {
+                if !st.api_limiter.allow_request(tok.id, now) {
+                    return (StatusCode::TOO_MANY_REQUESTS, Json(serde_json::json!({"error": "rate limit exceeded for this token", "code": "rate_limited"}))).into_response();
+                }
+                Some(User { id: -1, username: format!("token:{}", tok.label), role: tok.role, created_at: tok.created_at, disabled: false, must_change: false, last_login: tok.last_used })
+            }
+            None => {
+                st.api_limiter.note_bad_token(ip, now);
+                None
+            }
+        }
     } else {
         admin::session_token(req.headers()).and_then(|t| st.auth.session_user(&t, now_ts()))
     };
@@ -1054,7 +1071,7 @@ mod tests {
         let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
         let auth = Arc::new(crate::auth::Auth::new(store.clone()));
         (
-            router(AppState { store: store.clone(), shared, loopback_only, allowed_hosts: vec![], auth, no_auth, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()) }),
+            router(AppState { store: store.clone(), shared, loopback_only, allowed_hosts: vec![], auth, no_auth, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()) }),
             store,
         )
     }
@@ -2228,7 +2245,7 @@ mod tests {
         let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
         store.create_user("vera", &crate::auth::hash_password("a-long-passphrase-1").unwrap(), "viewer", false, 0).unwrap();
         let app = router(AppState { store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: vec![],
-            auth: Arc::new(crate::auth::Auth::new(store.clone())), no_auth: false, secure_cookie: true, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()) });
+            auth: Arc::new(crate::auth::Auth::new(store.clone())), no_auth: false, secure_cookie: true, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()) });
         let (_, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "vera", "password": "a-long-passphrase-1"})))).await;
         assert!(h[header::SET_COOKIE].to_str().unwrap().contains("Secure"));
         let c = cookie_of(&h);
@@ -2537,7 +2554,7 @@ mod tests {
         let mk = |hosts: Vec<String>| router(AppState {
             store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: hosts,
             auth: Arc::new(crate::auth::Auth::new(store.clone())), no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store),
-            ipenrich: crate::ipenrich::test_service(store.clone()),
+            ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()),
         });
         let health = |host: &str| axum::http::Request::get("/api/health").header("host", host).body(Body::empty()).unwrap();
         let strict = mk(vec![]);
@@ -2620,6 +2637,33 @@ mod tests {
         let mut no_csrf = req("POST", "/api/scan", Some(&editor), None);
         no_csrf.headers_mut().remove("x-denis");
         assert_eq!(send(&app, no_csrf).await.0, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn api_tokens_are_rate_limited_bad_ones_per_address_valid_ones_per_token() {
+        let (app, _store, [_, _, admin]) = secured().await;
+        let (_, _, v) = send(&app, req("POST", "/api/api-tokens", Some(&admin), Some(serde_json::json!({"label": "bot", "role": "viewer"})))).await;
+        let token = v["token"].as_str().unwrap().to_string();
+
+        // a wrong token from one address is throttled after enough repeated failures - mirrors
+        // ingest.rs's own per-IP throttle for the separate agent protocol (MAX_BAD_TOKEN_ATTEMPTS = 10)
+        let bad_from = |peer: &str| {
+            let mut r = bearer("GET", "/api/assets", "garbage-token-value", None);
+            r.extensions_mut().insert(axum::extract::ConnectInfo(format!("{peer}:5555").parse::<std::net::SocketAddr>().unwrap()));
+            r
+        };
+        for _ in 0..10 {
+            assert_eq!(send(&app, bad_from("10.9.9.9")).await.0, StatusCode::UNAUTHORIZED);
+        }
+        assert_eq!(send(&app, bad_from("10.9.9.9")).await.0, StatusCode::TOO_MANY_REQUESTS, "throttled after repeated bad tokens from one address");
+        // a different address is never affected by another one's failures
+        assert_eq!(send(&app, bad_from("10.9.9.10")).await.0, StatusCode::UNAUTHORIZED);
+
+        // a genuinely valid token is capped at its own request quota (MAX_REQUESTS_PER_TOKEN)
+        for i in 0..common::MAX_REQUESTS_PER_TOKEN {
+            assert_eq!(send(&app, bearer("GET", "/api/assets", &token, None)).await.0, StatusCode::OK, "request {i}");
+        }
+        assert_eq!(send(&app, bearer("GET", "/api/assets", &token, None)).await.0, StatusCode::TOO_MANY_REQUESTS, "the request past the quota, in the same window, is refused");
     }
 
     // ------------------------------------------------- per-address sign-in limit
@@ -3319,7 +3363,7 @@ mod tests {
         let cfg = crate::passkey::Config { rp_id: "localhost".into(), origins: vec!["http://localhost:8080".into()] };
         *auth.passkey_cfg.lock().unwrap() = Some(cfg.clone());
         store.create_user("vera", &crate::auth::hash_password("a-long-passphrase-1").unwrap(), "viewer", false, 0).unwrap();
-        let app = router(AppState { store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()) });
+        let app = router(AppState { store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()) });
         let (st, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "vera", "password": "a-long-passphrase-1"})))).await;
         assert_eq!(st, StatusCode::OK);
         (app, store, cookie_of(&h), cfg)
@@ -3529,7 +3573,7 @@ mod tests {
         let shared = crate::engine::test_shared();
         // without TLS the API says so
         let auth = Arc::new(crate::auth::Auth::new(store.clone()));
-        let app_off = router(AppState { store: store.clone(), shared: shared.clone(), loopback_only: true, allowed_hosts: vec![], auth: auth.clone(), no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()) });
+        let app_off = router(AppState { store: store.clone(), shared: shared.clone(), loopback_only: true, allowed_hosts: vec![], auth: auth.clone(), no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()) });
         assert_eq!(send(&app_off, req("GET", "/api/tls", None, None)).await.2["enabled"], false);
         assert_eq!(send(&app_off, req("POST", "/api/tls/certificate", None, Some(serde_json::json!({"certificate": "x", "key": "y"})))).await.0, StatusCode::BAD_REQUEST);
         assert_eq!(app_off.clone().oneshot(req("GET", "/tls/ca.pem", None, None)).await.unwrap().status(), StatusCode::NOT_FOUND);
@@ -3542,7 +3586,7 @@ mod tests {
             let role = match u { "viewer" => "viewer", "editor" => "editor", _ => "admin" };
             store.create_user(u, &crate::auth::hash_password("a-long-passphrase-1").unwrap(), role, false, 0).unwrap();
         }
-        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()) });
+        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()) });
         let login = |u: &'static str| { let app = app.clone(); async move {
             let (_, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": u, "password": "a-long-passphrase-1"})))).await;
             cookie_of(&h)
@@ -3949,7 +3993,7 @@ mod tests {
             }
         });
         let auth = Arc::new(crate::auth::Auth::new(store.clone()));
-        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()) });
+        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()) });
         let mk = |n: u8, ty: &str, vendor: &str| {
             let mut a = Asset::new(Mac([2, 0, 0, 0, 0, n]), 10);
             a.device_type = ty.into();

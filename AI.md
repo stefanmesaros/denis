@@ -12,6 +12,29 @@ dashboard architecture, background workers and configuration persistence *before
 and extend existing DENIS components rather than building parallel infrastructure where one
 already fits.
 
+## Build order (explicit instruction, 2026-09-29)
+
+Ship this feature-by-feature, not as one large change: **a minor version release after each step**,
+so that if work stops partway through, everything already released stays genuinely usable rather
+than sitting half-wired. In this order:
+
+1. **Settings → AI page**: move the existing AI provider/API configuration here first (section 3
+   below), before adding any new capability — this is the foundation every capability's own toggle
+   sits on, per section 4's global on/off control.
+2. **Alert explanations** — already exists (`src/ai.rs`/`src/web_ai.rs`); this step is moving its
+   toggle into the new Settings → AI page and confirming it still works, not building it new.
+3. **Alert triage** (section 12).
+4. **Recommended actions** (section 15).
+5. **Dashboard AI summary** (sections 5-10: the stale/debounce/versioning/caching machinery is the
+   real work here, not just a card on the dashboard — see the hard requirement in section 6).
+6. **Ask DENIS** (natural-language investigation, section 16).
+7. **Security reports** (weekly summary, section 19).
+8. **Incident correlation** (section 13).
+9. **Device behavioral analysis** (section 14).
+10. **AI threat hunting** (section 17).
+11. **AI detection-rule assistant** (section 18) — in the original spec but not named in the
+    2026-09-29 reordering message; kept last unless told to drop it.
+
 ---
 
 Implement a new AI layer for DENIS that extends the existing AI alert explanation functionality into a configurable, event-driven AI security assistant.
