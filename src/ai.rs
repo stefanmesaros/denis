@@ -581,26 +581,40 @@ pub fn write_security_report(cfg: &AiConfig, provider: &str, prompt: &str) -> Re
 /// data. First it translates the free-text question into one structured `AskQuery` (this prompt);
 /// DENIS itself runs that exact query (see `web_ai::ask`) and hands the real results to a second
 /// call (`ASK_ANSWER_SYSTEM_PROMPT` below) whose only job is to describe what came back.
+///
+/// A question can ask DENIS to hunt for a destination across every device's traffic history
+/// instead of searching already-raised alerts ("has anything ever talked to 1.2.3.4?", "which
+/// devices have contacted evil.example?") — this is step 10, AI threat hunting, folded into the
+/// same Ask DENIS flow rather than a separate feature: when `destination` comes back set, DENIS
+/// searches every device's own baseline (`model::Baseline::typical_destinations` — already-tracked
+/// data, nothing new collected) instead of the event log, and the other fields are ignored.
 const ASK_INTERPRET_SYSTEM_PROMPT: &str = "You are translating a network administrator's plain-language question about \
-their network into one structured alert search against DENIS, a network monitoring tool. You do not know anything about \
+their network into one structured search against DENIS, a network monitoring tool. You do not know anything about \
 their network yourself - you only ever choose how to search it. Reply with exactly one JSON object and nothing else (no \
-markdown fencing, no commentary before or after): {\"hours\": how many hours back to search (a whole number from 1 to \
-720; default to 24 if the question does not imply a period), \"severity\": one of \"low\", \"medium\", \"high\", or omit \
-entirely if the question does not ask about a specific severity, \"kind\": the exact alert-type keyword if the question \
-clearly names one kind of alert (e.g. \"new_destination\", \"new_device\", \"volume_anomaly\", \"new_port\", \
-\"unusual_hours\", \"device_silent\"), otherwise omit, \"device\": a device name or partial name if the question names \
-one device, otherwise omit}. Never invent a device or alert kind not implied by the question.";
+markdown fencing, no commentary before or after): {\"destination\": an IP address or domain name, if the question asks \
+whether, or which devices, have communicated with one specific address (e.g. \"has anything talked to 1.2.3.4\", \"which \
+devices have contacted evil.example\") - when this is present every other field is ignored, so omit it unless the \
+question is clearly a search for a specific destination across all devices; \"hours\": how many hours back to search (a \
+whole number from 1 to 720; default to 24 if the question does not imply a period), \"severity\": one of \"low\", \
+\"medium\", \"high\", or omit entirely if the question does not ask about a specific severity, \"kind\": the exact \
+alert-type keyword if the question clearly names one kind of alert (e.g. \"new_destination\", \"new_device\", \
+\"volume_anomaly\", \"new_port\", \"unusual_hours\", \"device_silent\"), otherwise omit, \"device\": a device name or \
+partial name if the question names one device, otherwise omit}. Never invent a device, destination or alert kind not \
+implied by the question.";
 
-/// One structured alert search, and nothing more than that — the only thing the interpretation
-/// call is allowed to produce, and the only thing `web_ai::ask` is allowed to run against the
-/// store. `kind`, if present, is validated against `detect::is_alertable_kind` so a hallucinated
-/// alert type is a hard error rather than silently searching for nothing.
+/// One structured search, and nothing more than that — the only thing the interpretation call is
+/// allowed to produce, and the only thing `web_ai::ask` is allowed to run against the store.
+/// `kind`, if present, is validated against `detect::is_alertable_kind` so a hallucinated alert
+/// type is a hard error rather than silently searching for nothing. `destination`, if present,
+/// takes over the whole search (see the prompt's own doc comment above): the alert-search fields
+/// are simply unused in that case, not validated against anything.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AskQuery {
     pub hours: i64,
     pub severity: Option<String>,
     pub kind: Option<String>,
     pub device: Option<String>,
+    pub destination: Option<String>,
 }
 
 /// Ask one provider to translate `question` into an `AskQuery`.
@@ -628,7 +642,8 @@ fn parse_ask_query(text: &str) -> Result<AskQuery> {
         Some(s) => return Err(anyhow!("the response named an unknown alert kind {s:?}")),
     };
     let device = v.get("device").and_then(|s| s.as_str()).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
-    Ok(AskQuery { hours, severity, kind, device })
+    let destination = v.get("destination").and_then(|s| s.as_str()).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    Ok(AskQuery { hours, severity, kind, device, destination })
 }
 
 /// The answer call's own system prompt: unlike the interpretation prompt, this one only ever sees
@@ -672,6 +687,50 @@ pub fn ask_results_prompt(question: &str, rows: &[AskResultRow]) -> String {
 /// Ask one provider to answer `question` given the real search results already found.
 pub fn answer_question(cfg: &AiConfig, provider: &str, prompt: &str) -> Result<(String, Option<i64>)> {
     ask(cfg, provider, ASK_ANSWER_SYSTEM_PROMPT, prompt)
+}
+
+/// Step 10, AI threat hunting: the answer call for a destination search across every device's own
+/// baseline (`web_ai::ask`'s other branch, taken when `AskQuery::destination` came back set) —
+/// same two-call shape and the same rule as `ASK_ANSWER_SYSTEM_PROMPT`, just worded for "who has
+/// talked to this address" instead of "which alerts fired".
+const ASK_DESTINATION_ANSWER_SYSTEM_PROMPT: &str = "You are answering a network administrator's question about whether \
+any of their devices have communicated with a specific destination, using DENIS, a network monitoring tool. You are \
+given the administrator's original question, the destination that was searched for, and the exact per-device traffic \
+history DENIS found for it - nothing else about their network. Answer the question in 2-5 short sentences, using only \
+what is in the given rows. If no device's history shows it, say so plainly rather than speculating about what might \
+have happened. Do not invent devices, addresses, byte counts or events not present in the data given to you.";
+
+/// One device's own baseline history of contacting the hunted destination — real, already-tracked
+/// data (`model::Baseline::typical_destinations`), never invented.
+pub struct AskDestinationRow {
+    pub device_label: String,
+    pub destination: String,
+    pub first_seen_secs_ago: i64,
+    pub last_seen_secs_ago: i64,
+    pub bytes: u64,
+}
+
+/// The prompt for the destination-hunt answer call: the original question, the destination DENIS
+/// actually searched for, and exactly the per-device rows it found.
+pub fn ask_destination_prompt(question: &str, hunted: &str, rows: &[AskDestinationRow]) -> String {
+    let mut out = format!("Original question: {question}\nHunted destination: {hunted}\n\n");
+    if rows.is_empty() {
+        out.push_str("DENIS found no device whose traffic history includes this destination.");
+    } else {
+        out.push_str(&format!("DENIS found {} device(s) with this destination in their traffic history:\n", rows.len()));
+        for r in rows {
+            out.push_str(&format!(
+                "- {} contacted {}: first seen {}s ago, last seen {}s ago, {} bytes total\n",
+                r.device_label, r.destination, r.first_seen_secs_ago, r.last_seen_secs_ago, r.bytes
+            ));
+        }
+    }
+    out
+}
+
+/// Ask one provider to answer a destination-hunt `question` given the real baseline rows already found.
+pub fn answer_destination_question(cfg: &AiConfig, provider: &str, prompt: &str) -> Result<(String, Option<i64>)> {
+    ask(cfg, provider, ASK_DESTINATION_ANSWER_SYSTEM_PROMPT, prompt)
 }
 
 #[cfg(test)]
@@ -854,9 +913,26 @@ mod tests {
     #[test]
     fn a_clean_ask_query_parses_with_defaults_for_what_was_omitted() {
         let q = parse_ask_query(r#"{"hours": 48, "severity": "high", "kind": "new_destination", "device": "Baby Monitor"}"#).unwrap();
-        assert_eq!(q, AskQuery { hours: 48, severity: Some("high".into()), kind: Some("new_destination".into()), device: Some("Baby Monitor".into()) });
+        assert_eq!(q, AskQuery { hours: 48, severity: Some("high".into()), kind: Some("new_destination".into()), device: Some("Baby Monitor".into()), destination: None });
         let bare = parse_ask_query(r#"{}"#).unwrap();
-        assert_eq!(bare, AskQuery { hours: 24, severity: None, kind: None, device: None }, "hours defaults to 24, everything else stays unset rather than guessed");
+        assert_eq!(bare, AskQuery { hours: 24, severity: None, kind: None, device: None, destination: None }, "hours defaults to 24, everything else stays unset rather than guessed");
+    }
+
+    #[test]
+    fn a_destination_hunt_query_parses_and_ignores_blank_destinations() {
+        let q = parse_ask_query(r#"{"destination": "evil.example", "hours": 48}"#).unwrap();
+        assert_eq!(q.destination, Some("evil.example".into()));
+        let blank = parse_ask_query(r#"{"destination": "  "}"#).unwrap();
+        assert_eq!(blank.destination, None, "blank/whitespace-only destinations are treated as omitted");
+    }
+
+    #[test]
+    fn the_destination_hunt_prompt_says_plainly_when_nothing_matched() {
+        let rows = [AskDestinationRow { device_label: "Baby Monitor (10.0.10.9)".into(), destination: "3.113.81.30".into(), first_seen_secs_ago: 90_000, last_seen_secs_ago: 60, bytes: 4096 }];
+        let p = ask_destination_prompt("has anything talked to 3.113.81.30?", "3.113.81.30", &rows);
+        assert!(p.contains("Baby Monitor") && p.contains("3.113.81.30") && p.contains("4096 bytes"));
+        let empty = ask_destination_prompt("has anything talked to 9.9.9.9?", "9.9.9.9", &[]);
+        assert!(empty.contains("no device") && empty.contains("9.9.9.9"), "{empty}");
     }
 
     #[test]

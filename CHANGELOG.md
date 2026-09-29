@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.41.0: AI threat hunting (step 10), folded into Ask DENIS
+
+* **"Ask DENIS" can now hunt for a destination across every device's own history**, not just
+  search already-raised alerts: a question like "has anything talked to 1.2.3.4?" or "which
+  devices have contacted evil.example?" is recognized by the same translation step Ask DENIS
+  already used, and DENIS searches every device's own already-tracked baseline
+  (`typical_destinations` — no new data collected) for it instead of the event log, scoped by your
+  own site access exactly like the Baseline destinations search. No new UI: it is the same "Ask
+  DENIS" box, a second shape the question can take rather than a separate feature. Still the same
+  rule as every other Ask DENIS question — the model only ever describes the real rows DENIS
+  itself found, never facts it invented.
+
 ## 2.40.0: Acknowledge with a reason, and bulk-acknowledge a selection
 
 * **Acknowledging an alert can now carry a reason**: Resolved, False positive, or Expected

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::model::now_ts;
-use crate::web::common::{blocking, ApiError, AppState, AuthUser};
+use crate::web::common::{blocking, site_readable, ApiError, AppState, AuthUser};
 use crate::web_admin::{audit, err};
 
 /// Best-effort, same tolerance as `audit`: a failure to record usage must never fail the AI call
@@ -441,6 +441,9 @@ pub(crate) async fn ask(State(st): State<AppState>, Extension(AuthUser(me)): Ext
         Ok(Err(e)) => return Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
         Err(_) => return Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),
     };
+    if let Some(destination) = query.destination {
+        return ask_destination(st, &me, now, cfg, provider, b.question, destination, total_tokens).await;
+    }
     let q2 = crate::store::EventQuery { alerts_only: true, limit: ASK_SCAN_LIMIT, ..Default::default() };
     let hours = query.hours;
     let severity = query.severity.clone();
@@ -481,6 +484,63 @@ pub(crate) async fn ask(State(st): State<AppState>, Extension(AuthUser(me)): Ext
     match answer {
         Ok(Ok((answer, t2))) => {
             audit(&st, &me.username, "ai.ask", None, json!({"provider": provider, "matched": matched}));
+            record_usage(&st, now, provider, sum_tokens(total_tokens, t2));
+            Ok(Json(AskResp { provider, answer, matched }).into_response())
+        }
+        Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
+        Err(_) => Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),
+    }
+}
+
+/// How many devices' traffic history a destination hunt reports back to the answer call — same
+/// reasoning as `ASK_MAX_ROWS`: capped so the second call's own prompt stays bounded.
+const ASK_DEST_MAX_ROWS: usize = 20;
+
+/// Step 10, AI threat hunting: `ask`'s other branch, taken when the interpretation call decided
+/// this question is a destination search rather than an alert search. Scans every device's own
+/// baseline (already-tracked data, nothing new collected) for a destination matching `hunted`
+/// (case-insensitive substring, same matching style as `/api/baseline/destinations`), scoped by
+/// the caller's own site access exactly like that endpoint.
+#[allow(clippy::too_many_arguments)]
+async fn ask_destination(
+    st: AppState, me: &crate::model::User, now: i64, cfg: crate::ai::AiConfig, provider: &'static str,
+    question: String, hunted: String, total_tokens: Option<i64>,
+) -> Result<Response, ApiError> {
+    let store = st.store.clone();
+    let st2 = st.clone();
+    let me2 = me.clone();
+    let needle = hunted.to_lowercase();
+    let rows = blocking(&store, move |s| {
+        let assets = s.load_assets()?;
+        let by_id: std::collections::HashMap<i64, &crate::model::Asset> = assets.iter().map(|a| (a.id, a)).collect();
+        let mut out: Vec<crate::ai::AskDestinationRow> = Vec::new();
+        for b in s.load_baselines()? {
+            let Some(a) = by_id.get(&b.asset_id) else { continue };
+            if !site_readable(&st2, &me2, &a.agent_id) {
+                continue;
+            }
+            for (ip, d) in &b.typical_destinations {
+                if !ip.to_lowercase().contains(&needle) {
+                    continue;
+                }
+                out.push(crate::ai::AskDestinationRow {
+                    device_label: a.label(), destination: ip.clone(),
+                    first_seen_secs_ago: now - d.first_seen, last_seen_secs_ago: now - d.last_seen, bytes: d.bytes,
+                });
+                if out.len() >= ASK_DEST_MAX_ROWS {
+                    return Ok(out);
+                }
+            }
+        }
+        Ok(out)
+    })
+    .await?;
+    let matched = rows.len();
+    let results_prompt = crate::ai::ask_destination_prompt(&question, &hunted, &rows);
+    let answer = tokio::task::spawn_blocking(move || crate::ai::answer_destination_question(&cfg, provider, &results_prompt)).await;
+    match answer {
+        Ok(Ok((answer, t2))) => {
+            audit(&st, &me.username, "ai.ask", None, json!({"provider": provider, "matched": matched, "destination": hunted}));
             record_usage(&st, now, provider, sum_tokens(total_tokens, t2));
             Ok(Json(AskResp { provider, answer, matched }).into_response())
         }

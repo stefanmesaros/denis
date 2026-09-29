@@ -97,10 +97,13 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    broken down per provider — an AI summary section on the existing periodic Reports, written once
    when a report is generated, never a dependency for the report itself to succeed — and a fifth,
    self-hosted "Local model" provider (Ollama, LM Studio, llama.cpp's own server, ...), verified
-   end-to-end against a real local Ollama instance, not just a fake-server test — and Device
+   end-to-end against a real local Ollama instance, not just a fake-server test — Device
    behavioral analysis: an "Explain behavior change" button offered only on the alert kinds that
    already describe a change from a device's own stored baseline, never a fresh analysis of raw
-   traffic).
+   traffic — and AI threat hunting: folded into "Ask DENIS" as a second query shape rather than a
+   separate feature, so a question like "has anything talked to 1.2.3.4?" searches every device's
+   own already-tracked baseline instead of the event log, still only ever describing real rows
+   DENIS itself found).
    Full spec recorded in full in [AI.md](AI.md) (not duplicated here, same
    reasoning as IPV6.md/WINDOWS.md/SSO.md/CMDB.md each being their own document). Key architectural
    requirements: the detection engine stays fully AI-independent (no LLM in the

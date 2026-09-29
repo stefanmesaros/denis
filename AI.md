@@ -140,7 +140,19 @@ something genuinely changed; `loadFindings()` now skips the rebuild when the fet
 byte-identical to what is already rendered, which fixes the disappearing-answer bug and is a
 correctness/performance improvement either way (no pointless reflow when nothing changed).
 
-10-11: not started.
+10. **AI threat hunting** — done (2026-09-29). Folded into Ask DENIS (section 16) as a second
+    query shape rather than a separate feature or its own UI: the same interpretation call can
+    now come back with a `destination` (an IP or domain the question asks whether/which devices
+    have talked to — "has anything talked to 1.2.3.4?", "which devices contacted evil.example?"),
+    and when it does, DENIS searches every device's own already-tracked baseline
+    (`model::Baseline::typical_destinations` — no new data collection) instead of the event log,
+    scoped by the caller's own site access exactly like `/api/baseline/destinations`. The other
+    query fields (hours/severity/kind/device) are simply unused for that search; a question that
+    is not a destination hunt behaves exactly as before. Still the same two-call shape (structured
+    search, then a second call that only ever describes the real rows DENIS found), still on click
+    only.
+
+11: not started.
 
 ## Build order (explicit instruction, 2026-09-29)
 
