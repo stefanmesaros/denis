@@ -58,7 +58,7 @@ network itself rather than trusting whatever was last typed into a CMDB.
    skipping, and writes from a device that should only ever read.
 6. **Manage the register.** Owner, location, serial number, asset tag, warranty, criticality, tags, custom fields,
    80+ icons, 90+ device types, full change history, a review queue for new devices, CSV import/export. Optionally
-   cross-referenced against **Microsoft Entra ID, Intune, and on-premises Active Directory** (CMDB import,
+   cross-referenced against **Microsoft Entra ID, Intune, on-premises Active Directory, and Jamf Pro** (CMDB import,
    Settings → Integrations): read-only, matched by hostname, shown as extra context (OS, compliance state) — never
    used to override a device's own fingerprinted identity.
 7. **Report.** *Findings* (known-exploited vulnerabilities and end-of-support software matched against what a
@@ -312,7 +312,7 @@ commercial license (there is no self-service purchase yet — open a GitHub issu
 ## Roadmap
 
 A single priority-ordered list of what's missing and planned — IPv6 (most of it shipped, opt-in;
-see IPV6.md for what's left), a Jamf/MDM CMDB source, a documented public API,
+see IPV6.md for what's left), a documented public API, an AI security assistant (see AI.md),
 vulnerability-scanner import, a Windows collector, SAML (OIDC SSO already works), cloud asset
 discovery, multi-tenancy, PostgreSQL/HA, and NAC — plus verification still owed before a
 commercial launch: see [ROADMAP.md](ROADMAP.md).
@@ -373,6 +373,8 @@ src/cmdb.rs         CMDB import: Entra ID device objects and Intune managed devi
 src/web_cmdb.rs     CMDB import settings, on-demand sync, imported device list (GET/PUT/POST)
 src/ad.rs           CMDB import, third source: on-premises Active Directory computer objects over LDAP/LDAPS (see CMDB.md)
 src/web_ad.rs       Active Directory import settings, on-demand sync (GET/PUT/POST)
+src/jamf.rs         CMDB import, fourth source: Jamf Pro computer inventory (see CMDB.md)
+src/web_jamf.rs     Jamf Pro import settings, on-demand sync (GET/PUT/POST)
 src/sso.rs          single sign-on: OIDC authorization-code flow with PKCE (see SSO.md)
 src/web_sso.rs      SSO settings, the redirect/callback endpoints
 src/ingest.rs       master side of the agent protocol (per-agent tokens, idempotent batches)

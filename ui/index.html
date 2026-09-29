@@ -605,6 +605,21 @@
           </div>
           <p class="muted small" id="ad-password-status"></p>
           <div class="row"><button id="ad-save" type="button" class="primary">Save</button><button id="ad-sync" type="button">Sync now</button><span id="ad-msg" class="muted"></span></div>
+          <h4 class="section">Jamf Pro</h4>
+          <p class="muted">Pulls computer inventory from Jamf Pro (a Jamf Pro API client with read access to
+            computer inventory, Settings → System → API roles and clients in Jamf Pro) and cross-references it the
+            same way — matched by hostname, shown as extra context, nothing ever written back.</p>
+          <label class="check"><input id="jamf-enabled" type="checkbox"> Enabled</label>
+          <div class="row">
+            <label>Server URL<input id="jamf-url" placeholder="https://yourinstance.jamfcloud.com"></label>
+            <label>Client ID<input id="jamf-client-id" placeholder="00000000-0000-0000-0000-000000000000"></label>
+            <label>Client secret<input id="jamf-client-secret" type="password" autocomplete="off"></label>
+          </div>
+          <div class="row">
+            <label>Sync every<span class="row"><input id="jamf-interval" type="number" min="1" max="720" value="24"> hours</span></label>
+          </div>
+          <p class="muted small" id="jamf-secret-status"></p>
+          <div class="row"><button id="jamf-save" type="button" class="primary">Save</button><button id="jamf-sync" type="button">Sync now</button><span id="jamf-msg" class="muted"></span></div>
           <h4 class="section">Imported devices</h4>
           <div id="cmdb-devices"></div>
         </div>

@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.29.0: CMDB import: Jamf Pro (fourth source)
+
+* **CMDB import now also pulls computer inventory from Jamf Pro** (Settings → Integrations → CMDB
+  import), alongside the existing Entra ID, Intune and Active Directory sources — entirely
+  independent: its own enable toggle, its own credentials (a Jamf Pro API client id/secret, the
+  API-client/OAuth2-client-credentials model Jamf now recommends), its own sync schedule. Matched
+  to DENIS's own discovered devices the same way as the other three sources — exact,
+  case-insensitive hostname only, read-only, shown as extra context, never used to override a
+  device's own fingerprinted identity.
+* Reused almost the entire shape the last three sources already established: the same `ureq`-based
+  HTTPS client and OAuth2 client-credentials token fetch as the Graph sources, the same
+  hostname-matching/upsert logic and source-scoped pruning (a Jamf sync can never delete an Entra
+  ID/Intune/AD-sourced row, or vice versa) as all three. The genuinely new work was Jamf's own
+  pagination shape (`page`/`page-size`/`totalCount` rather than Graph's `@odata.nextLink`) and
+  token endpoint.
+* Like every CMDB source before it, this has been tested against hand-built fixtures matching
+  Jamf's documented API shape, not yet against a real Jamf Pro instance — see CMDB.md for the full
+  "what was verified, what wasn't" accounting this extends.
+* Also: the roadmap now includes a new item, an "AI security assistant" (a configurable,
+  event-driven layer on top of the existing AI alert explanation feature), with the full received
+  specification recorded in a new AI.md — not built yet, scheduled after the public API per an
+  explicit priority call.
+
 ## 2.28.0: IPv6 — remote-agent reporting, an active liveness check, and CSV/API exposure
 
 * **Remote agents now report IPv6 flows to their master**, not just a local/embedded collector:

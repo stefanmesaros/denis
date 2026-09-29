@@ -81,8 +81,8 @@ pub struct CmdbDevice {
     /// two Graph resource types - different GUID spaces for what may be the same physical device
     /// - can never collide in the store.
     pub external_id: String,
-    /// `entra` or `intune`. `#[serde(default)]` so a record saved before this field existed
-    /// (v2.18.0-2.22.0) still reads back as the only source that existed then.
+    /// `entra`, `intune`, `ad` or `jamf`. `#[serde(default)]` so a record saved before this field
+    /// existed (v2.18.0-2.22.0) still reads back as the only source that existed then.
     #[serde(default = "default_source")]
     pub source: String,
     pub display_name: String,

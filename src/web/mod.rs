@@ -42,6 +42,7 @@ use crate::web_passkey as passkey;
 use crate::web_ai as ai_page;
 use crate::web_ad as ad_page;
 use crate::web_cmdb as cmdb_page;
+use crate::web_jamf as jamf_page;
 use crate::web_ipenrich as ipenrich_page;
 use crate::web_sso as sso_page;
 use crate::{report, trends};
@@ -125,6 +126,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/cmdb/devices", get(cmdb_page::devices))
         .route("/api/ad/settings", get(ad_page::get).put(ad_page::put))
         .route("/api/ad/sync", post(ad_page::sync))
+        .route("/api/jamf/settings", get(jamf_page::get).put(jamf_page::put))
+        .route("/api/jamf/sync", post(jamf_page::sync))
         .route("/api/ip-enrichment", get(ipenrich_page::status))
         .route("/api/ip-enrichment/settings", get(ipenrich_page::get).put(ipenrich_page::put))
         .route("/api/ip-enrichment/geoip/update", post(ipenrich_page::update_geoip))
@@ -239,7 +242,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     }
     // `/api/baseline/destinations` (GET) is a read: any viewer may search it, same as the
     // per-device baseline panel it aggregates. Only `/api/baseline/forget-all` (POST) is here.
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/baseline") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path.starts_with("/api/ai/settings") || path.starts_with("/api/cmdb/settings") || path.starts_with("/api/cmdb/sync") || path.starts_with("/api/ad/settings") || path.starts_with("/api/ad/sync") || path.starts_with("/api/ip-enrichment/settings") || path.starts_with("/api/ip-enrichment/geoip") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/baseline") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path.starts_with("/api/ai/settings") || path.starts_with("/api/cmdb/settings") || path.starts_with("/api/cmdb/sync") || path.starts_with("/api/ad/settings") || path.starts_with("/api/ad/sync") || path.starts_with("/api/jamf/settings") || path.starts_with("/api/jamf/sync") || path.starts_with("/api/ip-enrichment/settings") || path.starts_with("/api/ip-enrichment/geoip") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -1599,6 +1602,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn jamf_settings_are_admin_only_the_client_secret_never_round_trips_and_sync_needs_configuration_first() {
+        let (app, _store, [viewer, editor, admin]) = secured().await;
+
+        let (st, _, v) = send(&app, req("GET", "/api/jamf/settings", Some(&viewer), None)).await;
+        assert_eq!((st, v["enabled"].as_bool(), v["client_secret_set"].as_bool()), (StatusCode::OK, Some(false), Some(false)), "{v}");
+
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("PUT", "/api/jamf/settings", Some(c), Some(serde_json::json!({"enabled": false, "server_url": "", "client_id": "", "sync_interval_hours": 24})))).await.0, StatusCode::FORBIDDEN);
+            assert_eq!(send(&app, req("POST", "/api/jamf/sync", Some(c), None)).await.0, StatusCode::FORBIDDEN);
+        }
+
+        let bad = serde_json::json!({"enabled": true, "server_url": "", "client_id": "", "sync_interval_hours": 24});
+        assert_eq!(send(&app, req("PUT", "/api/jamf/settings", Some(&admin), Some(bad))).await.0, StatusCode::BAD_REQUEST);
+        let bad2 = serde_json::json!({"enabled": false, "server_url": "https://x.jamfcloud.com", "client_id": "c1", "sync_interval_hours": 0});
+        assert_eq!(send(&app, req("PUT", "/api/jamf/settings", Some(&admin), Some(bad2))).await.0, StatusCode::BAD_REQUEST);
+
+        let good = serde_json::json!({"enabled": true, "server_url": "https://contoso.jamfcloud.com", "client_id": "abc-123", "sync_interval_hours": 12, "client_secret": "sekret"});
+        let (st, _, v) = send(&app, req("PUT", "/api/jamf/settings", Some(&admin), Some(good))).await;
+        assert_eq!((st, v.get("client_secret"), v["client_secret_set"].as_bool(), v["server_url"].as_str()), (StatusCode::OK, None, Some(true), Some("https://contoso.jamfcloud.com")), "the secret is never echoed back; {v}");
+
+        let unchanged = serde_json::json!({"enabled": true, "server_url": "https://contoso.jamfcloud.com", "client_id": "abc-123", "sync_interval_hours": 12});
+        let (_, _, v) = send(&app, req("PUT", "/api/jamf/settings", Some(&admin), Some(unchanged))).await;
+        assert_eq!(v["client_secret_set"], true);
+
+        // `/api/jamf/sync` itself is not called here: it reaches a real Jamf Pro instance over the
+        // network, which this test suite deliberately never depends on - same reasoning as
+        // cmdb.rs's own Entra ID/Intune sync. `jamf::tests::sync_now_refuses_when_not_enabled_or_not_configured`
+        // covers `sync_now`'s own pre-flight checks without a live call.
+
+        let audit = send(&app, req("GET", "/api/audit", Some(&admin), None)).await.2.to_string();
+        assert!(audit.contains("jamf.settings.update"), "{audit}");
+    }
+
+    #[tokio::test]
     async fn ip_enrichment_settings_are_admin_only_validated_and_a_lookup_never_touches_a_private_address() {
         let (app, _store, [viewer, editor, admin]) = secured().await;
 
@@ -2127,6 +2164,7 @@ mod tests {
             (M::DELETE, "/api/assets/1/baseline/destinations/1.1.1.1", "admin"), (M::POST, "/api/baseline/forget-all", "admin"), (M::GET, "/api/baseline/destinations", "viewer"),
             (M::GET, "/api/cmdb/settings", "viewer"), (M::PUT, "/api/cmdb/settings", "admin"), (M::POST, "/api/cmdb/sync", "admin"), (M::GET, "/api/cmdb/devices", "viewer"),
             (M::GET, "/api/ad/settings", "viewer"), (M::PUT, "/api/ad/settings", "admin"), (M::POST, "/api/ad/sync", "admin"),
+            (M::GET, "/api/jamf/settings", "viewer"), (M::PUT, "/api/jamf/settings", "admin"), (M::POST, "/api/jamf/sync", "admin"),
         ] {
             assert_eq!(required_role(&m, p), want, "{m} {p}");
         }

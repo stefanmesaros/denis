@@ -1,4 +1,4 @@
-# CMDB import (Microsoft Entra ID, Intune, and Active Directory)
+# CMDB import (Microsoft Entra ID, Intune, Active Directory, and Jamf Pro)
 
 What DENIS supports, what was actually verified, and what still needs a real tenant to confirm —
 written with the same honesty bar as [SSO.md](SSO.md) and [WINDOWS.md](WINDOWS.md): if something
@@ -15,7 +15,7 @@ OS version, join/enrollment type, compliance state, when the source last saw it)
 merged into or treated as authoritative over a device's own fingerprinted identity, and nothing is
 ever written back to Entra ID or Intune. Import is entirely read-only and one-directional.
 
-Three sources, two independent settings sections:
+Four sources, three independent settings sections:
 
 * **Entra ID device objects** (`Device.Read.All` application permission) — always, once enabled,
   via one app registration (client ID + secret).
@@ -28,15 +28,21 @@ Three sources, two independent settings sections:
   the two above: its own enable toggle, its own credentials (an LDAP bind DN and password against
   a domain controller, ideally a dedicated read-only service account rather than a real admin's
   own login), its own schedule. `src/ad.rs`, via the `ldap3` crate's synchronous client.
+* **Jamf Pro computer inventory** — also entirely independent: its own enable toggle, its own
+  credentials (a Jamf Pro API client id/secret — Settings → System → API roles and clients in Jamf
+  Pro — the API-client/OAuth2-client-credentials model Jamf now recommends over the older
+  Basic-Auth-to-bearer-token exchange), its own schedule. `src/jamf.rs`, same `ureq`-based HTTPS
+  client as the Graph sources, just a different token endpoint/scope and a different pagination
+  shape (`page`/`page-size`/`totalCount` rather than Graph's `@odata.nextLink`). Covers computer
+  inventory (`/api/v1/computers-inventory`) only, not mobile devices — the same "narrowest useful
+  slice first" choice already made for Entra ID before Intune, and AD before this.
 
-All three write into the same imported-device list, each row tagged with which source it came
-from (`entra`/`intune`/`ad`) and keyed `<source>:<id>` so the different ID spaces — two different
-Graph GUID spaces plus an LDAP distinguished name — can never collide even for what is the same
-physical device. Each source's own sync only prunes its own source's rows: an Active Directory
-sync can never delete a device Entra ID or Intune imported, and vice versa, even though a periodic
-sync of one runs independently of the others.
-
-Other MDM sources (Jamf and similar) are on the roadmap but not built — see [ROADMAP.md](ROADMAP.md).
+All four write into the same imported-device list, each row tagged with which source it came
+from (`entra`/`intune`/`ad`/`jamf`) and keyed `<source>:<id>` so the different ID spaces — two
+different Graph GUID spaces, an LDAP distinguished name, and a Jamf computer id — can never
+collide even for what is the same physical device. Each source's own sync only prunes its own
+source's rows: no source's sync can ever delete a device another source imported, even though each
+runs on its own independent schedule.
 
 ## What was actually built and verified
 
@@ -77,21 +83,33 @@ Other MDM sources (Jamf and similar) are on the roadmap but not built — see [R
   `#[derive(Default)]` does not know about a `#[serde(default = "...")]` attribute on one field,
   they solve different problems that happen to look similar. Fixed with a manual `Default` impl on
   both; the UI never showed this (it already had `|| 24` as a display fallback), but the raw API
-  response did.
+  response did. `jamf::Settings` got the same manual `Default` impl from the start, this time
+  learning from the other two rather than repeating the mistake.
+* `src/jamf.rs` implements the OAuth2 client-credentials token fetch against Jamf Pro's own token
+  endpoint, paginated `computers-inventory` list calls (`page`/`page-size`, stopping once
+  `totalCount` is reached or a hard page cap is hit — the same "a misconfigured or unbounded
+  instance can never turn a sync into an unbounded loop" reasoning as the Graph sources' own page
+  cap), the same hostname-matching/upsert/prune logic, and its own periodic background job.
+  Settings and the client secret round-trip and default to off; `sync_now` refuses cleanly when
+  disabled or unconfigured (missing server URL/client id, missing secret); hostname matching is
+  exact and case-insensitive; the pagination loop's stopping condition is proven not to loop
+  forever against a `totalCount` a buggy server can never actually satisfy; a Jamf sync's own
+  pruning is proven to leave the other three sources' rows untouched.
 
 ## What is *not* yet verified
 
-* **The actual exchange with a real Entra ID tenant, a real Intune enrollment, and a real Active
-  Directory domain controller have not been run.** Token fetch, Graph pagination against a tenant
-  large enough to actually paginate, the real JSON shape Graph returns for `/devices` and
-  `/deviceManagement/managedDevices`, and the real LDAP bind/search/attribute shape a genuine
-  domain controller returns, have not been exercised end to end against the genuine services —
-  only against hand-written JSON/attribute fixtures matching the documented shape. Everything
-  above this point is verified; this specific path is not, and should not be treated as working
-  until it is.
-* No mock Graph server or mock LDAP server was built for this pass, for the same reason none was
-  built for SSO: a correct one is itself real work, and doing it under time pressure risks a mock
-  that "passes" without exercising the same code paths a real server would.
+* **The actual exchange with a real Entra ID tenant, a real Intune enrollment, a real Active
+  Directory domain controller, and a real Jamf Pro instance have not been run.** Token fetch, Graph
+  pagination against a tenant large enough to actually paginate, the real JSON shape Graph returns
+  for `/devices` and `/deviceManagement/managedDevices`, the real LDAP bind/search/attribute shape
+  a genuine domain controller returns, and the real JSON shape (and exact field names) a genuine
+  Jamf Pro instance's `computers-inventory` endpoint returns, have not been exercised end to end
+  against the genuine services — only against hand-written JSON/attribute fixtures matching each
+  provider's documented shape. Everything above this point is verified; this specific path is not,
+  and should not be treated as working until it is.
+* No mock Graph server, mock LDAP server or mock Jamf Pro server was built for this pass, for the
+  same reason none was built for SSO: a correct one is itself real work, and doing it under time
+  pressure risks a mock that "passes" without exercising the same code paths a real server would.
 * Recommended before relying on the Graph sources: register a real app (a free Azure AD tenant is
   enough), grant `Device.Read.All` (and, if using it, `DeviceManagementManagedDevices.Read.All`),
   admin-consent it, and confirm a full sync against real devices — including that a wrong
@@ -104,15 +122,24 @@ Other MDM sources (Jamf and similar) are on the roadmap but not built — see [R
   server, and a base DN with no read access are each refused with a clear, distinguishable error.
   TLS certificate validation for LDAPS has not been exercised against a real domain controller's
   certificate chain (self-signed AD CS roots are common and may need to be trusted explicitly).
+* Recommended before relying on Jamf Pro: a dedicated API client scoped to read-only computer
+  inventory access (not an administrator's own credentials), and confirm a full sync against a
+  real instance — including that a wrong server URL/client id, a revoked/expired secret, and an
+  API client without the required privilege are each refused with a clear, distinguishable error.
+  The exact JSON field names used (`general.name`, `general.lastEnrolledDate`,
+  `general.lastContactTime`, `operatingSystem.name`/`version`) follow Jamf's published API
+  reference but have not been confirmed against a real response body.
 
 ## Configuration
 
-Settings → Integrations → CMDB import (admin only), two independent sections:
+Settings → Integrations → CMDB import (admin only), four independent sections:
 
 * **Entra ID / Intune**: enable, tenant ID, client (application) ID, client secret, sync interval
   (1 hour to 30 days), and the "Also import Intune managed devices" checkbox.
 * **Active Directory**: enable, server URL (`ldaps://dc.contoso.local:636`), bind DN, bind
   password, base DN, sync interval.
+* **Jamf Pro**: enable, server URL (`https://yourinstance.jamfcloud.com`), client ID, client
+  secret, sync interval.
 
-Both have their own "Sync now" to run one immediately instead of waiting for the schedule, and
-both feed the one shared imported-device list below. Nothing here needs a restart.
+Each has its own "Sync now" to run one immediately instead of waiting for the schedule, and all
+four feed the one shared imported-device list below. Nothing here needs a restart.

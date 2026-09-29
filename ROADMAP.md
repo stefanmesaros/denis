@@ -75,36 +75,59 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    Jira/ServiceNow, custom dashboards). Today's API is internal-only (built for this product's own
    UI, not for third parties to depend on). Moved ahead of the newer integration sources per an
    explicit priority call: an admin-facing decision, not a technical dependency.
-9. **Vulnerability-scanner import** (Qualys/Tenable/Nessus). *(effort: 4/10)* Same integration shape as CMDB import
-   — pull findings for devices DENIS already tracks, merge into the register — and it plugs a real
-   gap: DENIS's own vulnerability data today comes only from its own banner/version fingerprinting,
-   not from a dedicated scanner's much deeper (and often authenticated/credentialed) checks.
-   Complements, not replaces, DENIS's own detections.
-10. **Windows collectors.** *(effort: 7/10)* Partial groundwork already exists (`WINDOWS.md`, Win32 calls in
+9. **AI security assistant** — a configurable, event-driven layer on top of the existing AI alert
+   explanation feature. *(effort: 8/10)* Full spec received 2026-09-29, recorded in full in
+   [AI.md](AI.md) (not duplicated here, same reasoning as IPV6.md/WINDOWS.md/SSO.md/CMDB.md each
+   being their own document). Key architectural requirements: the detection engine stays fully
+   AI-independent (no LLM in the
+   hot path — flows, baselines, first-seen/new-destination/new-port detection, DNS/GeoIP/ASN, alert
+   generation/correlation all stay deterministic and local); the AI layer only ever consumes
+   compact, already-processed structured context, never raw packets; a dedicated Settings → AI page
+   replaces today's scattered AI provider config, with a global on/off switch and a separate on/off
+   toggle per capability (alert explanation — already exists, keep enabled if it already was;
+   triage; incident correlation; device behavioral analysis; recommended actions; dashboard
+   summary; natural-language "Ask DENIS"; threat hunting, read-only; a detection-rule assistant
+   whose output always needs explicit admin activation, never auto-enabled; weekly reports) —
+   new capabilities default off. The hard requirement most worth flagging up front: opening or
+   refreshing the dashboard must never itself call the AI provider — a dashboard summary is marked
+   "stale" by the detection engine on a meaningful state change (not every packet/flow), regenerated
+   by a debounced background job (a burst of alerts becomes one AI call, not one per alert), cached
+   with a state-version stamp, and the dashboard only ever reads the cached result. AI triage is an
+   additional signal alongside DENIS's own deterministic severity, never a replacement for it. Needs
+   real usage/cost data to tune the debounce window and what counts as "meaningful" well — the same
+   bar already held elsewhere in this roadmap (IPv6's rotation-burst rule, NAC) — so the first cut
+   should ship deliberately conservative (longer debounce, fewer auto-triggered capabilities) rather
+   than guessed-generous.
+10. **Vulnerability-scanner import** (Qualys/Tenable/Nessus). *(effort: 4/10)* Same integration shape as CMDB import
+    — pull findings for devices DENIS already tracks, merge into the register — and it plugs a real
+    gap: DENIS's own vulnerability data today comes only from its own banner/version fingerprinting,
+    not from a dedicated scanner's much deeper (and often authenticated/credentialed) checks.
+    Complements, not replaces, DENIS's own detections.
+11. **Windows collectors.** *(effort: 7/10)* Partial groundwork already exists (`WINDOWS.md`, Win32 calls in
     `net.rs`/`health.rs`, the `windows-sys` dependency), none of it verified on a real Windows
     machine. Grows what DENIS can *observe* (a large share of real networks are Windows-centric and
     cannot run DENIS at all today) rather than just how admins sign in, but needs a real Windows
     machine to verify against, so it is scheduled for whenever one is actually available to test on.
-11. **SAML.** *(effort: 6/10)* OIDC SSO already exists (Settings → Single sign-on); SAML is a separate protocol
+12. **SAML.** *(effort: 6/10)* OIDC SSO already exists (Settings → Single sign-on); SAML is a separate protocol
     (XML signatures, metadata exchange, an ACS endpoint) with a real CVE history
     (signature-wrapping attacks) and meaningfully less mature Rust tooling than OIDC's — valuable
     for enterprise procurement, but a materially bigger, riskier piece of work than the OIDC path
     already shipped. Revisit the order if a specific customer's procurement is blocked on it.
-12. **Cloud asset discovery** (AWS/Azure/GCP inventory as another CMDB-like source). *(effort: 6/10)* On-prem and
+13. **Cloud asset discovery** (AWS/Azure/GCP inventory as another CMDB-like source). *(effort: 6/10)* On-prem and
     directory-based device inventory is now well covered (Entra ID, Intune, Active Directory, soon
     Jamf); most real networks these days are hybrid, so this is the natural next inventory source
     once the on-prem side is rounded out — but it is a new integration shape (cloud provider APIs,
     not LDAP/Graph), not a small extension of the CMDB work like Jamf is.
-13. **Multi-tenancy** *(effort: 9/10)* for managed-service providers (white-label branding already exists; tenant
+14. **Multi-tenancy** *(effort: 9/10)* for managed-service providers (white-label branding already exists; tenant
     isolation does not). A real architectural change (data isolation between tenants, not just
     cosmetic branding), ordered after the integration work above since it's a scaling concern for
     an MSP customer base DENIS does not have a lot of yet.
-14. **An alternative database (PostgreSQL) and high availability.** *(effort: 9/10)* These two are grouped because
+15. **An alternative database (PostgreSQL) and high availability.** *(effort: 9/10)* These two are grouped because
     they are related: SQLite (this project's only backend today) is a real ceiling for HA (no
     built-in replication) and for a multi-tenant MSP's scale, so PostgreSQL support is the
     prerequisite, not HA itself. Large, invasive changes (every `Store` implementation, every
     query) — ordered last among the concrete features because nothing above *needs* them yet.
-15. **Policy enforcement (NAC): DENIS observes and alerts, it does not block.** *(effort: 10/10)* Kept last
+16. **Policy enforcement (NAC): DENIS observes and alerts, it does not block.** *(effort: 10/10)* Kept last
     deliberately: this is a different product category (active network control, not passive
     visibility) with a much larger blast radius when it gets something wrong (a false positive
     blocks a real device, not just a false alert) — worth a deliberate product decision before any

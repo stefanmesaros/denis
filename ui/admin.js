@@ -1464,11 +1464,11 @@ $('ai-save').onclick = async () => {
   if (r.ok) loadAiBox();
 };
 
-const CMDB_SOURCE_LABEL = (source) => (source === 'intune' ? tr('Intune') : source === 'ad' ? tr('Active Directory') : tr('Entra ID'));
+const CMDB_SOURCE_LABEL = (source) => (source === 'intune' ? tr('Intune') : source === 'ad' ? tr('Active Directory') : source === 'jamf' ? tr('Jamf Pro') : tr('Entra ID'));
 
 async function loadCmdbBox() {
   if (!can('admin')) return;
-  const [s, a, d] = await Promise.all([api('GET', '/api/cmdb/settings'), api('GET', '/api/ad/settings'), api('GET', '/api/cmdb/devices')]);
+  const [s, a, j, d] = await Promise.all([api('GET', '/api/cmdb/settings'), api('GET', '/api/ad/settings'), api('GET', '/api/jamf/settings'), api('GET', '/api/cmdb/devices')]);
   if (s.ok) {
     $('cmdb-enabled').checked = s.json.enabled;
     $('cmdb-tenant').value = s.json.tenant_id || '';
@@ -1488,6 +1488,15 @@ async function loadCmdbBox() {
     $('ad-bind-password').value = '';
     $('ad-bind-password').placeholder = a.json.bind_password_set ? tr('(unchanged)') : '';
     $('ad-password-status').textContent = a.json.bind_password_set ? tr('A bind password is saved.') : tr('No bind password saved yet.');
+  }
+  if (j.ok) {
+    $('jamf-enabled').checked = j.json.enabled;
+    $('jamf-url').value = j.json.server_url || '';
+    $('jamf-client-id').value = j.json.client_id || '';
+    $('jamf-interval').value = j.json.sync_interval_hours || 24;
+    $('jamf-client-secret').value = '';
+    $('jamf-client-secret').placeholder = j.json.client_secret_set ? tr('(unchanged)') : '';
+    $('jamf-secret-status').textContent = j.json.client_secret_set ? tr('A client secret is saved.') : tr('No client secret saved yet.');
   }
   $('cmdb-devices').replaceChildren(...(d.ok ? d.json : []).map((dev) => {
     const asset = dev.matched_asset_id != null ? assetById(dev.matched_asset_id) : null;
@@ -1543,6 +1552,25 @@ $('ad-sync').onclick = async () => {
   const r = await api('POST', '/api/ad/sync');
   $('ad-sync').disabled = false;
   $('ad-msg').textContent = r.ok && r.json.ok ? tr('Imported {n} device(s).', { n: r.json.imported }) : (r.ok ? r.json.error : apiError(r));
+  if (r.ok && r.json.ok) loadCmdbBox();
+};
+$('jamf-save').onclick = async () => {
+  const r = await api('PUT', '/api/jamf/settings', {
+    enabled: $('jamf-enabled').checked,
+    server_url: $('jamf-url').value.trim(),
+    client_id: $('jamf-client-id').value.trim(),
+    sync_interval_hours: Number($('jamf-interval').value) || 24,
+    client_secret: $('jamf-client-secret').value,
+  });
+  $('jamf-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
+  if (r.ok) loadCmdbBox();
+};
+$('jamf-sync').onclick = async () => {
+  $('jamf-sync').disabled = true;
+  $('jamf-msg').textContent = tr('Syncing…');
+  const r = await api('POST', '/api/jamf/sync');
+  $('jamf-sync').disabled = false;
+  $('jamf-msg').textContent = r.ok && r.json.ok ? tr('Imported {n} device(s).', { n: r.json.imported }) : (r.ok ? r.json.error : apiError(r));
   if (r.ok && r.json.ok) loadCmdbBox();
 };
 
