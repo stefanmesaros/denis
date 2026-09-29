@@ -123,6 +123,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai/explain", post(ai_page::explain))
         .route("/api/ai/triage", post(ai_page::triage))
         .route("/api/ai/recommend", post(ai_page::recommend))
+        .route("/api/ai/summary", get(ai_page::summary))
         .route("/api/cmdb/settings", get(cmdb_page::get).put(cmdb_page::put))
         .route("/api/cmdb/sync", post(cmdb_page::sync))
         .route("/api/cmdb/devices", get(cmdb_page::devices))
@@ -1073,7 +1074,7 @@ mod tests {
         let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
         let auth = Arc::new(crate::auth::Auth::new(store.clone()));
         (
-            router(AppState { store: store.clone(), shared, loopback_only, allowed_hosts: vec![], auth, no_auth, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()) }),
+            router(AppState { store: store.clone(), shared, loopback_only, allowed_hosts: vec![], auth, no_auth, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()), ai_summary_generating: Arc::new(std::sync::atomic::AtomicBool::new(false)) }),
             store,
         )
     }
@@ -1595,6 +1596,41 @@ mod tests {
         assert_eq!(send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2["recommended_actions"], true);
         let (st, _, v) = send(&app, req("POST", "/api/ai/recommend", Some(&editor), Some(serde_json::json!({"id": "999999"})))).await;
         assert_eq!(st, StatusCode::NOT_FOUND, "{v}");
+    }
+
+    #[tokio::test]
+    async fn the_dashboard_ai_summary_is_read_only_and_never_calls_a_provider_from_a_request() {
+        let (app, store, [_, editor, admin]) = secured().await;
+
+        // nothing generated yet: empty text, not stale (there's nothing to be stale against), not available
+        let (st, _, v) = send(&app, req("GET", "/api/ai/summary", Some(&editor), None)).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(v["text"], "");
+        assert_eq!(v["available"], false);
+        assert_eq!(v["generating"], false);
+
+        // turning the feature on does not itself call a provider - the GET must still be instant
+        // and still return nothing generated, only now "available"
+        send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"keys": {"claude": "sk-ant-x"}, "default_provider": "claude", "enabled": true, "features": {"dashboard_summary": true}})))).await;
+        let (st, _, v) = send(&app, req("GET", "/api/ai/summary", Some(&editor), None)).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(v["text"], "", "reading the summary must never itself trigger generation");
+        assert_eq!(v["available"], true);
+
+        // a stored summary (as ai_summary::run would leave one) is served as-is, and "stale" once
+        // a newer alert exists than the one it was generated from - but the text is never blanked
+        let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 1, 2, 3]), 100);
+        store.save_asset(&mut a).unwrap();
+        let mut e = crate::model::Event { id: 0, agent_id: None, asset_id: a.id, kind: "new_port".into(), timestamp: 100, severity: "medium".into(), score: 50, acked: false, raw_details: serde_json::json!({"summary": "x"}) };
+        store.insert_event(&mut e).unwrap();
+        crate::ai_summary::test_save(&*store, "Network activity has been calm.", 1000, e.id - 1);
+        let (st, _, v) = send(&app, req("GET", "/api/ai/summary", Some(&editor), None)).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(v["text"], "Network activity has been calm.");
+        assert_eq!(v["stale"], true, "generated from an older alert stream than the one that exists now");
+
+        crate::ai_summary::test_save(&*store, "Network activity has been calm.", 1000, e.id);
+        assert_eq!(send(&app, req("GET", "/api/ai/summary", Some(&editor), None)).await.2["stale"], false);
     }
 
     #[test]
@@ -2326,7 +2362,7 @@ mod tests {
         let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
         store.create_user("vera", &crate::auth::hash_password("a-long-passphrase-1").unwrap(), "viewer", false, 0).unwrap();
         let app = router(AppState { store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: vec![],
-            auth: Arc::new(crate::auth::Auth::new(store.clone())), no_auth: false, secure_cookie: true, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()) });
+            auth: Arc::new(crate::auth::Auth::new(store.clone())), no_auth: false, secure_cookie: true, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()), ai_summary_generating: Arc::new(std::sync::atomic::AtomicBool::new(false)) });
         let (_, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "vera", "password": "a-long-passphrase-1"})))).await;
         assert!(h[header::SET_COOKIE].to_str().unwrap().contains("Secure"));
         let c = cookie_of(&h);
@@ -2635,7 +2671,7 @@ mod tests {
         let mk = |hosts: Vec<String>| router(AppState {
             store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: hosts,
             auth: Arc::new(crate::auth::Auth::new(store.clone())), no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store),
-            ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()),
+            ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()), ai_summary_generating: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         });
         let health = |host: &str| axum::http::Request::get("/api/health").header("host", host).body(Body::empty()).unwrap();
         let strict = mk(vec![]);
@@ -3444,7 +3480,7 @@ mod tests {
         let cfg = crate::passkey::Config { rp_id: "localhost".into(), origins: vec!["http://localhost:8080".into()] };
         *auth.passkey_cfg.lock().unwrap() = Some(cfg.clone());
         store.create_user("vera", &crate::auth::hash_password("a-long-passphrase-1").unwrap(), "viewer", false, 0).unwrap();
-        let app = router(AppState { store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()) });
+        let app = router(AppState { store: store.clone(), shared: crate::engine::test_shared(), loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()), ai_summary_generating: Arc::new(std::sync::atomic::AtomicBool::new(false)) });
         let (st, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": "vera", "password": "a-long-passphrase-1"})))).await;
         assert_eq!(st, StatusCode::OK);
         (app, store, cookie_of(&h), cfg)
@@ -3654,7 +3690,7 @@ mod tests {
         let shared = crate::engine::test_shared();
         // without TLS the API says so
         let auth = Arc::new(crate::auth::Auth::new(store.clone()));
-        let app_off = router(AppState { store: store.clone(), shared: shared.clone(), loopback_only: true, allowed_hosts: vec![], auth: auth.clone(), no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()) });
+        let app_off = router(AppState { store: store.clone(), shared: shared.clone(), loopback_only: true, allowed_hosts: vec![], auth: auth.clone(), no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()), ai_summary_generating: Arc::new(std::sync::atomic::AtomicBool::new(false)) });
         assert_eq!(send(&app_off, req("GET", "/api/tls", None, None)).await.2["enabled"], false);
         assert_eq!(send(&app_off, req("POST", "/api/tls/certificate", None, Some(serde_json::json!({"certificate": "x", "key": "y"})))).await.0, StatusCode::BAD_REQUEST);
         assert_eq!(app_off.clone().oneshot(req("GET", "/tls/ca.pem", None, None)).await.unwrap().status(), StatusCode::NOT_FOUND);
@@ -3667,7 +3703,7 @@ mod tests {
             let role = match u { "viewer" => "viewer", "editor" => "editor", _ => "admin" };
             store.create_user(u, &crate::auth::hash_password("a-long-passphrase-1").unwrap(), role, false, 0).unwrap();
         }
-        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()) });
+        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: false, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()), ai_summary_generating: Arc::new(std::sync::atomic::AtomicBool::new(false)) });
         let login = |u: &'static str| { let app = app.clone(); async move {
             let (_, h, _) = send(&app, req("POST", "/api/auth/login", None, Some(serde_json::json!({"username": u, "password": "a-long-passphrase-1"})))).await;
             cookie_of(&h)
@@ -4074,7 +4110,7 @@ mod tests {
             }
         });
         let auth = Arc::new(crate::auth::Auth::new(store.clone()));
-        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()) });
+        let app = router(AppState { store: store.clone(), shared, loopback_only: true, allowed_hosts: vec![], auth, no_auth: true, secure_cookie: false, license: crate::license::load(None, &*store), ipenrich: crate::ipenrich::test_service(store.clone()), api_limiter: Arc::new(common::ApiRateLimiter::new()), ai_summary_generating: Arc::new(std::sync::atomic::AtomicBool::new(false)) });
         let mk = |n: u8, ty: &str, vendor: &str| {
             let mut a = Asset::new(Mac([2, 0, 0, 0, 0, n]), 10);
             a.device_type = ty.into();

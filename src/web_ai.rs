@@ -26,6 +26,7 @@ pub struct PublicStatus {
     pub alert_explanations: bool,
     pub alert_triage: bool,
     pub recommended_actions: bool,
+    pub dashboard_summary: bool,
 }
 
 #[derive(Serialize)]
@@ -47,6 +48,7 @@ pub(crate) async fn status(State(st): State<AppState>) -> Result<Json<PublicStat
         alert_explanations: cfg.enabled && cfg.features.alert_explanations,
         alert_triage: cfg.enabled && cfg.features.alert_triage,
         recommended_actions: cfg.enabled && cfg.features.recommended_actions,
+        dashboard_summary: cfg.enabled && cfg.features.dashboard_summary,
     }))
 }
 
@@ -148,7 +150,7 @@ pub(crate) async fn explain(State(st): State<AppState>, Extension(AuthUser(me)):
             let ev = blocking(&store, move |s| s.get_event(id)).await?;
             let Some(ev) = ev else { return Ok(err(StatusCode::NOT_FOUND, "no such alert")) };
             let asset = blocking(&store, move |s| s.get_asset(ev.asset_id)).await?;
-            let label = asset.map(|a| device_label(&a)).unwrap_or_else(|| format!("device #{}", ev.asset_id));
+            let label = asset.map(|a| a.label()).unwrap_or_else(|| format!("device #{}", ev.asset_id));
             let d = &ev.raw_details;
             let summary = d["summary"].as_str().unwrap_or_default();
             let reasons: Vec<String> = d["reasons"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
@@ -221,7 +223,7 @@ pub(crate) async fn triage(State(st): State<AppState>, Extension(AuthUser(me)): 
     let ev = blocking(&store, move |s| s.get_event(id)).await?;
     let Some(ev) = ev else { return Ok(err(StatusCode::NOT_FOUND, "no such alert")) };
     let asset = blocking(&store, move |s| s.get_asset(ev.asset_id)).await?;
-    let label = asset.map(|a| device_label(&a)).unwrap_or_else(|| format!("device #{}", ev.asset_id));
+    let label = asset.map(|a| a.label()).unwrap_or_else(|| format!("device #{}", ev.asset_id));
     let d = &ev.raw_details;
     let summary = d["summary"].as_str().unwrap_or_default();
     let reasons: Vec<String> = d["reasons"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
@@ -278,7 +280,7 @@ pub(crate) async fn recommend(State(st): State<AppState>, Extension(AuthUser(me)
     let ev = blocking(&store, move |s| s.get_event(id)).await?;
     let Some(ev) = ev else { return Ok(err(StatusCode::NOT_FOUND, "no such alert")) };
     let asset = blocking(&store, move |s| s.get_asset(ev.asset_id)).await?;
-    let label = asset.map(|a| device_label(&a)).unwrap_or_else(|| format!("device #{}", ev.asset_id));
+    let label = asset.map(|a| a.label()).unwrap_or_else(|| format!("device #{}", ev.asset_id));
     let d = &ev.raw_details;
     let summary = d["summary"].as_str().unwrap_or_default();
     let reasons: Vec<String> = d["reasons"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
@@ -300,11 +302,36 @@ pub(crate) async fn recommend(State(st): State<AppState>, Extension(AuthUser(me)
     }
 }
 
-fn device_label(a: &crate::model::Asset) -> String {
-    let name = a.hostnames.iter().chain(a.fingerprint.mdns_names.iter()).find(|h| h.len() != 36 && h.len() != 32).cloned();
-    let ip = a.current_ip().map(|ip| ip.to_string()).unwrap_or_default();
-    match name {
-        Some(n) => format!("{n} ({ip})"),
-        None => format!("{} {ip}", a.device_type),
-    }
+#[derive(Serialize)]
+pub struct SummaryResp {
+    text: String,
+    generated_at: i64,
+    /// Whether `text` was generated from an older alert stream than the one that exists right
+    /// now — the dashboard still shows `text` either way (AI.md section 10: never blank just
+    /// because generation is pending), this only changes whether it also says "Updating…".
+    stale: bool,
+    /// The background job (`ai_summary::run`) is actively calling a provider right now.
+    generating: bool,
+    /// Whether the feature is even on — mirrors `PublicStatus.dashboard_summary`, repeated here so
+    /// the dashboard can render from this one response alone.
+    available: bool,
+}
+
+/// Read-only: the dashboard's own AI summary, exactly as `ai_summary::run` last stored it. This
+/// handler never calls a provider itself — see that module's own doc for why (AI.md section 6 is
+/// explicit that opening or refreshing the dashboard must never trigger AI generation).
+pub(crate) async fn summary(State(st): State<AppState>) -> Result<Json<SummaryResp>, ApiError> {
+    let store = st.store.clone();
+    let (cfg, record, version) = blocking(&store, |s| {
+        Ok((crate::ai::load(s)?, crate::ai_summary::load(s)?, crate::ai_summary::current_version(s)?))
+    })
+    .await?;
+    let available = cfg.enabled && cfg.features.dashboard_summary;
+    Ok(Json(SummaryResp {
+        text: record.text,
+        generated_at: record.generated_at,
+        stale: record.source_state_version != version,
+        generating: st.ai_summary_generating.load(std::sync::atomic::Ordering::SeqCst),
+        available,
+    }))
 }

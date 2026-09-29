@@ -801,6 +801,7 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
             license,
             ipenrich,
             api_limiter: Arc::new(web::common::ApiRateLimiter::new()),
+            ai_summary_generating: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         },
     )
     .await?;
@@ -1030,6 +1031,8 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     tasks.push(tokio::spawn(crate::cmdb::run(store.clone())));
     tasks.push(tokio::spawn(crate::ad::run(store.clone())));
     tasks.push(tokio::spawn(crate::jamf::run(store.clone())));
+    let ai_summary_generating = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    tasks.push(tokio::spawn(crate::ai_summary::run(store.clone(), ai_summary_generating.clone())));
     // scheduled backups of the database
     tasks.push(tokio::spawn(crate::backups::run(store.clone(), cfg.collector.db.clone(), cfg.backup_upstream.clone())));
     // a low-severity alert 30 days before a commercial license expires, a higher-severity one
@@ -1200,6 +1203,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
         license: crate::license::load(cfg.license_file.as_deref(), &*store),
         ipenrich: ipenrich.clone(),
         api_limiter: Arc::new(web::common::ApiRateLimiter::new()),
+        ai_summary_generating,
     };
     let scheme = if tls.is_some() { "https" } else { "http" };
     tracing::info!("web UI on {scheme}://{}", cfg.listen);

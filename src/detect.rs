@@ -52,6 +52,20 @@ pub const RULES: &[&str] = &[
     RULE_OT_WATCH, RULE_OT_ESCALATION, RULE_IT_WATCH, RULE_LAN_SCAN, RULE_NEW_DESTINATION_V6,
 ];
 
+/// Alertable event kinds that are not in `RULES`: each borrows another rule's own weight/min-score
+/// (`arp_mismatch` folds into `RULE_ARP`'s scoring, `agent_offline` into `RULE_SILENT`'s — see where
+/// each is raised in `Detector`) rather than being independently configurable, so they have no
+/// `--rule-weight` entry of their own. They are still real alert kinds a device-scoped exception can
+/// name, since `Overrides::excepted` (rules.rs) filters by the raw event kind string regardless of
+/// `RULES` membership — `rules.rs`'s own settings validation must accept these two for `exceptions`
+/// even though it rejects them for `weights`/`min_scores`, which genuinely only apply to `RULES`.
+pub const EXTRA_ALERTABLE_KINDS: &[&str] = &["arp_mismatch", "agent_offline"];
+
+/// Every event kind an alert can actually be raised under: `RULES` plus `EXTRA_ALERTABLE_KINDS`.
+pub fn is_alertable_kind(kind: &str) -> bool {
+    RULES.contains(&kind) || EXTRA_ALERTABLE_KINDS.contains(&kind)
+}
+
 /// Every event kind that can be raised as an alert, with what the person who
 /// receives it should do next. Shown in the UI beside the alert. Kept next to
 /// the rules so a new rule cannot be added without saying what to do about it
@@ -3109,7 +3123,7 @@ mod tests {
 
     #[test]
     fn every_alertable_kind_comes_with_advice() {
-        for r in RULES.iter().chain(["arp_mismatch", "agent_offline"].iter()) {
+        for r in RULES.iter().chain(EXTRA_ALERTABLE_KINDS.iter()) {
             let a = advice(r).unwrap_or_else(|| panic!("no advice for {r}"));
             assert!(a.len() > 40, "{r}: advice too thin");
         }

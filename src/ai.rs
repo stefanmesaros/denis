@@ -47,6 +47,13 @@ pub struct AiFeatures {
     /// one alert, on click. Independent of the other two — DENIS never acts on this list itself.
     #[serde(default)]
     pub recommended_actions: bool,
+    /// The dashboard's AI summary (see `ai_summary.rs`): unlike the three above, this is never
+    /// generated on click — a background job regenerates it on its own schedule when recent alert
+    /// activity moves on, and the dashboard only ever reads what is already stored (AI.md section
+    /// 6 calls this a hard requirement). Off means the background job makes zero API calls, same
+    /// as `AiConfig.enabled` off.
+    #[serde(default)]
+    pub dashboard_summary: bool,
 }
 
 /// One API key per provider an administrator has set up, and which one the "Explain" button
@@ -329,6 +336,49 @@ pub fn finding_prompt(title: &str, why: &str, fix: &str, device_count: usize) ->
     format!("Standing finding: {title}\nWhy it matters (already known to the administrator): {why}\nSuggested fix (already known): {fix}\nAffects {device_count} device(s) right now.")
 }
 
+/// The dashboard summary's own system prompt (AI.md section 5): a short overview, not a chat, and
+/// never a restatement of the raw counts already visible on the dashboard around it.
+const SUMMARY_SYSTEM_PROMPT: &str = "You are writing a short \"AI Security Summary\" card for the dashboard of DENIS, \
+a network monitoring tool, summarizing roughly the last 24 hours of alert activity for a network administrator. \
+You are given alert counts by severity and a handful of the most significant individual alerts (their type, \
+severity, score, device and summary) — nothing else about their network. In 2-5 short sentences: describe the \
+overall state (calm, or not), name the most significant change if there is one, and note anything that plausibly \
+deserves a look. Do not turn this into a chatbot reply or a bullet-point restatement of the counts already shown \
+elsewhere on the dashboard. Do not invent facts not given to you; if nothing significant happened, say so plainly \
+and briefly.";
+
+/// Ask one provider to write the dashboard summary for `prompt` (already built by
+/// `dashboard_summary_prompt`). Free-form prose, same shape as `explain`.
+pub fn summarize(cfg: &AiConfig, provider: &str, prompt: &str) -> Result<String> {
+    ask(cfg, provider, SUMMARY_SYSTEM_PROMPT, prompt)
+}
+
+/// One alert named individually in the summary prompt, most-significant-first.
+pub struct SummaryHighlight {
+    pub kind: String,
+    pub severity: String,
+    pub score: i32,
+    pub device_label: String,
+    pub summary: String,
+}
+
+/// The prompt for the dashboard summary: severity counts over the window plus the highest-scored
+/// individual alerts within it — never the raw alert stream, and never more than
+/// `highlights.len()` alerts named individually (the caller decides how many; see `ai_summary.rs`).
+pub fn dashboard_summary_prompt(window_hours: i64, by_severity: &[(&str, i64)], highlights: &[SummaryHighlight]) -> String {
+    let counts = by_severity.iter().filter(|(_, n)| *n > 0).map(|(sev, n)| format!("{n} {sev}")).collect::<Vec<_>>().join(", ");
+    let mut out = format!("Alert activity over the last {window_hours} hours: {}.\n", if counts.is_empty() { "none".to_string() } else { counts });
+    if highlights.is_empty() {
+        out.push_str("No individual alerts stand out enough to name.");
+    } else {
+        out.push_str("The most significant individual alerts:\n");
+        for h in highlights {
+            out.push_str(&format!("- [{}, score {}] {} on {}: {}\n", h.severity, h.score, h.kind, h.device_label, h.summary));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,5 +476,26 @@ mod tests {
     fn recommend_actions_needs_a_key_same_as_explain() {
         let cfg = AiConfig::default();
         assert!(recommend_actions(&cfg, "claude", "x", 1000).is_err());
+    }
+
+    #[test]
+    fn summary_needs_a_key_same_as_explain() {
+        let cfg = AiConfig::default();
+        assert!(summarize(&cfg, "claude", "x").is_err());
+    }
+
+    #[test]
+    fn the_summary_prompt_includes_counts_and_only_the_highlights_it_was_given() {
+        let h = [SummaryHighlight { kind: "new_destination".into(), severity: "medium".into(), score: 55, device_label: "Camera Kitchen (10.0.10.5)".into(), summary: "First contact with 3.113.81.30".into() }];
+        let p = dashboard_summary_prompt(24, &[("high", 0), ("medium", 1), ("low", 4)], &h);
+        assert!(p.contains("1 medium") && p.contains("4 low") && !p.contains("0 high"), "{p}");
+        assert!(p.contains("Camera Kitchen") && p.contains("First contact with 3.113.81.30"), "{p}");
+    }
+
+    #[test]
+    fn an_empty_window_says_so_plainly_rather_than_an_empty_list() {
+        let p = dashboard_summary_prompt(24, &[("high", 0), ("medium", 0), ("low", 0)], &[]);
+        assert!(p.contains("none"), "{p}");
+        assert!(p.contains("No individual alerts"), "{p}");
     }
 }

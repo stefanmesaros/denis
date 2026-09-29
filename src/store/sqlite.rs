@@ -745,6 +745,10 @@ impl EventStore for SqliteStore {
         let conn = self.conn();
         Ok(conn.execute("UPDATE events SET acked = ?2 WHERE id = ?1", params![id, acked])? == 1)
     }
+    fn latest_alert_id(&self) -> Result<i64> {
+        let conn = self.conn();
+        Ok(conn.query_row("SELECT COALESCE(MAX(id), 0) FROM events WHERE severity <> 'info'", [], |r| r.get(0))?)
+    }
     fn prune_events(&self, before: i64) -> Result<usize> {
         let conn = self.conn();
         Ok(conn.execute("DELETE FROM events WHERE timestamp < ?1", [before])?)

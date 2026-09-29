@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.34.0: Dashboard AI summary (step 5), and a real exceptions bug
+
+* **A new "AI Security Summary" card on the dashboard**: a short, plain-language overview of the
+  last day's alert activity, generated entirely by a background job — never by opening or
+  refreshing the dashboard, which only ever reads what is already stored. The job wakes every 10
+  minutes, checks whether the alert stream has moved on since the last summary, and if so (and
+  only if the feature is on) generates exactly one new summary from severity counts plus the
+  highest-scored individual alerts in the window — never the raw alert stream. A burst of alerts
+  inside one 10-minute window still produces at most one AI call. The card always shows the last
+  valid summary, with "Generated 8 minutes ago", even while a new one is being written or a
+  generation attempt has failed — it is never left blank. Its own independent Settings → AI →
+  Features toggle, off by default.
+* **Fix: adding an exception for an "Agent offline" alert failed with `unknown rule "agent_offline"`.**
+  `agent_offline` (and `arp_mismatch`) are real alertable event kinds — each borrows another
+  rule's own scoring weight rather than having one of its own, so neither was ever added to the
+  formal `RULES` list, but the actual exception-filtering logic (`notify.rs`) matches by the raw
+  event kind regardless of `RULES` membership. The settings validation for `exceptions`
+  specifically was checking `RULES` membership too strictly, rejecting a device-scoped exception
+  on either kind even though it was already meaningful and already worked once saved.
+  `weights`/`min_scores` are unaffected — those genuinely only apply to `RULES`.
+
 ## 2.33.0: AI recommended actions (step 4), and two real AI bugs found live
 
 * **A new "Recommended actions" button on alerts**: a short, advisory list of 1–8 concrete next

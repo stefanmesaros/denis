@@ -218,6 +218,19 @@ impl Asset {
             .max_by_key(|r| r.last_seen)
             .map(|r| r.ip)
     }
+
+    /// A short human label for this device: its best-guess name and current IP, or a fallback
+    /// built from its device type. Excludes hostnames/mDNS names that are actually a bare
+    /// MAC-derived or UUID identifier (36 or 32 characters) rather than something a person chose
+    /// or a device advertised as its own name.
+    pub fn label(&self) -> String {
+        let name = self.hostnames.iter().chain(self.fingerprint.mdns_names.iter()).find(|h| h.len() != 36 && h.len() != 32).cloned();
+        let ip = self.current_ip().map(|ip| ip.to_string()).unwrap_or_default();
+        match name {
+            Some(n) => format!("{n} ({ip})"),
+            None => format!("{} {ip}", self.device_type),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

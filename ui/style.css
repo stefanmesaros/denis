@@ -320,6 +320,13 @@ tr.row-warn td { background: color-mix(in srgb, var(--warn) 10%, transparent); }
 .card b { display: block; font-size: 22px; color: var(--text); }
 .card.clickable { cursor: pointer; transition: border-color .1s, box-shadow .1s, transform .1s; }
 .card.clickable:hover { border-color: var(--accent); box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 16%, transparent); transform: translateY(-1px); }
+/* The dashboard's AI summary card: reuses `.card`'s panel/border look but overrides its
+   small-stat-tile sizing (min-width/font-size meant for the 12 KPI tiles) since this is a
+   full-width paragraph, not a number. */
+.ai-summary { min-width: 0; width: 100%; font-size: 13px; margin: 0 0 14px; box-sizing: border-box; }
+.ai-summary h3 { margin: 0 0 6px; }
+.ai-summary p { margin: 0 0 4px; color: var(--text); }
+.ai-summary p:last-child { margin-bottom: 0; }
 /* the Dashboard's 12 KPI tiles: a fixed column count (always a divisor of 12) instead of
    `.cards`'s own flex-wrap, so every row is completely full edge-to-edge at any width instead of
    trailing off into blank space when a row doesn't happen to fill on its own. */

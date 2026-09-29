@@ -8,6 +8,7 @@ pub mod access;
 pub mod active;
 pub mod agent;
 pub mod ai;
+pub mod ai_summary;
 pub mod auth;
 pub mod banners;
 pub mod backups;

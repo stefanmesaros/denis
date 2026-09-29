@@ -165,6 +165,11 @@ pub trait EventStore: Send + Sync {
     fn get_event(&self, id: i64) -> Result<Option<Event>>;
     /// Events with `id > after`, oldest first: the export cursor's view.
     fn events_after(&self, after: i64, limit: usize) -> Result<Vec<Event>>;
+    /// The highest alert id that exists (0 if none) — insertion order, not `timestamp`: an agent
+    /// can report buffered or backfilled events whose own timestamp is older than an alert already
+    /// stored, so `id` is the only field that is actually monotonic. Used by `ai_summary` as the
+    /// "has anything new happened" version marker.
+    fn latest_alert_id(&self) -> Result<i64>;
     /// Returns false if no such event.
     fn set_event_acked(&self, id: i64, acked: bool) -> Result<bool>;
     /// Delete events older than `before`; returns how many. Part of the general data-retention

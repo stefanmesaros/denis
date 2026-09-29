@@ -41,6 +41,9 @@ pub struct AppState {
     /// Throttles `Bearer dnt_` API-token traffic (brute-forced tokens per source IP, and a request
     /// quota per valid token) — see `ApiRateLimiter`'s own doc for why this exists.
     pub api_limiter: Arc<ApiRateLimiter>,
+    /// Set by `ai_summary::run` while it is actually calling a provider, so the summary endpoint
+    /// can tell a reader "Updating…" instead of just "stale" — never set from a request handler.
+    pub ai_summary_generating: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Rate-limits Bearer `dnt_` API-token traffic on the console/admin API. Mirrors `ingest.rs`'s own

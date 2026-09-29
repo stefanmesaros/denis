@@ -889,6 +889,23 @@ function renderDashboard() {
   $('dash-findings-empty').hidden = topFindings.length > 0;
 
   loadDashboardTrends();
+  loadAiSummaryCard();
+}
+
+/** The dashboard's own "AI Security Summary" card: read-only, never triggers generation itself
+ * (see ai_summary.rs's own doc for why) - just shows whatever the background job last stored. */
+async function loadAiSummaryCard() {
+  const r = await api('GET', '/api/ai/summary');
+  const card = $('ai-summary-card');
+  if (!r.ok || !r.json.available) { card.hidden = true; return; }
+  const d = r.json;
+  card.hidden = false;
+  $('ai-summary-text').textContent = d.text || (d.generating ? tr('Updating AI summary…') : tr('No summary yet — one will appear after the next check.'));
+  const meta = [];
+  if (d.generated_at) meta.push(tr('Generated {t}', { t: ago(d.generated_at) }));
+  if (d.generating) meta.push(tr('Updating AI summary…'));
+  else if (d.stale) meta.push(tr('Updated after significant network change'));
+  $('ai-summary-meta').textContent = meta.join(' · ');
 }
 
 /** The two trend charts (alerts raised, devices online) over the dashboard's own period picker —

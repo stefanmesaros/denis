@@ -644,7 +644,11 @@ impl Overrides {
                 }
                 "exceptions" => {
                     for (rule, list) in v.as_object().ok_or("exceptions must be an object")? {
-                        if !RULES.contains(&rule.as_str()) {
+                        // Unlike weights/min_scores, an exception can also name one of the two
+                        // alertable kinds that borrow another rule's scoring rather than having
+                        // their own (`arp_mismatch`, `agent_offline`) — see `is_alertable_kind`'s
+                        // own doc for why excepting them is still meaningful.
+                        if !crate::detect::is_alertable_kind(rule) {
                             return Err(format!("unknown rule {rule:?}"));
                         }
                         match list {
@@ -893,6 +897,13 @@ mod tests {
         // an emptied list removes the exception; null too
         o.patch(&json!({"exceptions": {"new_device": []}})).unwrap();
         assert!(o.exceptions.is_empty());
+        // "agent_offline"/"arp_mismatch" are real alert kinds (a device-scoped exception on one
+        // is meaningful - see is_alertable_kind's own doc) even though neither is in RULES itself
+        o.patch(&json!({"exceptions": {"agent_offline": [{"kind": "type", "value": "printer"}]}})).unwrap();
+        assert!(o.exceptions.contains_key("agent_offline"));
+        o.patch(&json!({"exceptions": {"arp_mismatch": [{"kind": "type", "value": "printer"}]}})).unwrap();
+        assert!(o.exceptions.contains_key("arp_mismatch"));
+        o.patch(&json!({"exceptions": {"agent_offline": null, "arp_mismatch": null}})).unwrap();
         let before = o.clone();
         let w = |extra: Value| {
             let mut base = json!({"id": "w2", "name": "n", "enabled": true, "proto": "any", "writes": true, "score": 50, "cooldown_minutes": 10});

@@ -45,7 +45,24 @@ already fits.
    only, matching the spec's explicit "do not automatically execute network changes." New
    `POST /api/ai/recommend` endpoint, alert-only (same reasoning as triage: findings already carry
    their own fixed `fix` text), enforced server-side same as the other two features.
-5-11: not started.
+5. **Dashboard AI summary** — done (2026-09-29). The architecturally distinct one of the three
+   (sections 5-10): unlike the click-driven features above, this is generated entirely by a
+   background job (`src/ai_summary.rs`), never by a request — opening or refreshing the dashboard
+   only ever reads what is already stored (`GET /api/ai/summary`), matching section 6's hard
+   requirement. The job wakes every 10 minutes (`CHECK_INTERVAL_SECS`), which doubles as the
+   debounce/aggregation window section 8 asks for: a burst of alerts inside one tick still produces
+   at most one AI call, on the next tick. Staleness is tracked by `SummaryRecord.source_state_version`
+   against `Store::latest_alert_id()` — the highest existing alert id, not its timestamp, since an
+   agent can report a buffered/backfilled alert whose own timestamp is older than one already
+   stored (found and fixed during manual testing: using `timestamp DESC` to find "the latest alert"
+   picked the wrong id against demo/replayed data, which is not always inserted in timestamp order).
+   The prompt is built from severity counts plus the highest-scored individual alerts in the last
+   24h (`ai::dashboard_summary_prompt`, `MAX_HIGHLIGHTS = 8`) — never the raw alert stream. A
+   `generating: Arc<AtomicBool>` on `AppState`, set only by the background job, lets the endpoint
+   report "Updating…" without needing to persist that as part of the stored record; the dashboard
+   always shows the last valid summary regardless (section 10: never blank while regeneration is
+   in flight or has failed).
+6-11: not started.
 
 ## Build order (explicit instruction, 2026-09-29)
 
