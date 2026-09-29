@@ -489,15 +489,57 @@ function renderSiteFilter() {
 
 const sevTag = (e) => el('span', { class: 'sev ' + e.severity, text: tr(e.severity) });
 
-/** Reason dropdown shown next to an unacknowledged alert's Acknowledge button. Left blank, the
- * one-click no-reason flow works exactly as before; a reason of "false_positive" or
- * "expected_behavior" prompts, after acknowledging, to also add an exception. */
-function reasonSelect(idPrefix) {
-  return el('select', { id: 'ack-reason-' + idPrefix, class: 'ack-reason', title: tr('Reason (optional)'), onclick: (ev) => ev.stopPropagation() },
-    el('option', { value: '', text: tr('reason…') }),
+/** Turns an "Acknowledge" button into an open dropdown right where the mouse already is, instead
+ * of a separate dialog: `onPick(reason)` (reason `null` for the explicit "No reason" entry) fires
+ * as soon as a real option is chosen. A dropdown swapped in for the click's duration only — not
+ * one sitting in the row from the moment it renders — on purpose: `renderAlerts()` rebuilds every
+ * row from scratch on each ~10s poll, so a dropdown that lived there the whole time could have its
+ * picked-but-not-yet-submitted value wiped under the user (the same class of bug findings.js had
+ * before its own poll-diffing fix); swapped in only for the few seconds of this one interaction,
+ * so there is nothing left for a poll to disturb once a choice is actually made; left idle (no
+ * choice made, no blur-revert either — a blur can fire for reasons that have nothing to do with
+ * the user abandoning the pick), the very next poll's rebuild puts the row back to normal anyway. */
+function ackReasonPicker(button, onPick) {
+  const sel = el('select', {
+    onclick: (ev) => ev.stopPropagation(),
+    onchange: () => { const v = sel.value; if (v) onPick(v === 'none' ? null : v); },
+  },
+    el('option', { value: '', text: tr('Select reason…'), selected: true, disabled: true }),
+    el('option', { value: 'none', text: tr('No reason') }),
     el('option', { value: 'resolved', text: tr('Resolved') }),
     el('option', { value: 'false_positive', text: tr('False positive') }),
     el('option', { value: 'expected_behavior', text: tr('Expected behavior') }));
+  button.replaceWith(sel);
+  sel.focus();
+  if (sel.showPicker) { try { sel.showPicker(); } catch (e) { /* needs a direct user gesture; the surrounding click already is one, but ignore if a browser still refuses */ } }
+}
+
+/** The Acknowledge/Undo button for one alert row. */
+function ackButton(e) {
+  const btn = el('button', {
+    type: 'button', text: e.acked ? tr('Undo') : tr('Acknowledge'),
+    onclick: (ev) => {
+      ev.stopPropagation();
+      if (e.acked) { ack(e.id, false); return; }
+      ackReasonPicker(btn, (reason) => ackWithReasonPrompt(e, reason));
+    },
+  });
+  return btn;
+}
+
+/** The "Acknowledge all (N)" button on a repeated-alert group's header row. */
+function ackAllButton(g) {
+  const btn = el('button', {
+    type: 'button', text: tr('Acknowledge all ({n})', { n: g.filter((e) => !e.acked).length }),
+    onclick: (ev) => {
+      ev.stopPropagation();
+      ackReasonPicker(btn, async (reason) => {
+        await api('POST', '/api/alerts/ack-bulk', { ids: g.filter((e) => !e.acked).map((e) => e.id), reason: reason || undefined });
+        refresh();
+      });
+    },
+  });
+  return btn;
 }
 
 /** One alert's row, exactly as before grouping existed: used both for a singleton and for each
@@ -507,7 +549,6 @@ function alertRow(e, extraClass) {
   const d = e.raw_details || {};
   const site = e.agent_id ? ' · ' + siteName(e.agent_id) : '';
   const canBulk = can('editor');
-  const reasonSel = e.acked ? null : reasonSelect(e.id);
   return el('tr', { class: (e.acked ? 'acked ' : '') + (extraClass || ''), onclick: () => showAlert(e, a) },
     el('td', { onclick: (ev) => ev.stopPropagation(), hidden: !canBulk }, canBulk ? el('input', {
       type: 'checkbox', checked: state.selectedAlerts.has(e.id),
@@ -520,10 +561,7 @@ function alertRow(e, extraClass) {
     el('td', { text: deviceLabel(a, '#' + e.asset_id) + site }),
     el('td', { class: 'wrap' }, el('div', { text: d.summary || '' }),
       (d.reasons || []).length ? el('div', { class: 'why', text: d.reasons.join(' · ') }) : null),
-    el('td', { class: 'row-actions' }, reasonSel, el('button', {
-      type: 'button', text: e.acked ? tr('Undo') : tr('Acknowledge'),
-      onclick: (ev) => { ev.stopPropagation(); e.acked ? ack(e.id, false) : ackWithReasonPrompt(e, reasonSel.value); },
-    }), can('admin') ? el('button', {
+    el('td', { class: 'row-actions' }, ackButton(e), can('admin') ? el('button', {
       type: 'button', text: tr('Add exception'), title: exceptionLabel(e),
       onclick: async (ev) => {
         ev.stopPropagation();
@@ -594,7 +632,6 @@ function renderAlerts() {
     const a = assetById(newest.asset_id);
     const d = newest.raw_details || {};
     const site = newest.agent_id ? ' · ' + siteName(newest.agent_id) : '';
-    const groupReasonSel = g.some((e) => !e.acked) ? reasonSelect('group-' + gkey) : null;
     const header = el('tr', { class: 'alert-group-head' + (newest.acked ? ' acked' : ''), onclick: () => { open ? state.expandedAlertGroups.delete(gkey) : state.expandedAlertGroups.add(gkey); renderAlerts(); } },
       el('td', { onclick: (ev) => ev.stopPropagation(), hidden: !can('editor') }),
       el('td', { class: 'time-cell', title: fmtTime(newest.timestamp) }, el('div', { text: ago(newest.timestamp) }), el('div', { class: 'muted small', text: fmtExact(newest.timestamp) })),
@@ -603,16 +640,7 @@ function renderAlerts() {
       el('td', { text: deviceLabel(a, '#' + newest.asset_id) + site }),
       el('td', { class: 'wrap' }, el('div', {}, el('span', { class: 'expand-caret', text: open ? '▾ ' : '▸ ' }), d.summary || ''),
         el('div', { class: 'muted small', text: tr('×{n}, recurring since {time}', { n: g.length, time: ago(oldest.timestamp) }) })),
-      el('td', { class: 'row-actions' }, groupReasonSel, g.some((e) => !e.acked) ? el('button', {
-        type: 'button', text: tr('Acknowledge all ({n})', { n: g.filter((e) => !e.acked).length }),
-        onclick: async (ev) => {
-          ev.stopPropagation();
-          ev.target.disabled = true;
-          const reason = groupReasonSel.value || undefined;
-          await api('POST', '/api/alerts/ack-bulk', { ids: g.filter((e) => !e.acked).map((e) => e.id), reason });
-          refresh();
-        },
-      }) : null, can('admin') ? el('button', {
+      el('td', { class: 'row-actions' }, g.some((e) => !e.acked) ? ackAllButton(g) : null, can('admin') ? el('button', {
         type: 'button', text: tr('Add exception'), title: exceptionLabel(newest),
         onclick: async (ev) => {
           ev.stopPropagation();

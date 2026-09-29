@@ -1,7 +1,7 @@
-# Acknowledge-with-reason and bulk acknowledge, Alerts page - ui/app.js's reasonSelect/
+# Acknowledge-with-reason and bulk acknowledge, Alerts page - ui/app.js's ackReasonPicker/
 # ackWithReasonPrompt/updateBulkAckBar, ui/index.html's #bulk-ack-bar.
-Reason (optional) || Grund (optional) || Raison (facultatif) || Motivo (opcional) || Dôvod (voliteľný)
-reason… || Grund… || raison… || motivo… || dôvod…
+Select reason… || Grund auswählen… || Choisir une raison… || Seleccionar motivo… || Vybrať dôvod…
+No reason || Kein Grund || Aucune raison || Sin motivo || Bez dôvodu
 Resolved || Behoben || Résolu || Resuelto || Vyriešené
 False positive || Fehlalarm || Faux positif || Falso positivo || Falošný poplach
 Expected behavior || Erwartetes Verhalten || Comportement attendu || Comportamiento esperado || Očakávané správanie

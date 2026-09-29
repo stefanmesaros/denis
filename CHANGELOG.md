@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.43.1: Fix: the Acknowledge reason could reset before it was picked
+
+* **Fix: the reason dropdown next to an alert's Acknowledge button could reset itself a few
+  seconds after being shown.** The Alerts page rebuilds every row from scratch on its ~10-second
+  poll, and a dropdown that had been sitting in the row the whole time lost anything picked but
+  not yet submitted, the same class of bug the Findings page had before its own poll-diffing fix.
+  Redesigned instead of just patched: clicking "Acknowledge" now turns the button itself into an
+  open dropdown right where the mouse already is (picking a reason submits immediately, no extra
+  step) rather than showing one from the moment the row renders — it exists only for the few
+  seconds of that one interaction, so there is nothing left for a poll to disturb. The same change
+  applies to a repeated-alert group's "Acknowledge all (N)" button.
+
 ## 2.43.0: A proactive rule suggestion on the Rules page
 
 * **A dismissible banner on the Rules page**: "Devices on your network are already reaching the
