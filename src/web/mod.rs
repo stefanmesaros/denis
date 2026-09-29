@@ -121,6 +121,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai", get(ai_page::status))
         .route("/api/ai/settings", get(ai_page::get).put(ai_page::put))
         .route("/api/ai/explain", post(ai_page::explain))
+        .route("/api/ai/triage", post(ai_page::triage))
         .route("/api/cmdb/settings", get(cmdb_page::get).put(cmdb_page::put))
         .route("/api/cmdb/sync", post(cmdb_page::sync))
         .route("/api/cmdb/devices", get(cmdb_page::devices))
@@ -1567,7 +1568,22 @@ mod tests {
         send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"default_provider": "claude", "enabled": true})))).await;
         let (st, _, v) = send(&app, req("POST", "/api/ai/explain", Some(&editor), Some(serde_json::json!({"kind": "alert", "id": e.id.to_string()})))).await;
         assert_eq!(st, StatusCode::FORBIDDEN, "{v}");
-        assert_eq!(send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2["providers"].as_array().unwrap().len(), 0, "the button stays hidden too, not just the endpoint refusing");
+        let status = send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2;
+        assert_eq!(status["alert_explanations"], false, "the button stays hidden too, not just the endpoint refusing");
+        assert!(!status["providers"].as_array().unwrap().is_empty(), "the provider itself is configured and AI is globally on - just this one feature is off");
+
+        // and triage, independently: off by default even once explanations is on
+        send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"default_provider": "claude", "enabled": true, "features": {"alert_explanations": true}})))).await;
+        let (st, _, v) = send(&app, req("POST", "/api/ai/triage", Some(&editor), Some(serde_json::json!({"id": e.id.to_string()})))).await;
+        assert_eq!(st, StatusCode::FORBIDDEN, "{v}");
+        assert_eq!(send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2["alert_triage"], false);
+
+        send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"default_provider": "claude", "enabled": true, "features": {"alert_explanations": true, "alert_triage": true}})))).await;
+        assert_eq!(send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2["alert_triage"], true);
+        // a real triage call still needs a live provider (this test suite has no network egress);
+        // ai::tests already covers parse_triage's own JSON validation without one
+        let (st, _, v) = send(&app, req("POST", "/api/ai/triage", Some(&editor), Some(serde_json::json!({"id": "999999"})))).await;
+        assert_eq!(st, StatusCode::NOT_FOUND, "{v}");
     }
 
     #[test]

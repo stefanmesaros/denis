@@ -713,6 +713,7 @@ function showAlert(e, a) {
     ipContextSection(d),
     advice ? el('div', {}, el('b', { text: tr('What to do') }), el('p', { text: tr(advice) })) : null,
     aiExplainButton('alert', e.id),
+    aiTriageButton(e.id),
     el('div', { class: 'row' },
       a ? el('button', { type: 'button', text: tr('Open device'), onclick: () => { $('msg-dialog').close(); showDetail(a.id); } }) : null,
       can('admin') ? el('button', {

@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.32.0: AI alert triage (step 3 of the AI assistant)
+
+* **A new "Triage with AI" button on alerts**, alongside the existing "Explain with AI": an
+  assessment (**likely benign** / **suspicious** / **requires investigation**) with a confidence
+  score, reasoning and a suggested next step — an *additional* signal shown next to DENIS's own
+  severity, never a replacement for it. On click only, same bar as alert explanations, sending the
+  same compact alert context (summary, scored reasons, device label) and nothing more.
+* Its own independent toggle in Settings → AI → Features, off by default, alongside the (now also
+  independent) alert-explanations toggle — enabling one never enables the other.
+* **The provider's answer is validated, not trusted.** `ai::parse_triage` extracts a JSON object
+  from the response (tolerant of markdown code fences or prose wrapped around it, since that's a
+  common way a model fails to follow "reply with JSON only") and checks the assessment against a
+  fixed set of three values — an assessment outside that set is a hard error, never guessed at,
+  so nothing downstream can be driven by text a provider invented. Confidence is clamped to `[0,1]`.
+* `GET /api/ai` now reports `alert_explanations`/`alert_triage` as independent flags rather than
+  overloading the single `providers` list as the on/off signal for one feature — the design that
+  worked for exactly one feature didn't scale to a second.
+
 ## 2.31.0: Settings → AI — a global switch and per-feature control (step 1 of the AI assistant)
 
 * **A dedicated Settings → AI page**, replacing the AI provider configuration that used to live

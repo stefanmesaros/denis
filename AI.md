@@ -25,7 +25,17 @@ already fits.
    fully off, and any explicit save from then on is respected as saved, never second-guessed.
 2. **Alert explanations** — done, as part of step 1 above (moving its toggle in, not building it
    new; the feature itself is unchanged).
-3-11: not started.
+3. **Alert triage** — done (2026-09-29). On click only, same bar as alert explanations, its own
+   independent `features.alert_triage` toggle. Returns a controlled assessment
+   (`likely_benign`/`suspicious`/`requires_investigation`), a confidence clamped to `[0,1]`,
+   reasoning and a recommended action — `ai::parse_triage` extracts and validates the provider's
+   JSON (tolerant of markdown-fenced or prose-wrapped JSON, never tolerant of an assessment outside
+   the fixed set, which fails outright rather than guessing). DENIS's own `severity`/`score` are
+   returned alongside, unchanged — nothing in this codebase ever writes a triage result back onto
+   an `Event`. `web_ai.rs`'s `status` endpoint now reports `alert_explanations`/`alert_triage` as
+   separate flags (previously the single `providers` array itself doubled as the explanations
+   on/off signal, which stopped scaling once a second feature needed its own independent gate).
+4-11: not started.
 
 ## Build order (explicit instruction, 2026-09-29)
 

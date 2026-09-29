@@ -14,15 +14,17 @@ use crate::model::now_ts;
 use crate::web::common::{blocking, ApiError, AppState, AuthUser};
 use crate::web_admin::{audit, err};
 
-/// What the "Explain" button needs: which providers it may offer, without ever seeing a key.
-/// Empty `providers` whenever AI is globally off or the alert-explanations feature itself is off —
-/// the button's own visibility logic (`!state.ai.providers.length` in `ui/admin.js`) already treats
-/// "no providers" as "nothing to show", so disabling either one hides the button with no UI change
-/// needed beyond this endpoint answering honestly.
+/// What a per-feature button needs: which providers it may offer, without ever seeing a key, and
+/// which capabilities are actually switched on right now — `providers` is empty whenever AI is
+/// globally off (nothing works regardless of a per-feature flag), so a caller can check either
+/// `providers.length` alone (any feature) or a specific flag (`alert_explanations`/`alert_triage`)
+/// together with it, and never needs to duplicate the enabled/feature logic client-side.
 #[derive(Serialize)]
 pub struct PublicStatus {
     pub providers: Vec<ProviderStatus>,
     pub default_provider: String,
+    pub alert_explanations: bool,
+    pub alert_triage: bool,
 }
 
 #[derive(Serialize)]
@@ -33,12 +35,17 @@ pub struct ProviderStatus {
 
 pub(crate) async fn status(State(st): State<AppState>) -> Result<Json<PublicStatus>, ApiError> {
     let cfg = blocking(&st.store, |s| crate::ai::load(s)).await?;
-    let providers = if cfg.enabled && cfg.features.alert_explanations {
+    let providers = if cfg.enabled {
         cfg.configured().into_iter().map(|id| ProviderStatus { id, name: crate::ai::provider_name(id) }).collect()
     } else {
         Vec::new()
     };
-    Ok(Json(PublicStatus { providers, default_provider: cfg.default_provider }))
+    Ok(Json(PublicStatus {
+        providers,
+        default_provider: cfg.default_provider,
+        alert_explanations: cfg.enabled && cfg.features.alert_explanations,
+        alert_triage: cfg.enabled && cfg.features.alert_triage,
+    }))
 }
 
 /// The administrator's configuration: which providers have a key (never the key itself).
@@ -165,6 +172,69 @@ pub(crate) async fn explain(State(st): State<AppState>, Extension(AuthUser(me)):
         Ok(Ok(text)) => {
             audit(&st, &me.username, "ai.explain", None, json!({"kind": b.kind, "provider": provider}));
             Ok(Json(ExplainResp { provider, text }).into_response())
+        }
+        Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
+        Err(_) => Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct TriageReq {
+    /// An alert's numeric event id, as text. Triage is alert-only (spec section 12) — findings
+    /// have no severity of their own for a triage assessment to sit alongside.
+    id: String,
+    #[serde(default)]
+    provider: Option<String>,
+}
+
+#[derive(Serialize)]
+struct TriageResp {
+    provider: &'static str,
+    /// DENIS's own severity/score, unchanged, shown alongside the AI assessment below so a caller
+    /// never has to separately re-fetch the alert to see both at once (spec: "both should remain
+    /// visible").
+    severity: String,
+    score: i32,
+    #[serde(flatten)]
+    result: crate::ai::TriageResult,
+}
+
+/// AI triage of one alert the caller can already see: a structured, *additional* assessment next
+/// to DENIS's own deterministic severity — never written back over it (see `ai::TriageResult`'s own
+/// doc). On click only, same bar as `explain`.
+pub(crate) async fn triage(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<TriageReq>) -> Result<Response, ApiError> {
+    let store = st.store.clone();
+    let now = now_ts();
+    let cfg = blocking(&store, |s| crate::ai::load(s)).await?;
+    if !cfg.enabled {
+        return Ok(err(StatusCode::FORBIDDEN, "AI is turned off in Settings → AI"));
+    }
+    if !cfg.features.alert_triage {
+        return Ok(err(StatusCode::FORBIDDEN, "the alert-triage AI feature is turned off in Settings → AI"));
+    }
+    let id: i64 = match b.id.parse() {
+        Ok(id) => id,
+        Err(_) => return Ok(err(StatusCode::BAD_REQUEST, "bad alert id")),
+    };
+    let ev = blocking(&store, move |s| s.get_event(id)).await?;
+    let Some(ev) = ev else { return Ok(err(StatusCode::NOT_FOUND, "no such alert")) };
+    let asset = blocking(&store, move |s| s.get_asset(ev.asset_id)).await?;
+    let label = asset.map(|a| device_label(&a)).unwrap_or_else(|| format!("device #{}", ev.asset_id));
+    let d = &ev.raw_details;
+    let summary = d["summary"].as_str().unwrap_or_default();
+    let reasons: Vec<String> = d["reasons"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
+    let prompt = crate::ai::alert_prompt(&ev.kind, ev.score, &ev.severity, summary, &reasons, &label);
+    let provider = b.provider.filter(|p| !p.is_empty()).unwrap_or(cfg.default_provider.clone());
+    let provider: &'static str = match crate::ai::PROVIDERS.iter().find(|p| **p == provider) {
+        Some(p) => p,
+        None => return Ok(err(StatusCode::BAD_REQUEST, "choose a configured provider")),
+    };
+    let cfg2 = cfg.clone();
+    let result = tokio::task::spawn_blocking(move || crate::ai::triage(&cfg2, provider, &prompt, now)).await;
+    match result {
+        Ok(Ok(result)) => {
+            audit(&st, &me.username, "ai.triage", None, json!({"alert_id": id, "provider": provider, "assessment": result.assessment}));
+            Ok(Json(TriageResp { provider, severity: ev.severity, score: ev.score, result }).into_response())
         }
         Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
         Err(_) => Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),

@@ -576,6 +576,8 @@
           <p class="muted small">Each is off by default and only ever calls the provider above for what it says below — nothing runs in the background unless its own description says so.</p>
           <label class="check"><input id="ai-feature-alert-explanations" type="checkbox"> Alert explanations</label>
           <p class="muted small">Adds an "Explain with AI" button to alerts and findings: one plain-language summary per click. Never automatic — only called when you click the button, sending only that one alert or finding's own summary, reasons and device label.</p>
+          <label class="check"><input id="ai-feature-alert-triage" type="checkbox"> Alert triage</label>
+          <p class="muted small">Adds a "Triage with AI" button to alerts: an assessment (likely benign / suspicious / requires investigation) alongside DENIS's own severity — never in place of it, and never automatic. Only called when you click the button, sending the same alert data as the explanation feature above.</p>
           <div class="row"><button id="ai-save" type="button" class="primary">Save</button><span id="ai-msg" class="muted"></span></div>
         </div>
         <div id="cmdb-box" hidden>
