@@ -237,6 +237,7 @@ impl Ingest {
                 events.extend(det.on_new_asset(a, now));
             }
             events.extend(det.ingest_flows(Some(&id), &report.flows, &*self.store, now));
+            events.extend(det.ingest_flows_v6(Some(&id), &report.flows_v6, &*self.store, now));
             events.extend(det.ingest_signals(Some(&id), &report.signals, &*self.store, now));
             events.extend(det.ingest_conversations(Some(&id), &report.conversations, &*self.store, now));
         }
@@ -453,6 +454,7 @@ mod tests {
             sent_at: 0,
             assets,
             flows,
+            flows_v6: vec![],
             signals: vec![],
             conversations: vec![],
         }
@@ -467,6 +469,10 @@ mod tests {
 
     fn flow(ts: i64, remote: [u8; 4]) -> FlowRecord {
         FlowRecord { mac: M, remote: Ipv4Addr::from(remote), proto: 6, port: 443, bytes_out: 1000, bytes_in: 1000, packets: 2, window_start: ts, window_secs: 10 }
+    }
+
+    fn flow_v6(ts: i64, remote: std::net::Ipv6Addr) -> crate::model::FlowRecordV6 {
+        crate::model::FlowRecordV6 { mac: M, remote, proto: 6, port: 443, bytes_out: 1000, bytes_in: 1000, packets: 2, window_start: ts, window_secs: 10 }
     }
 
     #[test]
@@ -521,6 +527,22 @@ mod tests {
         let alerts = store.list_events(&EventQuery { alerts_only: true, ..Default::default() }).unwrap();
         assert_eq!(alerts.len(), 1);
         assert_eq!(alerts[0].kind, "new_destination");
+        assert_eq!(alerts[0].agent_id.as_deref(), Some("site-b"));
+    }
+
+    #[test]
+    fn remote_ipv6_flows_drive_new_destination_v6_and_alerts_carry_the_agent_id() {
+        let (ing, store) = setup(1000);
+        let global: std::net::Ipv6Addr = "2001:db8::1".parse().unwrap();
+        let mut r1 = report(1, vec![asset(M, [10, 1, 0, 5])], vec![]);
+        r1.flows_v6 = vec![flow_v6(0, global)];
+        ing.apply(r1, 10).unwrap();
+        let mut r2 = report(2, vec![], vec![]);
+        r2.flows_v6 = vec![flow_v6(2000, "2606:2800:220:1:248:1893:25c8:1946".parse().unwrap())];
+        ing.apply(r2, 2010).unwrap();
+        let alerts = store.list_events(&EventQuery { alerts_only: true, ..Default::default() }).unwrap();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].kind, "new_destination_v6");
         assert_eq!(alerts[0].agent_id.as_deref(), Some("site-b"));
     }
 

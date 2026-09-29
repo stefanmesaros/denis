@@ -93,6 +93,45 @@ pub async fn icmp_sweep(hosts: &[Ipv4Addr], timeout: Duration) -> Result<usize> 
     Ok(answered)
 }
 
+/// The IPv6 analogue of `icmp_sweep` (opt-in, `--ipv6` — see IPV6.md): every `host` here was
+/// already learned passively (from some device's `ipv6_history`), so unlike `icmp_sweep` this
+/// never discovers anything new, only refreshes staleness. Replies are read back the same way,
+/// through the capture thread (`parse::parse_ndp`'s `Icmpv6::EchoReply` arm) rather than this
+/// function's own return value, which — like `icmp_sweep`'s — is only ever used for a log line.
+pub async fn icmp_sweep_v6(hosts: &[std::net::Ipv6Addr], timeout: Duration) -> Result<usize> {
+    let client = match Client::new(&Config::builder().kind(ICMP::V6).build()) {
+        Ok(c) => c,
+        Err(_) => Client::new(
+            &Config::builder()
+                .kind(ICMP::V6)
+                .sock_type_hint(socket2::Type::RAW)
+                .build(),
+        )
+        .context("creating ICMPv6 socket (need privileges or net.ipv4.ping_group_range)")?,
+    };
+    let sem = Arc::new(Semaphore::new(64));
+    let mut set = JoinSet::new();
+    let base = (std::process::id() & 0xffff) as u16;
+    for (i, ip) in hosts.iter().enumerate() {
+        let (client, sem, ip) = (client.clone(), sem.clone(), *ip);
+        set.spawn(async move {
+            let _permit = sem.acquire().await.ok()?;
+            let mut p = client
+                .pinger(IpAddr::V6(ip), PingIdentifier(base.wrapping_add(i as u16)))
+                .await;
+            p.timeout(timeout);
+            p.ping(PingSequence(0), &[0u8; 16]).await.ok()
+        });
+    }
+    let mut answered = 0;
+    while let Some(r) = set.join_next().await {
+        if matches!(r, Ok(Some(_))) {
+            answered += 1;
+        }
+    }
+    Ok(answered)
+}
+
 /// TCP connect scan of the curated common-port list. Bounded by `sem` so a
 /// whole-network scan stays well under the process fd limit (256 on macOS).
 pub async fn scan_host(ip: Ipv4Addr, sem: Arc<Semaphore>, timeout: Duration) -> Vec<OpenPort> {

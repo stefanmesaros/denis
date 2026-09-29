@@ -59,11 +59,14 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    original scoping — making `cmdb.rs`'s own pruning source-scoped, since it originally assumed it
    was the only writer to the imported-device table and would have deleted Active Directory's rows
    on its own next sync otherwise.
-6. **IPv6 in capture and the asset model.** *(effort: 7/10 remaining)* In progress (2026-09-29): the address-type-widening
-   groundwork is done and shipping — see IPV6.md for exactly what is and is not wired up yet
-   (currently: passive Neighbor Discovery, opt-in via `--ipv6`, off by default; no active discovery,
-   no flows/detection/CIDR-scope awareness of IPv6 yet). Full detailed scoping lives in IPV6.md, not
-   duplicated here, to avoid the two documents drifting out of sync with each other.
+6. **IPv6 in capture and the asset model.** *(effort: 3/10 remaining)* In progress (2026-09-29): passive
+   discovery, flow accounting with a first detection rule, remote-agent reporting, an active
+   liveness check for already-known addresses, and CSV/API exposure are all done and shipping,
+   opt-in via `--ipv6`/`--ipv6-subnet` — see IPV6.md for exactly what is and is not wired up yet.
+   What remains needs either real alert-noise/incident data to design well (rule parity, an
+   NDP-mismatch signal, conflict/gateway detection) or is a materially larger, separate mechanism
+   (full active discovery of brand-new addresses via multicast). Full detailed scoping lives in
+   IPV6.md, not duplicated here, to avoid the two documents drifting out of sync with each other.
 7. **CMDB import: Jamf (and similar MDM sources).** *(effort: 2/10)* Same shape as the Entra ID/Intune/Active
    Directory sources already built (own settings/credentials/schedule, upsert into the shared
    imported-device table, source-scoped pruning) — the smallest remaining item on this list, and a
@@ -153,8 +156,10 @@ year. This is what is still missing, in rough order. Pull requests welcome.
 * OpenObserve, syslog, Elasticsearch/OpenSearch and the chat/e-mail/PagerDuty/Jira/ServiceNow integrations
   against the real services (each is tested against a local fake server, not the genuine article).
 * Detections on real industrial traffic (verified with hand-built frames and replay).
-* IPv6 passive discovery (`--ipv6`) on a genuine dual-stack network — verified so far only with
-  hand-built frames (see IPV6.md).
+* IPv6 (`--ipv6`/`--ipv6-subnet`: passive discovery, flow accounting, the active liveness check)
+  on a genuine dual-stack network — verified so far only with hand-built frames and integration
+  tests against an in-process store, not real ICMPv6/NDP traffic or a real socket send (see
+  IPV6.md).
 * An independent penetration test.
 
 ## Notes on items already covered above

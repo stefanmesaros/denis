@@ -64,40 +64,57 @@ asking for it):**
   deliberately simpler for now (see below), sharing the *same* `Baseline.typical_destinations`/
   `typical_ports` maps as IPv4 (already generic, string-keyed) so one device's learning period and
   destination cap cover both address families together.
-* **Deliberately out of scope in this slice** (each a real, separate piece of work): no
-  rotation-burst suppression or `new_port` rule for IPv6 yet (the IPv4 versions exist because of
-  real alert-noise data this project doesn't have for IPv6 yet — a CDN/relay that hands out a
-  fresh IPv6 address per session may currently repeat-alert more than its IPv4 counterpart would);
-  no OT protocol decoding over IPv6 (no `parse_ot_v6`); the threat list and network watches
-  (`it_watch`) are still IPv4-address-shaped and do not see IPv6 flows; `lan_scan`'s breadth-based
-  logic has not been ported. Remote agents do not yet report IPv6 flows to a master (`Report` has
-  no `flows_v6` field) — only a local/embedded collector's own IPv6 flows are detected today.
+* **Remote-agent IPv6 flow reporting (2026-09-29).** `Report.flows_v6` (`#[serde(default)]`,
+  absent from an older agent's report, same convention as `signals`/`conversations`) and a second,
+  parallel spool in `agent::Reporter` (`spool_v6`, `SPOOL_MAX`/`BATCH_FLOWS`-bounded, drained and
+  re-sent unacknowledged exactly like the IPv4 spool — the same at-least-once guarantee, just for a
+  different record type). The master (`ingest.rs`) feeds `report.flows_v6` into
+  `Detector::ingest_flows_v6` exactly like the embedded collector's own path.
+* **Active liveness check (2026-09-29), the deliberately narrower half of active discovery.**
+  `active::icmp_sweep_v6` sends an ICMPv6 echo request to every *already known* global IPv6 address
+  (`Inventory::live_hosts_v6` — link-local addresses skipped, since routing one needs an interface
+  scope id; OT devices skipped, same rule as the IPv4 sweep). This can never find a brand-new
+  address — only real IPv6 active discovery (joining solicited-node multicast groups, item 1 below)
+  can — it only refreshes staleness for what passive discovery already found, the scope the person
+  running this project explicitly chose over the fuller mechanism when asked. The reply is folded
+  back through the ordinary passive path: `ipv6::Icmpv6::EchoReply` is a new recognised message
+  type, and `parse_ndp` trusts it without NDP's hop-limit-255 requirement (an ordinary ping reply
+  has no such guarantee — it is trusted the same bar as any other passively observed frame, since
+  every target was already one this device chose to probe).
+* **CSV export and the per-device baseline API (2026-09-29).** The Devices CSV gained an `ipv6`
+  column (every address, most recent first, semicolon-joined — the CSV counterpart of the device
+  panel's own list). The per-device baseline endpoint (`GET /api/assets/:id/baseline`) and its
+  reverse-DNS/GeoIP/ASN enrichment (`ipenrich::decorate`) needed **no code change at all**: both
+  already operate on `Baseline.typical_destinations`' plain string keys / `IpAddr` generically, so
+  an IPv6 destination `new_destination_v6` writes there was already exposed correctly — confirmed
+  with a new regression test, not just read as likely-fine.
+* **Deliberately out of scope still** (each a real, separate piece of work): no rotation-burst
+  suppression or `new_port` rule for IPv6 yet (the IPv4 versions exist because of real alert-noise
+  data this project doesn't have for IPv6 yet — a CDN/relay that hands out a fresh IPv6 address per
+  session may currently repeat-alert more than its IPv4 counterpart would); no OT protocol decoding
+  over IPv6 (no `parse_ot_v6`); the threat list and network watches (`it_watch`) are still
+  IPv4-address-shaped and do not see IPv6 flows; `lan_scan`'s breadth-based logic has not been
+  ported; no NDP equivalent of `arp_mismatch`; no IPv6 conflict/gateway-claim detection.
 
 **Not done, and why each is its own step, not a detail of the others:**
 
-1. **No active-discovery equivalent of the ARP sweep.** `active.rs` sweeps every address in a /24
-   with ARP; IPv6's address space makes that approach meaningless (a /64 has 2^64 addresses). The
-   real equivalent is joining the solicited-node multicast groups of addresses already learned
-   passively and/or sending Neighbor Solicitations for specific targets — a materially different
-   mechanism, not a drop-in replacement for `active::arp_sweep`.
+1. **No *full* active-discovery equivalent of the ARP sweep.** The liveness check above only
+   refreshes addresses already known; it cannot find a brand-new one. `active.rs` sweeps every
+   address in a /24 with ARP — IPv6's address space makes that literal approach meaningless (a /64
+   has 2^64 addresses). The real equivalent is joining the solicited-node multicast groups of
+   addresses already learned passively and/or sending Neighbor Solicitations for specific targets —
+   a materially different mechanism (raw multicast sockets, not just an unprivileged echo client),
+   deliberately not taken on together with the safer liveness check.
 2. **Rule parity with IPv4 flows.** `new_destination_v6` covers the single highest-value rule;
    rotation-burst suppression, `new_port`, OT-over-IPv6, the threat list and network watches seeing
-   IPv6, and `lan_scan` for IPv6 are each their own scoping decision (see above), not a mechanical
-   port — several need real alert-noise or incident data this project does not have yet for IPv6,
-   the same bar the IPv4 rotation-burst fix itself was held to (see the v2.20.0 roadmap entry).
-3. **Remote-agent IPv6 flow reporting.** `agent.rs`'s at-least-once spooling/re-send pipeline
-   (`Reporter.spool`, `SPOOL_MAX`, `BATCH_FLOWS`) is IPv4-`FlowRecord`-shaped; extending it to also
-   spool `FlowRecordV6` needs the same reliability guarantees, not just a wider `Report` struct —
-   deliberately not rushed alongside the master/embedded-collector path above.
-4. **CSV export and the API's read side are still IPv4-shaped for flows/destinations**
-   (`report.rs`'s CSV writer, per-device baseline endpoint's destination list). Real, separate work
-   once there is a reason an admin needs to see IPv6 flow data outside the device panel's raw
-   `ipv6_history` list.
-5. **No NDP equivalent of `arp_mismatch`.** A Source Link-Layer option that disagrees with the
-   frame's own Ethernet source is currently just dropped (see above), the safe default, but ARP's
-   `parse_arp` turns the IPv4 equivalent into a reported `Signal` instead of silence — worth adding
-   once there is a real incident to design the alert's wording against, not invented speculatively.
-6. **No IPv6 conflict/gateway-claim detection.** `Inventory::check_conflict` and `is_gateway` are
+   IPv6, and `lan_scan` for IPv6 are each their own scoping decision, not a mechanical port —
+   several need real alert-noise or incident data this project does not have yet for IPv6, the same
+   bar the IPv4 rotation-burst fix itself was held to (see the v2.20.0 roadmap entry).
+3. **No NDP equivalent of `arp_mismatch`.** A Source Link-Layer option that disagrees with the
+   frame's own Ethernet source is currently just dropped, the safe default, but ARP's `parse_arp`
+   turns the IPv4 equivalent into a reported `Signal` instead of silence — worth adding once there
+   is a real incident to design the alert's wording against, not invented speculatively.
+4. **No IPv6 conflict/gateway-claim detection.** `Inventory::check_conflict` and `is_gateway` are
    IPv4-`by_ip`-keyed; an IPv6 analogue (a Router Advertisement is the gateway signal, not ARP/DHCP)
    is new mechanism, not a type-widen, and is meaningfully lower-value than IPv4's version since
    IPv6 address conflicts are rare by design (SLAAC/DAD already prevent most of what IPv4's
@@ -105,17 +122,21 @@ asking for it):**
 
 ## Suggested order
 
-(1) and (2) are both substantial and can happen in either order; (2) specifically wants real
-alert-noise/incident data to design against, the same bar the IPv4 rotation-burst fix was held to,
-so it should not be rushed just to claim parity. (3) naturally follows once (2) has settled what a
-remote agent would even need to spool. (4), (5) and (6) are smaller, worth doing once there is a
-real need (an admin asking for IPv6 in CSV export, a real spoofing incident, a real gateway-claim
-question) to shape them against.
+(1) is the largest remaining piece and the only one that changes discovery's own reach (finding a
+device nobody has seen yet); do it once genuine dual-stack live-network verification is possible
+(see ROADMAP.md), not against hand-built frames alone, given how much more this touches (multicast
+group membership, raw sockets) than anything active/passive so far. (2), (3) and (4) all explicitly
+want real alert-noise or incident data to design well, the same bar already held elsewhere in this
+project — none of them should be invented speculatively just to claim completeness.
 
 ## What this is not
 
-This is not a claim that DENIS has full IPv6 support. Passive device discovery and IPv6 flow
-accounting with one detection rule (`new_destination_v6`) work, opt-in, verified with hand-built
-frames (unit tests, not yet a genuine dual-stack network — see ROADMAP.md's "Verification still
-owed"). Rule parity with IPv4, remote-agent reporting, active discovery, CSV/API exposure and
-conflict/gateway detection are all still IPv4-only or not started.
+This is not a claim that DENIS has full IPv6 support. Passive device discovery, IPv6 flow
+accounting with one detection rule (`new_destination_v6`), remote-agent reporting, an active
+liveness check for already-known addresses, and CSV/API exposure all work, opt-in, verified with
+hand-built frames and (for the master/agent and API paths) real integration tests — not yet a
+genuine dual-stack network, see ROADMAP.md's "Verification still owed". What is left: full
+active discovery of brand-new addresses, rule parity with IPv4 (rotation-burst, `new_port`,
+OT-over-IPv6, the threat list, network watches, `lan_scan`), an NDP-mismatch signal, and IPv6
+conflict/gateway detection — the last three of which need real incident data to design well, not
+just effort.

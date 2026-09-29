@@ -583,6 +583,10 @@ pub struct Report {
     pub sent_at: i64,
     pub assets: Vec<Asset>,
     pub flows: Vec<FlowRecord>,
+    /// IPv6 flows (opt-in, `--ipv6` with `--ipv6-subnet` — see IPV6.md). Absent from reports sent
+    /// by an agent built before this existed, same as `signals`/`conversations` below.
+    #[serde(default)]
+    pub flows_v6: Vec<FlowRecordV6>,
     /// Absent in reports from Phase 2 agents.
     #[serde(default)]
     pub signals: Vec<Signal>,

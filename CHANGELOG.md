@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.28.0: IPv6 — remote-agent reporting, an active liveness check, and CSV/API exposure
+
+* **Remote agents now report IPv6 flows to their master**, not just a local/embedded collector:
+  `agent::Reporter` gained a second, parallel spool (`spool_v6`) with the same bounded,
+  at-least-once, unacknowledged-until-acked delivery guarantee as the existing IPv4 one, and
+  `Report.flows_v6` carries them over the wire (absent from an older agent's report, same
+  convention as `signals`/`conversations`). The master feeds them into `new_destination_v6` exactly
+  like the embedded collector's own path already did.
+* **An active liveness check for IPv6** (`active::icmp_sweep_v6`): every scheduled sweep now also
+  sends an ICMPv6 echo to every *already known* global IPv6 address (skips link-local addresses —
+  routing one needs an interface scope id — and industrial devices, same rule as the IPv4 sweep).
+  Deliberately narrower than full active discovery: this can only refresh staleness for an address
+  already learned passively, never find a brand-new one (that needs joining solicited-node
+  multicast groups, a materially bigger mechanism — see IPV6.md). Chosen over the fuller mechanism
+  after asking directly: real packets on a real network is a meaningfully different risk than
+  everything shipped so far, so the safer, smaller option was picked on purpose, not by default.
+* **CSV export and the API already show IPv6 data.** The Devices CSV gained an `ipv6` column.
+  The per-device baseline endpoint and its reverse-DNS/GeoIP/ASN enrichment needed **no code
+  change at all** — both already work generically on `Baseline.typical_destinations`' plain string
+  keys, so an IPv6 destination was already exposed correctly; added a regression test to lock that
+  in rather than leave it merely assumed.
+* Also: the roadmap's IPv6 item now reads 3/10 effort remaining (down from 7/10 at the start of
+  this work) — what's left needs either real alert-noise/incident data to design well (rule parity
+  with IPv4, an NDP-mismatch signal, conflict/gateway detection) or is a materially larger
+  mechanism (full active discovery via multicast). See IPV6.md for the complete accounting.
+
 ## 2.27.0: IPv6 flow accounting and its first detection rule, opt-in
 
 * **DENIS can now account IPv6 traffic and raise its first IPv6-aware alert**, behind the new

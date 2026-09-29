@@ -13,7 +13,7 @@ use anyhow::{bail, Context, Result};
 use tokio::sync::mpsc;
 
 use crate::inventory::Inventory;
-use crate::model::{now_ts, AgentMeta, ConvRecord, FlowBatch, FlowRecord, Report, ReportAck, Signal};
+use crate::model::{now_ts, AgentMeta, ConvRecord, FlowBatch, FlowRecord, FlowRecordV6, Report, ReportAck, Signal};
 
 /// Flow windows held while the master is unreachable (~ hours at typical rates).
 pub const SPOOL_MAX: usize = 200_000;
@@ -66,6 +66,11 @@ pub struct Reporter {
     seq: u64,
     last_rev: u64,
     spool: VecDeque<FlowRecord>,
+    /// IPv6 flows (opt-in, `--ipv6` with `--ipv6-subnet`): a separate spool, not a widened one,
+    /// mirroring the parallel `FlowRecordV6` type itself (see IPV6.md) - same at-least-once
+    /// delivery guarantee (bounded, oldest-dropped-first, batched, unacked-until-`on_ack`) as the
+    /// IPv4 spool, just for a different record type.
+    spool_v6: VecDeque<FlowRecordV6>,
     convs: VecDeque<ConvRecord>,
     signals: VecDeque<Signal>,
     pub dropped: u64,
@@ -84,6 +89,7 @@ impl Reporter {
             seq: 0,
             last_rev: 0,
             spool: VecDeque::new(),
+            spool_v6: VecDeque::new(),
             convs: VecDeque::new(),
             signals: VecDeque::new(),
             dropped: 0,
@@ -99,6 +105,16 @@ impl Reporter {
                 self.dropped += 1;
             }
             self.spool.push_back(f);
+        }
+    }
+
+    pub fn spool_v6(&mut self, flows: Vec<FlowRecordV6>) {
+        for f in flows {
+            if self.spool_v6.len() >= SPOOL_MAX {
+                self.spool_v6.pop_front();
+                self.dropped += 1;
+            }
+            self.spool_v6.push_back(f);
         }
     }
 
@@ -132,11 +148,13 @@ impl Reporter {
         if self.pending.is_none() {
             let (assets, rev) = inv.lock().unwrap().changed_since(self.last_rev);
             let take = self.spool.len().min(BATCH_FLOWS);
+            let take_v6 = self.spool_v6.len().min(BATCH_FLOWS);
             let heartbeat_due = self.last_sent.is_none_or(|t| t.elapsed() >= HEARTBEAT);
-            if assets.is_empty() && take == 0 && self.signals.is_empty() && self.convs.is_empty() && !heartbeat_due {
+            if assets.is_empty() && take == 0 && take_v6 == 0 && self.signals.is_empty() && self.convs.is_empty() && !heartbeat_due {
                 return None;
             }
             let flows: Vec<FlowRecord> = self.spool.drain(..take).collect();
+            let flows_v6: Vec<FlowRecordV6> = self.spool_v6.drain(..take_v6).collect();
             let signals: Vec<Signal> = self.signals.drain(..).collect();
             let conversations: Vec<ConvRecord> = self.convs.drain(..self.convs.len().min(BATCH_CONVS)).collect();
             self.seq += 1;
@@ -148,6 +166,7 @@ impl Reporter {
                     sent_at: now,
                     assets,
                     flows,
+                    flows_v6,
                     signals,
                     conversations,
                 },
@@ -279,6 +298,7 @@ pub async fn run(
         tokio::select! {
             Some(batch) = flow_rx.recv() => {
                 rep.spool(batch.flows);
+                rep.spool_v6(batch.flows_v6);
                 rep.spool_convs(batch.convs);
             }
             Some(sigs) = signal_rx.recv() => rep.spool_signals(sigs),
@@ -337,6 +357,20 @@ mod tests {
         FlowRecord { mac: Mac([2, 0, 0, 0, 0, 1]), remote: Ipv4Addr::new(1, 1, 1, i), proto: 6, port: 443, bytes_out: 1, bytes_in: 1, packets: 1, window_start: 0, window_secs: 10 }
     }
 
+    fn flow_v6(i: u8) -> FlowRecordV6 {
+        FlowRecordV6 {
+            mac: Mac([2, 0, 0, 0, 0, 1]),
+            remote: std::net::Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, i as u16),
+            proto: 6,
+            port: 443,
+            bytes_out: 1,
+            bytes_in: 1,
+            packets: 1,
+            window_start: 0,
+            window_secs: 10,
+        }
+    }
+
     fn inv_with(n: u8) -> Mutex<Inventory> {
         let mut i = Inventory::new(vec![], None, None);
         for k in 0..n {
@@ -375,6 +409,23 @@ mod tests {
         // the data that arrived meanwhile goes in the *next* batch
         let next = r.next_batch(&inv, 100).unwrap().clone();
         assert_eq!((next.seq, next.flows.len(), next.assets.len()), (2, 1, 1));
+    }
+
+    #[test]
+    fn ipv6_flows_are_spooled_and_batched_alongside_ipv4_ones_independently() {
+        let inv = inv_with(0);
+        let mut r = Reporter::new(meta());
+        r.spool(vec![flow(1)]);
+        r.spool_v6(vec![flow_v6(1), flow_v6(2)]);
+        let first = r.next_batch(&inv, 1).unwrap().clone();
+        assert_eq!((first.flows.len(), first.flows_v6.len()), (1, 2));
+        r.on_ack(&ReportAck { seq: 1, assets: 0, flows: 1, duplicate: false });
+        assert!(r.next_batch(&inv, 2).is_none(), "idle: both spools drained");
+        // capped and drained in order, same as the IPv4 spool
+        r.spool_v6((0..BATCH_FLOWS + 5).map(|i| FlowRecordV6 { window_start: i as i64, ..flow_v6(1) }).collect());
+        let b = r.next_batch(&inv, 99).unwrap().clone();
+        assert_eq!(b.flows_v6.len(), BATCH_FLOWS);
+        assert_eq!(b.flows_v6[0].window_start, 0);
     }
 
     #[test]
@@ -418,6 +469,15 @@ mod tests {
         r.spool((0..SPOOL_MAX + 10).map(|i| FlowRecord { window_start: i as i64, ..flow(1) }).collect());
         assert_eq!((r.spooled(), r.dropped), (SPOOL_MAX, 10));
         assert_eq!(r.spool.front().unwrap().window_start, 10);
+    }
+
+    #[test]
+    fn the_ipv6_spool_is_bounded_and_drops_the_oldest_independently_of_ipv4() {
+        let mut r = Reporter::new(meta());
+        r.spool_v6((0..SPOOL_MAX + 10).map(|i| FlowRecordV6 { window_start: i as i64, ..flow_v6(1) }).collect());
+        assert_eq!((r.spool_v6.len(), r.dropped), (SPOOL_MAX, 10));
+        assert_eq!(r.spool_v6.front().unwrap().window_start, 10);
+        assert_eq!(r.spooled(), 0, "the IPv4 spool is untouched");
     }
 
     #[test]

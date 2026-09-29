@@ -621,6 +621,7 @@ impl Collector {
                 scan_timeout: cfg.scan_timeout,
                 scan_concurrency: cfg.scan_concurrency,
                 extended_banners: cfg.extended_banners,
+                ipv6: cfg.ipv6,
             },
             iface.clone(),
             inv.clone(),
@@ -1308,6 +1309,9 @@ struct SchedCfg {
     scan_timeout: Duration,
     scan_concurrency: usize,
     extended_banners: bool,
+    /// Opt-in (`--ipv6`): also send an active liveness check to every global IPv6 address already
+    /// learned passively (`Inventory::live_hosts_v6`) — see IPV6.md. Never discovers a new address.
+    ipv6: bool,
 }
 
 async fn schedule(
@@ -1412,6 +1416,17 @@ async fn sweep_cycle(
     match active::icmp_sweep(&ips, Duration::from_millis(800)).await {
         Ok(n) => tracing::info!("ICMP: {n}/{} answered", ips.len()),
         Err(e) => tracing::warn!("ICMP sweep skipped: {e:#}"),
+    }
+
+    if cfg.ipv6 {
+        // Not part of the ARP-sweep-driven flow above: these addresses come from passive NDP
+        // discovery, already recorded in ipv6_history, not from anything the ARP sweep just found.
+        let stale_since = started - cfg.rescan_interval.as_secs() as i64;
+        let hosts_v6 = inv.lock().unwrap().live_hosts_v6(stale_since);
+        match active::icmp_sweep_v6(&hosts_v6, Duration::from_millis(800)).await {
+            Ok(n) => tracing::info!("ICMPv6: {n}/{} answered", hosts_v6.len()),
+            Err(e) => tracing::warn!("ICMPv6 sweep skipped: {e:#}"),
+        }
     }
 
     let cutoff = started - cfg.rescan_interval.as_secs() as i64;

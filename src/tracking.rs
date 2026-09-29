@@ -315,7 +315,7 @@ pub fn parse_csv(text: &str) -> Result<Vec<Vec<String>>, String> {
 /// Columns our own CSV export writes that are *derived*, not editable: a
 /// re-imported export must not choke on them.
 const READ_ONLY_COLUMNS: &[&str] = &[
-    "ip", "name", "vendor", "device_type", "os_guess", "open_ports", "risk_score", "risk_level", "site",
+    "ip", "ipv6", "name", "vendor", "device_type", "os_guess", "open_ports", "risk_score", "risk_level", "site",
     "first_seen", "last_seen", "private_mac", "gateway", "warranty",
 ];
 

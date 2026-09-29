@@ -202,9 +202,18 @@ const META_COLUMNS: &[&str] = &[
     "criticality", "icon", "zone", "purdue_level", "notes",
 ];
 
+/// Every IPv6 address a device has been seen with, most recent first, semicolon-joined — the
+/// CSV export's counterpart to the device panel's "IPv6 addresses" list (see IPV6.md). Unlike the
+/// single `ip` column there is no one "current" address to pick.
+fn ipv6_history_cell(a: &Asset) -> String {
+    let mut recs: Vec<&crate::model::Ipv6Record> = a.ipv6_history.iter().collect();
+    recs.sort_by_key(|r| std::cmp::Reverse(r.last_seen));
+    recs.iter().map(|r| r.ip.to_string()).collect::<Vec<_>>().join("; ")
+}
+
 pub fn assets_csv(data: &ReportData) -> String {
     let custom = crate::tracking::custom_columns(&data.devices.iter().map(|d| &d.meta).collect::<Vec<_>>());
-    let mut head: Vec<String> = ["mac", "ip", "name", "vendor", "device_type", "os_guess", "open_ports", "risk_score", "risk_level", "site", "first_seen", "last_seen", "private_mac", "gateway", "warranty"]
+    let mut head: Vec<String> = ["mac", "ip", "ipv6", "name", "vendor", "device_type", "os_guess", "open_ports", "risk_score", "risk_level", "site", "first_seen", "last_seen", "private_mac", "gateway", "warranty"]
         .map(String::from)
         .to_vec();
     head.extend(META_COLUMNS.iter().map(|c| c.to_string()));
@@ -216,6 +225,7 @@ pub fn assets_csv(data: &ReportData) -> String {
         let mut cells = vec![
             csv_cell(&a.mac.to_string()),
             csv_cell(&a.current_ip().map(|i| i.to_string()).unwrap_or_default()),
+            csv_cell(&ipv6_history_cell(a)),
             csv_cell(&d.name()),
             csv_cell(a.vendor.as_deref().unwrap_or("")),
             csv_cell(&a.device_type),
@@ -605,7 +615,7 @@ mod tests {
         let a = assets_csv(&d);
         let lines: Vec<&str> = a.split("\r\n").filter(|l| !l.is_empty()).collect();
         assert_eq!(lines.len(), 3);
-        assert!(lines[0].starts_with("mac,ip,name"));
+        assert!(lines[0].starts_with("mac,ip,ipv6,name"));
         // hostile hostname: neutralised, never a bare leading '='
         assert!(a.contains(",'=cmd|"), "{a}");
         assert!(!a.contains(",=cmd"));
@@ -613,6 +623,15 @@ mod tests {
         assert_eq!(al.split("\r\n").filter(|l| !l.is_empty()).count(), 2);
         assert!(al.contains("+40 r1 | +10 r2"));
         assert!(al.contains("1970-01-10T")); // ISO timestamps
+    }
+
+    #[test]
+    fn the_ipv6_column_lists_every_address_most_recent_first() {
+        let mut a = Asset::new(Mac([0x00, 0x1b, 0x63, 0, 0, 9]), 1000);
+        assert_eq!(ipv6_history_cell(&a), "", "a device with no IPv6 evidence gets an empty cell");
+        a.ipv6_history.push(crate::model::Ipv6Record { ip: "2001:db8::1".parse().unwrap(), link_local: false, first_seen: 1, last_seen: 100 });
+        a.ipv6_history.push(crate::model::Ipv6Record { ip: "fe80::1".parse().unwrap(), link_local: true, first_seen: 1, last_seen: 200 });
+        assert_eq!(ipv6_history_cell(&a), "fe80::1; 2001:db8::1");
     }
 
     #[test]

@@ -364,20 +364,35 @@ fn parse_arp(ctx: &Ctx, eth_src: Mac, p: &[u8], out: &mut Vec<Observation>) {
 /// see IPV6.md item 6).
 fn parse_ndp(eth_src: Mac, p: &[u8], out: &mut Vec<Observation>) {
     let Some(hdr) = ipv6::parse(p) else { return };
-    if hdr.upper_protocol != ipv6::ICMPV6 || hdr.hop_limit != 255 {
+    if hdr.upper_protocol != ipv6::ICMPV6 {
         return;
     }
     let Some(msg) = p.get(hdr.payload_offset..).and_then(ipv6::parse_icmpv6) else { return };
-    if let ipv6::Icmpv6::NeighborAdvertisement { target, source_link_layer } = msg {
-        if target.is_unspecified() || target.is_multicast() {
-            return;
+    match msg {
+        // NDP messages are link-scoped by protocol design (RFC 4861 §7.1.1/7.1.2): a conforming
+        // host discards any with a hop limit other than 255, since a router would have
+        // decremented it, so this hop-limit check is that same trust boundary, not a heuristic.
+        ipv6::Icmpv6::NeighborAdvertisement { target, source_link_layer } if hdr.hop_limit == 255 => {
+            if target.is_unspecified() || target.is_multicast() {
+                return;
+            }
+            // Trust the option's MAC only when it agrees with the frame's own source, the same
+            // bar `parse_arp` holds a claimed address to (a disagreement there is reported as
+            // `arp_mismatch` instead of learned from; NDP has no such signal yet, see IPV6.md).
+            if source_link_layer == Some(eth_src.0) {
+                out.push(Observation::Ndp { mac: eth_src, ip: target, link_local: ipv6::is_link_local(&target) });
+            }
         }
-        // Trust the option's MAC only when it agrees with the frame's own source, the same bar
-        // `parse_arp` holds a claimed address to (a disagreement there is reported as
-        // `arp_mismatch` instead of learned from; NDP has no such signal yet, see IPV6.md).
-        if source_link_layer == Some(eth_src.0) {
-            out.push(Observation::Ndp { mac: eth_src, ip: target, link_local: ipv6::is_link_local(&target) });
+        // An Echo Reply is not NDP and carries no hop-limit guarantee (an ordinary ping reply is
+        // usually TTL 64 or 128, not 255) — it is trusted the same way a flow sample's source
+        // address already is: this device's own Ethernet source sent it, on this capture's wire,
+        // same bar as any other passively observed frame. Only ever a reply to a probe
+        // `active::icmp_sweep_v6` sent to an address already known from `ipv6_history`, so this
+        // never introduces a brand-new address, only refreshes one already learned.
+        ipv6::Icmpv6::EchoReply if !hdr.src.is_unspecified() && !hdr.src.is_multicast() => {
+            out.push(Observation::Ndp { mac: eth_src, ip: hdr.src, link_local: ipv6::is_link_local(&hdr.src) });
         }
+        _ => {}
     }
 }
 
@@ -1011,6 +1026,26 @@ mod tests {
         // hop_limit != 255 means a router touched it: NDP must be link-local only (RFC 4861).
         let target: std::net::Ipv6Addr = "2001:db8::42".parse().unwrap();
         let f = eth([0x33, 0x33, 0, 0, 0, 1], DEV, ETH_IPV6, &ipv6_pkt(64, "fe80::1".parse().unwrap(), "ff02::1".parse().unwrap(), &na(target, DEV)));
+        assert!(parse_frame(&ipv6_ctx(), &f).is_empty());
+    }
+
+    #[test]
+    fn an_echo_reply_is_a_valid_ipv6_binding_even_with_an_ordinary_hop_limit() {
+        // unlike NDP, an ICMPv6 echo reply carries no hop-limit guarantee at all (a real ping
+        // reply is usually TTL 64 or 128) - the active::icmp_sweep_v6 liveness check this answers
+        // must still be trusted, not silently dropped by NDP's hop_limit == 255 requirement.
+        let responder: std::net::Ipv6Addr = "2001:db8::42".parse().unwrap();
+        let echo_reply = [129u8, 0, 0, 0, 0, 0, 0, 0];
+        let f = eth([0x00, 0x1b, 0x63, 1, 1, 1], DEV, ETH_IPV6, &ipv6_pkt(64, responder, "2001:db8::1".parse().unwrap(), &echo_reply));
+        let obs = parse_frame(&ipv6_ctx(), &f);
+        assert!(matches!(obs.as_slice(), [Observation::Ndp { mac, ip, link_local: false }] if mac.0 == DEV && *ip == responder));
+    }
+
+    #[test]
+    fn an_echo_request_is_not_a_liveness_answer() {
+        let target: std::net::Ipv6Addr = "2001:db8::42".parse().unwrap();
+        let echo_request = [128u8, 0, 0, 0, 0, 0, 0, 0];
+        let f = eth([0x00, 0x1b, 0x63, 1, 1, 1], DEV, ETH_IPV6, &ipv6_pkt(64, target, "2001:db8::1".parse().unwrap(), &echo_request));
         assert!(parse_frame(&ipv6_ctx(), &f).is_empty());
     }
 

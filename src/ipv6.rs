@@ -75,8 +75,10 @@ pub fn parse(data: &[u8]) -> Option<Ipv6Header> {
     Some(Ipv6Header { src, dst, hop_limit, upper_protocol: next_header, payload_offset: offset })
 }
 
-/// One ICMPv6 message this module cares about (RFC 4861): the rest (echo request/reply,
-/// destination unreachable, …) are not discovery-relevant and are left as `None`.
+/// One ICMPv6 message this module cares about: the discovery-relevant NDP types (RFC 4861), plus
+/// Echo Reply (used for the active liveness check, `active::icmp_sweep_v6` — not itself NDP, but
+/// the closest IPv4 analogue, `icmp_sweep`, already shares this module's discovery role in
+/// `parse_ipv4`). The rest (destination unreachable, …) are left as `None`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Icmpv6 {
     /// "Who has this address?" — sent to the solicited-node multicast address of `target`, the
@@ -90,6 +92,10 @@ pub enum Icmpv6 {
     /// A router announcing itself: the IPv6 equivalent of noticing something answer as a DHCP/ARP
     /// gateway would on IPv4. Sent from the router's own link-local address (`Ipv6Header::src`).
     RouterAdvertisement,
+    /// A reply to an active liveness ping (`active::icmp_sweep_v6`): the address that answered is
+    /// `Ipv6Header::src` itself, not a field of this message (unlike Neighbor Advertisement's
+    /// `target`) — an echo reply carries no address of its own beyond who sent it.
+    EchoReply,
 }
 
 /// Parses an ICMPv6 message body (i.e. `data[header.payload_offset..]` when
@@ -98,6 +104,7 @@ pub enum Icmpv6 {
 pub fn parse_icmpv6(data: &[u8]) -> Option<Icmpv6> {
     let ty = *data.first()?;
     match ty {
+        129 => Some(Icmpv6::EchoReply),
         133 => Some(Icmpv6::RouterAdvertisement), // Router Solicitation is not itself interesting
         134 => Some(Icmpv6::RouterAdvertisement),
         135 => {
@@ -231,6 +238,12 @@ mod tests {
     fn router_advertisement_and_solicitation_are_recognised() {
         assert_eq!(parse_icmpv6(&[134, 0, 0, 0]), Some(Icmpv6::RouterAdvertisement));
         assert_eq!(parse_icmpv6(&[133, 0, 0, 0]), Some(Icmpv6::RouterAdvertisement));
+    }
+
+    #[test]
+    fn echo_reply_is_recognised_but_echo_request_is_not() {
+        assert_eq!(parse_icmpv6(&[129, 0, 0, 0]), Some(Icmpv6::EchoReply));
+        assert_eq!(parse_icmpv6(&[128, 0, 0, 0]), None, "a request is not a liveness answer");
     }
 
     #[test]

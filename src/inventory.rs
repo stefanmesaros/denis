@@ -151,6 +151,21 @@ impl Inventory {
             .collect()
     }
 
+    /// Global (non-link-local) IPv6 addresses worth an active liveness check (`--ipv6`, opt-in):
+    /// every one of them was already learned passively (see `note_ipv6`), so this only refreshes
+    /// staleness, it never discovers a brand-new address — a deliberate, smaller first step than a
+    /// real IPv6 active-discovery mechanism (joining solicited-node multicast groups), see IPV6.md.
+    /// Link-local addresses are skipped: routing one needs an interface scope id, a portability
+    /// question this does not need to take on for the global-address case to already be useful.
+    /// Industrial devices are never pinged, same rule as `live_hosts`.
+    pub fn live_hosts_v6(&self, since: i64) -> Vec<std::net::Ipv6Addr> {
+        self.assets
+            .values()
+            .filter(|a| a.last_seen >= since && !a.is_self && !crate::fingerprint::is_ot_device(a))
+            .flat_map(|a| a.ipv6_history.iter().filter(|r| !r.link_local).map(|r| r.ip))
+            .collect()
+    }
+
     pub fn apply(&mut self, obs: Observation, now: i64) {
         match obs {
             Observation::SelfHost { mac, ip, hostname } => {
@@ -555,6 +570,33 @@ mod tests {
         inv.apply(Observation::Ndp { mac: A, ip: global, link_local: false }, 200);
         assert_eq!(inv.get(&A).unwrap().ipv6_history.len(), 2);
         assert_eq!(inv.get(&A).unwrap().ipv6_history.iter().find(|r| r.ip == global).unwrap().last_seen, 200);
+    }
+
+    #[test]
+    fn live_hosts_v6_skips_link_local_stale_and_self_but_keeps_every_global_address() {
+        let mut inv = Inventory::new(vec![], None, None);
+        let (global1, global2, link_local): (std::net::Ipv6Addr, std::net::Ipv6Addr, std::net::Ipv6Addr) =
+            ("2001:db8::1".parse().unwrap(), "2001:db8::2".parse().unwrap(), "fe80::1".parse().unwrap());
+        inv.apply(Observation::Arp { mac: A, ip: ip(5) }, 200);
+        inv.apply(Observation::Ndp { mac: A, ip: global1, link_local: false }, 200);
+        inv.apply(Observation::Ndp { mac: A, ip: link_local, link_local: true }, 200);
+        // a stale device: last seen well before the cutoff below
+        inv.apply(Observation::Arp { mac: B, ip: ip(6) }, 100);
+        inv.apply(Observation::Ndp { mac: B, ip: global2, link_local: false }, 100);
+        // our own address is never a probe target, regardless of how recently it was "seen"
+        inv.apply(Observation::SelfHost { mac: Mac([9, 9, 9, 9, 9, 9]), ip: ip(9), hostname: None }, 200);
+        inv.apply(Observation::Ndp { mac: Mac([9, 9, 9, 9, 9, 9]), ip: "2001:db8::9".parse().unwrap(), link_local: false }, 200);
+
+        let live = inv.live_hosts_v6(150);
+        assert_eq!(live, vec![global1], "link-local skipped, self skipped, and B is stale (last_seen 100 < since 150)");
+
+        // once B is seen more recently it becomes eligible too
+        inv.apply(Observation::Arp { mac: B, ip: ip(6) }, 300);
+        let mut live = inv.live_hosts_v6(150);
+        live.sort();
+        let mut want = vec![global1, global2];
+        want.sort();
+        assert_eq!(live, want);
     }
 
     fn signals(inv: &mut Inventory) -> Vec<Signal> {
