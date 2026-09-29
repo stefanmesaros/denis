@@ -67,6 +67,14 @@ pub struct AiFeatures {
     /// write it never fails the report itself; the report is still saved without a summary.
     #[serde(default)]
     pub security_reports: bool,
+    /// "Explain behavior change" (`explain_behavior_change` below): on click, only offered on an
+    /// alert that describes a change from a device's own established pattern
+    /// (`detect::is_behavioral_kind`) — new destination, new port, unusual hours, volume anomaly.
+    /// Uses the device's own stored `Baseline` as "normal"; DENIS decided the change was
+    /// meaningful before this is ever offered, matching AI.md section 14's own "do not
+    /// continuously ask the AI to analyze every device".
+    #[serde(default)]
+    pub device_behavior: bool,
 }
 
 /// One API key per provider an administrator has set up, and which one the "Explain" button
@@ -438,6 +446,54 @@ pub fn finding_prompt(title: &str, why: &str, fix: &str, device_count: usize) ->
     format!("Standing finding: {title}\nWhy it matters (already known to the administrator): {why}\nSuggested fix (already known): {fix}\nAffects {device_count} device(s) right now.")
 }
 
+/// "Device behavioral analysis" (AI.md section 14): explains one alert that already represents a
+/// change from a device's own established pattern (`detect::is_behavioral_kind` gates which alert
+/// kinds this is offered on) against that same pattern — DENIS's own stored `Baseline`, never a
+/// fresh analysis of raw traffic. Only ever called on click, on an alert DENIS already decided was
+/// a meaningful change, matching the spec's own "do not continuously ask the AI to analyze every
+/// device".
+const BEHAVIOR_SYSTEM_PROMPT: &str = "You are explaining one significant behavioral change for a device on a network \
+monitored by DENIS, a network monitoring tool, to a network administrator. You are given the device's own established \
+normal pattern (known destinations, known ports, typical traffic volume, active hours) and the specific alert that \
+flagged a change from it — nothing else about the device or the network. In 2-5 short sentences: describe what \
+changed relative to what is normal for this specific device, and how significant that looks in context. Do not \
+invent facts not given to you; if the device has little established history yet, say so plainly rather than treating \
+a thin baseline as if it were a confident one.";
+
+/// A device's own established pattern, reduced to what the behavior-change prompt needs — built by
+/// the caller from the real `model::Baseline` (kept here as plain fields so this function, like
+/// every other prompt builder, has no `Store`/model dependency of its own).
+pub struct BaselineSummary {
+    pub known_destination_count: usize,
+    pub known_port_count: usize,
+    /// Typical traffic per collection window, already rounded/formatted by the caller (units vary
+    /// by how the baseline was sampled, so this is prose, not a bare number).
+    pub typical_volume: String,
+    /// Hours (0-23, UTC) this device has actually been active in, sorted — empty means no
+    /// established pattern yet.
+    pub active_hours: Vec<u8>,
+    pub observed_days: i64,
+}
+
+/// The prompt for one behavioral-change alert: the device's own baseline (`BaselineSummary`) plus
+/// the alert that flagged the change against it.
+pub fn behavior_change_prompt(alert_type: &str, severity: &str, score: i32, summary: &str, device_label: &str, baseline: &BaselineSummary) -> String {
+    let hours = if baseline.active_hours.is_empty() {
+        "not established yet".to_string()
+    } else {
+        baseline.active_hours.iter().map(|h| h.to_string()).collect::<Vec<_>>().join(", ")
+    };
+    format!(
+        "Device: {device_label}\nAlert: {alert_type} (severity {severity}, score {score}/100): {summary}\n\nThis device's own established normal pattern, from {} day(s) of observation:\n- Known destinations: {}\n- Known ports: {}\n- Typical traffic volume: {}\n- Active hours (UTC): {hours}",
+        baseline.observed_days, baseline.known_destination_count, baseline.known_port_count, baseline.typical_volume,
+    )
+}
+
+/// Ask one provider to explain a behavioral-change alert against the device's own baseline.
+pub fn explain_behavior_change(cfg: &AiConfig, provider: &str, prompt: &str) -> Result<(String, Option<i64>)> {
+    ask(cfg, provider, BEHAVIOR_SYSTEM_PROMPT, prompt)
+}
+
 /// The dashboard summary's own system prompt (AI.md section 5): a short overview, not a chat, and
 /// never a restatement of the raw counts already visible on the dashboard around it.
 const SUMMARY_SYSTEM_PROMPT: &str = "You are writing a short \"AI Security Summary\" card for the dashboard of DENIS, \
@@ -772,6 +828,27 @@ mod tests {
     fn write_security_report_needs_a_key_same_as_explain() {
         let cfg = AiConfig::default();
         assert!(write_security_report(&cfg, "claude", "x").is_err());
+    }
+
+    #[test]
+    fn the_behavior_change_prompt_includes_the_baseline_and_the_alert() {
+        let baseline = BaselineSummary { known_destination_count: 12, known_port_count: 3, typical_volume: "~80 MB/day".into(), active_hours: vec![6, 7, 8, 20, 21], observed_days: 30 };
+        let p = behavior_change_prompt("new_destination", "medium", 55, "First contact with 3.113.81.30", "Baby Monitor (10.0.10.9)", &baseline);
+        assert!(p.contains("Baby Monitor") && p.contains("First contact with 3.113.81.30") && p.contains("30 day"), "{p}");
+        assert!(p.contains("12") && p.contains("~80 MB/day") && p.contains("6, 7, 8, 20, 21"), "{p}");
+    }
+
+    #[test]
+    fn an_empty_baseline_says_not_established_rather_than_an_empty_list() {
+        let baseline = BaselineSummary { known_destination_count: 0, known_port_count: 0, typical_volume: "not enough data yet".into(), active_hours: vec![], observed_days: 0 };
+        let p = behavior_change_prompt("new_port", "low", 30, "x", "New Device", &baseline);
+        assert!(p.contains("not established yet"), "{p}");
+    }
+
+    #[test]
+    fn explain_behavior_change_needs_a_key_same_as_explain() {
+        let cfg = AiConfig::default();
+        assert!(explain_behavior_change(&cfg, "claude", "x").is_err());
     }
 
     #[test]

@@ -715,6 +715,7 @@ function showAlert(e, a) {
     aiExplainButton('alert', e.id),
     aiTriageButton(e.id),
     aiRecommendButton(e.id),
+    aiBehaviorButton(e.id, e.type),
     el('div', { class: 'row' },
       a ? el('button', { type: 'button', text: tr('Open device'), onclick: () => { $('msg-dialog').close(); showDetail(a.id); } }) : null,
       can('admin') ? el('button', {
@@ -890,7 +891,6 @@ function renderDashboard() {
 
   loadDashboardTrends();
   loadAiSummaryCard();
-  setupAskDenisCard();
 }
 
 /** The dashboard's own "AI Security Summary" card: read-only, never triggers generation itself
@@ -909,34 +909,53 @@ async function loadAiSummaryCard() {
   $('ai-summary-meta').textContent = meta.join(' · ');
 }
 
-/** The dashboard's "Ask DENIS" box: a free-text question, answered from DENIS's own alert search
- * (never from facts the AI invented — see ai_summary's sibling, ai.rs's AskQuery doc). Rebinds its
- * handlers on every call, which is safe since `.onclick`/`.onkeydown` assignment simply replaces
- * the previous one rather than stacking listeners. */
-function setupAskDenisCard() {
-  const card = $('ask-denis-card');
-  card.hidden = !(state.ai && state.ai.ask_denis);
-  if (card.hidden) return;
+/** "Ask DENIS": a floating panel (not a tab, not a modal `<dialog>`) toggled from the header, so it
+ * stays open with its conversation while the user moves between screens — a free-text question,
+ * answered only from DENIS's own alert search, never from facts the AI invented (see ai.rs's
+ * AskQuery doc). Bound once at startup; `refreshAskDenisButton()` (called whenever `state.ai`
+ * changes) is what actually shows or hides the header toggle. */
+function initAskDenisPanel() {
+  const panel = $('ask-denis-panel');
+  const toggle = $('ask-denis-toggle');
+  const log = $('ask-denis-log');
+  log.dataset.empty = tr('Ask a question about your network\'s recent alert activity.');
+  const openPanel = () => { panel.hidden = false; $('ask-denis-input').focus(); };
+  const closePanel = () => { panel.hidden = true; };
+  toggle.onclick = () => (panel.hidden ? openPanel() : closePanel());
+  $('ask-denis-close').onclick = closePanel;
   const input = $('ask-denis-input');
   const button = $('ask-denis-button');
-  const answer = $('ask-denis-answer');
   const go = async () => {
     const question = input.value.trim();
     if (!question) return;
+    input.value = '';
     button.disabled = true;
     const original = button.textContent;
     button.textContent = tr('Asking…');
+    const turn = el('div', { class: 'ask-denis-turn' }, el('div', { class: 'ask-denis-q', text: question }));
+    log.append(turn);
+    log.scrollTop = log.scrollHeight;
     const r = await api('POST', '/api/ai/ask', { question });
     button.disabled = false;
     button.textContent = original;
-    answer.replaceChildren(r.ok
+    turn.append(r.ok
       ? el('div', {},
           el('p', { text: r.json.answer }),
           el('p', { class: 'muted small', text: r.json.matched ? tr('Based on {n} alert(s).', { n: r.json.matched }) : tr('No matching alerts were found.') }))
       : el('p', { class: 'form-error', text: apiError(r) }));
+    log.scrollTop = log.scrollHeight;
   };
   button.onclick = go;
   input.onkeydown = (ev) => { if (ev.key === 'Enter') go(); };
+}
+
+/** Shows or hides the "Ask DENIS" header button to match `state.ai.ask_denis` — call after
+ * anything that (re)loads `state.ai` (startup, and saving AI settings). Closes the panel too if
+ * the feature just got turned off out from under it. */
+function refreshAskDenisButton() {
+  const available = !!(state.ai && state.ai.ask_denis);
+  $('ask-denis-toggle').hidden = !available;
+  if (!available) $('ask-denis-panel').hidden = true;
 }
 
 /** The two trend charts (alerts raised, devices online) over the dashboard's own period picker —

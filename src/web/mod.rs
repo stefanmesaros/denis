@@ -125,6 +125,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai/recommend", post(ai_page::recommend))
         .route("/api/ai/summary", get(ai_page::summary))
         .route("/api/ai/ask", post(ai_page::ask))
+        .route("/api/ai/behavior", post(ai_page::behavior))
         .route("/api/ai/usage", get(ai_page::usage))
         .route("/api/cmdb/settings", get(cmdb_page::get).put(cmdb_page::put))
         .route("/api/cmdb/sync", post(cmdb_page::sync))
@@ -1685,6 +1686,34 @@ mod tests {
         // giving it a key now makes it show up in both
         let (_, _, v) = send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"local_url": "http://localhost:11434", "local_model": "qwen2.5:14b", "keys": {"local": "sk-local-x"}, "default_provider": "local", "enabled": true})))).await;
         assert!(v["keys_present"].as_array().unwrap().iter().any(|p| p == "local"), "{v}");
+    }
+
+    #[tokio::test]
+    async fn ai_behavior_is_refused_off_and_only_offered_on_a_behavioral_alert_kind() {
+        let (app, store, [_, editor, admin]) = secured().await;
+        let mut a = Asset::new(Mac([0x3c, 0x22, 0xfb, 1, 2, 3]), 100);
+        store.save_asset(&mut a).unwrap();
+        let mut not_behavioral = crate::model::Event { id: 0, agent_id: None, asset_id: a.id, kind: "device_silent".into(), timestamp: 100, severity: "medium".into(), score: 50, acked: false, raw_details: serde_json::json!({"summary": "x"}) };
+        store.insert_event(&mut not_behavioral).unwrap();
+        send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"keys": {"claude": "sk-ant-x"}, "default_provider": "claude"})))).await;
+
+        // globally off
+        let (st, _, v) = send(&app, req("POST", "/api/ai/behavior", Some(&editor), Some(serde_json::json!({"id": not_behavioral.id.to_string()})))).await;
+        assert_eq!(st, StatusCode::FORBIDDEN, "{v}");
+
+        send(&app, req("PUT", "/api/ai/settings", Some(&admin), Some(serde_json::json!({"default_provider": "claude", "enabled": true, "features": {"device_behavior": true}})))).await;
+        assert_eq!(send(&app, req("GET", "/api/ai", Some(&editor), None)).await.2["device_behavior"], true);
+
+        // a non-behavioral alert kind is refused even with the feature on and a real alert id -
+        // before ever reaching a provider
+        let (st, _, v) = send(&app, req("POST", "/api/ai/behavior", Some(&editor), Some(serde_json::json!({"id": not_behavioral.id.to_string()})))).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{v}");
+
+        // a behavioral kind still needs a live provider (this test suite deliberately has no
+        // network egress; ai::tests already covers behavior_change_prompt's own shape without
+        // one) - a nonexistent alert id short-circuits before ever reaching one
+        let (st, _, v) = send(&app, req("POST", "/api/ai/behavior", Some(&editor), Some(serde_json::json!({"id": "999999"})))).await;
+        assert_eq!(st, StatusCode::NOT_FOUND, "{v}");
     }
 
     #[test]

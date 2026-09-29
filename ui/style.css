@@ -327,8 +327,19 @@ tr.row-warn td { background: color-mix(in srgb, var(--warn) 10%, transparent); }
 .ai-summary h3 { margin: 0 0 6px; }
 .ai-summary p { margin: 0 0 4px; color: var(--text); }
 .ai-summary p:last-child { margin-bottom: 0; }
-#ask-denis-input { flex: 1; min-width: 200px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); font: inherit; }
-#ask-denis-answer:not(:empty) { margin-top: 10px; }
+/* A floating panel, not a <dialog>: it must stay open and keep its conversation while the user
+   navigates between tabs, which a modal <dialog> (blocking, one per page) cannot do. Fixed to the
+   bottom-right corner, above the sidebar (z-index 30) and the column-picker menu (20). */
+.ask-denis-panel { position: fixed; z-index: 40; right: 16px; bottom: 16px; width: min(380px, calc(100vw - 32px)); max-height: min(520px, calc(100vh - 32px)); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.22); }
+.ask-denis-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.ask-denis-close { border: none; box-shadow: none; background: transparent; padding: 2px 6px; }
+.ask-denis-log { flex: 1; min-height: 80px; max-height: 360px; overflow-y: auto; padding: 10px 12px; }
+.ask-denis-log:empty::before { content: attr(data-empty); color: var(--muted); font-size: 13px; }
+.ask-denis-turn { margin-bottom: 12px; }
+.ask-denis-turn:last-child { margin-bottom: 0; }
+.ask-denis-q { font-weight: 600; margin-bottom: 4px; }
+.ask-denis-row { padding: 10px 12px; border-top: 1px solid var(--line); margin: 0; }
+#ask-denis-input { flex: 1; min-width: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); font: inherit; }
 /* the Dashboard's 12 KPI tiles: a fixed column count (always a divisor of 12) instead of
    `.cards`'s own flex-wrap, so every row is completely full edge-to-edge at any width instead of
    trailing off into blank space when a row doesn't happen to fill on its own. */

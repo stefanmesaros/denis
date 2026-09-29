@@ -121,7 +121,26 @@ visibility (section 23, shipped earlier) broken down per provider rather than on
 administrator running a local model alongside cloud ones (or several cloud keys at once) can see
 which one is actually being used, not just an aggregate.
 
-8-11: not started.
+9. **Device behavioral analysis** — done (2026-09-29). An "Explain behavior change" button, on
+   click only, offered only on the five alert kinds that actually describe a change from a
+   device's own established pattern (`detect::BEHAVIORAL_KINDS`/`is_behavioral_kind`:
+   `new_destination`, `new_destination_v6`, `new_port`, `unusual_hours`, `volume_anomaly`) — DENIS
+   already decided the change was meaningful before this button ever appears, matching the spec's
+   own "do not continuously ask the AI to analyze every device". Uses the device's own stored
+   `model::Baseline` as "normal" (known destinations/ports, typical volume, active hours) — no new
+   tracking, this data already existed and already drives the very alerts the button is offered
+   on. Its own independent `features.device_behavior` toggle.
+
+Also found and fixed live, while testing steps 1-9 end-to-end against a real local Ollama
+instance rather than only unit tests: the Findings page rebuilt its entire list from scratch on
+every 10-second poll, which wiped an in-progress or just-completed "Explain with AI" answer a few
+seconds after it appeared — reported as "the explanation disappears". Findings are DENIS's own
+computed standing problems, not live data, so their JSON shape is stable poll to poll unless
+something genuinely changed; `loadFindings()` now skips the rebuild when the fetched list is
+byte-identical to what is already rendered, which fixes the disappearing-answer bug and is a
+correctness/performance improvement either way (no pointless reflow when nothing changed).
+
+10-11: not started.
 
 ## Build order (explicit instruction, 2026-09-29)
 

@@ -66,6 +66,16 @@ pub fn is_alertable_kind(kind: &str) -> bool {
     RULES.contains(&kind) || EXTRA_ALERTABLE_KINDS.contains(&kind)
 }
 
+/// Alert kinds that describe a change from a device's own established normal pattern (its
+/// `Baseline`) rather than a one-off event — the ones "Device behavioral analysis" (AI.md
+/// section 14) can meaningfully explain against that baseline. `new_device`/`device_silent`/
+/// `agent_offline` etc. are not here: they are not "this device usually does X, now it does Y".
+pub const BEHAVIORAL_KINDS: &[&str] = &[RULE_NEW_DESTINATION, RULE_NEW_DESTINATION_V6, RULE_NEW_PORT, RULE_HOURS, RULE_VOLUME];
+
+pub fn is_behavioral_kind(kind: &str) -> bool {
+    BEHAVIORAL_KINDS.contains(&kind)
+}
+
 /// Every event kind that can be raised as an alert, with what the person who
 /// receives it should do next. Shown in the UI beside the alert. Kept next to
 /// the rules so a new rule cannot be added without saying what to do about it

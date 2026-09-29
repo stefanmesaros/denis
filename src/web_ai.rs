@@ -45,6 +45,7 @@ pub struct PublicStatus {
     pub recommended_actions: bool,
     pub dashboard_summary: bool,
     pub ask_denis: bool,
+    pub device_behavior: bool,
 }
 
 #[derive(Serialize)]
@@ -68,6 +69,7 @@ pub(crate) async fn status(State(st): State<AppState>) -> Result<Json<PublicStat
         recommended_actions: cfg.enabled && cfg.features.recommended_actions,
         dashboard_summary: cfg.enabled && cfg.features.dashboard_summary,
         ask_denis: cfg.enabled && cfg.features.ask_denis,
+        device_behavior: cfg.enabled && cfg.features.device_behavior,
     }))
 }
 
@@ -481,6 +483,78 @@ pub(crate) async fn ask(State(st): State<AppState>, Extension(AuthUser(me)): Ext
             audit(&st, &me.username, "ai.ask", None, json!({"provider": provider, "matched": matched}));
             record_usage(&st, now, provider, sum_tokens(total_tokens, t2));
             Ok(Json(AskResp { provider, answer, matched }).into_response())
+        }
+        Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
+        Err(_) => Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct BehaviorReq {
+    /// An alert's numeric event id, as text. Alert-only, and only one of the specific kinds
+    /// `detect::is_behavioral_kind` names — a finding has no baseline of its own to compare
+    /// against, and most alert kinds are not "this device usually does X" in the first place.
+    id: String,
+    #[serde(default)]
+    provider: Option<String>,
+}
+
+#[derive(Serialize)]
+struct BehaviorResp {
+    provider: &'static str,
+    text: String,
+}
+
+/// "Device behavioral analysis" (AI.md section 14): explain one behavioral-change alert the
+/// caller can already see against the device's own stored `Baseline`. On click only, same bar as
+/// `explain`/`triage` — and only ever offered at all on an alert kind DENIS already decided
+/// represents a change from that device's own normal pattern.
+pub(crate) async fn behavior(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<BehaviorReq>) -> Result<Response, ApiError> {
+    let store = st.store.clone();
+    let now = now_ts();
+    let cfg = blocking(&store, |s| crate::ai::load(s)).await?;
+    if !cfg.enabled {
+        return Ok(err(StatusCode::FORBIDDEN, "AI is turned off in Settings → AI"));
+    }
+    if !cfg.features.device_behavior {
+        return Ok(err(StatusCode::FORBIDDEN, "the device-behavioral-analysis AI feature is turned off in Settings → AI"));
+    }
+    let id: i64 = match b.id.parse() {
+        Ok(id) => id,
+        Err(_) => return Ok(err(StatusCode::BAD_REQUEST, "bad alert id")),
+    };
+    let ev = blocking(&store, move |s| s.get_event(id)).await?;
+    let Some(ev) = ev else { return Ok(err(StatusCode::NOT_FOUND, "no such alert")) };
+    if !crate::detect::is_behavioral_kind(&ev.kind) {
+        return Ok(err(StatusCode::BAD_REQUEST, "this alert kind has no established baseline to compare against"));
+    }
+    let asset = blocking(&store, move |s| s.get_asset(ev.asset_id)).await?;
+    let label = asset.map(|a| a.label()).unwrap_or_else(|| format!("device #{}", ev.asset_id));
+    let baseline = blocking(&store, move |s| s.get_baseline(ev.asset_id)).await?;
+    let summary = ev.raw_details["summary"].as_str().unwrap_or_default();
+    let baseline_summary = match &baseline {
+        Some(b) => crate::ai::BaselineSummary {
+            known_destination_count: b.typical_destinations.len(),
+            known_port_count: b.typical_ports.len(),
+            typical_volume: format!("~{} per 5-minute window", crate::health::human_bytes(b.volume.mean.max(0.0) as u64)),
+            active_hours: (0..24).filter(|h| b.active_hours[*h as usize] > 0).collect(),
+            observed_days: (now - b.observed_since) / 86_400,
+        },
+        None => crate::ai::BaselineSummary { known_destination_count: 0, known_port_count: 0, typical_volume: "not enough data yet".into(), active_hours: Vec::new(), observed_days: 0 },
+    };
+    let prompt = crate::ai::behavior_change_prompt(&ev.kind, &ev.severity, ev.score, summary, &label, &baseline_summary);
+    let provider = b.provider.filter(|p| !p.is_empty()).unwrap_or(cfg.default_provider.clone());
+    let provider: &'static str = match crate::ai::PROVIDERS.iter().find(|p| **p == provider) {
+        Some(p) => p,
+        None => return Ok(err(StatusCode::BAD_REQUEST, "choose a configured provider")),
+    };
+    let cfg2 = cfg.clone();
+    let result = tokio::task::spawn_blocking(move || crate::ai::explain_behavior_change(&cfg2, provider, &prompt)).await;
+    match result {
+        Ok(Ok((text, tokens))) => {
+            audit(&st, &me.username, "ai.behavior", None, json!({"alert_id": id, "provider": provider}));
+            record_usage(&st, now, provider, tokens);
+            Ok(Json(BehaviorResp { provider, text }).into_response())
         }
         Ok(Err(e)) => Ok(err(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
         Err(_) => Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),

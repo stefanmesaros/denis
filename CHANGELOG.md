@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.39.0: Device behavioral analysis (step 9), and a Findings bug
+
+* **A new "Explain behavior change" button on alerts**: offered only on the five alert kinds that
+  actually describe a change from one device's own established pattern (new destination, new
+  destination over IPv6, new port, unusual hours, unusual traffic volume) — DENIS already decided
+  the change was meaningful before this button ever appears. Uses the device's own already-tracked
+  baseline (known destinations and ports, typical traffic volume, active hours — the same data
+  that already drives these alerts) as "normal", explained against what just changed. Its own
+  independent Settings → AI → Features toggle, off by default.
+* **Fix: an "Explain with AI" answer on the Findings page could disappear a few seconds after it
+  appeared.** Findings rebuilt their entire list from scratch on every 10-second background poll,
+  which wiped the answer since a freshly-rebuilt button has no memory of it. Found live while
+  testing steps 1-9 end-to-end against a real local Ollama instance. Findings are DENIS's own
+  computed standing problems, not live data — their shape is stable poll to poll unless something
+  genuinely changed — so the list is now only rebuilt when it actually did.
+
 ## 2.38.0: A local/self-hosted AI provider, and per-provider usage
 
 * **A fifth AI provider option: "Local model"**, for anyone running Ollama, LM Studio, llama.cpp's

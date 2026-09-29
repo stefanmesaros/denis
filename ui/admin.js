@@ -239,6 +239,7 @@ async function start() {
   $('import-assets').hidden = !can('editor');
   $('scan').hidden = !can('editor');
   await loadOptions();
+  initAskDenisPanel();
   loadAiStatus();
   initReports();
   initHealth();
@@ -357,7 +358,8 @@ async function loadOptions() {
 /** Which "Explain with AI" providers, if any, an administrator has set a key for. */
 async function loadAiStatus() {
   const r = await api('GET', '/api/ai');
-  state.ai = r.ok ? r.json : { providers: [], default_provider: '', alert_explanations: false, alert_triage: false, recommended_actions: false, dashboard_summary: false, ask_denis: false };
+  state.ai = r.ok ? r.json : { providers: [], default_provider: '', alert_explanations: false, alert_triage: false, recommended_actions: false, dashboard_summary: false, ask_denis: false, device_behavior: false };
+  refreshAskDenisButton();
 }
 
 /** The "Explain with AI" button for one alert or finding, or null when nothing is configured. */
@@ -415,6 +417,41 @@ function aiTriageButton(alertId) {
             el('div', { text: r.json.reasoning }),
             r.json.recommended_action ? el('div', { class: 'muted small', text: tr('Suggested: {action}', { action: r.json.recommended_action }) }) : null,
             el('div', { class: 'muted small', text: tr('This is an additional signal, not a replacement for DENIS\'s own severity above.') }))
+        : el('p', { class: 'form-error', text: apiError(r) }));
+    },
+  });
+  if (pick) out.append(pick);
+  out.append(button);
+  return out;
+}
+
+/** Alert kinds that describe a change from a device's own established pattern - matches
+ * `detect::BEHAVIORAL_KINDS` on the server, which is what `aiBehaviorButton` is actually gated on;
+ * kept here too so the button is not shown and then refused. */
+const AI_BEHAVIORAL_KINDS = ['new_destination', 'new_destination_v6', 'new_port', 'unusual_hours', 'volume_anomaly'];
+
+/** The "Explain behavior change" button for one alert, or null when the feature is off or this
+ * alert's own kind has no established baseline to compare against. */
+function aiBehaviorButton(alertId, alertKind) {
+  if (!state.ai || !state.ai.providers.length || !state.ai.device_behavior) return null;
+  if (!AI_BEHAVIORAL_KINDS.includes(alertKind)) return null;
+  const providers = state.ai.providers;
+  const pick = providers.length > 1
+    ? el('select', {}, ...providers.map((p) => el('option', { value: p.id, text: p.name, selected: p.id === state.ai.default_provider })))
+    : null;
+  const out = el('div', { class: 'ai-explain' });
+  const button = el('button', {
+    type: 'button', text: tr('Explain behavior change'),
+    onclick: async (ev) => {
+      ev.stopPropagation();
+      button.disabled = true;
+      button.textContent = tr('Asking…');
+      const provider = pick ? pick.value : providers[0].id;
+      const r = await api('POST', '/api/ai/behavior', { id: String(alertId), provider });
+      button.hidden = true;
+      if (pick) pick.hidden = true;
+      out.append(r.ok
+        ? el('p', { class: 'ai-answer' }, el('div', { class: 'muted small', text: tr('{provider} says:', { provider: providers.find((p) => p.id === provider)?.name || provider }) }), el('div', { text: r.json.text }))
         : el('p', { class: 'form-error', text: apiError(r) }));
     },
   });
@@ -1523,6 +1560,7 @@ async function loadAiBox() {
   $('ai-feature-dashboard-summary').checked = !!(d.features && d.features.dashboard_summary);
   $('ai-feature-ask-denis').checked = !!(d.features && d.features.ask_denis);
   $('ai-feature-security-reports').checked = !!(d.features && d.features.security_reports);
+  $('ai-feature-device-behavior').checked = !!(d.features && d.features.device_behavior);
   for (const p of ['claude', 'openai', 'gemini', 'grok', 'local']) {
     $('ai-key-' + p).value = '';
     $('ai-key-' + p).placeholder = d.keys_present.includes(p) ? tr('(unchanged)') : '';
@@ -1576,10 +1614,11 @@ $('ai-save').onclick = async () => {
       dashboard_summary: $('ai-feature-dashboard-summary').checked,
       ask_denis: $('ai-feature-ask-denis').checked,
       security_reports: $('ai-feature-security-reports').checked,
+      device_behavior: $('ai-feature-device-behavior').checked,
     },
   });
   $('ai-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
-  if (r.ok) loadAiBox();
+  if (r.ok) { loadAiBox(); loadAiStatus(); }
 };
 
 const CMDB_SOURCE_LABEL = (source) => (source === 'intune' ? tr('Intune') : source === 'ad' ? tr('Active Directory') : source === 'jamf' ? tr('Jamf Pro') : tr('Entra ID'));

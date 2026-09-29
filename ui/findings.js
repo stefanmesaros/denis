@@ -4,6 +4,13 @@
 // end date), plus the list of accepted risks below. Loaded after rules.js.
 
 let acceptedRisks = [];
+/** The findings list is rebuilt from scratch on every render (`box.replaceChildren`), which used
+ * to run on every 10s poll regardless of whether anything actually changed — wiping an in-progress
+ * "Explain with AI" answer a few seconds after it appeared, since a fresh `aiExplainButton` has no
+ * memory of it. Findings are DENIS's own computed "standing problems", not live alert data, so
+ * their own JSON shape is stable poll to poll unless something genuinely changed; skipping the
+ * rebuild when it has not is both the fix and a cheap correctness win (no pointless reflow). */
+let renderedFindingsKey = null;
 
 /** When an accepted risk ends, in words: "in 78 days", "today", "until withdrawn". */
 function untilText(a) {
@@ -24,6 +31,9 @@ async function loadFindings() {
   $('count-findings').textContent = n;
   if (state.tab === 'dashboard') renderDashboard();
   if (state.tab !== 'findings') return; // the badge is kept fresh; the list is drawn only when shown
+  const key = JSON.stringify(list);
+  if (key === renderedFindingsKey) return; // unchanged since the last render: keep any AI answer shown in place
+  renderedFindingsKey = key;
   const box = $('findings-list');
   $('no-findings').hidden = list.length > 0;
   const admin = can('admin');
