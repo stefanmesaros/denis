@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.34.1: Fix ChatGPT explain/triage/recommend: wrong token-limit parameter
+
+* **Every ChatGPT (OpenAI) call was failing** with a 400 from OpenAI, invisible until v2.33.0's own
+  fix started surfacing provider error bodies: `gpt-5-mini` rejects the `max_tokens` request field
+  outright ("Unsupported parameter: 'max_tokens' is not supported with this model. Use
+  'max_completion_tokens' instead."). Found live, from a real account's own key, right after the
+  error-surfacing fix made it visible for the first time. Fixed by sending `max_completion_tokens`
+  for OpenAI specifically; Grok (x.ai), which uses the same request shape, keeps `max_tokens` — it
+  is a different provider and does not have this restriction. Claude and Gemini were never
+  affected (different request shape entirely).
+
 ## 2.34.0: Dashboard AI summary (step 5), and a real exceptions bug
 
 * **A new "AI Security Summary" card on the dashboard**: a short, plain-language overview of the

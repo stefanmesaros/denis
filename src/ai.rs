@@ -156,12 +156,18 @@ fn claude(key: &str, system: &str, prompt: &str) -> Result<String> {
     v["content"][0]["text"].as_str().map(str::to_string).ok_or_else(|| anyhow!("no answer in the response: {v}"))
 }
 
-fn openai_style(url: &str, key: &str, model: &str, system: &str, prompt: &str) -> Result<String> {
-    let body = json!({
+/// `token_param`: the request field that caps the reply length — `"max_tokens"` for most
+/// OpenAI-compatible APIs (x.ai's included), but OpenAI's own newer reasoning-family models
+/// (`gpt-5-mini` among them) reject that name outright ("Unsupported parameter: 'max_tokens' is
+/// not supported with this model. Use 'max_completion_tokens' instead.") and require
+/// `"max_completion_tokens"` — found live, via a real 400 from OpenAI once `call_ureq_json`
+/// started surfacing a non-2xx response's own body instead of discarding it.
+fn openai_style(url: &str, key: &str, model: &str, token_param: &str, system: &str, prompt: &str) -> Result<String> {
+    let mut body = json!({
         "model": model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-        "max_tokens": 500,
     });
+    body[token_param] = json!(500);
     let v = call_ureq_json(url, &[("Authorization", format!("Bearer {key}"))], &body)?;
     v["choices"][0]["message"]["content"].as_str().map(str::to_string).ok_or_else(|| anyhow!("no answer in the response: {v}"))
 }
@@ -183,9 +189,9 @@ fn ask(cfg: &AiConfig, provider: &str, system: &str, prompt: &str) -> Result<Str
     let key = cfg.key_for(provider).ok_or_else(|| anyhow!("no API key is set for {}", provider_name(provider)))?;
     let text = match provider {
         "claude" => claude(key, system, prompt)?,
-        "openai" => openai_style("https://api.openai.com/v1/chat/completions", key, "gpt-5-mini", system, prompt)?,
+        "openai" => openai_style("https://api.openai.com/v1/chat/completions", key, "gpt-5-mini", "max_completion_tokens", system, prompt)?,
         "gemini" => gemini(key, system, prompt)?,
-        "grok" => openai_style("https://api.x.ai/v1/chat/completions", key, "grok-4-fast", system, prompt)?,
+        "grok" => openai_style("https://api.x.ai/v1/chat/completions", key, "grok-4-fast", "max_tokens", system, prompt)?,
         other => return Err(anyhow!("unknown provider {other:?}")),
     };
     Ok(text.trim().to_string())
