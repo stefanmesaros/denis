@@ -432,6 +432,32 @@ enum Cmd {
         #[arg(long)]
         all: bool,
     },
+    /// Windows only: install, start, stop or uninstall denis as a Windows Service.
+    /// UNVERIFIED on a real Windows machine — see WINDOWS.md.
+    #[cfg(windows)]
+    Service {
+        #[command(subcommand)]
+        action: ServiceCmd,
+    },
+}
+
+#[cfg(windows)]
+#[derive(Subcommand)]
+enum ServiceCmd {
+    /// Register the service (does not start it - see `service start`). Everything after `--` is
+    /// stored and passed to `denis run` every time the service launches, e.g.:
+    ///   denis service install -- --db C:\ProgramData\DENIS\denis.db --listen 0.0.0.0:8443 --no-tls
+    Install {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        run_args: Vec<String>,
+    },
+    /// Remove the service (stop it first if it is running).
+    Uninstall,
+    Start,
+    Stop,
+    /// Internal: invoked by the Service Control Manager only, never for interactive use.
+    #[command(hide = true)]
+    Run,
 }
 
 #[derive(Subcommand)]
@@ -747,6 +773,14 @@ async fn main() -> Result<()> {
         Cmd::AgentToken { action, db } => token_cmd(&resolve_db(db, "denis.db", "netscope.db"), action),
         Cmd::Alerts { db, all } => alerts(&resolve_db(db, "denis.db", "netscope.db"), all),
         Cmd::Report { db, days, format, out } => write_report(&resolve_db(db, "denis.db", "netscope.db"), days, &format, out.as_deref()),
+        #[cfg(windows)]
+        Cmd::Service { action } => match action {
+            ServiceCmd::Install { run_args } => denis::winservice::install(&run_args),
+            ServiceCmd::Uninstall => denis::winservice::uninstall(),
+            ServiceCmd::Start => denis::winservice::start(),
+            ServiceCmd::Stop => denis::winservice::stop(),
+            ServiceCmd::Run => denis::winservice::run_dispatcher(),
+        },
     }
 }
 

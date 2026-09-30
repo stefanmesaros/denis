@@ -257,8 +257,9 @@ Gemini, see AI.md) and a real local Ollama instance.
   detection, and full active discovery of brand-new addresses (see IPV6.md for the complete,
   itemised accounting).
 * No PostgreSQL backend. No **packaged** Windows build: `denis.exe` compiles and has been verified capturing
-  on a real Windows 11 machine when built from source with the Npcap SDK, but there is no installer, no
-  Windows service wrapper, no signed release for Windows and no CI job that links it (WINDOWS.md).
+  on a real Windows 11 machine when built from source with the Npcap SDK. A service wrapper and installer
+  script exist but are unverified — neither has run on a real Windows machine yet — and there is still no
+  signed release for Windows or a CI job that links it (WINDOWS.md).
 * Two collectors on the same network segment (say the master's own capture plus an agent on the same
   LAN) list every device twice; the fix is designed but not built (MULTI_AGENT_DEDUP.md). Run one
   collector per segment until then.

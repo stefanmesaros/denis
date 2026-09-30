@@ -48,6 +48,20 @@ jobs:
       - run: cargo check --locked --target x86_64-pc-windows-gnu --all-targets
       - run: cargo clippy --locked --target x86_64-pc-windows-gnu --all-targets -- -D warnings
 
+  windows-installer-syntax:
+    # Only a parse check, on a real Windows runner - there is no Windows binary to actually install
+    # yet (see WINDOWS.md), so this cannot run the script for real, only confirm it parses. Mirrors
+    # `bash -n packaging/install.sh` above for the Linux installer.
+    name: install.ps1 parses (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("packaging/install.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
+
   smoke:
     name: the console in a real browser
     runs-on: ubuntu-22.04

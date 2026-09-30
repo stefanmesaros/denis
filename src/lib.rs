@@ -98,3 +98,5 @@ pub mod web_sso;
 pub mod web_totp;
 pub mod web_vuln;
 pub mod web_vulnscan;
+#[cfg(windows)]
+pub mod winservice;

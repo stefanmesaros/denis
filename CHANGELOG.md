@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.62.0: Windows: a service wrapper and installer script (unverified — see WINDOWS.md)
+
+* `denis service install|uninstall|start|stop`, plus the hidden `denis service run` the Service
+  Control Manager itself invokes, using the `windows-service` crate. The service supervises an
+  ordinary `denis.exe run <args>` child process (the same pattern NSSM-style wrappers use), so the
+  already-verified `run` code path is untouched by any of it. Output that would have gone to
+  systemd's journal on Linux goes to a plain `service.log` next to the executable.
+* `packaging/install.ps1`: installs an already-built `denis.exe`, creates a data directory
+  restricted to Administrators/SYSTEM (the ACL equivalent of the Linux units'
+  `StateDirectoryMode=0700`), registers and starts the service, and optionally opens the listen
+  port in Windows Firewall.
+* CI gained a `windows-installer-syntax` job that parses `install.ps1` on a real Windows runner.
+* **None of this has run on a real Windows machine yet** — only `cargo check`/`clippy --target
+  x86_64-pc-windows-gnu` (clean) and the new parse-only CI job. WINDOWS.md is updated throughout to
+  say exactly that, following the same standard every other Windows-only piece in this project has
+  been held to before being called done.
+
 ## 2.61.0: Fix (M1, M2, M3, M4, M9, M10): six Medium-severity hardening fixes
 
 * **M1: an unauthenticated flood of passkey sign-in attempts could exhaust the shared challenge

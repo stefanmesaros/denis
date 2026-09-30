@@ -146,30 +146,54 @@ nothing on macOS/Linux.
    deliberately set `admin_only=yes` on their own network. **Not yet verified: whether `NT
    SERVICE\denis` can actually list adapters and open a capture on the real Windows 11 test
    machine** — everything above is Npcap's own documented behavior, not something run here yet.
-2. **The service.** `packaging/install.sh` and `packaging/denis.service` set up a `systemd` unit;
-   Windows needs a Windows Service (via `sc.exe`, or a Rust service wrapper such as the `windows-
-   service` crate) with its own install/uninstall, start/stop, and log destination (systemd's
-   journal has no Windows equivalent; Windows Event Log or a plain file would replace it).
-3. **The installer.** `install.sh` is a POSIX shell script: detecting the OS/architecture,
-   downloading and verifying the signed release, and registering the service are each written in
-   Bash today and would need a genuine PowerShell (or a small Rust) equivalent, not a translation
-   line-by-line — Windows path conventions (`%ProgramData%`, `%ProgramFiles%`), permission model
-   (ACLs, not `chmod`/`setcap`), and firewall rules (`netsh advfirewall` vs `ufw`) all differ.
+2. **The service.** ~~Written (2026-09-30), unverified~~: `src/winservice.rs` (`#[cfg(windows)]`)
+   plus `denis service install|uninstall|start|stop`/the hidden `denis service run` the Service
+   Control Manager itself invokes, using the `windows-service` crate. Deliberately a thin wrapper
+   rather than hosting the engine's own async runtime inside the SCM's callback: the service
+   supervises an ordinary `denis.exe run <args>` **child process** (the same pattern NSSM and
+   similar wrappers use), so the well-tested `run` code path is untouched by any of this — nothing
+   here can regress it. A control handler responds to Stop/Shutdown; output that would have gone to
+   systemd's journal goes to a plain `service.log` next to the executable instead (no Windows Event
+   Log integration yet). Checked only by `cargo check`/`clippy --target x86_64-pc-windows-gnu`
+   (clean, and covered by CI's `windows-check` job going forward) — **not run on a real Windows
+   machine**: whether the SCM actually accepts this service, starts the child correctly, and
+   delivers Stop control in time is all still open. The service account is still whatever an
+   administrator sets in the Services console after `install` (defaults to `LocalSystem`) — wiring
+   up `NT SERVICE\denis` programmatically at install time is not done (bullet 1's own recommendation
+   is unaffected by this; it is just not automated yet).
+3. **The installer.** ~~Written (2026-09-30), unverified, and necessarily partial~~:
+   `packaging/install.ps1` installs an already-built `denis.exe` (there is no signed Windows
+   release to download yet — CI cannot even link one without the Npcap SDK, bullet 1), copies it to
+   `%ProgramFiles%\DENIS`, creates `%ProgramData%\DENIS` restricted to Administrators/SYSTEM via
+   `icacls` (the ACL equivalent of the systemd units' `StateDirectoryMode=0700`,
+   SECURITY_ARCHITECTURE_REVIEW.md M10), registers and starts the service, and optionally opens the
+   listen port in Windows Firewall (`New-NetFirewallRule`, only for a non-loopback address, never
+   silently). What `install.sh` does that this deliberately does **not** yet: download a release,
+   or verify an Ed25519 signature/SHA-256 checksum against it — both need a real signed Windows
+   artifact to exist first. CI's `windows-installer-syntax` job parses this script on a real
+   `windows-latest` runner (so it is at least known to be syntactically valid PowerShell), but
+   nothing has actually executed it — the install steps, the ACL restriction, and the firewall rule
+   are all unverified against a real Windows machine.
 4. **File permissions throughout.** Anywhere the code assumes POSIX mode bits (the TLS private key,
    the SQLite database file, the one-time admin password file) needs a Windows ACL equivalent so a
    secret is not left world-readable there either.
-5. **CI.** `.github/workflows/ci.yml` builds and tests on `ubuntu-latest`/`macos-latest` only. A
-   `cargo check`/`clippy` job for `x86_64-pc-windows-gnu` can be added today (it already passes —
-   see above) and would catch a future change that breaks Windows portability again. A real
-   `cargo build`/`cargo test` job needs the Npcap SDK available in CI first (bullet 1).
+5. **CI.** ~~Done~~: `.github/workflows/ci.yml`'s `windows-check` job runs `cargo check`/`clippy
+   --target x86_64-pc-windows-gnu --all-targets` on every push and PR, so a future change that
+   breaks Windows portability is caught the way `net.rs`'s original gap should have been. A real
+   `cargo build`/`cargo test` job (one that actually links and runs) still needs the Npcap SDK
+   available in CI first (bullet 1) - that part is still missing. A second job,
+   `windows-installer-syntax`, parses `packaging/install.ps1` on a real `windows-latest` runner
+   (there is no Windows binary yet for it to actually install - see item 2 below).
 
 ## What this deliberately does not attempt yet
 
-An actual Windows binary, service wrapper, or installer script. Every item above needs either a
-real Windows machine to build and test against, or a licensing/trust-model decision (Npcap
-bundling, the service account's privilege level) that is a product decision, not an engineering
-one this document can make unilaterally. Writing any of it without both would produce exactly the
-kind of "should work" code this project's own testing standard exists to prevent.
+Claiming any of the above - the service wrapper, the installer, or a signed Windows release - as
+*done*. All three now exist as code (see items 2, 3 and 5), written and cross-compile/lint or
+parse checked exactly like every other Windows-only piece here before it was run for real, but
+none of them have been. A real Windows machine to build and run the service wrapper against, and a
+licensing/trust-model decision (Npcap bundling, whether to automate the `NT SERVICE\denis` account
+at install time) that is a product decision, not an engineering one this document can make
+unilaterally, are both still needed before any of this is genuinely usable.
 
 ## Suggested order
 
@@ -193,7 +217,11 @@ kind of "should work" code this project's own testing standard exists to prevent
    working end to end against a real master, with real traffic, real port scans, real OS
    fingerprints and real detection events. See "Verified on a real Windows machine (2026-09-30)"
    above for specifics.
-6. The service wrapper and installer, once (5) has actually been run for real.
+6. ~~The service wrapper and installer~~ — written (2026-09-30): `src/winservice.rs` (`denis
+   service install|uninstall|start|stop`, using the `windows-service` crate) and
+   `packaging/install.ps1`. Both are cross-compile/lint or parse checked only (see items 2 and 3
+   above) - **running either for real on a Windows machine is the next actual step**, not a
+   further round of writing more unverified code.
 
 ## For IPv6
 

@@ -1,6 +1,6 @@
 [package]
 name = "denis"
-version = "2.61.0"
+version = "2.62.0"
 edition = "2021"
 description = "DENIS: Device Enumeration & Network Inventory Security. Find every device on an IT or OT network, keep an editable asset register, and get alerted when behaviour changes."
 license-file = "LICENSE"
@@ -63,6 +63,7 @@ tower = { version = "0.5.3", features = ["util"] }
 # these small pieces of src/net.rs and src/health.rs call the Win32 APIs directly instead (see
 # WINDOWS.md — untested on a real Windows machine, like the rest of the Windows groundwork).
 [target.'cfg(windows)'.dependencies]
+windows-service = "0.8.1"
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_System_Time", "Win32_System_SystemServices", "Win32_Storage_FileSystem"] }
 
 # Password hashing is deliberately expensive; optimise it even in debug builds so tests stay quick.
