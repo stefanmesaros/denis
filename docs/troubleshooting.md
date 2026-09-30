@@ -39,8 +39,10 @@ things are learned, not alerted on.
 Edit asset → Device type / Operating system. Your value is used everywhere. The device page's *Why this guess*
 shows what DENIS saw.
 
-**Two of every device in Sites**
-Two collectors on the same network segment. Keep one collector per segment.
+**Two of every device in Sites (or in the "All sites" device list)**
+Two collectors on the same network segment, each reporting the same devices under its own site. Keep one
+collector per segment; filtering the Devices page to one site shows each device once. A proper "same network"
+join is designed but not built yet (`MULTI_AGENT_DEDUP.md` in the repository).
 
 **An agent is not connecting**
 Check `denis agent-token list` (revoked?), the master's `--ingest-listen` address and firewall, that the agent
@@ -51,4 +53,4 @@ Stop DENIS, restore the latest backup (`.backup` file) over the database file. N
 
 ## The browser says the connection is not private / certificate warning
 
-DENIS uses HTTPS with a certificate it created itself, which browsers do not know. Either trust the DENIS CA once (*Settings → HTTPS certificate → Download the CA certificate*, or `tls/ca.pem` beside the database) or install your own certificate there. Open the console by a name or address the certificate covers (`localhost`, this machine's name, its IP addresses, or a `--tls-name`); otherwise the browser reports a name mismatch. A `curl` needs `--cacert tls/ca.pem`.
+DENIS uses HTTPS with a certificate it created itself, which browsers do not know. Either trust the DENIS CA once (*Settings → Sign-in & security → HTTPS certificate → Download the CA certificate*, or `tls/ca.pem` beside the database) or install your own certificate there. Open the console by a name or address the certificate covers (`localhost`, this machine's name, its IP addresses, or a `--tls-name`); otherwise the browser reports a name mismatch. A `curl` needs `--cacert tls/ca.pem`.

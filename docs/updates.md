@@ -6,12 +6,12 @@ choose**, with a backup first and without touching your data.
 ## How it works for you
 
 1. Every few hours DENIS asks GitHub whether a newer **release** exists. If so, a bar appears under the header:
-   *"DENIS 0.2.0 is available. What's new"* (everyone sees it; only administrators can install).
+   *"DENIS 2.52.0 is available. What's new"* (everyone sees it; only administrators can install).
 2. **What's new** opens the changelog and your choices:
    * **Install now**: a progress list shows each step; the page reloads on the new version.
    * **Schedule**: pick a time (for example tonight at 03:00); DENIS installs then.
    * **Remind me in 3 days**, or **Skip this version**.
-3. **Settings → Updates** shows the current version, when DENIS last checked, and **Check for updates now**.
+3. **Settings → System → Updates** shows the current version, when DENIS last checked, and **Check for updates now**.
 
 ## What happens during an install, and why it is safe
 

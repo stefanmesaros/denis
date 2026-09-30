@@ -5,7 +5,7 @@ Addresses like `#rules` or `#device/12` can be bookmarked or pasted into a messa
 
 ## MSP view (optional)
 
-Off by default. An administrator turns it on under **Settings → MSP view** for installs that
+Off by default. An administrator turns it on under **Settings → Branding & MSP → MSP view** for installs that
 manage more than a couple of sites — an MSP with several customers, or one business with several
 branches. One row per site (the local network and every remote agent you can see, respecting your
 own site access): online status, device count, open alerts by severity, last report time. Click a
@@ -16,7 +16,13 @@ row to open that site's devices.
 Product name and logo (yours, see [Branding](branding.md)), a status line (mode, network, devices, last sweep,
 health of exports), the **language** picker, the **colour theme** button (auto / day / night), your name (click it for [My account](#my-account)),
 **Help** (this documentation), **Sign out** and **Scan now** (an immediate sweep and port scan; disabled in passive-only mode).
-A yellow banner appears while **maintenance mode** silences notifications.
+**Ask DENIS** appears next to *Scan now* when that AI feature is on ([Settings → AI](#settings-administrators)): a
+floating question box that stays open while you move between pages. A yellow banner appears while **maintenance
+mode** silences notifications; a blue one while demo data is loaded or an update is available.
+
+The menu on the left is grouped into *Monitor* (Devices, Alerts, Findings), *Analyze* (Topology, OT, Software,
+Trends, Events, Compliance, Reports) and *Manage* (Rules, Alerting, Health, Sites, Users, Settings, Audit log);
+the ☰ button collapses it to an icon rail.
 
 ## Dashboard
 
@@ -92,9 +98,14 @@ logged). Click an alert for the full story:
 
 ![An alert](img/alert-dialog.png)
 
-*what happened*, *why it scored what it did*, and **what to do next**. **Acknowledge** an alert when it is handled;
-acknowledged alerts no longer count towards a device's risk score. **Alerts CSV** (a button, next to *show
-acknowledged*) exports the list.
+*what happened*, *why it scored what it did*, and **what to do next**. **Acknowledge** an alert when it is handled,
+with an optional reason (resolved / false positive / expected behaviour); acknowledged alerts no longer count
+towards a device's risk score. Tick several rows to acknowledge them together, or **Acknowledge all**. The same
+alert kind repeating for the same device is folded into one row ("×12, recurring since…") that expands on click.
+**Add exception** (administrators) silences that exact alert for that device without a trip to the Rules page.
+With an AI provider configured, **Explain with AI**, **Triage with AI**, **Recommended actions** and — for alerts
+about a change from a device's own baseline — **Explain behavior change** appear in the dialog, each only on
+click. **Alerts CSV** (a button, next to *show acknowledged*) exports the list.
 
 Any public IP address the alert mentions gets its own **Network context** section: the address, its country/ASN/ISP
 (or "private"/"loopback"/etc. for one that is not public), reverse-DNS hostname, and — click it — a full detail
@@ -129,7 +140,13 @@ Every detection with what it does, what it needs, whether it is on, its weight (
 its thresholds and a minimum score of its own, plus **exceptions** (devices, device types, tags or networks a rule
 stays quiet about), your own **network watches** (which devices may talk to which addresses and ports) and your own
 **OT command watches**. Everyone can read it; administrators change it. Changes apply
-within seconds, survive restarts and are written to the audit log ([details](detection-rules.md)).
+within seconds, survive restarts and are written to the audit log ([details](detection-rules.md)). Administrators
+also find **Continue learning mode** and **Forget all learned baseline data** here, and can export the rule
+settings as a file and import them elsewhere.
+
+The page has a second view, **Exceptions, accepted risks & baseline** (a sub-entry in the menu): every place a
+rule, watch or finding has been told to stay quiet, and every learned baseline destination, grouped by device in
+one searchable list. Removing something here has exactly the same effect as removing it where it was added.
 
 ## Compliance
 
@@ -161,6 +178,13 @@ protocols they speak (S = answers requests, C = sends them), the **communication
 Modbus, S7, EtherNet/IP, DNP3, BACnet, OPC UA, IEC 104, with counts of reads, writes and control commands), and
 the functions each path uses (**Commands seen**: click one to be told whenever it is sent) and the open OT alerts.
 Filter to *writes / control commands only* to see who can change a process.
+
+## Software
+
+Every product and version DENIS has read from a service banner (SSH, HTTP, FTP, SMTP, MySQL/MariaDB), grouped by
+software instead of by device, with a status per row: known-exploited, end of support, end of support soon, or
+no known issue — the same data the Findings page checks, seen fleet-wide. Click a device count to see which
+devices run that version.
 
 ## Trends
 
@@ -202,7 +226,9 @@ it off), *Back up now*, and a list to **download** or delete. See [Operations](o
 ![Sites](img/sites.png)
 
 The local collector and every remote **agent** that reports to this master (outbound connections only). An
-administrator issues and revokes one **token per agent** here. See [Deployment](deployment.md#multiple-sites-agents).
+administrator issues and revokes one **token per agent** here, and can **delete a site** together with every
+device it reported (the site id has to be typed back to confirm; the token is revoked separately). See
+[Deployment](deployment.md#multiple-sites-agents).
 
 ## Alerting (administrators)
 
@@ -229,11 +255,24 @@ customers, or to keep a sensitive site out of a viewer's sight entirely.
 
 ![Settings](img/settings.png)
 
-Everything about the installation that is not about people: the **setup guide** (the first-run checklist, which you can
-open again here), **branding** (name, logo, colour, default theme and
-language), the **HTTPS certificate** (download the local CA, or use your own), **updates** (check, install now or
-later) and **demo data**: load a fictional company to explore, remove it, or **erase all data** when you are ready for
-the real network ([details](operations.md#demo-data-and-starting-clean-erase-all-data)).
+Everything about the installation that is not about people, in seven categories shown as a sub-menu under
+*Settings*:
+
+* **System** — license, updates (check, install now or later), restart / shut down, the setup guide (the first-run
+  checklist, which you can open again here).
+* **Sign-in & security** — who must use a second step, passkey-only sign-in, single sign-on (OIDC), the HTTPS
+  certificate (download the local CA, or use your own).
+* **Network** — the discovery and mirror interfaces and the agent listener, switches (SNMP), Network Intelligence
+  (GeoIP / reverse DNS).
+* **Data** — data retention, the software-version data (end-of-support and known-exploited refreshes, custom
+  CVEs), and demo data: load a fictional company to explore, remove it, or **erase all data** when you are ready
+  for the real network ([details](operations.md#demo-data-and-starting-clean-erase-all-data)).
+* **Integrations** — SIEM / log export, CMDB import (Entra ID, Intune, Active Directory, Jamf Pro, Azure, AWS,
+  GCP), the vulnerability scanner (Nessus).
+* **AI** — the optional bring-your-own-key AI features, each with its own switch, and their usage counters.
+* **Branding & MSP** — name, logo, colour, default theme and language; the MSP view.
+
+Deep links like `#settings/tls` still open the right category.
 
 ## IP enrichment
 
@@ -261,11 +300,12 @@ Under *Settings* → **Network** → **Network Intelligence**:
 * Nothing about this ever slows down or blocks device discovery, alerting or event processing: enrichment happens
   in the background, and a page of alerts shows whatever is already known rather than waiting on a lookup.
 
-## Users: second step and Sign-in security
+## Users: second step and Sign-in & security
 
 The *Users* page shows how each person signs in (authenticator app, passkeys), and **Reset** removes somebody's
-authenticator app after a lost phone. Under *Settings* → **Sign-in security** an administrator can require a second step
-for administrators or for everybody.
+authenticator app after a lost phone. Under *Settings* → **Sign-in & security** an administrator can require a second
+step for administrators or for everybody, and, separately, require a **passkey only** (once a covered person has
+added one, their password no longer opens a session).
 
 ## Audit log (administrators)
 
@@ -292,9 +332,13 @@ client or an auditor.
 
 * **Make a report now** (editors and administrators) for the last 7 days up to a year. The report is stored, so
   last month's is still there next month, exactly as it was.
-* **Schedule** (administrators): every week or every month, covering a period you choose. DENIS keeps the newest
-  N scheduled reports and removes older ones; reports you made by hand are never removed. Deleting a report is an
-  administrator's action and goes to the audit log.
+* **Schedule** (administrators): every week or every month, covering a period you choose, optionally e-mailed as a
+  link when ready. DENIS keeps the newest N scheduled reports and removes older ones; reports you made by hand are
+  never removed. Deleting a report is an administrator's action and goes to the audit log.
+* **Share…** (administrators) turns on a link that opens the report **without signing in** — the dialog says so
+  plainly; **Stop sharing** invalidates it immediately.
+* With *Settings → AI → Security reports* on, a saved report also carries a short AI-written summary; the live
+  `/report` never does.
 * Reports are kept in DENIS's database, so they are included in backups, and **Erase all data** removes them too.
 
 `/report?days=7` still gives a live report that is not saved (see the [API](api.md)).

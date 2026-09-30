@@ -27,7 +27,7 @@ different build).
 
 ## Installing a license
 
-A license is a small signed text file, two lines. The easiest way: **Settings → License** (an
+A license is a small signed text file, two lines. The easiest way: **Settings → System → License** (an
 administrator), paste both lines in and save — it verifies immediately, no restart needed, and
 if it does not verify the page says why. This is what most installs should use.
 

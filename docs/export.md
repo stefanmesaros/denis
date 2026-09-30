@@ -60,7 +60,7 @@ resume). It has **not yet been tried against a real OpenObserve server**: do tha
 
 # SIEM export (syslog: CEF, LEEF or JSON)
 
-Fully configured from the console — **Settings → SIEM / Log export** — with no restart: turn it on, pick a
+Fully configured from the console — **Settings → Integrations → SIEM / Log export** — with no restart: turn it on, pick a
 format and a transport, choose which streams to send, and use **Send a test message** to check a target
 before saving it.
 
@@ -104,13 +104,13 @@ denis run --syslog udp://siem.example.com:514        # or tcp://…:6514, or tls
 
 Still works, for a headless install or a config-management script: CEF, the events stream only, exactly as
 before. It only **seeds** the console's own setting, once, the first time nothing has been saved there yet —
-after that, Settings → SIEM / Log export is authoritative, and the flag is ignored on every later start.
+after that, Settings → Integrations → SIEM / Log export is authoritative, and the flag is ignored on every later start.
 
 ---
 
 # Elasticsearch / OpenSearch export (ECS over the Bulk API)
 
-The same **Settings → SIEM / Log export** page, transport **Elasticsearch (Bulk API)**: documents go straight
+The same **Settings → Integrations → SIEM / Log export** page, transport **Elasticsearch (Bulk API)**: documents go straight
 to an index or data stream via `POST .../_bulk`, shaped as [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html)
 — no Logstash or Filebeat in between, and no syslog envelope. Selecting this transport switches the format to
 `ecs` automatically; it is the only format this transport accepts.

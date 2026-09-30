@@ -15,8 +15,8 @@ All rules are **rule-based and explainable**: each alert shows the factors that 
 
 Rule names for `--rule-weight`: `new_device`, `new_destination`, `volume_anomaly`, `new_port`,
 `unusual_hours`, `arp_conflict`, `device_silent`, `rogue_dhcp`, `new_device_burst`, `threat_list_match`,
-`ot_new_conversation`, `ot_control_command`, `ot_internet_exposure`, `ot_purdue_skip`, `ot_unexpected_writer`,
-`ot_command_watch`, `ot_write_escalation`, `it_watch`.
+`lan_scan`, `new_destination_v6`, `ot_new_conversation`, `ot_control_command`, `ot_internet_exposure`,
+`ot_purdue_skip`, `ot_unexpected_writer`, `ot_command_watch`, `ot_write_escalation`, `it_watch`.
 
 Every alert carries **advice**: click an alert (Alerts or Events tab) to see its summary, *why* it scored what
 it did, and *what to do next*. The same advice is in `GET /api/meta/options` (`advice`).
@@ -60,6 +60,17 @@ takes ≥3 addresses in 10 minutes. Not subject to learning. At most 5 alerts pe
 interfaces whose hardware addresses differ only in the last byte (seen on ASUS mesh gear). Such a pair scores 50
 lower, so it is only logged, unless the contested address is the gateway. (A forger who picks a sibling
 address is therefore only caught when the target is the gateway.)
+
+### `lan_scan`: internal network scan *(needs traffic analysis on a mirror port)*
+An **already-known** device suddenly touches many different local hosts, or many different ports on one local
+host, within a short rolling window — the signature of a compromised device scanning the LAN, which `new_device_burst`
+(many *new* devices at once) does not cover. Breadth-based, not connection-state-based, like the rest of the rule
+engine: by default 8 distinct local addresses, or 8 distinct ports on one local address, within 2 minutes. Score 55,
++3 per address or port beyond the threshold. One alert per device per hour (adjustable), then the window starts
+fresh. Because it judges device-to-device traffic, it only sees what crosses a mirror/SPAN port; on an ordinary
+port it sees only traffic to and from the collector itself.
+*Typical false positive:* a vulnerability scanner or monitoring server that legitimately sweeps the LAN — add it
+as an exception.
 
 ### `new_destination_v6` / `ndp_mismatch`: the IPv6 counterparts *(opt-in, `--ipv6`; see IPV6.md in the repository)*
 `new_destination_v6` is `new_destination`'s IPv6 twin *(needs `--flows`, `--ipv6-subnet`)*: a device contacts an
@@ -221,16 +232,19 @@ From a banner DENIS takes a **product and a version** (OpenSSH, Dropbear, nginx,
 IIS, Exim, ProFTPD, vsftpd, MySQL, MariaDB) and asks two questions of it. **No version in the banner means no claim at all.**
 
 * **Is this version still supported?** (`eol_software`, `eol_soon`.) From [endoflife.date](https://endoflife.date): support
-  dates for nginx, Apache HTTP Server, PHP, OpenSSL, Exim and ProFTPD, refreshed weekly by default (Settings → Software data).
+  dates for nginx, Apache HTTP Server, PHP, OpenSSL, Exim and ProFTPD, refreshed weekly by default (Settings → Data →
+  Software versions).
   A release whose date has passed is a finding; one that ends within 90 days is a low one. OpenSSH, lighttpd, vsftpd, Dropbear,
   MySQL and MariaDB have no published support dates built in, so they are never judged this way.
 * **Is it in the range of a vulnerability that is being exploited?** (`kev_software`.) From the CISA *Known Exploited
   Vulnerabilities* catalog, with the affected version ranges from NVD and an exploitation-probability score from FIRST.org
   EPSS where known; only CVEs whose NVD ranges are clean and single-product are included. This ships as a **short,
-  high-confidence** list, not a scanner's thousand CVEs, and can be extended two ways from Settings → Software data:
+  high-confidence** list, not a scanner's thousand CVEs, and can be extended two ways from Settings → Data → Software
+  versions:
   * **Update now** fetches the current CISA catalog live, looks up ranges on NVD and scores on EPSS, for the same
-    recognised products above; an optional weekly auto-refresh sits beside it (off by default: heavier than the EOL
-    refresh, an administrator's own choice to turn on).
+    recognised products above; a weekly auto-refresh sits beside it, on by default like the support-date refresh
+    (it can take a minute or two, since NVD is rate-limited per CVE; switch it off there if you would rather not
+    contact those three sites).
   * **Custom CVEs**: add one by hand (CVE id, product, name, date, an exact version or a range) for software DENIS does not
     ship data for yet, or one you want flagged sooner than the next release. Matched exactly like the list above.
 
@@ -243,7 +257,7 @@ also announce a version that is not what is really installed. *Verify fix* scans
 says whether it still announces that version; *Accept risk* works as for any finding.
 
 **Where the data comes from and how it is kept.** `data/vulndata.json` ships inside DENIS (its date is shown under *Settings* →
-**Software data**). It is built by `tools/build-vulndata.py` (needs `curl`), which you can run yourself: it fetches the three
+*Data* → **Software versions**). It is built by `tools/build-vulndata.py` (needs `curl`), which you can run yourself: it fetches the three
 sources, keeps a CVE only when its version ranges are unambiguous, and writes the file for you to read and commit. The support
 dates can also be **refreshed by the console** from endoflife.date, weekly (on by default; an administrator can turn it
 off) or on demand: that contacts one public site and sends nothing about your network. The known-exploited list arrives
@@ -314,6 +328,22 @@ reason) and accepted risks appear in the **saved reports** and as `denis_accepte
 
 ## Acknowledging and false positives
 
-**Acknowledge** an alert once handled. It stops counting toward the device's risk (and you can *Undo*).
+**Acknowledge** an alert once handled, optionally with a reason (*resolved*, *false positive*, *expected
+behaviour*). It stops counting toward the device's risk (and you can *Undo*). Choosing *false positive* or
+*expected behaviour* offers to add the matching exception in the same step. Several alerts can be ticked and
+acknowledged together, and the same alert kind repeating for the same device is folded into one row you can expand.
 For a recurring harmless pattern, prefer lowering that rule's weight or raising `--min-score` over ignoring
 alerts. Repeats are suppressed by cooldowns, so an alert is not a flood.
+
+## Learning mode, and forgetting a baseline
+
+Besides the initial learning period, an administrator can **continue learning mode** for the whole network for 1
+to 7 days (*Rules* → *Continue learning mode*), for after a change big enough that the existing baselines no
+longer make a fair comparison (a new switch, a re-addressed subnet, a batch of new devices). It only pauses
+alerting; each device keeps learning underneath. **Forget all learned baseline data** (same place, typed
+confirmation) is the real reset: every device's destinations, ports, volume and active hours start from nothing.
+One destination at a time can be removed from a device's baseline on its panel, or under *Rules* → *Exceptions,
+accepted risks & baseline*.
+
+Rule settings can be **exported as a file and imported** on another install (*Rules* → *Export as file* /
+*Import from file…*); the file is the same shape `PUT /api/rules` takes.

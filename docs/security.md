@@ -15,9 +15,22 @@ important, what it does **not** do, so you can assess it honestly.
 | Users' browsers | stored XSS via device names | the UI builds DOM with `textContent` only (never HTML strings), strict Content-Security-Policy (`default-src 'self'`), HTML/CSV output escaped, CSV formula injection neutralised |
 | The host | privilege | runs unprivileged with only `CAP_NET_RAW`/`CAP_NET_ADMIN`; never executes anything received from the network |
 
-**No backdoors by design:** there is no hard-coded credential, no maintenance account, no telemetry and no
-outbound connection except those *you* configure (webhook, master URL). The first administrator password is
-random and shown once.
+**No backdoors by design:** there is no hard-coded credential, no maintenance account and no telemetry. The first
+administrator password is random and shown once.
+
+**Outbound connections.** Besides the ones you configure yourself (notification channels, exports, a master URL,
+CMDB/cloud imports, an AI provider), a default install makes four kinds of outbound request on its own, none of
+which carries anything about your network, and each of which can be switched off:
+
+| What | Where to | How often | Off with |
+|---|---|---|---|
+| update check | `api.github.com` | every 6 hours | `--no-update-check` / `DENIS_NO_UPDATE_CHECK=1` |
+| GeoIP database (DB-IP Lite) | `db-ip.com` | monthly | *Settings → Network → Network Intelligence* (auto-update off, or your own MMDB file) |
+| end-of-support dates | `endoflife.date` | weekly | *Settings → Data → Software versions* |
+| known-exploited vulnerabilities | CISA, NVD, FIRST.org (EPSS) | weekly | *Settings → Data → Software versions* |
+
+Reverse-DNS lookups of public addresses go to the resolver you set (`1.1.1.1` by default) and do carry the
+address being looked up; switch them off or point them at your own resolver under *Network Intelligence*.
 
 ## What DENIS does not protect (be aware)
 
@@ -34,7 +47,10 @@ random and shown once.
   agent saw would cross the network readable. If the master runs with `--no-tls` (behind a TLS proxy) point the agent at
   the proxy's `https://` address. What is not protected: the agent's token is a shared secret rather than a client
   certificate, so keep it as safe as a password (revocable per agent under *Sites*).
-* **Passkeys** (WebAuthn) and **one-time codes from an authenticator app** (TOTP) are supported for sign-in (below). There is no single sign-on (SAML/OIDC) yet.
+* **Passkeys** (WebAuthn) and **one-time codes from an authenticator app** (TOTP) are supported for sign-in (below).
+  **Single sign-on** over OpenID Connect exists (*Settings → Sign-in & security → Single sign-on*) but has not yet
+  been exercised against a real identity provider — ID-token signature verification end to end is the specific
+  gap; see `SSO.md` in the repository before relying on it. SAML is not supported.
 * Login lock-out is **per account name**: an attacker can lock a known account for short periods (denial of
   service), but cannot guess passwords faster. On top of that each **source address** may make 20 failed
   sign-ins per 10 minutes, then is refused (HTTP 429) for the rest of the window, which stops one address
@@ -71,7 +87,9 @@ face, device PIN or security key, with no password to type or phish.
 * A passkey cannot skip a pending password change, cannot sign in a disabled account, is rate limited like passwords,
   and every registration, removal and sign-in is in the audit log.
 * **Lost device:** the person removes it under *Passkeys*; an administrator can remove *all* of a user's passkeys
-  (`DELETE /api/users/{id}/passkeys`). Passwords keep working; there is no way to force passkey-only sign-in yet (an administrator can require *a* second step, see the next section).
+  (`DELETE /api/users/{id}/passkeys`). Passwords keep working unless an administrator turns on **passkey-only
+  sign-in** (*Settings → Sign-in & security*, for administrators or everybody): once a covered account has actually
+  added a passkey, its password stops opening a session — never before, so nobody is locked out by turning it on.
 * Verified with a software authenticator against the full protocol (forged, replayed, unverified, cloned and
   wrong-origin responses are all refused) and in a browser with a simulated authenticator. Not yet verified with a
   physical security key or a phone.
@@ -93,7 +111,7 @@ types a correct first code. Ten **recovery codes** are shown once.
 * **Passkeys** already are two factors (the device plus a fingerprint or PIN), so a passkey sign-in asks for no code.
 * **Sensitive actions ask for the password again**: setting up, turning off and new recovery codes (the last also
   needs a current code).
-* **Requiring it.** *Settings* → **Sign-in security**: require a second step (an authenticator app *or* a passkey) for
+* **Requiring it.** *Settings* → **Sign-in & security**: require a second step (an authenticator app *or* a passkey) for
   nobody, administrators, or everybody. Whoever is required and has none is asked to set one up at their next request,
   and nothing else works until they have (API tokens are not affected). While it is required, a person cannot turn their
   only second step off.
@@ -108,7 +126,8 @@ types a correct first code. Ten **recovery codes** are shown once.
 - [ ] HTTPS on (the default), with the CA trusted or your own certificate installed; never `--no-tls` on a network.
 - [ ] Ingest port firewalled to the agents' addresses, and TLS/VPN in front if it crosses untrusted networks.
 - [ ] Run as an unprivileged user with capabilities (the systemd unit does); database directory `0700`.
-- [ ] Set `--public-url` and have people add a passkey or an authenticator app; require a second step (*Settings* → *Sign-in security*).
+- [ ] Set `--public-url` and have people add a passkey or an authenticator app; require a second step (*Settings* → *Sign-in & security*), or passkey-only sign-in for administrators.
+- [ ] Decide which of the default outbound connections above you want, and turn off the rest.
 - [ ] Individual named accounts; *viewer* by default; only a few admins; review the audit log.
 - [ ] Rotate agent tokens when staff or hardware change; revoke tokens of retired agents.
 - [ ] Back up the database; test a restore.
@@ -117,13 +136,14 @@ types a correct first code. Ten **recovery codes** are shown once.
 
 ## Verification performed
 
-* Unit and integration tests (≈200) including negative tests: unauthenticated access to every route, every
-  role on every kind of route, session/cookie flags, lock-out, CSRF header, rebinding, token binding and
-  revocation, hostile CSV/HTML.
+* Unit and integration tests (780+ across the crate) including negative tests: unauthenticated access to every
+  route, every role on every kind of route, session/cookie flags, lock-out, CSRF header, rebinding, token binding
+  and revocation, API-token rate limits, hostile CSV/HTML, secrets never echoed back by any settings endpoint.
 * Fuzz tests of every wire parser and of CSV/JSON input.
-* `cargo audit` against the RustSec advisory database: 0 known vulnerabilities in 250 dependencies.
-* Not yet done (do before selling): an independent penetration test, review of the TLS-proxy deployment
-  you intend to ship, and a coordinated-disclosure process (define a security contact and policy).
+* `cargo audit` against the RustSec advisory database, on every CI run, against the ~430 crates in `Cargo.lock`.
+* A coordinated-disclosure policy exists (`SECURITY.md` in the repository: GitHub private vulnerability reporting).
+* Not yet done (do before selling): an independent penetration test, and a review of the TLS-proxy deployment
+  you intend to ship.
 
 ## Notes for penetration testers
 

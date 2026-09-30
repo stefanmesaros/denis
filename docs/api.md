@@ -120,7 +120,35 @@ Role = the lowest role allowed.
 | `GET/PUT /api/cmdb/settings` · `POST /api/cmdb/sync` | viewer / admin / admin | CMDB import, Entra ID + Intune (see `CMDB.md` in the repository): `{enabled, tenant_id, client_id, sync_interval_hours, include_intune, client_secret_set}` (`PUT` also takes `client_secret`, write-only) · sync now, `{ok, imported}` or `{ok:false, error}` |
 | `GET/PUT /api/ad/settings` · `POST /api/ad/sync` | viewer / admin / admin | CMDB import, on-premises Active Directory: `{enabled, url, bind_dn, base_dn, sync_interval_hours, bind_password_set}` (`PUT` also takes `bind_password`) · sync now |
 | `GET/PUT /api/jamf/settings` · `POST /api/jamf/sync` | viewer / admin / admin | CMDB import, Jamf Pro: `{enabled, server_url, client_id, sync_interval_hours, client_secret_set}` (`PUT` also takes `client_secret`) · sync now |
-| `GET /api/cmdb/devices` | viewer | every device imported by any of the three CMDB sources above, `source` one of `entra`/`intune`/`ad`/`jamf`, each with `matched_asset_id` (by hostname) when one was found |
+| `GET/PUT /api/azure/settings` · `POST /api/azure/sync` | viewer / admin / admin | Cloud import, Azure VMs: `{enabled, tenant_id, client_id, subscription_id, sync_interval_hours, client_secret_set}` (`PUT` also takes `client_secret`) · sync now |
+| `GET/PUT /api/aws/settings` · `POST /api/aws/sync` | viewer / admin / admin | Cloud import, EC2: `{enabled, access_key_id, region, sync_interval_hours, secret_access_key_set}` (`PUT` also takes `secret_access_key`) · sync now |
+| `GET/PUT /api/gcp/settings` · `POST /api/gcp/sync` | viewer / admin / admin | Cloud import, Compute Engine: `{enabled, project_id, sync_interval_hours, service_account_json_set}` (`PUT` also takes `service_account_json`, the whole key file; refused if not valid JSON) · sync now |
+| `GET /api/cmdb/devices` | viewer | every device imported by any of the seven sources above, `source` one of `entra`/`intune`/`ad`/`jamf`/`azure`/`aws`/`gcp`, each with `matched_asset_id` (by hostname) when one was found |
+| `GET/PUT /api/vulnscan/settings` · `POST /api/vulnscan/sync` · `GET /api/vulnscan/findings` | viewer / admin / admin / viewer | Nessus / Tenable.io import: `{enabled, server_url, sync_interval_hours, access_key_set, secret_key_set}` (`PUT` also takes `access_key`, `secret_key`) · sync now, `{ok, imported}` · the imported findings, each with `plugin_name`, `severity`, `host`, `matched_asset_id` (by IP, then hostname) |
+| `GET /api/software` | viewer | the fleet-wide Software page: `{software:[{product, version, asset_ids[], cves[], eol}]}` |
+| `GET /api/compliance` | viewer | the Compliance page: register measures and the per-standard control mapping |
+| `GET /api/top-talkers` · `PUT /api/top-talkers/excluded` | viewer · editor | the Top talkers leaderboard (`{talkers[], excluded[]}`) · devices to hide from it (`{"excluded":[ids]}`, kept server-side) |
+| `POST /api/alerts/ack-all` · `POST /api/alerts/ack-bulk` | editor | acknowledge every unacknowledged alert · `{"ids":[…], "reason"?}`; `POST /api/alerts/{id}/ack?reason=resolved\|false_positive\|expected_behavior` records a reason on a single one |
+| `POST /api/assets/review` · `POST /api/assets/bulk-tags` · `POST /api/assets/bulk-edit` | editor | mark `{"ids":[…]}` as reviewed · `{"ids":[…], "add"\|"remove": "tag"}` · `{"ids":[…], "field", "value"}` (owner, location, department, type_override, criticality, status) |
+| `GET /api/assets/{id}/merged` · `PATCH /api/assets/{id}/meta {"merged_into": id\|null}` | viewer · editor | devices hidden behind this one ("This is the same device as…", same site only) · merge / unmerge |
+| `GET /api/baseline/destinations?q=&limit=` · `DELETE /api/assets/{id}/baseline/destinations/{ip}` · `POST /api/baseline/forget-all` | viewer · admin · admin | every learned destination across devices, searchable · forget one · forget every baseline (`{"confirm":"FORGET LEARNED BASELINE"}`) |
+| `POST /api/learning/start` `/pause` `/resume` `/end` | admin | network-wide learning mode: `{"days": 1–7}` to start; its current state comes back as `learning` in `GET /api/rules` |
+| `GET /api/rules/export` | viewer | the rule settings as a downloadable JSON file in the shape `PUT /api/rules` accepts |
+| `PUT /api/reports/{id}/share` · `DELETE /api/reports/{id}/share` · `GET /api/reports/shared/{token}` | admin · admin · public | turn on a no-sign-in link for one saved report (`{share_token}`) · turn it off · the shared report itself |
+| `GET /api/retention` · `PUT /api/retention` | admin | `{"days": 1–1095}`: how long events, alerts and trend samples are kept |
+| `GET /api/license` · `PUT /api/license` (body = the license text) · `DELETE /api/license` | viewer · admin · admin | Community-edition cap and the installed license (see [Licensing](licensing.md)) |
+| `GET/PUT /api/sso` | viewer / admin | single sign-on (OIDC): `{enabled, issuer_url, client_id, button_label, secret_set}` (`PUT` also takes `client_secret`); `GET /api/auth/sso` (public) says whether a button is on offer; `/api/auth/sso/login` and `/callback` are the browser flow |
+| `GET/PUT /api/siem` · `POST /api/siem/test` | viewer / admin · admin | SIEM / log export settings (`{enabled, transport, host, port, format, insecure_tls, index, streams:{events,findings,audit}}`, `api_key` write-only) · send one test message with the posted settings |
+| `GET /api/ai` · `GET/PUT /api/ai/settings` · `GET /api/ai/usage` | viewer · viewer / admin · viewer | which AI features are on for this user's buttons · provider keys (write-only), local model URL/name, the global switch and per-feature toggles · call/token counters per provider |
+| `POST /api/ai/explain` · `/triage` · `/recommend` · `/behavior` · `/ask` · `/suggest-rule` · `GET /api/ai/summary` | editor · viewer | on-click AI calls (`{kind, id, provider}` / `{id, provider}` / `{question}` / `{description, provider}`); each is refused server-side when its feature is off · the cached dashboard summary, never generated by the request |
+| `GET/PUT /api/interfaces` · `POST /api/interfaces/deconfigure-ip` | viewer / admin · admin | the discovery/mirror interfaces and the agent listener for the next start (`{iface, mirror_ifaces[], ingest_listen}`) · remove an address from a mirror interface now |
+| `GET /api/tls` · `POST /api/tls/certificate` `{certificate, key}` · `DELETE /api/tls/certificate` | viewer · admin · admin | the HTTPS certificate in use · install your own (PEM) · back to the generated one |
+| `GET /api/update` · `POST /api/update/check` `/install` `/snooze` `/skip` · `DELETE /api/update/schedule` | viewer · admin | self-update state · check now, install now or `{"when": ts}`, remind later, skip this version · cancel a scheduled install |
+| `POST /api/system/restart` · `POST /api/system/shutdown` | admin | `{"password"}` — the current password is required again |
+| `GET/PUT /api/users/{id}/site-access` | admin | per-site `{"grants":[[site, "read"\|"none"]]}`; no grant = full access |
+| `DELETE /api/agent-tokens/{agent_id}/purge` · `DELETE /api/api-tokens/{id}/purge` | admin | delete an already-revoked token's record |
+| `PUT /api/msp-overview` · `GET /api/msp-backups` · `GET/DELETE /api/msp-backups/{agent_id}/{name}` | admin | the MSP view switch (`{"enabled"}`; whether it is on comes back as `msp_overview` in `GET /api/status`) · customers' uploaded backups (see [Deployment](deployment.md#msp-keeping-a-copy-of-a-customers-backups)) |
+| `GET /api/demo` · `POST /api/demo` · `DELETE /api/demo` · `POST /api/data/erase` | viewer · admin | whether demo data is loaded · load · remove · erase everything (`{"confirm":"ERASE ALL DATA"}`) |
 
 ### Editing an asset
 
@@ -145,5 +173,10 @@ invalid values are rejected with `400` and **nothing is applied**.
 Used by `denis agent`; documented for completeness. `Authorization: Bearer <agent token>`.
 
 * `GET /api/v1/ping` → `200` if the token is valid.
-* `POST /api/v1/report` → `{agent, run_id, seq, sent_at, assets[], flows[], signals[], conversations[]}`.
+* `POST /api/v1/report` → `{agent, run_id, seq, sent_at, assets[], flows[], signals[], conversations[]}`, plus
+  `flows_v6[]` and `signals_v6[]` from an agent running with `--ipv6` (absent from older agents' reports).
   Batches are idempotent per `(run_id, seq)`; the token is bound to `agent.id`.
+* `POST /api/v1/msp-sync` is the separate path a customer's own master uses with `denis run --report-to`
+  (devices and already-scored alerts, see [Deployment](deployment.md#msp-live-devices-and-alerts-from-a-customers-own-master));
+  the same token kind, a different payload. Backups pushed with `--backup-upstream` use their own upload endpoint
+  on this port too.

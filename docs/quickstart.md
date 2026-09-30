@@ -4,7 +4,9 @@ From nothing to a working, useful DENIS in about an hour. Every step says *why*,
 
 ## 1. What you need
 
-* **macOS or Linux** (Ubuntu 22.04+ recommended for a server). Windows is not supported.
+* **macOS or Linux** (Ubuntu 22.04+ recommended for a server). There is no Windows release yet: a `denis.exe`
+  can be built from source with the Npcap SDK and has been run on a real Windows 11 machine, but there is no
+  installer or service wrapper (see `WINDOWS.md` in the repository).
 * **Permission to capture packets:**
   * Linux: run as root, or grant it once: `sudo setcap cap_net_raw,cap_net_admin=eip ./denis`
   * macOS: read access to `/dev/bpf*` (Wireshark's *ChmodBPF* does this) or run with `sudo`.
@@ -48,15 +50,16 @@ The first start creates an administrator and prints a **one-time password**. Cop
 Open **https://localhost:8080** (DENIS uses HTTPS by default; your browser will warn once about the certificate DENIS created: see [Deployment](deployment.md#reaching-the-ui-securely-https-is-on-by-default) to trust it or use your own). Sign in as `admin` and choose your own password (at least 12 characters).
 Lost it later? `denis user reset admin` on the same machine prints a new one-time password.
 
-Within seconds the **Devices** tab fills up.
+The **Dashboard** is the first screen; within seconds its counts move and the **Devices** page fills up.
 
 ![The Devices tab](img/devices.png)
 
 ## 3. Explore with demo data (optional)
 
-Not on a real network yet, or want to look around first? Sign in as an administrator, open **Users** → **Demo data**
-and press **Load demo data**. It fills the console with a fictional company (an office, a production hall with PLCs and
-HMIs, a branch site): 42 devices, alerts, industrial communications, trends. Every screen has something to look at.
+Not on a real network yet, or want to look around first? Sign in as an administrator, open **Settings** → **Data**
+→ **Demo data and reset** and press **Load demo data** (or start with `denis demo --db demo.db load`, see the
+README). It fills the console with a fictional company (an office, a production hall with PLCs and HMIs, a branch
+site): 42 devices, alerts, industrial communications, trends. Every screen has something to look at.
 
 Demo data is clearly marked and never mixed up with your real devices: a banner says it is loaded, the collector and
 detectors ignore it, and **Remove demo data** deletes exactly that and nothing else. When you are ready to use DENIS
@@ -88,8 +91,10 @@ under *Settings* → *Setup guide*. The list below is the same job in more detai
 6. **Tune the noise.** *Rules* tab: every detection, with its weight and thresholds. A rule that is too loud for
    you (say new destinations on laptops) can be turned down, not off
    ([details](detection-rules.md)).
-7. **Secure the console.** Add a **passkey** (header → *Passkeys*), create one named account per person, and put
-   the console behind HTTPS ([Deployment](deployment.md#reaching-the-ui-securely-https-is-on-by-default)).
+7. **Secure the console.** Add a **passkey** or an authenticator app (click your name → *My account*), create one
+   named account per person, and require a second step under *Settings → Sign-in & security*. HTTPS is already on
+   (a self-signed certificate; trust the DENIS CA or install your own, see
+   [Deployment](deployment.md#reaching-the-ui-securely-https-is-on-by-default)).
 8. **Look at *Findings* and *Compliance*.** They turn what DENIS knows into a to-do list and into evidence for
    an audit ([tour](tour.md#findings)).
 

@@ -133,8 +133,9 @@ year. This is what is still missing, in rough order. Pull requests welcome.
    bar already held elsewhere in this roadmap (IPv6's rotation-burst rule, NAC) — so the first cut
    should ship deliberately conservative (longer debounce, fewer auto-triggered capabilities) rather
    than guessed-generous.
-10. ~~**Vulnerability-scanner import** (Qualys/Tenable/Nessus).~~ Nessus done (2026-09-29); Qualys
-    and Tenable.io (a slightly different API, same shape) not yet started. Deliberately its own
+10. **Vulnerability-scanner import** (Qualys/Tenable/Nessus). *Partly done:* Nessus shipped in
+    v2.47.0 (2026-09-29), and its API shape also covers Tenable.io's compatible endpoint; Qualys,
+    and Tenable.io's own distinct API, not yet started. Deliberately its own
     store table (`imported_vulns`, `vulnscan.rs`) rather than folding into `CmdbDevice`'s one-row-
     per-device shape or into `findings.rs`'s fixed, compile-time-known kinds: a scanner reports
     zero or more dynamic findings per host, each with its own severity and plugin id, which neither
@@ -143,14 +144,18 @@ year. This is what is still missing, in rough order. Pull requests welcome.
     DENIS's own banner/version-based EOL and known-exploited-vulnerability matching (`vulndata.rs`).
     Like every CMDB source, the exact API shape used has not been exercised against a real
     Nessus/Tenable.io instance — see CMDB.md's own honesty accounting.
-11. **Windows collectors.** *(effort: 6/10)* In progress (2026-09-29): a real Windows 11 machine
+11. **Windows collectors.** *(effort: 6/10)* In progress (2026-09-30): a real Windows 11 machine
     became available and moved this from groundwork to real verification — `denis.exe agent`
-    (reporting over Tailscale to a real master, real token, real TLS) confirmed working end to end;
-    `denis.exe run` (local capture) found and fixed a real bug (Windows interface discovery handed
-    capture the localized display name instead of Npcap's own device-name convention, so it could
-    never have opened a capture handle at all until now — see `WINDOWS.md`), not yet re-verified.
-    Still needs: the fix confirmed live, the service wrapper, and the installer — each its own step,
-    see `WINDOWS.md`'s own "Suggested order".
+    (reporting over Tailscale to a real master, real token, real TLS) confirmed working end to end
+    (2026-09-29); `denis.exe run` (local capture) found and fixed a real bug (Windows interface
+    discovery handed capture the localized display name instead of Npcap's own device-name
+    convention, so it could never have opened a capture handle at all until v2.48.0 — see
+    `WINDOWS.md`), and the fix is now **confirmed live** (2026-09-30): real traffic captured, 42
+    devices discovered with real OUIs, port scans, OS fingerprints and a real `arp_conflict` alert
+    flowing through the ordinary pipeline. Still needs: a longer run than a few minutes, the
+    privilege/service-account decision, the Windows Service wrapper, and the installer — each its
+    own step, see `WINDOWS.md`'s own "Suggested order". CI still only type-checks and lints the
+    Windows target; nothing links or tests it there.
 12. **SAML.** *(effort: 6/10)* OIDC SSO already exists (Settings → Single sign-on); SAML is a separate protocol
     (XML signatures, metadata exchange, an ACS endpoint) with a real CVE history
     (signature-wrapping attacks) and meaningfully less mature Rust tooling than OIDC's — valuable
@@ -180,9 +185,16 @@ year. This is what is still missing, in rough order. Pull requests welcome.
     deliberately: this is a different product category (active network control, not passive
     visibility) with a much larger blast radius when it gets something wrong (a false positive
     blocks a real device, not just a false alert) — worth a deliberate product decision before any
-    scoping work, not just the next item to pick up. No single blocking API is standard across every
-    vendor, so this is really several connectors, not one feature — in the order worth building
-    them (highest reach or best fit for DENIS's own audience per unit of effort, first):
+    scoping work, not just the next item to pick up. That decision has been taken and the
+    architecture written up in [NAC.md](NAC.md) (manual, one target at a time, an administrator's
+    password on every block, a durable ledger, undo, drift detection; automatic enforcement
+    explicitly out of scope). **Status: design only.** No enforcement code has shipped in any
+    release — there is no `nac.rs`, no write-community field on a switch, no enforcement endpoint,
+    and every place the product says "DENIS never changes anything on a switch" is still true
+    today. No single blocking API is standard across every vendor, so this is really several
+    connectors, not one feature — **twelve** of them, in the order worth building them (highest
+    reach or best fit for DENIS's own audience per unit of effort, first; the first one alone is the
+    scope of NAC.md's first release):
     1. **SNMP `ifAdminStatus`** (standard MIB-II, vendor-agnostic) on the managed switches DENIS
        already polls for topology — `topology.rs` already knows exactly which switch port a
        suspicious device sits on, so this reuses existing credentials and data rather than a new
@@ -227,12 +239,32 @@ year. This is what is still missing, in rough order. Pull requests welcome.
 * Passkeys with a physical security key or phone (verified with software authenticators only).
 * OpenObserve, syslog, Elasticsearch/OpenSearch and the chat/e-mail/PagerDuty/Jira/ServiceNow integrations
   against the real services (each is tested against a local fake server, not the genuine article).
+* SSO (OIDC) against a real identity provider — ID-token signature verification end to end is the
+  specific gap (SSO.md).
+* The seven CMDB/cloud sources (Entra ID, Intune, Active Directory, Jamf Pro, Azure, AWS, GCP) and
+  the Nessus import against a real tenant/directory/instance/subscription/account/project; so far
+  only hand-written fixtures in each API's documented shape, plus — for the three cloud sources — a
+  deliberately wrong credential reaching the real endpoint and being refused (CMDB.md).
+* The SNMP switch reader against real switches from any vendor (two stand-in switches and hostile
+  input only, docs/switches.md).
 * Detections on real industrial traffic (verified with hand-built frames and replay).
 * IPv6 (`--ipv6`/`--ipv6-subnet`: passive discovery, flow accounting, the active liveness check)
   on a genuine dual-stack network — verified so far only with hand-built frames and integration
   tests against an in-process store, not real ICMPv6/NDP traffic or a real socket send (see
   IPV6.md).
 * An independent penetration test.
+
+## Known bug with a design, not yet scheduled above
+
+* **Two collectors on one network segment list every device twice** (found 2026-09-30 with the
+  master's own capture and the Windows agent on the same LAN). Not a keying typo: a site *is* a
+  collector and device identity is `(site, MAC)` by design, so two collectors on one segment are
+  two sites with the same devices. The fix — an administrator joining an agent into an existing
+  site, with field-by-field merging that never overwrites human edits — is designed in
+  [MULTI_AGENT_DEDUP.md](MULTI_AGENT_DEDUP.md), together with a smaller latent bug it found (the
+  local inventory reloads *every* site's rows after a restart, so local capture can start writing
+  into an agent's rows). **Status: design only, nothing implemented.** Where it lands in the order
+  above is an open decision, not made here.
 
 ## Notes on items already covered above
 Ticketing already exists: Jira and ServiceNow each file a real issue/incident per alert (Settings →

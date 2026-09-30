@@ -57,10 +57,12 @@ network itself rather than trusting whatever was last typed into a CMDB.
    alerts for control commands (a PLC stop, a program download), traffic crossing the network boundary, Purdue-level
    skipping, and writes from a device that should only ever read.
 6. **Manage the register.** Owner, location, serial number, asset tag, warranty, criticality, tags, custom fields,
-   80+ icons, 90+ device types, full change history, a review queue for new devices, CSV import/export. Optionally
-   cross-referenced against **Microsoft Entra ID, Intune, on-premises Active Directory, and Jamf Pro** (CMDB import,
-   Settings → Integrations): read-only, matched by hostname, shown as extra context (OS, compliance state) — never
-   used to override a device's own fingerprinted identity.
+   120+ icons, 120+ device types, full change history, a review queue for new devices, CSV import/export.
+   Optionally cross-referenced against **Microsoft Entra ID, Intune, on-premises Active Directory, Jamf Pro, and
+   Azure / AWS / GCP virtual machines** (CMDB import, Settings → Integrations): read-only, matched by exact
+   hostname, shown as extra context (OS, compliance state, power state) — never used to override a device's own
+   fingerprinted identity. A Nessus / Tenable.io scanner's findings can be imported the same way, matched by IP
+   then hostname.
 7. **Report.** *Findings* (known-exploited vulnerabilities and end-of-support software matched against what a
    device's banner actually revealed, Telnet/RDP exposed, a lost device still online, no owner, an expiring
    warranty…) with **Verify fix** and **Accept risk**; a *Compliance* view showing where your register and
@@ -110,7 +112,8 @@ Every step above is real DENIS behaviour (`src/detect.rs`); you can watch it hap
 Loads a fictional mid-size company (routers, servers, printers, cameras, laptops, an OT production line — 40+
 devices, open alerts, findings, an OT communications matrix already populated) and serves the console with no
 login, capturing nothing, on this machine only. The console shows a permanent banner while demo data is loaded:
-*"Demo data is loaded: the devices and alerts you see are fictional… Remove it under Settings → Demo data."*
+*"Demo data is loaded: the devices and alerts you see are fictional… Remove it under Settings → Demo data and
+reset when you are ready for your own network."*
 Everything is explorable: the register, alert scoring, findings (including known-exploited CVEs and
 end-of-support software matched against fictional banners), the OT communications matrix, compliance mapping and
 reports — nothing you do here touches a real network. More: [Demo](#demo-try-denis-without-installing-a-sensor).
@@ -174,24 +177,28 @@ your actual register — three of the console's 20-odd pages ([more screenshots 
 |---|---|
 | Discovery | Passive (ARP, DHCP, mDNS, SSDP, LLDP/CDP, PROFINET) + active (ARP sweep, ping, port scan) |
 | Asset inventory | Owner, location, serial, tag, warranty, criticality, tags, custom fields, history, CSV import/export |
-| Fingerprinting | Vendor (IEEE OUI), device type & OS with weighted, listed evidence; product/version from 9 service banners; JA3/JA3S TLS client & server fingerprints |
-| Anomaly detection | New device, rogue DHCP, ARP hijack/gateway takeover, new destination/port, unusual volume/hour, silent device, known-bad addresses — each with an explainable 0–100 score |
+| Fingerprinting | Vendor (IEEE OUI), device type & OS with weighted, listed evidence; product/version from 9 service banners; JA3/JA3S TLS client & server fingerprints; a fleet-wide *Software* page (product × version × devices) |
+| Anomaly detection | New device, rogue DHCP, ARP hijack/gateway takeover, new destination/port, unusual volume/hour, silent device, internal host sweep / port scan, known-bad addresses, your own network watches — each with an explainable 0–100 score. IPv6 (new destination, NDP mismatch, rogue router advertisement) is opt-in, see IPV6.md |
 | OT protocols | Modbus, S7comm, EtherNet/IP-CIP, DNP3, BACnet, OPC UA, IEC 60870-5-104 (passive decode) |
 | Communications matrix | Who talks to whom, which protocol, reads/writes/control commands |
 | Dashboard | 12 clickable KPI tiles, trend charts, risk/severity/type breakdowns, recent alerts, most at-risk devices — the home screen |
 | SNMP topology | Switch ports, LLDP neighbours, MAC-to-port physical map |
 | IP enrichment | Country (flag), city, ASN, AS organisation, reverse-DNS hostname for any public IP (Alerts, Events, Recent destinations, IP history) — local GeoIP (DB-IP Lite, auto-updated, or your own MMDB), never sent to a third party |
-| Vulnerability & EOL findings | Live CISA/NVD known-exploited feed (+ EPSS score) and end-of-support dates, matched per device — both refreshed automatically by default |
+| Vulnerability & EOL findings | Live CISA/NVD known-exploited feed (+ EPSS score) and end-of-support dates, matched per device — both refreshed weekly by default; your own custom CVEs |
+| CMDB / cloud import | Entra ID, Intune, Active Directory (LDAP/LDAPS), Jamf Pro, Azure VMs, AWS EC2, GCP Compute Engine — read-only, matched by hostname, each on its own schedule (CMDB.md) |
+| Vulnerability-scanner import | Nessus / Tenable.io findings, matched by IP then hostname, read-only (Qualys not yet) |
+| AI assistant (optional) | Bring your own key (Claude, ChatGPT, Gemini, Grok, or a local OpenAI-compatible model): alert explanation, triage, recommended actions, behaviour-change explanation, a background dashboard summary, "Ask DENIS", a rule-drafting assistant, a report summary — every feature off by default, never in the detection path (AI.md) |
 | Alerts | Slack, Teams, Discord, PagerDuty, Pushover, ntfy, e-mail, Jira, ServiceNow, signed webhook — per-channel threshold, digests, maintenance mode |
 | Compliance | CIS v8, NIST CSF 2.0, IEC 62443-3-3, NIST SP 800-82, ISO 27001 Annex A, NIS2, DORA, PCI DSS v4.0, HIPAA, SOC 2, CMMC 2.0 (evidence, not certification) |
-| Reports | Saved, scheduled (optionally e-mailed as a share link), viewable/downloadable/printable |
+| Reports | Saved, scheduled (optionally e-mailed as a share link), shareable by link, viewable/downloadable/printable |
 | SIEM export | CEF, LEEF or JSON over UDP/TCP/TLS; ECS over Elasticsearch/OpenSearch's Bulk API |
 | OpenObserve | Cursor-based, at-least-once export |
 | Prometheus | `/metrics` exposition |
 | REST API | Read the register and alerts, manage assets, API tokens |
 | Multi-site agents | Outbound-only agents report to one master; per-user, per-site access |
 | White-label | Your logo, colour, default theme |
-| Authentication | Roles, passkeys (WebAuthn), Argon2id, lock-outs, audit log, optional built-in HTTPS |
+| Authentication | Roles, per-site access, passkeys (WebAuthn, optionally passkey-only), authenticator apps (TOTP), OIDC single sign-on, Argon2id, lock-outs, audit log, built-in HTTPS |
+| Data retention | Events, alerts and trend samples pruned after a period you set (Settings → Data); the register itself is never pruned |
 | Self-update | One click; signed release, backup first, automatic rollback if the new version fails to start |
 
 Only what is actually implemented is listed above — see [ROADMAP.md](ROADMAP.md) for what is not (yet).
@@ -209,14 +216,17 @@ Only what is actually implemented is listed above — see [ROADMAP.md](ROADMAP.m
 
 DENIS is security software; its own trustworthiness matters. Here is the honest state, not a marketing gloss.
 
-**Verified today:** 650+ unit tests and an end-to-end replay of a simulated industrial network through the whole
-pipeline; fuzz tests of every parser; `cargo audit` clean; a master and agent talking over HTTP; the UI exercised
-in a browser (sign-in, forced password change, editing, users, OT, topology, trends, reports); a real Linux server
-running DENIS as a permanent `systemd` service, including a real one-click self-update (backup, verified
-signature, atomic swap, automatic rollback on failure); ARP-conflict detection on a real, live network (confirmed
-in production, not only against hand-built frames and replay); agent ↔ master **across a real network** (a genuine
-agent, built from source, run on a VPS in a different country over Tailscale, reporting real devices back to a
-home master).
+**Verified today:** 780+ unit and integration tests and an end-to-end replay of a simulated industrial network
+through the whole pipeline; fuzz tests of every parser; `cargo audit` clean; a master and agent talking over HTTP;
+the UI exercised in a browser (sign-in, forced password change, editing, users, OT, topology, trends, reports); a
+real Linux server running DENIS as a permanent `systemd` service, including a real one-click self-update (backup,
+verified signature, atomic swap, automatic rollback on failure); ARP-conflict detection on a real, live network
+(confirmed in production, not only against hand-built frames and replay); agent ↔ master **across a real network**
+(a genuine agent, built from source, run on a VPS in a different country over Tailscale, reporting real devices
+back to a home master); a `denis.exe` built from source on a real Windows 11 machine, both reporting as an agent
+and capturing real traffic locally (42 devices, port scans, OS fingerprints, a real ARP-conflict alert — see
+WINDOWS.md); the AI features against real cloud provider accounts (two real bugs found live with ChatGPT and
+Gemini, see AI.md) and a real local Ollama instance.
 
 **Not yet independently verified:**
 
@@ -232,6 +242,13 @@ home master).
   been reviewed by a native-speaking security professional).
 * SSO (OIDC) against a real identity provider, not a mock (see SSO.md for exactly what is and is
   not verified) — signature verification end to end is the specific gap.
+* The CMDB and cloud imports (Entra ID, Intune, Active Directory, Jamf Pro, Azure, AWS, GCP) and the
+  Nessus import against a **real** tenant, directory, instance, subscription, account or project —
+  verified so far against hand-written fixtures matching each API's documented shape, and (for the
+  cloud sources) a deliberately wrong credential reaching the real endpoint and being refused. See
+  CMDB.md for the itemised accounting.
+* The SNMP switch reader against real switches from any vendor (tested against two stand-in
+  switches and hostile input only; see docs/switches.md).
 * IPv6 (opt-in, `--ipv6`/`--ipv6-subnet`: passive discovery, flow accounting, remote-agent
   reporting, the active liveness check) on a genuine dual-stack network — verified so far only
   with hand-built frames and integration tests, not real ICMPv6/NDP traffic or a real socket send.
@@ -239,7 +256,12 @@ home master).
   threat list, network watches, `lan_scan`), an NDP-mismatch signal, IPv6 conflict/gateway
   detection, and full active discovery of brand-new addresses (see IPV6.md for the complete,
   itemised accounting).
-* No PostgreSQL backend, no Windows build.
+* No PostgreSQL backend. No **packaged** Windows build: `denis.exe` compiles and has been verified capturing
+  on a real Windows 11 machine when built from source with the Npcap SDK, but there is no installer, no
+  Windows service wrapper, no signed release for Windows and no CI job that links it (WINDOWS.md).
+* Two collectors on the same network segment (say the master's own capture plus an agent on the same
+  LAN) list every device twice; the fix is designed but not built (MULTI_AGENT_DEDUP.md). Run one
+  collector per segment until then.
 * **An independent penetration test.** Required, and not yet done, before relying on DENIS in a commercial
   production setting. If you are able to run one, please [get in touch](SECURITY.md).
 
@@ -292,9 +314,16 @@ not addressed at all — so you and your auditor can decide. Print the Complianc
 signed generic webhook.
 **Export:** SIEM in CEF, LEEF or JSON over UDP/TCP/TLS; Elasticsearch/OpenSearch (ECS over the Bulk API);
 OpenObserve; Prometheus `/metrics`; a REST API; `denis backup` for the database itself.
+**Import (read-only, into the register as context):** Entra ID, Intune, Active Directory, Jamf Pro, Azure, AWS,
+GCP (CMDB.md); Nessus / Tenable.io scan findings.
+**Sign-in:** OpenID Connect (Entra ID, Okta, Google Workspace, Keycloak, …; SSO.md), passkeys, authenticator apps.
+**AI providers (optional, your own key):** Claude, ChatGPT, Gemini, Grok, or any local OpenAI-compatible server
+(Ollama, LM Studio, llama.cpp) — AI.md.
 
 Only integrations that exist today are listed; see [docs/export.md](docs/export.md) and
-[docs/alerting.md](docs/alerting.md) for how to set each one up.
+[docs/alerting.md](docs/alerting.md) for how to set each one up. None of the imports has yet been run against
+the real service it targets (only against fixtures and, for the cloud ones, a refused wrong credential) — see
+[Security and limitations](#security-and-limitations).
 
 ## License
 
@@ -311,11 +340,11 @@ commercial license (there is no self-service purchase yet — open a GitHub issu
 
 ## Roadmap
 
-A single priority-ordered list of what's missing and planned — IPv6 (most of it shipped, opt-in;
-see IPV6.md for what's left), a documented public API, an AI security assistant (see AI.md),
-vulnerability-scanner import, a Windows collector, SAML (OIDC SSO already works), cloud asset
-discovery, multi-tenancy, PostgreSQL/HA, and NAC — plus verification still owed before a
-commercial launch: see [ROADMAP.md](ROADMAP.md).
+A single priority-ordered list of what's missing and planned — the rest of IPv6 (most of it shipped,
+opt-in; IPV6.md), a packaged Windows collector (capture works from source; WINDOWS.md), Qualys
+import, SAML (OIDC SSO already works), multi-tenancy, PostgreSQL/HA, and policy enforcement / NAC
+(designed in NAC.md, nothing built) — plus verification still owed before a commercial launch: see
+[ROADMAP.md](ROADMAP.md).
 
 ## Contributing
 
@@ -368,6 +397,7 @@ src/passkey.rs      WebAuthn/passkey verification (ES256, strict)
 src/auth.rs         users, sessions, per-agent tokens (Argon2id, hashed tokens, lock-out)
 src/web/            API + embedded UI, auth middleware, security headers (mod.rs routes/reads, common.rs shared with web_*)
 src/web_admin.rs    state-changing handlers (session, users, tokens, asset edits, import)
+src/web_*.rs        one handler module per settings area (health, reports, retention, setup, topology, vuln, …)
 src/web_siem.rs     SIEM / log export settings (GET/PUT, a test-send endpoint)
 src/cmdb.rs         CMDB import: Entra ID device objects and Intune managed devices via Microsoft Graph, matched to the register by hostname (see CMDB.md)
 src/web_cmdb.rs     CMDB import settings, on-demand sync, imported device list (GET/PUT/POST)
@@ -375,14 +405,30 @@ src/ad.rs           CMDB import, third source: on-premises Active Directory comp
 src/web_ad.rs       Active Directory import settings, on-demand sync (GET/PUT/POST)
 src/jamf.rs         CMDB import, fourth source: Jamf Pro computer inventory (see CMDB.md)
 src/web_jamf.rs     Jamf Pro import settings, on-demand sync (GET/PUT/POST)
+src/azure_cloud.rs  CMDB import, cloud: Azure VMs via Resource Graph (see CMDB.md); web_azure_cloud.rs its settings/sync
+src/aws_cloud.rs    CMDB import, cloud: EC2 instances, hand-rolled SigV4 signing; web_aws_cloud.rs
+src/gcp_cloud.rs    CMDB import, cloud: Compute Engine instances, RFC 7523 JWT-bearer auth; web_gcp_cloud.rs
+src/vulnscan.rs     Nessus / Tenable.io scan-finding import (its own table, matched by IP then hostname); web_vulnscan.rs
 src/sso.rs          single sign-on: OIDC authorization-code flow with PKCE (see SSO.md)
 src/web_sso.rs      SSO settings, the redirect/callback endpoints
+src/totp.rs         authenticator-app (TOTP) second step and recovery codes; web_totp.rs
+src/access.rs       per-user, per-site read/write/none grants
+src/ai.rs           the optional AI layer: providers, prompts, strict response parsing (see AI.md); web_ai.rs its endpoints
+src/ai_summary.rs   the dashboard AI summary's background job (never triggered by a page load)
+src/ai_usage.rs     per-provider call/token counters for Settings → AI → Usage
+src/rule_suggest.rs the Rules page's proactive "a rule would suit your traffic" nudge (no AI call)
+src/ipenrich/       GeoIP / ASN / reverse-DNS enrichment: cache, DB-IP auto-update, classification (see IP_ENRICHMENT.md)
+src/retention.rs    the Settings → Data retention pruning period
+src/license.rs      Community-edition cap and commercial license verification (license_key.rs, license_alerts.rs)
+src/msp_relay.rs    `denis run --report-to`: a customer master relaying devices and alerts to an MSP master
+src/backups.rs      scheduled database backups, MSP upload of backups
+src/health.rs       the Health page's own checks (capture drops, disk, sweep lag, backup age)
 src/ingest.rs       master side of the agent protocol (per-agent tokens, idempotent batches)
 src/agent.rs        agent reporter
-src/tls.rs          optional built-in HTTPS (rustls)
+src/tls.rs          built-in HTTPS (rustls) for the console and the agent port; certs.rs the local CA
 src/update.rs       one-click self-update: signed release check, download, verify, backup, atomic swap, rollback
 src/engine.rs       collector + detector + web wiring (`run`, `run_agent`)
-src/store/          `Store` trait (split into focused sub-traits) + SQLite (schema v17, transactional migrations)
+src/store/          `Store` trait (split into focused sub-traits) + SQLite (schema v19, transactional migrations)
 src/branding.rs     white-label settings and safe logo handling
 src/channels.rs     notification channels (Slack/Teams/Discord/PagerDuty/Pushover/ntfy/e-mail/Jira/ServiceNow/webhook)
 src/syslog.rs       log export: syslog (CEF/LEEF/JSON) or Elasticsearch/OpenSearch (ECS over the Bulk API)

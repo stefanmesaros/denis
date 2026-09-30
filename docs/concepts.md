@@ -39,7 +39,10 @@ A network switch sends each machine only the traffic addressed to it, plus broad
   decoded for it, with no error. See
   [Deployment](deployment.md#one-or-more-mirror-port-interfaces-for-whole-network-flow-visibility).
 
-Put **one collector per network segment**. Two collectors on the same segment report every device twice.
+Put **one collector per network segment**. Two collectors on the same segment (for example the master's own
+capture plus an agent on the same LAN) report every device twice, once per site: a device's identity is
+`(site, MAC)` by design, and the console has no way yet to say that two collectors watch one network. The fix is
+designed (`MULTI_AGENT_DEDUP.md` in the repository) but not built.
 
 ## Learning period
 

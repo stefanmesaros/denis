@@ -14,10 +14,13 @@ It works on office and home networks (IT) and on industrial networks (OT).
 | Use it on an industrial (OT/ICS) network | [OT guide](ot-guide.md) |
 | Run it for a client: users, agents, TLS, backups | [Deployment & administration](deployment.md) |
 | Send alerts to Slack, Teams, e-mail, PagerDuty, Pushover, ntfy, Jira, ServiceNow or a webhook; maintenance mode | [Alerting](alerting.md) |
-| Send events, audit log and inventory to OpenObserve, or events/findings/audit to a SIEM (syslog: CEF/LEEF/JSON) | [Export](export.md) |
+| Send events, audit log and inventory to OpenObserve, events/findings/audit to a SIEM (syslog: CEF/LEEF/JSON), or ECS documents to Elasticsearch/OpenSearch | [Export](export.md) |
+| See which switch port each device is plugged into (SNMP) | [Switches](switches.md) |
+| Run it in Docker | [Docker](docker.md) |
 | Put the customer's logo, colours and day/night mode on the portal | [Branding](branding.md) |
 | Keep DENIS up to date (changelog, install now or later, automatic backup) | [Updates](updates.md) |
 | Assess or harden its security | [Security](security.md) |
+| Know what the Community edition covers and how a commercial license works | [Licensing](licensing.md) |
 | Automate or integrate | [API reference](api.md) |
 | Something does not work | [Troubleshooting](troubleshooting.md) |
 
@@ -30,7 +33,8 @@ It works on office and home networks (IT) and on industrial networks (OT).
 3. **Tracks** it: a name, owner, location, serial number, asset tag, warranty date, criticality and icon that
    *you* maintain, with a full change history.
 4. **Learns** each device's normal behaviour and raises **scored alerts** (0–100) when it changes.
-5. **Reports**: risk-ranked device list, alerts, trends, CSV exports and a printable report.
+5. **Reports**: risk-ranked device list, alerts, standing findings, compliance evidence, trends, CSV exports and
+   saved or printable reports.
 
 ## What DENIS is not
 

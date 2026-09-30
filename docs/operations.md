@@ -41,7 +41,7 @@ live discovery does not.
 
 ## Demo data, and starting clean (erase all data)
 
-**Settings → Demo data and reset** (administrators) has three buttons:
+**Settings → Data → Demo data and reset** (administrators) has three buttons:
 
 * **Load demo data**: a fictional company so you can explore every screen. Marked as demo; ignored by the
   collector and the detectors; a banner says it is loaded. (API: `POST /api/demo`; command line: `denis demo load`.)
@@ -52,6 +52,13 @@ live discovery does not.
   notification channels, branding, rule settings, agent tokens and the **audit log** (which records that the erase
   happened and who did it). You must type `ERASE ALL DATA` to confirm. **It cannot be undone: take a backup first.**
   (`POST /api/data/erase` with `{"confirm": "ERASE ALL DATA"}`; with DENIS stopped, `denis erase --yes`.)
+
+## Retention
+
+*Settings → Data → Data retention* (administrators) sets how long events, alerts and trend samples are kept
+(1 to 1095 days) before DENIS deletes them on its own, within the hour, no restart. Until a value is saved there
+the `--retention-days` flag (default 90) applies. The asset register, baselines, accepted risks, saved reports
+and the audit log are not affected by retention.
 
 ## Monitoring DENIS itself (Prometheus)
 

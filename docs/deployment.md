@@ -27,7 +27,7 @@ What you see at the end (example):
 ```
 ==> Signature OK (signed with the DENIS release key)
 ==> Checksum OK
-==> DENIS 0.1.3 is running
+==> DENIS 2.51.0 is running
     Open   https://192.168.1.20:8443
     Sign in as   admin   with the one-time password below (you must change it at first sign-in):
       xxxxxxxxxxxxxxxxxxxx
@@ -52,7 +52,7 @@ command that opens the port; it does not run it.
 
 | Option | Meaning |
 |---|---|
-| `--version v0.1.3` | install that release instead of the newest |
+| `--version v2.51.0` | install that release instead of the newest |
 | `--port N` | console port |
 | `--local-only` | listen on this machine only |
 | `--name NAME` | another name or address the certificate must cover (repeatable); the machine's address and name are added automatically |
@@ -66,7 +66,7 @@ command that opens the port; it does not run it.
 `DENIS_LISTEN=0.0.0.0:9443`, `DENIS_TLS_NAMES=denis.example.lan`, `DENIS_WEBHOOK=…`, `DENIS_NO_UPDATE_CHECK=1`.
 The file is only readable by root.
 
-**Update.** The console tells administrators when a new version exists (Settings → Updates, or the banner under the
+**Update.** The console tells administrators when a new version exists (Settings → System → Updates, or the banner under the
 header) and **installs it itself** with one click — no root needed, because `/usr/local/lib/denis` is owned by the
 `denis` user (`ReadWritePaths` is the one exception `ProtectSystem=strict` allows). It backs the database up to
 `/var/lib/denis/backups/` first and keeps the old program as `/usr/local/lib/denis/denis.previous`. Prefer to control
@@ -90,7 +90,7 @@ The same thing by hand (x86-64 shown; the ARM64 file is `denis-aarch64-unknown-l
 
 ```bash
 sudo apt install libpcap0.8t64            # Ubuntu 22.04 and Debian: libpcap0.8
-V=v0.1.3                                   # the version you want, see the Releases page
+V=v2.51.0                                  # the version you want, see the Releases page
 cd /tmp
 curl -fLO https://github.com/stefanmesaros/denis/releases/download/$V/denis-x86_64-unknown-linux-gnu
 curl -fLO https://github.com/stefanmesaros/denis/releases/download/$V/SHA256SUMS
@@ -134,7 +134,7 @@ when the machine gets a new address. TLS 1.2/1.3 only, HTTP/2 offered, session c
 Browse to **https://localhost:8080** (or the address and port you set in `DENIS_LISTEN`). Browsers do not know the DENIS authority, so they warn once. Two ways to make the
 warning go away:
 
-* **Trust the DENIS CA once**: *Settings → HTTPS certificate → Download the CA certificate* (or copy
+* **Trust the DENIS CA once**: *Settings → Sign-in & security → HTTPS certificate → Download the CA certificate* (or copy
   `tls/ca.pem` from beside the database) and add it to your browser or operating system's trust store. From then on
   the generated certificate is trusted, including after every automatic renewal.
 * **Use your own certificate** (Let's Encrypt, your company CA, a purchased one): *Settings → HTTPS certificate → Use my
@@ -218,9 +218,16 @@ DENIS_AGENT_TOKEN=dat_… denis agent --master https://MASTER:8081 --master-ca /
   `denis agent-token revoke --id branch-1` (or in the **Sites** tab): the agent is cut off immediately.
 * Agents only make *outbound* connections. They send changes every 15 s and keep unsent data (in memory, up to
   200 000 traffic windows) while the master is unreachable.
-* **No TLS is built into the ingest port.** Across the Internet, put it behind a TLS proxy or a VPN
-  (WireGuard/SSH tunnel). Repeated bad tokens from one address are throttled.
+* **The ingest port speaks the same HTTPS as the console** (the DENIS local CA or your own certificate; see
+  [HTTPS](#reaching-the-ui-securely-https-is-on-by-default)), and the agent pins the master's CA with
+  `--master-ca` / `--master-ca-pem`. Across the Internet, a firewall rule limiting the port to the agents'
+  addresses, or a VPN (WireGuard/Tailscale/SSH tunnel), is still worth adding. Repeated bad tokens from one
+  address are throttled.
+* The listener can also be switched on from the console (*Settings → Network → Network interfaces*, "Accept
+  remote agents at"); like the interface choice, it needs a restart to take effect.
 * Give each site its own learning period; the master handles it automatically.
+* Do not point a second collector at a network the master already captures itself: every device would be
+  listed twice ([Concepts](concepts.md#visibility-what-can-be-seen-from-where)).
 
 ## MSP: keeping a copy of a customer's backups
 
@@ -243,15 +250,15 @@ On the customer's own install:
 DENIS_BACKUP_TOKEN=dat_… denis run --backup-upstream https://YOUR-MSP:8081
 ```
 
-* Their local scheduled backups (Settings → Health → Backups) are unaffected. **How often the
+* Their local scheduled backups (the Health page → Backups) are unaffected. **How often the
   newest one is also pushed to you** is a separate schedule the customer sets themselves, right
-  below it (Settings → Health → "Uploading to your MSP"): manually only, every 8/12/24 hours, or
+  below it (Health → "Uploading to your MSP"): manually only, every 8/12/24 hours, or
   every 7 days — independent of their own local backup schedule, and only shown once
   `--backup-upstream` is configured. It never triggers a new backup by itself; it just pushes
   whatever the newest one already is when it is due.
 * On your side they land under `backups/from-agents/customer-a/` next to your own database's
   backups, named the same way, but with their own retention: **how many of a given customer's
-  uploads you keep** is your own setting (Settings → Health → "Customers' uploaded backups",
+  uploads you keep** is your own setting (Health → "Customers' uploaded backups",
   default 10), unrelated to that customer's local `keep`.
 * A customer with `--backup-upstream` set but no reachable MSP just logs a warning and keeps its
   local backup; nothing about their own install depends on you being reachable.
@@ -362,8 +369,10 @@ Everything is in one SQLite file (`denis.db` in the working directory by default
 denis backup /backups/denis-$(date +%F).db --db /var/lib/denis/denis.db
 ```
 
-Restore by stopping DENIS and copying the backup over the database file. Trend samples are kept for
-`--retention-days` (90); events, baselines and audit entries are small and kept indefinitely.
+Restore by stopping DENIS and copying the backup over the database file. Events, alerts and trend samples are
+pruned after the retention period: `--retention-days` (default 90) until an administrator saves a value under
+*Settings → Data → Data retention* (1 to 1095 days; the console proposes 180), which then wins. The register,
+baselines, accepted risks, saved reports and the audit log are never pruned by retention.
 
 The database contains your network inventory and password hashes: protect it like the service itself
 (owner-only permissions).
