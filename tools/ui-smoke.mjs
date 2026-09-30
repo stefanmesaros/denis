@@ -330,13 +330,13 @@ await check('accepting a risk needs a reason, removes the device from the findin
   const back = await (await fetch(base + '/api/findings')).json();
   return back.some((f) => f.id === 'telnet_open') ? null : 'the finding did not come back after the decision was withdrawn';
 });
-await check('"Verify fix" answers plainly, also when this console cannot scan', async () => {
+await check('"Verify fix" answers plainly, also for a device that belongs to a remote site', async () => {
   takeProblems();
   await evaluate("document.querySelector('#finding-telnet_open .verify-fix').click(); 0");
   await sleep(1500);
   const text = await evaluate("document.getElementById('msg-dialog').open ? document.getElementById('msg-body').innerText : ''");
   await evaluate("document.getElementById('msg-dialog').close(); 0");
-  if (!/Verify fix/.test(text) || !/Not scanned/.test(text) || !/cannot scan/.test(text)) return 'the answer said: ' + text.slice(0, 300);
+  if (!/Verify fix/.test(text) || !/Not scanned/.test(text) || !/remote site/.test(text)) return 'the answer said: ' + text.slice(0, 300);
   const bad = await evaluate(BAD_TEXT);
   const p = takeProblems();
   return bad.length ? `the page shows ${bad.join(', ')}` : p.length ? p.join('; ') : null;
