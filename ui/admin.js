@@ -1520,12 +1520,14 @@ async function loadSsoBox() {
   $('sso-client-secret').value = '';
   $('sso-client-secret').placeholder = d.secret_set ? tr('(unchanged)') : '';
   $('sso-button-label').value = d.button_label;
+  $('sso-domains').value = (d.allowed_domains || []).join(', ');
   $('sso-redirect-hint').textContent = tr('Give the identity provider this redirect URL: {url}', { url: location.origin + '/api/auth/sso/callback' });
 }
 $('sso-save').onclick = async () => {
   const body = {
     enabled: $('sso-enabled').checked, issuer_url: $('sso-issuer').value.trim(), client_id: $('sso-client-id').value.trim(),
     client_secret: $('sso-client-secret').value, button_label: $('sso-button-label').value.trim(),
+    allowed_domains: $('sso-domains').value.split(',').map((d) => d.trim()).filter((d) => d),
   };
   const r = await api('PUT', '/api/sso', body);
   $('sso-msg').textContent = r.ok ? tr('Saved.') : apiError(r);

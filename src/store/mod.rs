@@ -276,6 +276,15 @@ pub trait AuthStore: Send + Sync {
     fn delete_user_sessions(&self, user_id: i64, except: Option<&str>) -> Result<()>;
     fn prune_sessions(&self, now: i64) -> Result<usize>;
 
+    // ------------------------------------------------ SSO identity links (SECURITY_ARCHITECTURE_REVIEW.md H2)
+    /// The user id this `(issuer, sub)` is linked to, if any - the *only* way an SSO login ever
+    /// resolves to a local account. Never a fallback to matching by email.
+    fn find_user_by_sso(&self, issuer: &str, sub: &str) -> Result<Option<i64>>;
+    /// An administrator's explicit act of linking an existing local account to an IdP identity.
+    /// Fails if that `(issuer, sub)` is already linked to a *different* user (one identity, one
+    /// account).
+    fn link_sso_identity(&self, issuer: &str, sub: &str, user_id: i64, now: i64) -> Result<bool>;
+
     // ------------------------------------------------ authenticator app (TOTP)
     fn get_totp(&self, user_id: i64) -> Result<Option<TotpRecord>>;
     /// Keep a new secret until its first code is confirmed. `false` if a working one exists (switch it off first).

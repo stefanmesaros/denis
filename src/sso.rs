@@ -3,12 +3,31 @@
 //! it instead of a local password. Local accounts (and the initial admin password) keep working
 //! alongside it — this is an additional way in, not a replacement for the one already there.
 //!
-//! Provisioning: the first successful sign-in for an email creates a local account for it,
-//! `viewer` role by default (an administrator raises it afterwards, same as any other account).
-//! An existing local account whose username matches the identity provider's email is used as-is,
-//! so migrating an existing user to SSO needs nothing on DENIS's side. An SSO-signed-in account
+//! **Identity, and why it changed (SECURITY_ARCHITECTURE_REVIEW.md H2, 2026-09-30).** An account
+//! is linked by `(issuer, sub)` — the identity provider's own stable identifier, stored in
+//! `sso_identities` — never by email. An email can be reassigned or spoofed at a self-registering
+//! IdP; `sub` is what the IdP itself promises never changes for one account. The first successful
+//! sign-in for a `(issuer, sub)` the store has never seen creates a new local account, `viewer`
+//! role, keyed on the IdP's email as its username. If a local account with that email *already
+//! exists* but is not yet linked, sign-in is refused — an administrator links the two accounts
+//! explicitly (`AuthStore::link_sso_identity`), never automatically. An SSO-signed-in account
 //! never has a usable local password (a random one is set and never revealed) and is never asked
 //! to change it.
+//!
+//! **Also required, every time (H2):** the global on/off switch is checked in `start` and
+//! `finish` themselves, not only by the console's decision to show a button — a direct request to
+//! the login/callback routes is refused exactly the same way. `email_verified` must be `true`
+//! whenever the claim is present at all. An administrator must configure at least one allowed
+//! email domain before SSO can be enabled at all — an empty list is refused by `validate()`, so
+//! there is no way to turn SSO on for "anyone at this IdP" by omission.
+//!
+//! **The TOTP/passkey question, decided:** an SSO sign-in does **not** need to separately satisfy
+//! a local account's authenticator-app or passkey-only requirement. Delegating authentication to
+//! an IdP *is* the point of SSO — DENIS has no visibility into whatever the IdP itself required
+//! (its own MFA, conditional access, etc.), and an SSO-provisioned account has no usable local
+//! password to even attempt a second local factor against. Requiring one anyway would either be
+//! impossible to satisfy or would silently reduce to "the random password DENIS generated,"
+//! neither of which adds real assurance. This is a deliberate product decision, not an oversight.
 //!
 //! What is deliberately out of scope: SAML (OIDC covers every provider this project has seen
 //! asked for, at a fraction of the complexity — a SAML relying party is a much larger, more
@@ -19,7 +38,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use openidconnect::core::{CoreClient, CoreProviderMetadata, CoreResponseType};
 use openidconnect::{
     AuthenticationFlow, AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet,
@@ -43,6 +62,12 @@ pub struct SsoConfig {
     /// What the sign-in button says, e.g. "Sign in with Okta". Falls back to a generic label.
     #[serde(default)]
     pub button_label: String,
+    /// Email domains (e.g. `acme.com`, case-insensitive, no leading `@`) allowed to sign in.
+    /// Required non-empty whenever `enabled` (see `validate`) — the fix for "any account at a
+    /// public issuer gets a viewer session" (SECURITY_ARCHITECTURE_REVIEW.md H2): an empty list
+    /// must refuse configuring SSO at all, not silently allow every domain.
+    #[serde(default)]
+    pub allowed_domains: Vec<String>,
 }
 
 pub fn load(store: &dyn SettingsStore) -> Result<SsoConfig> {
@@ -80,8 +105,18 @@ impl SsoConfig {
             if self.client_secret.is_empty() {
                 return Err("client secret is required");
             }
+            if self.allowed_domains.is_empty() {
+                return Err("at least one allowed email domain is required");
+            }
         }
         Ok(())
+    }
+
+    /// Whether `email` may sign in at all, per the allowed-domains list. Case-insensitive; a
+    /// domain with no `@` in `email` never matches anything.
+    fn domain_allowed(&self, email: &str) -> bool {
+        let Some(domain) = email.rsplit('@').next().filter(|_| email.contains('@')) else { return false };
+        self.allowed_domains.iter().any(|d| d.eq_ignore_ascii_case(domain))
     }
 }
 
@@ -144,6 +179,13 @@ fn build_client(cfg: &SsoConfig, redirect_url: &str) -> Result<SsoClient> {
 /// Start a sign-in: the URL to send the browser to, having stashed what the callback needs to
 /// verify it really is the same request coming back (CSRF state, nonce, PKCE verifier).
 pub fn start(cfg: &SsoConfig, redirect_url: &str) -> Result<String> {
+    // Checked here, not only by the console's decision to show a button
+    // (SECURITY_ARCHITECTURE_REVIEW.md H2): a direct request to this route must be refused too,
+    // so turning SSO off in Settings actually stops it, including for anyone who bookmarked the
+    // login URL while it was on.
+    if !cfg.enabled {
+        bail!("single sign-on is turned off");
+    }
     let client = build_client(cfg, redirect_url)?;
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
     let (auth_url, csrf_state, nonce) = client
@@ -157,8 +199,17 @@ pub fn start(cfg: &SsoConfig, redirect_url: &str) -> Result<String> {
 }
 
 /// A verified identity handed back by the provider: enough to find or provision a local account.
+#[derive(Debug)]
 pub struct Identity {
-    /// Always present: what the local account is keyed on (see the module docs).
+    /// The configured issuer URL - half of the `(issuer, sub)` linking key (see the module docs).
+    /// The configured value, not one re-read from the token: there is exactly one issuer per
+    /// installation's SSO config, so this is simpler than extracting it from the claims and
+    /// cannot be spoofed by a token claiming a different issuer than the one DENIS was told to
+    /// trust (the token verifier already checks the issuer matches this same configured one).
+    pub issuer: String,
+    /// The other half of the linking key: the IdP's own stable subject identifier.
+    pub sub: String,
+    /// What the *new* local account is keyed on, the first time this `(issuer, sub)` is seen.
     pub email: String,
     /// For the audit log and, the first time, as a friendlier starting display name.
     pub name: Option<String>,
@@ -168,6 +219,11 @@ pub struct Identity {
 /// audience, expiry, and — critically — the nonce from `start`, which is what stops a token
 /// meant for a different login attempt from being replayed into this one).
 pub fn finish(cfg: &SsoConfig, redirect_url: &str, code: &str, state: &str) -> Result<Identity> {
+    // Same reasoning as `start` (SECURITY_ARCHITECTURE_REVIEW.md H2): checked here too, not only
+    // where the button is shown.
+    if !cfg.enabled {
+        bail!("single sign-on is turned off");
+    }
     let (nonce, pkce_verifier) = take_pending(state).ok_or_else(|| anyhow!("this sign-in link was already used, took too long, or does not belong to this browser — start again"))?;
     let client = build_client(cfg, redirect_url)?;
     let http = http_client();
@@ -180,8 +236,19 @@ pub fn finish(cfg: &SsoConfig, redirect_url: &str, code: &str, state: &str) -> R
     let id_token = token_response.extra_fields().id_token().ok_or_else(|| anyhow!("the identity provider did not return an ID token (is 'openid' scope enabled for this client?)"))?;
     let claims = id_token.claims(&client.id_token_verifier(), &nonce).map_err(|e| anyhow!("the identity provider's token did not check out: {e}"))?;
     let email = claims.email().ok_or_else(|| anyhow!("the identity provider did not include an email address (add the 'email' scope/claim for this client)"))?;
+    // `false` (present and explicitly unverified) is refused; `None` (the claim was simply not
+    // sent) is not - many IdPs never send it at all, and treating "absent" the same as "false"
+    // would refuse every sign-in at those providers (SECURITY_ARCHITECTURE_REVIEW.md H2 only asks
+    // to check it "whenever the claim is present at all").
+    if claims.email_verified() == Some(false) {
+        bail!("the identity provider says this email address is not verified");
+    }
+    let email = email.as_str().to_lowercase();
+    if !cfg.domain_allowed(&email) {
+        bail!("{email} is not at an allowed domain for this identity provider");
+    }
     let name = claims.name().and_then(|n| n.get(None)).map(|n| n.as_str().to_string());
-    Ok(Identity { email: email.as_str().to_lowercase(), name })
+    Ok(Identity { issuer: cfg.issuer_url.clone(), sub: claims.subject().as_str().to_string(), email, name })
 }
 
 #[cfg(test)]
@@ -189,7 +256,7 @@ mod tests {
     use super::*;
 
     fn cfg() -> SsoConfig {
-        SsoConfig { enabled: true, issuer_url: "https://idp.example.com".into(), client_id: "abc".into(), client_secret: "s3cr3t".into(), button_label: String::new() }
+        SsoConfig { enabled: true, issuer_url: "https://idp.example.com".into(), client_id: "abc".into(), client_secret: "s3cr3t".into(), button_label: String::new(), allowed_domains: vec!["acme.com".into()] }
     }
 
     #[test]
@@ -227,6 +294,37 @@ mod tests {
         let mut c = cfg();
         c.client_secret.clear();
         assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn an_empty_allowed_domains_list_refuses_to_enable_sso_at_all() {
+        // SECURITY_ARCHITECTURE_REVIEW.md H2: no way to turn SSO on for "anyone at this IdP" by
+        // simply never filling in the domain list.
+        let mut c = cfg();
+        c.allowed_domains.clear();
+        assert!(c.validate().is_err());
+        c.allowed_domains.push("acme.com".into());
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn domain_matching_is_case_insensitive_and_needs_an_at_sign() {
+        let c = cfg(); // allowed_domains: ["acme.com"]
+        assert!(c.domain_allowed("alice@acme.com"));
+        assert!(c.domain_allowed("alice@ACME.COM"), "case-insensitive");
+        assert!(!c.domain_allowed("alice@evil.com"));
+        assert!(!c.domain_allowed("not-an-email"), "no @ at all never matches");
+    }
+
+    #[test]
+    fn start_and_finish_both_refuse_outright_when_sso_is_disabled() {
+        // SECURITY_ARCHITECTURE_REVIEW.md H2: turning SSO off in Settings must actually stop it,
+        // not just hide the button - checked here, not only by the console's own decision to
+        // show a sign-in link.
+        let mut c = cfg();
+        c.enabled = false;
+        assert!(start(&c, "https://denis.example/callback").unwrap_err().to_string().contains("turned off"));
+        assert!(finish(&c, "https://denis.example/callback", "code", "state").unwrap_err().to_string().contains("turned off"));
     }
 
     #[test]

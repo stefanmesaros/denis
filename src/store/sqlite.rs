@@ -12,7 +12,7 @@ use super::{
 };
 use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, ReportMeta, RiskAcceptance, User};
 
-const SCHEMA_VERSION: i64 = 20;
+const SCHEMA_VERSION: i64 = 21;
 
 /// Phase 1 schema.
 const V1: &str = "CREATE TABLE assets (
@@ -286,6 +286,19 @@ const V20: &str = "ALTER TABLE agents ADD COLUMN reports_into TEXT;
      INSERT INTO asset_sightings (asset_id, collector, first_seen, last_seen, is_self)
         SELECT id, COALESCE(agent_id, ''), first_seen, last_seen, is_self FROM assets;";
 
+/// SSO account linking, keyed by the identity provider's own stable identifier
+/// (SECURITY_ARCHITECTURE_REVIEW.md H2), never by email: an email can be reassigned or spoofed at
+/// a self-registering IdP, but `(issuer, sub)` is what the IdP itself promises never changes for
+/// one account. A user id here is the *only* thing an SSO login ever authenticates as - finding
+/// no row means "not linked", never "fall back to matching by email".
+const V21: &str = "CREATE TABLE sso_identities (
+        issuer    TEXT    NOT NULL,
+        sub       TEXT    NOT NULL,
+        user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        linked_at INTEGER NOT NULL,
+        PRIMARY KEY (issuer, sub)
+     );";
+
 /// Phase 3.8: API tokens for scripts and integrations.
 const V7: &str = "CREATE TABLE api_tokens (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -382,7 +395,7 @@ impl SqliteStore {
         }
         // Each step runs in its own transaction and bumps user_version, so a
         // crash mid-migration leaves the database at a consistent older version.
-        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13), (14, V14), (15, V15), (16, V16), (17, V17), (18, V18), (19, V19), (20, V20)] {
+        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13), (14, V14), (15, V15), (16, V16), (17, V17), (18, V18), (19, V19), (20, V20), (21, V21)] {
             if version < target {
                 let tx = conn.unchecked_transaction()?;
                 tx.execute_batch(sql)?;
@@ -1189,6 +1202,23 @@ impl AuthStore for SqliteStore {
         let conn = self.conn();
         Ok(conn.execute("DELETE FROM sessions WHERE expires_at <= ?1", [now])?)
     }
+    fn find_user_by_sso(&self, issuer: &str, sub: &str) -> Result<Option<i64>> {
+        let conn = self.conn();
+        Ok(conn.query_row("SELECT user_id FROM sso_identities WHERE issuer = ?1 AND sub = ?2", params![issuer, sub], |r| r.get(0)).optional()?)
+    }
+    fn link_sso_identity(&self, issuer: &str, sub: &str, user_id: i64, now: i64) -> Result<bool> {
+        let conn = self.conn();
+        let existing: Option<i64> = conn.query_row("SELECT user_id FROM sso_identities WHERE issuer = ?1 AND sub = ?2", params![issuer, sub], |r| r.get(0)).optional()?;
+        if existing.is_some_and(|u| u != user_id) {
+            return Ok(false);
+        }
+        conn.execute(
+            "INSERT INTO sso_identities (issuer, sub, user_id, linked_at) VALUES (?1,?2,?3,?4)
+             ON CONFLICT(issuer, sub) DO UPDATE SET linked_at = excluded.linked_at",
+            params![issuer, sub, user_id, now],
+        )?;
+        Ok(true)
+    }
     // ------------------------------------------------ per-agent tokens
     fn set_agent_token(&self, agent_id: &str, token_hash: &str, label: &str, ts: i64) -> Result<()> {
         let mut conn = self.conn();
@@ -1561,7 +1591,7 @@ mod tests {
     #[test]
     fn ipv6_history_round_trips_and_defaults_to_empty() {
         let store = SqliteStore::open_in_memory().unwrap();
-        assert_eq!(store.stats(false).unwrap().schema_version, 20);
+        assert_eq!(store.stats(false).unwrap().schema_version, 21);
         let mut a = sample();
         assert!(a.ipv6_history.is_empty(), "nothing sets this yet");
         store.save_asset(&mut a).unwrap();
@@ -1656,7 +1686,7 @@ mod tests {
             ).unwrap();
         }
         let s = SqliteStore::open(&path).unwrap();
-        assert_eq!(s.stats(false).unwrap().schema_version, 20);
+        assert_eq!(s.stats(false).unwrap().schema_version, 21);
         let assets = s.load_assets().unwrap();
         assert_eq!(assets.len(), 2);
         let local = assets.iter().find(|a| a.agent_id.is_none()).unwrap();

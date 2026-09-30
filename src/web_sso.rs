@@ -57,6 +57,9 @@ pub struct PutReq {
     client_secret: String,
     #[serde(default)]
     button_label: String,
+    /// Email domains allowed to sign in - required non-empty to enable (see `SsoConfig::validate`).
+    #[serde(default)]
+    allowed_domains: Vec<String>,
 }
 
 pub(crate) async fn put(State(st): State<AppState>, axum::extract::Extension(AuthUser(me)): axum::extract::Extension<AuthUser>, Json(b): Json<PutReq>) -> Result<Response, ApiError> {
@@ -68,6 +71,7 @@ pub(crate) async fn put(State(st): State<AppState>, axum::extract::Extension(Aut
             client_id: b.client_id.trim().to_string(),
             client_secret: if b.client_secret.is_empty() { existing.client_secret } else { b.client_secret },
             button_label: b.button_label.trim().to_string(),
+            allowed_domains: b.allowed_domains.iter().map(|d| d.trim().trim_start_matches('@').to_lowercase()).filter(|d| !d.is_empty()).collect(),
         };
         Ok(match cfg.validate() {
             Ok(()) => {
@@ -131,8 +135,8 @@ pub(crate) async fn callback(State(st): State<AppState>, Query(q): Query<Callbac
         Err(e) => return Ok(sso_failed(&format!("{e:#}"))),
     };
     let auth = st.auth.clone();
-    let email = identity.email.clone();
-    let login = tokio::task::spawn_blocking(move || auth.sso_login(&email, now_ts())).await;
+    let (issuer, sub, email) = (identity.issuer.clone(), identity.sub.clone(), identity.email.clone());
+    let login = tokio::task::spawn_blocking(move || auth.sso_login(&issuer, &sub, &email, now_ts())).await;
     match login {
         Ok(Ok((token, user, created))) => {
             audit(&st, &user.username, if created { "sso.provisioned" } else { "sso.login" }, None, json!({}));

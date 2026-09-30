@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.60.0: Fix (H2): single sign-on can no longer be tricked into signing in as someone else
+
+* **Fix: SSO's "disabled" switch was cosmetic, and any IdP account could take over a matching
+  local account.** Turning SSO off left `/api/auth/sso/login` still working for anyone who knew
+  the URL. Sign-in was keyed on the IdP's email claim alone, with no `email_verified` check and no
+  allowed-domains list, so any account at a public or self-registering identity provider could
+  provision itself in, or step into an *existing* local account that merely shared that email —
+  skipping that account's own TOTP or passkey-only requirement entirely.
+* `start` and `finish` now both refuse outright while SSO is disabled. Accounts link on the IdP's
+  own stable `(issuer, sub)` pair (a new `sso_identities` table), never on email: a never-seen
+  identity auto-provisions a new viewer account, but if a *different* local account already has
+  that email, sign-in is refused with a message asking an administrator to link the two
+  explicitly. An unverified email (`email_verified: false`) is refused, and enabling SSO now needs
+  a non-empty admin-configured list of allowed email domains.
+* Nobody uses SSO in production yet, so this shipped as a direct behavior change with no
+  backward-compatibility shim.
+
 ## 2.59.0: Fix (H5): "Verify fix" no longer scans the wrong host for a remote site's device
 
 * **Fix: "Verify fix" and the daily re-verification job could port-scan the wrong machine

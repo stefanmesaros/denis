@@ -569,30 +569,40 @@ impl Auth {
         Ok((self.store.create_user(username, &hash_password(&pw)?, role, true, now)?, pw))
     }
 
-    /// Sign in via SSO: an existing local account whose username is this email is used as-is
-    /// (so moving an existing user to SSO needs nothing here); otherwise one is created, as a
-    /// `viewer` (an administrator raises it afterwards, same as any other account), with a
-    /// random password that is never revealed and never asked to be changed — no one signing in
-    /// this way ever has a usable local password. Returns the session, the user, and whether an
-    /// account was just created (so the caller can say so plainly instead of guessing from it).
-    pub fn sso_login(&self, email: &str, now: i64) -> Result<(String, User, bool), AuthError> {
-        let created = match self.store.find_user(email)? {
-            Some(rec) => {
-                if rec.user.disabled {
-                    return Err(AuthError::Invalid);
-                }
-                false
+    /// Sign in via SSO, resolved by `(issuer, sub)` — the identity provider's own stable
+    /// identifier — never by email (SECURITY_ARCHITECTURE_REVIEW.md H2: an email can be
+    /// reassigned or spoofed at a self-registering IdP; `sub` is what the IdP itself promises
+    /// never changes for one account). The first sign-in for a `(issuer, sub)` this store has
+    /// never seen creates a new local account, `viewer` role (an administrator raises it
+    /// afterwards, same as any other account), with a random password that is never revealed and
+    /// never asked to be changed — no one signing in this way ever has a usable local password —
+    /// and links it immediately: a fresh account created specifically for this identity is
+    /// unambiguously its account. If a *different*, already-existing local account happens to
+    /// share that email, sign-in is refused rather than silently adopted — only an administrator
+    /// linking the two explicitly (`link_sso_identity`) can join them.  Returns the session, the
+    /// user, and whether an account was just created (so the caller can say so plainly instead of
+    /// guessing from it).
+    pub fn sso_login(&self, issuer: &str, sub: &str, email: &str, now: i64) -> Result<(String, User, bool), AuthError> {
+        if let Some(user_id) = self.store.find_user_by_sso(issuer, sub)? {
+            let rec = self.store.get_user_record(user_id)?.ok_or(AuthError::Invalid)?;
+            if rec.user.disabled {
+                return Err(AuthError::Invalid);
             }
-            None => {
-                validate_username(email).map_err(AuthError::Rejected)?;
-                let pw = random_password()?;
-                self.store.create_user(email, &hash_password(&pw)?, "viewer", false, now)?;
-                true
-            }
-        };
-        let rec = self.store.find_user(email)?.ok_or(AuthError::Invalid)?;
-        let (token, user) = self.start_session_for(rec.user.id, now)?;
-        Ok((token, user, created))
+            let (token, user) = self.start_session_for(user_id, now)?;
+            return Ok((token, user, false));
+        }
+        // an unlinked local account already has this email: never auto-adopted
+        if self.store.find_user(email)?.is_some() {
+            return Err(AuthError::Rejected(format!(
+                "an account already exists for {email}; ask an administrator to link your single sign-on identity to it"
+            )));
+        }
+        validate_username(email).map_err(AuthError::Rejected)?;
+        let pw = random_password()?;
+        let user = self.store.create_user(email, &hash_password(&pw)?, "viewer", false, now)?;
+        self.store.link_sso_identity(issuer, sub, user.id, now)?;
+        let (token, user) = self.start_session_for(user.id, now)?;
+        Ok((token, user, true))
     }
 
     fn enabled_admins(&self) -> Result<usize> {
@@ -712,25 +722,36 @@ mod tests {
     }
 
     #[test]
-    fn sso_provisions_a_viewer_on_first_sign_in_and_reuses_an_existing_account_after() {
+    fn sso_provisions_a_viewer_on_first_sign_in_and_reuses_the_same_account_after_by_sub_not_email() {
         let a = auth();
-        let (token, user, created) = a.sso_login("new.person@example.com", 1).unwrap();
+        let (issuer, sub) = ("https://idp.example.com", "sub-123");
+        let (token, user, created) = a.sso_login(issuer, sub, "new.person@example.com", 1).unwrap();
         assert!(created && user.role == "viewer" && !user.must_change);
         assert!(a.session_user(&token, 1).is_some(), "the session actually works");
         // an SSO account has no password anyone can know or guess
         assert!(a.login("new.person@example.com", "", 2).is_err());
-        // signing in again finds the same account, not a second one
-        let (_, user2, created2) = a.sso_login("new.person@example.com", 3).unwrap();
+        // signing in again with the same (issuer, sub) finds the same account, not a second one
+        let (_, user2, created2) = a.sso_login(issuer, sub, "new.person@example.com", 3).unwrap();
         assert!(!created2 && user2.id == user.id);
 
-        // an existing local account with a matching username is used as-is (no new one made)
-        let existing = a.store.create_user("already.here@example.com", &hash_password("a-long-passphrase-1").unwrap(), "editor", false, 0).unwrap();
-        let (_, user3, created3) = a.sso_login("already.here@example.com", 4).unwrap();
-        assert!(!created3 && user3.id == existing.id && user3.role == "editor", "role is left alone, not reset to viewer");
+        // a disabled account cannot sign in
+        a.update_user(user.id, None, Some(true)).unwrap();
+        assert!(a.sso_login(issuer, sub, "new.person@example.com", 5).is_err());
+    }
 
-        // a disabled account, local or SSO-provisioned, cannot sign in either way
-        a.update_user(existing.id, None, Some(true)).unwrap();
-        assert!(a.sso_login("already.here@example.com", 5).is_err());
+    #[test]
+    fn sso_never_auto_adopts_an_existing_local_account_that_merely_shares_the_email() {
+        // SECURITY_ARCHITECTURE_REVIEW.md H2: an email match alone must never grant access to an
+        // existing local account - only an explicit admin link (`link_sso_identity`) can join
+        // an IdP identity to one.
+        let a = auth();
+        let existing = a.store.create_user("already.here@example.com", &hash_password("a-long-passphrase-1").unwrap(), "editor", false, 0).unwrap();
+        let err = a.sso_login("https://idp.example.com", "some-sub", "already.here@example.com", 4).unwrap_err();
+        assert!(matches!(err, AuthError::Rejected(_)), "{err:?}");
+        // once an administrator links the identity explicitly, sign-in succeeds as that account
+        a.store.link_sso_identity("https://idp.example.com", "some-sub", existing.id, 4).unwrap();
+        let (_, user, created) = a.sso_login("https://idp.example.com", "some-sub", "already.here@example.com", 5).unwrap();
+        assert!(!created && user.id == existing.id && user.role == "editor", "role is left alone, not reset to viewer");
     }
 
     #[test]

@@ -149,6 +149,14 @@ exactly the kind the doc's rule of thumb misses.
 
 ### H2. Single sign-on: "disabled" still works, any account at the IdP is accepted, and email linking can take over local accounts
 
+**Status (2026-09-30): fixed.** `start` and `finish` both refuse outright when `enabled` is false.
+Accounts now link on `(issuer, sub)` (a new `sso_identities` table), never on email; an unlinked
+local account that merely shares an email is refused with a message asking an administrator to
+link the two explicitly, rather than being auto-adopted. `email_verified == Some(false)` is
+refused; `allowed_domains` is a required, admin-configured, non-empty list checked in `finish`
+before provisioning. Nobody uses SSO yet in production, so this shipped as a straight behavior
+change with no grandfathering.
+
 **Where** (verified by reading): `sso.rs:146` `start`, `:170` `finish`, `:72` `validate`;
 `web_sso.rs:94` `login`, `:116` `callback`; `auth.rs:578` `sso_login`.
 

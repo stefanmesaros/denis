@@ -1606,13 +1606,17 @@ mod tests {
         let (st, _, v) = send(&app, req("GET", "/api/sso", Some(&viewer), None)).await;
         assert_eq!((st, v["enabled"].as_bool(), v["secret_set"].as_bool(), v["client_secret"].as_str()), (StatusCode::OK, Some(false), Some(false), Some("")));
 
-        let body = serde_json::json!({"enabled": true, "issuer_url": "https://idp.example.com", "client_id": "abc", "client_secret": "s3cr3t", "button_label": "Sign in with Acme"});
+        let body = serde_json::json!({"enabled": true, "issuer_url": "https://idp.example.com", "client_id": "abc", "client_secret": "s3cr3t", "button_label": "Sign in with Acme", "allowed_domains": ["acme.com"]});
         for c in [&viewer, &editor] {
             assert_eq!(send(&app, req("PUT", "/api/sso", Some(c), Some(body.clone()))).await.0, StatusCode::FORBIDDEN);
         }
         // refused while incomplete (enabled with no client secret) and nothing is saved
-        let incomplete = serde_json::json!({"enabled": true, "issuer_url": "https://idp.example.com", "client_id": "abc", "client_secret": "", "button_label": ""});
+        let incomplete = serde_json::json!({"enabled": true, "issuer_url": "https://idp.example.com", "client_id": "abc", "client_secret": "", "button_label": "", "allowed_domains": ["acme.com"]});
         assert_eq!(send(&app, req("PUT", "/api/sso", Some(&admin), Some(incomplete))).await.0, StatusCode::BAD_REQUEST);
+        // refused while enabled with no allowed domain, even if otherwise complete
+        // (SECURITY_ARCHITECTURE_REVIEW.md H2: no way to enable SSO for "anyone at this IdP")
+        let no_domains = serde_json::json!({"enabled": true, "issuer_url": "https://idp.example.com", "client_id": "abc", "client_secret": "s3cr3t", "button_label": "", "allowed_domains": []});
+        assert_eq!(send(&app, req("PUT", "/api/sso", Some(&admin), Some(no_domains))).await.0, StatusCode::BAD_REQUEST);
         assert_eq!(send(&app, req("GET", "/api/auth/sso", None, None)).await.2["enabled"], false);
 
         let (st, _, v) = send(&app, req("PUT", "/api/sso", Some(&admin), Some(body))).await;
@@ -1622,7 +1626,7 @@ mod tests {
         assert_eq!((v["enabled"].as_bool(), v["button_label"].as_str()), (Some(true), Some("Sign in with Acme")));
 
         // saving again with a blank secret keeps the one already stored, rather than clearing it
-        let keep_secret = serde_json::json!({"enabled": true, "issuer_url": "https://idp.example.com", "client_id": "abc", "client_secret": "", "button_label": "Sign in with Acme"});
+        let keep_secret = serde_json::json!({"enabled": true, "issuer_url": "https://idp.example.com", "client_id": "abc", "client_secret": "", "button_label": "Sign in with Acme", "allowed_domains": ["acme.com"]});
         assert_eq!(send(&app, req("PUT", "/api/sso", Some(&admin), Some(keep_secret))).await.2["secret_set"], true);
 
         // starting a sign-in with a real (unreachable-in-tests) issuer fails cleanly, not a panic
