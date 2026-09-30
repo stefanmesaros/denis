@@ -1237,7 +1237,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
 
     if let (Some(addr), Some(l)) = (cfg.ingest_listen, ingest_listener) {
         let agent_backups_dir = Some(crate::backups::agents_dir(&cfg.collector.db));
-        let ing = Arc::new(Ingest::new(store.clone(), detector.clone(), alerts.clone(), auth.clone(), agent_backups_dir));
+        let ing = Arc::new(Ingest::new_with_local_inventory(store.clone(), detector.clone(), alerts.clone(), auth.clone(), agent_backups_dir, Some(coll.inv.clone())));
         let rc = tls.as_ref().map(|h| h.config.clone());
         if rc.is_some() {
             tracing::info!("accepting agents on https://{addr} (per-agent bearer tokens)");

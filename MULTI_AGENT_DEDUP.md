@@ -401,16 +401,30 @@ has no demonstrated need.
    test. Ships alone.~~ Done (2026-09-30): `Collector::start` now filters through
    `local_only_assets`, with a regression test. Not yet independently re-verified against a real
    restart on production (see "What was not verified").
-2. **Schema V20** (`agents.reports_into`, `asset_sightings` + backfill), and sightings recorded on
-   every save. No behaviour change yet, but the "seen by" chip already works.
-3. **`merge_observed` + `Inventory::absorb`**, and ingest routing for `reports_into = ''`,
-   including the `site`/`collector` parameter split and site-stamped events. Tests: two
-   collectors, one MAC, one row, no flip-flop across repeated reports and a restart.
-4. **The join transaction + preview + audit**, going through the engine channel. Test against a
-   copy of a database with real duplicates **and** hand-edited `local` metas. The production
-   database is the obvious fixture: back it up, then run the join against the copy and check
-   that every edited field survived.
-5. **Overlap hint** on the Sites page.
+2. ~~**Schema V20** (`agents.reports_into`, `asset_sightings` + backfill), and sightings recorded
+   on every save.~~ Done (v2.53.0, v2.55.0). No behaviour change from this step alone; the "seen
+   by" chip still has no UI.
+3. ~~**`merge_observed` + `Inventory::absorb`**, and ingest routing for `reports_into = ''` and for
+   another agent's site, including the `site`/`collector` parameter split for
+   `ingest_flows`/`ingest_signals`/`ingest_conversations`/`set_learning_start`.~~ Done (v2.56.0),
+   with a minimal admin endpoint (`PUT /api/agents/{id}/join`) to actually set/clear
+   `reports_into` — admin-only, audited (`agent.join`), refuses joining an agent into itself or
+   into a target that doesn't exist. Tests: two collectors, one MAC, one row for both the
+   join-into-local and join-into-another-site cases; unjoined behaviour unchanged (verified by the
+   full existing suite, no regressions).
+   **Not yet built, still exactly as designed below:** the preview step, the fresh re-poll before
+   confirming, the "seen by" UI, the overlap hint, drift detection, and the MSP-relay-target
+   refusal (needs a marker `apply_msp_sync` doesn't set yet — until it exists, an admin must not
+   join an agent into a site that has ever received an MSP relay sync, and this endpoint does not
+   check that itself). A per-collector sighting for a joined agent's own contribution to a local
+   row is also not separately recorded yet — see `Inventory::absorb`'s own doc comment.
+4. **The join transaction + preview + audit**, going through the engine channel — the endpoint
+   above is a plain, immediate `set_reports_into` call, not yet the fuller preview/re-poll/lock
+   flow this section originally specified. Test against a copy of a database with real duplicates
+   **and** hand-edited `local` metas. The production database is the obvious fixture: back it up,
+   then run the join against the copy and check that every edited field survived.
+5. **Overlap hint** on the Sites page, and the actual UI button (Sites page / device panel) to
+   call the join endpoint above — nothing in the console surfaces this yet.
 
 ## What was not verified
 

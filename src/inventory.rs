@@ -462,6 +462,35 @@ impl Inventory {
             Flushed::default()
         })
     }
+
+    /// Merges a joined agent's reported device into this (the local) inventory
+    /// (MULTI_AGENT_DEDUP.md's "join" design) — the single-writer requirement the design calls
+    /// for: running the merge here, under this inventory's own mutex, is what stops the flip-flop
+    /// the latent bug (fixed in `local_only_assets`) was a symptom of, since a local observation
+    /// and a joined agent's report would otherwise take turns overwriting each other's view of
+    /// the same row. `collector` is the joining agent's id, kept only for the caller's own
+    /// logging - it is not yet recorded as a per-collector sighting here (that would need a store
+    /// handle, which a live merge does not have; the row's own sighting is still recorded as
+    /// usual whenever this entry is next flushed, just not separately attributed to `collector` -
+    /// a known, narrow gap, not a correctness problem: nothing reads `asset_sightings` yet).
+    pub fn absorb(&mut self, incoming: Asset, collector: &str, now: i64) {
+        let mac = incoming.mac;
+        if self.assets.contains_key(&mac) {
+            let stored = self.assets.get_mut(&mac).expect("just checked");
+            merge_observed(stored, &incoming);
+            stored.last_seen = stored.last_seen.max(now);
+        } else {
+            let mut a = incoming;
+            a.agent_id = None; // it is landing in the local site now, not the agent's own
+            a.last_seen = a.last_seen.max(now);
+            self.new_devices.push(mac);
+            self.assets.insert(mac, a);
+        }
+        self.rev += 1;
+        self.asset_rev.insert(mac, self.rev);
+        self.dirty.insert(mac);
+        tracing::debug!("{mac} absorbed from joined collector {collector}");
+    }
 }
 
 fn note_ip(a: &mut Asset, ip: Ipv4Addr, now: i64) -> bool {

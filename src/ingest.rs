@@ -23,6 +23,7 @@ use axum::{Json, Router};
 
 use crate::auth::Auth;
 use crate::detect::Detector;
+use crate::inventory::Inventory;
 use crate::model::{now_ts, AgentInfo, Asset, Report, ReportAck};
 use crate::notify::Alerts;
 use crate::store::Store;
@@ -58,6 +59,11 @@ pub struct Ingest {
     /// subfolder per agent id, under the master's own `backups` folder. `None` disables receiving
     /// them at all (the route still exists, but every upload is refused).
     agent_backups_dir: Option<PathBuf>,
+    /// The local collector's live inventory, when this master also captures locally - `None` on
+    /// an ingest-only master with no capture of its own. Needed only for an agent joined into the
+    /// local site (MULTI_AGENT_DEDUP.md): see `Inventory::absorb` for why the merge must happen
+    /// through this handle rather than a plain `find_asset`/`save_asset` round trip.
+    local_inventory: Option<Arc<Mutex<Inventory>>>,
 }
 
 /// The agent id a request's token was issued for.
@@ -76,6 +82,20 @@ impl Ingest {
         auth: Arc<Auth>,
         agent_backups_dir: Option<PathBuf>,
     ) -> Self {
+        Self::new_with_local_inventory(store, detector, alerts, auth, agent_backups_dir, None)
+    }
+
+    /// Same as `new`, plus the local collector's live inventory - only a master that also
+    /// captures locally can offer "join into local" (MULTI_AGENT_DEDUP.md); every other
+    /// constructor keeps that offer absent by going through the plain `new` above.
+    pub fn new_with_local_inventory(
+        store: Arc<dyn Store>,
+        detector: Arc<Mutex<Detector>>,
+        alerts: Arc<Alerts>,
+        auth: Arc<Auth>,
+        agent_backups_dir: Option<PathBuf>,
+        local_inventory: Option<Arc<Mutex<Inventory>>>,
+    ) -> Self {
         Ingest {
             store,
             detector,
@@ -84,6 +104,7 @@ impl Ingest {
             failures: Mutex::new(HashMap::new()),
             apply_lock: Mutex::new(()),
             agent_backups_dir,
+            local_inventory,
         }
     }
 
@@ -203,30 +224,79 @@ impl Ingest {
                 });
             }
         }
+        // Which site this agent's devices/flows/alerts actually belong to
+        // (MULTI_AGENT_DEDUP.md): unjoined (the default, today's behaviour) means the agent is
+        // its own site; joined means every device/flow/alert below resolves against the target
+        // site instead, so two collectors on one network converge on one set of devices rather
+        // than staying two sites with the same devices. `site: None` is the local collector's own
+        // site (the same `None` `find_asset`/`ingest_flows` already use for it everywhere else).
+        let reports_into = prev.as_ref().and_then(|p| p.reports_into.clone());
+        let site: Option<String> = match &reports_into {
+            None => Some(id.clone()),
+            Some(s) if s.is_empty() => None,
+            Some(other) => Some(other.clone()),
+        };
+
         let first_seen = prev.as_ref().map_or(now, |p| p.first_seen);
-        self.detector
-            .lock()
-            .unwrap()
-            .set_learning_start(Some(&id), first_seen);
+        self.detector.lock().unwrap().set_learning_start(site.as_deref(), first_seen);
 
         let mut new_assets: Vec<Asset> = Vec::new();
         let n_assets = report.assets.len();
         for mut a in report.assets {
             clamp_asset(&mut a);
-            a.agent_id = Some(id.clone());
-            match self.store.find_asset(Some(&id), &a.mac)? {
-                Some(existing) => {
-                    a.id = existing.id;
-                    a.first_seen = a.first_seen.min(existing.first_seen);
-                    self.store.save_asset(&mut a)?;
+            match &site {
+                Some(s) if *s == id => {
+                    // Unjoined: exactly today's behaviour, a full overwrite under the agent's own
+                    // site - there is no other collector's edits to protect here.
+                    a.agent_id = Some(id.clone());
+                    match self.store.find_asset(Some(&id), &a.mac)? {
+                        Some(existing) => {
+                            a.id = existing.id;
+                            a.first_seen = a.first_seen.min(existing.first_seen);
+                            self.store.save_asset(&mut a)?;
+                        }
+                        None => {
+                            a.id = 0;
+                            self.store.save_asset(&mut a)?;
+                            // A device somebody registered by hand is known, not "new".
+                            let registered = self.store.get_meta(a.id)?.is_some_and(|m| m.manual);
+                            if !registered {
+                                new_assets.push(a);
+                            }
+                        }
+                    }
                 }
                 None => {
-                    a.id = 0;
-                    self.store.save_asset(&mut a)?;
-                    // A device somebody registered by hand is known, not "new".
-                    let registered = self.store.get_meta(a.id)?.is_some_and(|m| m.manual);
-                    if !registered {
-                        new_assets.push(a);
+                    // Joined into the local site: the merge must happen inside the live local
+                    // Inventory (see `Inventory::absorb`'s own doc for why), not through a plain
+                    // find_asset/save_asset round trip here. Its own flush cycle persists the
+                    // result and raises `on_new_asset` for a genuinely new device - this ingest
+                    // call does neither itself.
+                    if let Some(inv) = &self.local_inventory {
+                        inv.lock().unwrap().absorb(a, &id, now);
+                    }
+                    // No local capture on this master: joining into local should never have been
+                    // offered in the first place (the join UI only offers targets this master can
+                    // actually merge into) - silently dropping here rather than panicking is the
+                    // safe fallback for a state that should not be reachable.
+                }
+                Some(other_site) => {
+                    // Joined into another agent's site: merge, never a plain overwrite, since that
+                    // site may carry a person's own edits this report must not clobber.
+                    match self.store.find_asset(Some(other_site), &a.mac)? {
+                        Some(mut existing) => {
+                            crate::inventory::merge_observed(&mut existing, &a);
+                            self.store.save_asset(&mut existing)?;
+                        }
+                        None => {
+                            a.id = 0;
+                            a.agent_id = Some(other_site.clone());
+                            self.store.save_asset(&mut a)?;
+                            let registered = self.store.get_meta(a.id)?.is_some_and(|m| m.manual);
+                            if !registered {
+                                new_assets.push(a);
+                            }
+                        }
                     }
                 }
             }
@@ -239,11 +309,11 @@ impl Ingest {
             for a in &new_assets {
                 events.extend(det.on_new_asset(a, now));
             }
-            events.extend(det.ingest_flows(Some(&id), &report.flows, &*self.store, now));
-            events.extend(det.ingest_flows_v6(Some(&id), &report.flows_v6, &*self.store, now));
-            events.extend(det.ingest_signals(Some(&id), &report.signals, &*self.store, now));
-            events.extend(det.ingest_signals_v6(Some(&id), &report.signals_v6, &*self.store, now));
-            events.extend(det.ingest_conversations(Some(&id), &report.conversations, &*self.store, now));
+            events.extend(det.ingest_flows(site.as_deref(), &report.flows, &*self.store, now));
+            events.extend(det.ingest_flows_v6(site.as_deref(), &report.flows_v6, &*self.store, now));
+            events.extend(det.ingest_signals(site.as_deref(), &report.signals, &*self.store, now));
+            events.extend(det.ingest_signals_v6(site.as_deref(), &report.signals_v6, &*self.store, now));
+            events.extend(det.ingest_conversations(site.as_deref(), &report.conversations, &*self.store, now));
         }
         self.alerts.emit(events);
 
@@ -479,6 +549,50 @@ mod tests {
 
     fn flow_v6(ts: i64, remote: std::net::Ipv6Addr) -> crate::model::FlowRecordV6 {
         crate::model::FlowRecordV6 { mac: M, remote, proto: 6, port: 443, bytes_out: 1000, bytes_in: 1000, packets: 2, window_start: ts, window_secs: 10 }
+    }
+
+    #[test]
+    fn a_joined_agent_merges_into_the_local_inventory_instead_of_creating_its_own_site() {
+        let store: Arc<dyn Store> = Arc::new(SqliteStore::open_in_memory().unwrap());
+        let cfg = DetectConfig { learning_secs: 1000, settle_secs: 0, ..Default::default() };
+        let det = Arc::new(Mutex::new(Detector::new(cfg, vec![], 0)));
+        let alerts = Arc::new(Alerts::new(store.clone(), None));
+        let auth = Arc::new(Auth::new(store.clone()));
+        let inv = Arc::new(Mutex::new(Inventory::new(vec![], None, None)));
+        let ing = Arc::new(Ingest::new_with_local_inventory(store.clone(), det, alerts, auth, None, Some(inv.clone())));
+
+        // unjoined: gets its own site, exactly as before
+        ing.apply(report(1, vec![asset(M, [10, 1, 0, 5])], vec![]), 500).unwrap();
+        assert!(store.find_asset(Some("site-b"), &M).unwrap().is_some());
+
+        // an administrator joins it into the local site
+        store.set_reports_into("site-b", Some("")).unwrap();
+
+        // its next report for the same MAC now merges into the live local inventory instead
+        ing.apply(report(2, vec![asset(M, [10, 1, 0, 6])], vec![]), 600).unwrap();
+        assert!(inv.lock().unwrap().get(&M).is_some(), "merged into the local, in-memory inventory");
+    }
+
+    #[test]
+    fn a_joined_agent_merges_into_another_agents_site_via_merge_observed_not_overwrite() {
+        let (ing, store) = setup(1000);
+        // site-a already has this device, with data a join must not clobber
+        let mut existing = Asset::new(M, 50);
+        existing.agent_id = Some("site-a".into());
+        existing.hostnames.push("kept-hostname".into());
+        store.save_asset(&mut existing).unwrap();
+
+        // register site-b (no devices yet), then join it into site-a
+        ing.apply(report(1, vec![], vec![]), 100).unwrap();
+        store.set_reports_into("site-b", Some("site-a")).unwrap();
+
+        // site-b's next report for the same MAC merges into site-a's existing row
+        ing.apply(report(2, vec![asset(M, [10, 1, 0, 9])], vec![]), 600).unwrap();
+
+        let merged = store.find_asset(Some("site-a"), &M).unwrap().unwrap();
+        assert_eq!(merged.id, existing.id, "the same row, not a new one");
+        assert!(merged.hostnames.contains(&"kept-hostname".to_string()), "site-a's own data is preserved");
+        assert!(store.find_asset(Some("site-b"), &M).unwrap().is_none(), "no separate site-b row for this mac");
     }
 
     #[test]

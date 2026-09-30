@@ -1276,6 +1276,62 @@ pub(crate) async fn agents_delete(State(st): State<AppState>, Extension(AuthUser
     }
 }
 
+#[derive(Deserialize)]
+pub struct JoinAgentReq {
+    /// The site this agent's future reports should land in: `""` for the local collector's own
+    /// site, another agent's id for that agent's site, or omitted/`null` to un-join (back to the
+    /// agent being its own site - today's default for every agent).
+    #[serde(default)]
+    target: Option<String>,
+}
+
+/// An administrator's explicit "join" action (MULTI_AGENT_DEDUP.md): from now on, `agent_id`'s
+/// reports merge into `target`'s site instead of creating their own - the fix for two collectors
+/// on one network each listing every device once, since a network merger is exactly a decision an
+/// administrator has to make deliberately, never something DENIS infers on its own from overlap
+/// alone. Devices this agent already reported under its own, now-abandoned site are left exactly
+/// where they are; only *future* reports are affected. Never called from an agent's own report -
+/// see `set_reports_into`'s own doc comment for why.
+///
+/// **Not yet built into this endpoint** (documented gaps, matching MULTI_AGENT_DEDUP.md's own
+/// "what was not verified"/deferred list): a preview of what will be affected before committing,
+/// a fresh re-poll of the target immediately beforehand, and a refusal for a target that has ever
+/// received an MSP relay sync (which overwrites `asset_meta` on every sync and would fight a
+/// join's own "never overwrite a human edit" rule). Until those exist, use this only for a target
+/// this admin already knows is a plain site with no relay history.
+pub(crate) async fn agents_join(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Path(agent_id): Path<String>, Json(b): Json<JoinAgentReq>) -> Result<Response, ApiError> {
+    let target = b.target.as_deref().filter(|t| !t.is_empty());
+    if let Some(t) = target {
+        if t == agent_id {
+            return Ok(err(StatusCode::BAD_REQUEST, "an agent cannot be joined into itself"));
+        }
+        let known = blocking(&st.store, {
+            let t = t.to_string();
+            move |s| s.get_agent(&t)
+        })
+        .await?;
+        if known.is_none() {
+            return Ok(err(StatusCode::BAD_REQUEST, "no such site to join into"));
+        }
+    }
+    let exists = blocking(&st.store, {
+        let id = agent_id.clone();
+        move |s| s.get_agent(&id)
+    })
+    .await?;
+    if exists.is_none() {
+        return Ok(err(StatusCode::NOT_FOUND, "no such agent"));
+    }
+    let target_owned = b.target.clone();
+    blocking(&st.store, {
+        let id = agent_id.clone();
+        move |s| s.set_reports_into(&id, target_owned.as_deref())
+    })
+    .await?;
+    audit(&st, &me.username, "agent.join", None, json!({ "agent_id": agent_id, "reports_into": b.target }));
+    Ok(Json(json!({ "ok": true })).into_response())
+}
+
 // ----------------------------------------------------------------- branding
 
 /// Public: the sign-in page needs the product name, colour and logo before

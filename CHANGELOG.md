@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.57.0: Multi-agent dedup: an administrator can now join two collectors together
+
+* **The core of MULTI_AGENT_DEDUP.md's fix is now live**: an administrator can join a second
+  collector into an existing site (`PUT /api/agents/{id}/join`, admin-only, audited as
+  `agent.join`), so two vantage points on one network — a master's own capture and a remote
+  agent, most commonly — merge into one set of devices instead of listing everything twice.
+  Joining into the local site merges live, inside the running collector, the same fix that
+  stopped the two writers from overwriting each other's view of a shared device; joining into
+  another agent's site merges through `merge_observed`, which never overwrites a value that site's
+  own row already has (including anything a person edited by hand there).
+* Unjoined agents behave exactly as before — nothing changes unless an administrator explicitly
+  asks for it.
+* **Not yet built**: any UI for this (it's API-only for now), a preview of what a join will
+  affect, a fresh re-poll before confirming, drift detection, and a refusal for joining into a
+  site that has received an MSP relay sync. See MULTI_AGENT_DEDUP.md for the exact remaining
+  scope.
+
 ## 2.56.0: Multi-agent dedup: the merge function, and a quicker way to acknowledge an alert
 
 * **`merge_observed`: the function that will combine a joined agent's view of a device into its

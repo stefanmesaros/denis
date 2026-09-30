@@ -206,6 +206,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/alerts/{id}/unack", post(unack))
         .route("/api/agents", get(agents))
         .route("/api/agents/{agent_id}", delete(admin::agents_delete))
+        .route("/api/agents/{agent_id}/join", put(admin::agents_join))
         .route("/api/conversations", get(conversations))
         .route("/api/trends", get(trend_points))
         .route("/api/top-talkers", get(top_talkers_get))
@@ -271,7 +272,7 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     }
     // `/api/baseline/destinations` (GET) is a read: any viewer may search it, same as the
     // per-device baseline panel it aggregates. Only `/api/baseline/forget-all` (POST) is here.
-    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/baseline") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path.starts_with("/api/ai/settings") || path.starts_with("/api/cmdb/settings") || path.starts_with("/api/cmdb/sync") || path.starts_with("/api/ad/settings") || path.starts_with("/api/ad/sync") || path.starts_with("/api/jamf/settings") || path.starts_with("/api/jamf/sync") || path.starts_with("/api/azure/settings") || path.starts_with("/api/azure/sync") || path.starts_with("/api/aws/settings") || path.starts_with("/api/aws/sync") || path.starts_with("/api/gcp/settings") || path.starts_with("/api/gcp/sync") || path.starts_with("/api/vulnscan/settings") || path.starts_with("/api/vulnscan/sync") || path.starts_with("/api/ip-enrichment/settings") || path.starts_with("/api/ip-enrichment/geoip") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
+    if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/baseline") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path.starts_with("/api/ai/settings") || path.starts_with("/api/cmdb/settings") || path.starts_with("/api/cmdb/sync") || path.starts_with("/api/ad/settings") || path.starts_with("/api/ad/sync") || path.starts_with("/api/jamf/settings") || path.starts_with("/api/jamf/sync") || path.starts_with("/api/azure/settings") || path.starts_with("/api/azure/sync") || path.starts_with("/api/aws/settings") || path.starts_with("/api/aws/sync") || path.starts_with("/api/gcp/settings") || path.starts_with("/api/gcp/sync") || path.starts_with("/api/vulnscan/settings") || path.starts_with("/api/vulnscan/sync") || path.starts_with("/api/ip-enrichment/settings") || path.starts_with("/api/ip-enrichment/geoip") || path == "/api/reports/settings" || path.ends_with("/share") || path.ends_with("/join")) && method != axum::http::Method::GET {
         return "admin";
     }
     if method == axum::http::Method::DELETE {
@@ -2742,6 +2743,7 @@ mod tests {
             (M::POST, "/api/assets/import", "editor"), (M::POST, "/api/scan", "editor"), (M::DELETE, "/api/assets/1", "admin"),
             (M::GET, "/api/users", "admin"), (M::POST, "/api/users", "admin"), (M::GET, "/api/audit", "admin"),
             (M::GET, "/api/agent-tokens", "admin"), (M::GET, "/api/api-tokens", "admin"), (M::DELETE, "/api/api-tokens/1", "admin"), (M::DELETE, "/api/agent-tokens/x", "admin"),
+            (M::PUT, "/api/agents/site-b/join", "admin"),
             (M::PUT, "/api/branding", "admin"), (M::PUT, "/api/branding/logo", "admin"), (M::DELETE, "/api/branding/logo", "admin"),
             (M::GET, "/api/branding", "viewer"), (M::GET, "/api/backups", "admin"), (M::GET, "/api/backups/denis-auto-x.db", "admin"), (M::POST, "/api/backups", "admin"), (M::GET, "/api/system", "viewer"), (M::POST, "/api/reports", "editor"), (M::GET, "/api/reports/3", "admin"), (M::PUT, "/api/reports/settings", "admin"), (M::DELETE, "/api/reports/3", "admin"), (M::GET, "/api/rules", "viewer"), (M::PUT, "/api/rules", "admin"), (M::DELETE, "/api/rules", "admin"),
             (M::POST, "/api/auth/password", "viewer"), (M::POST, "/api/auth/logout", "viewer"),
@@ -2951,6 +2953,43 @@ mod tests {
 
         let audit = store.list_audit(None, 50).unwrap();
         assert!(audit.iter().any(|a| a.action == "agent.delete" && a.user == "adam" && a.detail.to_string().contains("site-a")));
+    }
+
+    #[tokio::test]
+    async fn joining_an_agent_into_a_site_is_admin_only_validated_and_reversible() {
+        let (app, store, [viewer, editor, admin]) = secured().await;
+        store.upsert_agent(&crate::model::AgentInfo { id: "site-a".into(), name: "HQ".into(), site: None, version: "t".into(), subnet: "10.0.0.0/24".into(), first_seen: 1, last_report_at: 2, last_run_id: "r".into(), last_seq: 1, reports_into: None }).unwrap();
+        store.upsert_agent(&crate::model::AgentInfo { id: "site-b".into(), name: "Branch".into(), site: None, version: "t".into(), subnet: "10.1.0.0/24".into(), first_seen: 1, last_report_at: 2, last_run_id: "r".into(), last_seq: 1, reports_into: None }).unwrap();
+
+        // viewer/editor cannot join at all
+        for c in [&viewer, &editor] {
+            assert_eq!(send(&app, req("PUT", "/api/agents/site-b/join", Some(c), Some(serde_json::json!({"target": ""})))).await.0, StatusCode::FORBIDDEN);
+        }
+
+        // an agent cannot be joined into itself
+        assert_eq!(send(&app, req("PUT", "/api/agents/site-b/join", Some(&admin), Some(serde_json::json!({"target": "site-b"})))).await.0, StatusCode::BAD_REQUEST);
+        // a nonexistent target is refused
+        assert_eq!(send(&app, req("PUT", "/api/agents/site-b/join", Some(&admin), Some(serde_json::json!({"target": "no-such-site"})))).await.0, StatusCode::BAD_REQUEST);
+        // a nonexistent agent is refused
+        assert_eq!(send(&app, req("PUT", "/api/agents/no-such-agent/join", Some(&admin), Some(serde_json::json!({"target": ""})))).await.0, StatusCode::NOT_FOUND);
+
+        // joining into local ("") succeeds
+        let (st, _, v) = send(&app, req("PUT", "/api/agents/site-b/join", Some(&admin), Some(serde_json::json!({"target": ""})))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(store.get_agent("site-b").unwrap().unwrap().reports_into, Some("".into()));
+
+        // joining into another real site succeeds too
+        let (st, _, v) = send(&app, req("PUT", "/api/agents/site-b/join", Some(&admin), Some(serde_json::json!({"target": "site-a"})))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(store.get_agent("site-b").unwrap().unwrap().reports_into, Some("site-a".into()));
+
+        // un-joining (no target) restores it to being its own site
+        let (st, _, v) = send(&app, req("PUT", "/api/agents/site-b/join", Some(&admin), Some(serde_json::json!({})))).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(store.get_agent("site-b").unwrap().unwrap().reports_into, None);
+
+        let audit = store.list_audit(None, 50).unwrap();
+        assert!(audit.iter().filter(|a| a.action == "agent.join" && a.user == "adam").count() >= 3);
     }
 
     #[tokio::test]
