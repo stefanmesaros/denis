@@ -490,6 +490,13 @@ impl Detector {
         }
         self.convs.retain(|k, _| !ids.contains(&k.0) && !ids.contains(&k.1));
         self.convs_dirty.retain(|k| !ids.contains(&k.0) && !ids.contains(&k.1));
+        // Without this, `asset_id(agent, mac)` keeps returning a row id that no longer exists
+        // (`AUTOINCREMENT` never reuses it): the next report for that MAC would resolve to the
+        // deleted id, and every later `flush` of its baseline/presence/conversation would then
+        // fail its foreign-key constraint - not just for that one device, see `flush`'s own
+        // best-effort handling of that failure for why a single bad id must not be allowed to
+        // recur (SECURITY_ARCHITECTURE_REVIEW.md H4).
+        self.ids.retain(|_, v| !ids.contains(v));
     }
 
     /// When observation of this collector began. Only ever moves earlier, so
@@ -1897,24 +1904,36 @@ impl Detector {
 
     // ---------------------------------------------------------- persistence
 
+    /// Best-effort per item: one id whose store write fails (e.g. a stale foreign key left over
+    /// from a site deletion race - see `forget_assets`) is logged and dropped rather than aborting
+    /// the whole flush, so one bad id can never stop every other device's presence/baseline/
+    /// conversation data from being persisted (SECURITY_ARCHITECTURE_REVIEW.md H4). This is
+    /// defense in depth: `forget_assets` clearing the id cache is the actual fix for the id going
+    /// stale in the first place.
     pub fn flush(&mut self, store: &dyn Store) -> Result<()> {
         let ids: Vec<i64> = self.dirty.iter().copied().collect();
         for id in ids {
             if let Some(b) = self.baselines.get(&id) {
-                store.save_baseline(b)?;
+                if let Err(e) = store.save_baseline(b) {
+                    tracing::warn!("saving the baseline for asset {id} failed, dropping it rather than blocking every other flush: {e:#}");
+                }
             }
             self.dirty.remove(&id);
         }
         let ids: Vec<i64> = self.presence_dirty.iter().copied().collect();
         for id in ids {
             if let Some(p) = self.presence.get(&id) {
-                store.save_presence(p)?;
+                if let Err(e) = store.save_presence(p) {
+                    tracing::warn!("saving presence for asset {id} failed, dropping it rather than blocking every other flush: {e:#}");
+                }
             }
             self.presence_dirty.remove(&id);
         }
         if !self.convs_dirty.is_empty() {
             let batch: Vec<Conversation> = self.convs_dirty.iter().filter_map(|k| self.convs.get(k).cloned()).collect();
-            store.save_conversations(&batch)?;
+            if let Err(e) = store.save_conversations(&batch) {
+                tracing::warn!("saving {} conversation(s) failed, dropping this batch rather than blocking every other flush: {e:#}", batch.len());
+            }
             self.convs_dirty.clear();
         }
         Ok(())
@@ -2136,6 +2155,51 @@ mod tests {
 
     fn kinds(ev: &[Event]) -> Vec<(&str, i32)> {
         ev.iter().map(|e| (e.kind.as_str(), e.score)).collect()
+    }
+
+    #[test]
+    fn deleting_a_site_then_seeing_its_devices_again_does_not_break_saving_for_every_other_device() {
+        // regression: forget_assets used to clear baselines/presence/conversations but not the
+        // (agent, mac) -> id cache. A site's agent reporting again after its devices were deleted
+        // would then resolve to the deleted, now-nonexistent id, and flush()'s first failing
+        // foreign-key write used to `?`-propagate and abort - dropping every other device's
+        // presence/baseline/conversation for that tick too. See SECURITY_ARCHITECTURE_REVIEW.md H4.
+        let s = SqliteStore::open_in_memory().unwrap();
+        let mut d = Detector::new(cfg(), vec![], 0);
+
+        // one device on the site about to be deleted, one on an unrelated site - both go dirty in
+        // the same flush, so a bug that aborts the whole flush on the first failure would also
+        // lose the second device's presence.
+        let mut deleted_site = Asset::new(MAC, 0);
+        deleted_site.agent_id = Some("branch-b".into());
+        s.save_asset(&mut deleted_site).unwrap();
+        let old_id = deleted_site.id;
+        assert_eq!(d.asset_id(Some("branch-b"), &MAC, &s), Some(old_id), "populates the cache");
+
+        let survivor = asset(&s, MAC2, 0);
+        assert_eq!(d.asset_id(None, &MAC2, &s), Some(survivor.id));
+
+        // the site is deleted: its asset row is gone, and the detector is told to forget it
+        s.delete_asset(old_id).unwrap();
+        d.forget_assets(&[old_id].into_iter().collect());
+
+        // its agent reports again: same (agent, mac), a brand-new row (autoincrement never
+        // reuses old_id)
+        let mut recreated = Asset::new(MAC, 100);
+        recreated.agent_id = Some("branch-b".into());
+        s.save_asset(&mut recreated).unwrap();
+        let new_id = recreated.id;
+        assert_ne!(old_id, new_id, "a fresh row, not the deleted one");
+        assert_eq!(d.asset_id(Some("branch-b"), &MAC, &s), Some(new_id), "the cache must resolve to the new row, not the stale deleted one");
+
+        // both devices go dirty and flush cleanly - no foreign-key failure for either
+        d.presence.insert(new_id, Presence { asset_id: new_id, hours: [1].into_iter().collect(), silent_alerted: false });
+        d.presence_dirty.insert(new_id);
+        d.presence.insert(survivor.id, Presence { asset_id: survivor.id, hours: [1].into_iter().collect(), silent_alerted: false });
+        d.presence_dirty.insert(survivor.id);
+        d.flush(&s).unwrap();
+        assert!(s.load_presence().unwrap().iter().any(|p| p.asset_id == new_id));
+        assert!(s.load_presence().unwrap().iter().any(|p| p.asset_id == survivor.id), "the unrelated device's presence must not be lost by the other one's write");
     }
 
     #[test]

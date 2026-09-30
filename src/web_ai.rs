@@ -204,6 +204,12 @@ pub(crate) async fn explain(State(st): State<AppState>, Extension(AuthUser(me)):
             };
             let ev = blocking(&store, move |s| s.get_event(id)).await?;
             let Some(ev) = ev else { return Ok(err(StatusCode::NOT_FOUND, "no such alert")) };
+            // Same site scoping as every other view of an alert, and the same "no such alert"
+            // wording either way - a distinguishable 403 would tell an unauthorized caller which
+            // ids exist (SECURITY_ARCHITECTURE_REVIEW.md H1).
+            if !site_readable(&st, &me, &ev.agent_id) {
+                return Ok(err(StatusCode::NOT_FOUND, "no such alert"));
+            }
             let asset = blocking(&store, move |s| s.get_asset(ev.asset_id)).await?;
             let label = asset.map(|a| a.label()).unwrap_or_else(|| format!("device #{}", ev.asset_id));
             let d = &ev.raw_details;
@@ -212,7 +218,11 @@ pub(crate) async fn explain(State(st): State<AppState>, Extension(AuthUser(me)):
             crate::ai::alert_prompt(&ev.kind, ev.score, &ev.severity, summary, &reasons, &label)
         }
         "finding" => {
-            let (list, metas) = blocking(&store, |s| Ok((s.load_assets()?, s.load_all_meta()?))).await?;
+            let (mut list, metas) = blocking(&store, |s| Ok((s.load_assets()?, s.load_all_meta()?))).await?;
+            // Same site scoping as the `findings` list endpoint (SECURITY_ARCHITECTURE_REVIEW.md
+            // H1): a finding computed over devices the caller cannot see would leak their
+            // existence and state through this prompt.
+            list.retain(|a| site_readable(&st, &me, &a.agent_id));
             let list = list.into_iter().map(|mut a| { if let Some(m) = metas.get(&a.id) { crate::tracking::apply_overrides(&mut a, m); } a }).collect::<Vec<_>>();
             let findings = crate::findings::compute(&list, &metas, now);
             let Some(f) = findings.into_iter().find(|f| f.id == b.id) else { return Ok(err(StatusCode::NOT_FOUND, "no such finding, or it no longer applies")) };
@@ -278,6 +288,11 @@ pub(crate) async fn triage(State(st): State<AppState>, Extension(AuthUser(me)): 
     };
     let ev = blocking(&store, move |s| s.get_event(id)).await?;
     let Some(ev) = ev else { return Ok(err(StatusCode::NOT_FOUND, "no such alert")) };
+    // Same site scoping as `explain`, and the same "no such alert" wording either way
+    // (SECURITY_ARCHITECTURE_REVIEW.md H1).
+    if !site_readable(&st, &me, &ev.agent_id) {
+        return Ok(err(StatusCode::NOT_FOUND, "no such alert"));
+    }
     let asset = blocking(&store, move |s| s.get_asset(ev.asset_id)).await?;
     let label = asset.map(|a| a.label()).unwrap_or_else(|| format!("device #{}", ev.asset_id));
     let d = &ev.raw_details;
@@ -336,6 +351,11 @@ pub(crate) async fn recommend(State(st): State<AppState>, Extension(AuthUser(me)
     };
     let ev = blocking(&store, move |s| s.get_event(id)).await?;
     let Some(ev) = ev else { return Ok(err(StatusCode::NOT_FOUND, "no such alert")) };
+    // Same site scoping as `explain`/`triage`, and the same "no such alert" wording either way
+    // (SECURITY_ARCHITECTURE_REVIEW.md H1).
+    if !site_readable(&st, &me, &ev.agent_id) {
+        return Ok(err(StatusCode::NOT_FOUND, "no such alert"));
+    }
     let asset = blocking(&store, move |s| s.get_asset(ev.asset_id)).await?;
     let label = asset.map(|a| a.label()).unwrap_or_else(|| format!("device #{}", ev.asset_id));
     let d = &ev.raw_details;
@@ -656,6 +676,11 @@ pub(crate) async fn behavior(State(st): State<AppState>, Extension(AuthUser(me))
     };
     let ev = blocking(&store, move |s| s.get_event(id)).await?;
     let Some(ev) = ev else { return Ok(err(StatusCode::NOT_FOUND, "no such alert")) };
+    // Same site scoping as `explain`/`triage`/`recommend`, and the same "no such alert" wording
+    // either way (SECURITY_ARCHITECTURE_REVIEW.md H1).
+    if !site_readable(&st, &me, &ev.agent_id) {
+        return Ok(err(StatusCode::NOT_FOUND, "no such alert"));
+    }
     if !crate::detect::is_behavioral_kind(&ev.kind) {
         return Ok(err(StatusCode::BAD_REQUEST, "this alert kind has no established baseline to compare against"));
     }

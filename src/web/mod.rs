@@ -261,6 +261,14 @@ pub(crate) fn required_role(method: &axum::http::Method, path: &str) -> &'static
     if path.starts_with("/api/auth/") {
         return "viewer"; // any signed-in user may log out / change own password
     }
+    // A stored report's body is rendered once, fleet-wide, at generation time - it has no
+    // per-viewer site scoping to check the way a live `assets`/`events` call does. Viewing one is
+    // therefore admin-only rather than viewer, until reports are themselves scoped to a site
+    // (SECURITY_ARCHITECTURE_REVIEW.md H1). The list (`/api/reports`, no id) and its settings stay
+    // viewer/admin as before; only the numeric-id body route is restricted here.
+    if path.starts_with("/api/reports/") && path != "/api/reports/settings" && !path.starts_with("/api/reports/shared/") && method == axum::http::Method::GET {
+        return "admin";
+    }
     // `/api/baseline/destinations` (GET) is a read: any viewer may search it, same as the
     // per-device baseline panel it aggregates. Only `/api/baseline/forget-all` (POST) is here.
     if (path.starts_with("/api/branding") || path.starts_with("/api/rules") || path.starts_with("/api/baseline") || path.starts_with("/api/maintenance") || path.starts_with("/api/demo") || path.starts_with("/api/update") || path.starts_with("/api/system") || path.starts_with("/api/learning") || path.starts_with("/api/risk-acceptances") || path.starts_with("/api/switches") || path.starts_with("/api/vulndata") || path.starts_with("/api/license") || path.starts_with("/api/msp-overview") || path.starts_with("/api/interfaces") || path.starts_with("/api/siem") || path.starts_with("/api/sso") || path.starts_with("/api/ai/settings") || path.starts_with("/api/cmdb/settings") || path.starts_with("/api/cmdb/sync") || path.starts_with("/api/ad/settings") || path.starts_with("/api/ad/sync") || path.starts_with("/api/jamf/settings") || path.starts_with("/api/jamf/sync") || path.starts_with("/api/azure/settings") || path.starts_with("/api/azure/sync") || path.starts_with("/api/aws/settings") || path.starts_with("/api/aws/sync") || path.starts_with("/api/gcp/settings") || path.starts_with("/api/gcp/sync") || path.starts_with("/api/vulnscan/settings") || path.starts_with("/api/vulnscan/sync") || path.starts_with("/api/ip-enrichment/settings") || path.starts_with("/api/ip-enrichment/geoip") || path == "/api/reports/settings" || path.ends_with("/share")) && method != axum::http::Method::GET {
@@ -543,9 +551,13 @@ async fn assets(State(st): State<AppState>, Extension(AuthUser(me)): Extension<A
 }
 
 /// Standing weaknesses and housekeeping problems, with what to do about each.
-async fn findings(State(st): State<AppState>) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
+async fn findings(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     let now = now_ts();
     let (mut list, metas) = blocking(&st.store, |s| Ok((s.load_assets()?, s.load_all_meta()?))).await?;
+    // same site scoping as the `assets`/`events` handlers - a finding is device-shaped, and a
+    // user with no access to a site must not see its devices here either
+    // (SECURITY_ARCHITECTURE_REVIEW.md H1).
+    list.retain(|a| site_readable(&st, &me, &a.agent_id));
     // the same corrections the asset list applies, so both views agree
     for a in &mut list {
         if let Some(m) = metas.get(&a.id) {
@@ -1015,15 +1027,19 @@ async fn trend_points(State(st): State<AppState>, Extension(AuthUser(me)): Exten
 /// without it): a live snapshot for "Most received / most sent / total" leaderboards, not a time
 /// series. `excluded` lists the asset ids an administrator picked by hand, on top of the automatic
 /// gateway/self exclusion, so the settings UI can show which devices are already hidden.
-async fn top_talkers_get(State(st): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
-    let (talkers, excluded) = blocking(&st.store, |s| {
+async fn top_talkers_get(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Json<serde_json::Value>, ApiError> {
+    let (mut talkers, excluded, assets) = blocking(&st.store, |s| {
         let baselines = s.load_baselines()?;
         let assets = s.load_assets()?;
         let excluded = trends::load_excluded(s)?;
         let talkers = trends::top_talkers(&baselines, &assets, &excluded);
-        Ok((talkers, excluded))
+        Ok((talkers, excluded, assets))
     })
     .await?;
+    // `top_talkers` iterates every stored baseline regardless of site; the site scoping has to
+    // happen here (SECURITY_ARCHITECTURE_REVIEW.md H1).
+    let readable_ids: std::collections::HashSet<i64> = assets.iter().filter(|a| site_readable(&st, &me, &a.agent_id)).map(|a| a.id).collect();
+    talkers.retain(|t| readable_ids.contains(&t.asset_id));
     let mut excluded: Vec<i64> = excluded.into_iter().collect();
     excluded.sort_unstable();
     Ok(Json(serde_json::json!({ "talkers": talkers, "excluded": excluded })))
@@ -1046,9 +1062,22 @@ struct DaysQuery {
     days: Option<i64>,
 }
 
-async fn gather(st: &AppState, days: Option<i64>) -> Result<report::ReportData, ApiError> {
+async fn gather(st: &AppState, me: &User, days: Option<i64>) -> Result<report::ReportData, ApiError> {
     let (days, now) = (days.unwrap_or(7), crate::model::now_ts());
     let mut data = blocking(&st.store, move |s| report::gather(s, days, now)).await?;
+    // Site scoping: this data feeds CSV export and the printable report, both of which must
+    // respect the same access grants as every other view of devices/alerts
+    // (SECURITY_ARCHITECTURE_REVIEW.md H1) - `report::gather` itself has no user and cannot do
+    // this on its own.
+    data.devices.retain(|d| site_readable(st, me, &d.asset.agent_id));
+    data.alerts.retain(|e| site_readable(st, me, &e.agent_id));
+    data.agents.retain(|a| site_readable(st, me, &Some(a.id.clone())));
+    let visible: std::collections::HashSet<i64> = data.devices.iter().map(|d| d.asset.id).collect();
+    for f in &mut data.findings {
+        f.assets.retain(|id| visible.contains(id));
+    }
+    data.findings.retain(|f| !f.assets.is_empty());
+    data.accepted.retain(|a| visible.contains(&a.asset_id));
     // Same device cap as the Devices page and its CSV; alerts, findings and compliance are not
     // capped (this is a browsing limit, not a monitoring one — see the `assets` handler).
     let cap = effective_license(st).device_cap;
@@ -1070,17 +1099,17 @@ fn csv_response(name: &str, body: String) -> Response {
         .into_response()
 }
 
-async fn export_assets(State(st): State<AppState>, Query(q): Query<DaysQuery>) -> Result<Response, ApiError> {
-    Ok(csv_response("denis-devices.csv", report::assets_csv(&gather(&st, q.days).await?)))
+async fn export_assets(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Query(q): Query<DaysQuery>) -> Result<Response, ApiError> {
+    Ok(csv_response("denis-devices.csv", report::assets_csv(&gather(&st, &me, q.days).await?)))
 }
 
-async fn export_alerts(State(st): State<AppState>, Query(q): Query<DaysQuery>) -> Result<Response, ApiError> {
-    Ok(csv_response("denis-alerts.csv", report::alerts_csv(&gather(&st, q.days).await?)))
+async fn export_alerts(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Query(q): Query<DaysQuery>) -> Result<Response, ApiError> {
+    Ok(csv_response("denis-alerts.csv", report::alerts_csv(&gather(&st, &me, q.days).await?)))
 }
 
 /// Self-contained, printable report. Inline styles only, so it gets its own CSP.
-async fn report_page(State(st): State<AppState>, Query(q): Query<DaysQuery>) -> Result<Response, ApiError> {
-    let html = report::html(&gather(&st, q.days).await?);
+async fn report_page(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Query(q): Query<DaysQuery>) -> Result<Response, ApiError> {
+    let html = report::html(&gather(&st, &me, q.days).await?);
     Ok((
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
@@ -2714,7 +2743,7 @@ mod tests {
             (M::GET, "/api/users", "admin"), (M::POST, "/api/users", "admin"), (M::GET, "/api/audit", "admin"),
             (M::GET, "/api/agent-tokens", "admin"), (M::GET, "/api/api-tokens", "admin"), (M::DELETE, "/api/api-tokens/1", "admin"), (M::DELETE, "/api/agent-tokens/x", "admin"),
             (M::PUT, "/api/branding", "admin"), (M::PUT, "/api/branding/logo", "admin"), (M::DELETE, "/api/branding/logo", "admin"),
-            (M::GET, "/api/branding", "viewer"), (M::GET, "/api/backups", "admin"), (M::GET, "/api/backups/denis-auto-x.db", "admin"), (M::POST, "/api/backups", "admin"), (M::GET, "/api/system", "viewer"), (M::POST, "/api/reports", "editor"), (M::GET, "/api/reports/3", "viewer"), (M::PUT, "/api/reports/settings", "admin"), (M::DELETE, "/api/reports/3", "admin"), (M::GET, "/api/rules", "viewer"), (M::PUT, "/api/rules", "admin"), (M::DELETE, "/api/rules", "admin"),
+            (M::GET, "/api/branding", "viewer"), (M::GET, "/api/backups", "admin"), (M::GET, "/api/backups/denis-auto-x.db", "admin"), (M::POST, "/api/backups", "admin"), (M::GET, "/api/system", "viewer"), (M::POST, "/api/reports", "editor"), (M::GET, "/api/reports/3", "admin"), (M::PUT, "/api/reports/settings", "admin"), (M::DELETE, "/api/reports/3", "admin"), (M::GET, "/api/rules", "viewer"), (M::PUT, "/api/rules", "admin"), (M::DELETE, "/api/rules", "admin"),
             (M::POST, "/api/auth/password", "viewer"), (M::POST, "/api/auth/logout", "viewer"),
             (M::GET, "/api/retention", "admin"), (M::PUT, "/api/retention", "admin"),
             (M::GET, "/api/ip-enrichment", "viewer"), (M::GET, "/api/ip-enrichment/settings", "viewer"), (M::PUT, "/api/ip-enrichment/settings", "admin"), (M::GET, "/api/ip-enrichment/8.8.8.8", "viewer"),
@@ -4319,17 +4348,21 @@ mod tests {
         let (_, _, list) = send(&app, req("GET", "/api/reports", Some(&viewer), None)).await;
         assert_eq!(list["reports"][0]["id"], id);
         assert_eq!(list["settings"]["schedule"], "off");
-        // viewing: inline, with a strict CSP, and it carries the compliance overview with all the frameworks
-        let (st, h, body) = text(app.clone().oneshot(req("GET", &format!("/api/reports/{id}"), Some(&viewer), None)).await.unwrap()).await;
+        // viewing a stored report's body is admin-only: it is a fleet-wide snapshot rendered once
+        // at generation time, with no per-viewer site scoping to check
+        // (SECURITY_ARCHITECTURE_REVIEW.md H1) - unlike the list above, which every viewer can
+        // see (just metadata, no device data).
+        assert_eq!(send(&app, req("GET", &format!("/api/reports/{id}"), Some(&viewer), None)).await.0, StatusCode::FORBIDDEN);
+        let (st, h, body) = text(app.clone().oneshot(req("GET", &format!("/api/reports/{id}"), Some(&admin), None)).await.unwrap()).await;
         assert_eq!(st, StatusCode::OK);
         assert!(h[header::CONTENT_SECURITY_POLICY].to_str().unwrap().contains("default-src 'none'"));
         assert_eq!(h[header::CONTENT_DISPOSITION], "inline");
         for want in ["Compliance overview", "CIS Controls", "NIS2", "ISO/IEC 27001:2022", "Devices by risk"] {
             assert!(body.contains(want), "{want}");
         }
-        let (_, h, _) = text(app.clone().oneshot(req("GET", &format!("/api/reports/{id}?download=1"), Some(&viewer), None)).await.unwrap()).await;
+        let (_, h, _) = text(app.clone().oneshot(req("GET", &format!("/api/reports/{id}?download=1"), Some(&admin), None)).await.unwrap()).await;
         assert!(h[header::CONTENT_DISPOSITION].to_str().unwrap().starts_with("attachment; filename=\"denis-report-"));
-        assert_eq!(send(&app, req("GET", "/api/reports/9999", Some(&viewer), None)).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(send(&app, req("GET", "/api/reports/9999", Some(&admin), None)).await.0, StatusCode::NOT_FOUND);
         // sharing: admin-only, idempotent, reachable with no session at all by its token, and the
         // list shows the current token so the console can offer the link again
         assert_eq!(send(&app, req("PUT", &format!("/api/reports/{id}/share"), Some(&editor), None)).await.0, StatusCode::FORBIDDEN);

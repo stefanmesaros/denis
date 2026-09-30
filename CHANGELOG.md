@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.54.0: Security fixes: site-access bypass (H1) and a site-deletion data-loss bug (H4)
+
+* **Fix (H1): several read endpoints ignored site-access grants.** A user restricted to "no
+  access" on a site could still see that site's devices and alerts through CSV export
+  (`/api/export/assets.csv`, `/api/export/alerts.csv`), the printable report, `/api/findings`
+  (which had no authentication check at all), `/api/top-talkers`, and the four AI endpoints
+  (explain/triage/recommend/behavior — each took a caller-chosen alert id with no ownership
+  check). All now filter through the same site-access rule as every other device/alert view. A
+  wrong-site AI request now returns the same "no such alert" either way, so a caller cannot use
+  the response to tell a real id from a nonexistent one.
+* **Fix (H1): viewing a stored report is now admin-only**, not viewer. A generated report is a
+  fleet-wide snapshot rendered once at creation time with no per-viewer site scoping to check —
+  unlike a live view, there is no way to filter it after the fact for who is asking, so the
+  safer fix is restricting who can open one at all. The report list itself (metadata only) and
+  the report schedule are unaffected. A deliberately shared report link is also unaffected — that
+  is an explicit, admin-initiated action with its own risk model.
+* **Fix (H4): deleting a site whose agent kept reporting could break saving for the whole
+  install.** The detector's in-memory `(agent, mac) -> asset id` cache was not cleared when a
+  site's devices were deleted, so the agent's next report would resolve to the deleted, no-longer
+  -existent row id. Every later attempt to save that device's baseline then failed a foreign-key
+  constraint — and because that failure aborted the whole flush, presence and conversation data
+  for every *other* device could be lost in the same tick too, not just the one with the stale id.
+  The cache is now cleared alongside everything else `forget_assets` already cleared, and a save
+  failure for one device is now logged and dropped rather than aborting every other device's save
+  in the same flush (defense in depth, in case a similar id ever goes stale again).
+* Both found by an Opus architecture/security review (see SECURITY_ARCHITECTURE_REVIEW.md) done
+  as a baseline pass before multi-tenancy work begins; three more findings from that review
+  (SSO gaps, silent detection failure, "Verify fix" scanning the wrong host) are still open, next
+  in the queue.
+
 ## 2.53.0: Groundwork: which collector has seen each device
 
 * **New `asset_sightings` table (schema v20)** recording which collector(s) have ever seen each
