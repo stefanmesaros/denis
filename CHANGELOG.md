@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.55.0: Groundwork: an administrator can now mark an agent's join target
+
+* **New `AgentInfo.reports_into` field and `set_reports_into` store method** — part of
+  MULTI_AGENT_DEDUP.md's design for letting an administrator explicitly join a second collector
+  into an existing site (so two vantage points on one network eventually show one set of devices
+  instead of duplicates). Settable only through this dedicated method, never through an agent's
+  own report — `upsert_agent`'s update path deliberately never touches this column, confirmed by
+  a new test.
+* No visible behavior change yet: nothing reads this field to actually route ingest or merge
+  devices. That is the next, larger piece of this same design.
+
 ## 2.54.0: Security fixes: site-access bypass (H1) and a site-deletion data-loss bug (H4)
 
 * **Fix (H1): several read endpoints ignored site-access grants.** A user restricted to "no

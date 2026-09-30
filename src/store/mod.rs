@@ -336,6 +336,12 @@ pub trait AdminStore: Send + Sync {
     fn upsert_agent(&self, a: &AgentInfo) -> Result<()>;
     fn get_agent(&self, id: &str) -> Result<Option<AgentInfo>>;
     fn list_agents(&self) -> Result<Vec<AgentInfo>>;
+    /// An administrator's explicit "join" action (MULTI_AGENT_DEDUP.md): from now on, `agent_id`'s
+    /// reports land in `target`'s site instead of its own (`Some("")` = the local collector,
+    /// `Some(other_agent_id)` = another agent's site, `None` = un-join, back to its own site).
+    /// Never called from an agent's own report - `upsert_agent`'s `ON CONFLICT` update
+    /// deliberately never touches this column, so this is the only way it changes.
+    fn set_reports_into(&self, agent_id: &str, target: Option<&str>) -> Result<()>;
 
     /// A verified, owner-only copy of the whole database at `dest` (which must not exist).
     fn backup_to(&self, dest: &std::path::Path) -> Result<()>;

@@ -580,6 +580,15 @@ pub struct AgentInfo {
     /// Idempotency: the last (run, sequence) batch applied from this agent.
     pub last_run_id: String,
     pub last_seq: u64,
+    /// Which site this agent's reports land in, once an administrator has explicitly joined it
+    /// into one (MULTI_AGENT_DEDUP.md's "join" design): `None` (the default) means the agent is
+    /// its own site, today's behaviour for every agent. `Some("")` means the local collector's
+    /// own site; `Some(other_agent_id)` means another agent's site. Set only through
+    /// `AgentStore::set_reports_into` - an agent's own report can never change this, so
+    /// configuring a switch/agent for topology never quietly makes its data merge into someone
+    /// else's without a person asking for it.
+    #[serde(default)]
+    pub reports_into: Option<String>,
 }
 
 /// One collector's record of having seen one device (`asset_sightings` table) - groundwork for a

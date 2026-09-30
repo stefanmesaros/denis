@@ -155,6 +155,9 @@ impl Ingest {
             last_report_at: now,
             last_run_id: existing.as_ref().map(|a| a.last_run_id.clone()).unwrap_or_default(),
             last_seq: existing.as_ref().map(|a| a.last_seq).unwrap_or(0),
+            // never taken from the agent's own report; upsert_agent's ON CONFLICT UPDATE never
+            // touches this column anyway - see model::AgentInfo::reports_into's own doc comment.
+            reports_into: existing.as_ref().and_then(|a| a.reports_into.clone()),
         })?;
         Ok((n_devices, n_events))
     }
@@ -256,6 +259,7 @@ impl Ingest {
             last_report_at: now,
             last_run_id: report.run_id,
             last_seq: report.seq,
+            reports_into: None, // never taken from the agent's own report; see the field's doc comment
         })?;
         Ok(ReportAck {
             seq: report.seq,

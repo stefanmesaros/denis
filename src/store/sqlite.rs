@@ -1338,6 +1338,12 @@ impl AdminStore for SqliteStore {
         )?;
         Ok(())
     }
+    fn set_reports_into(&self, agent_id: &str, target: Option<&str>) -> Result<()> {
+        let conn = self.conn();
+        let n = conn.execute("UPDATE agents SET reports_into = ?1 WHERE id = ?2", params![target, agent_id])?;
+        anyhow::ensure!(n == 1, "no such agent: {agent_id}");
+        Ok(())
+    }
     fn get_agent(&self, id: &str) -> Result<Option<AgentInfo>> {
         let conn = self.conn();
         Ok(conn
@@ -1520,7 +1526,7 @@ fn row_to_agent_token(r: &Row) -> rusqlite::Result<AgentToken> {
     Ok(AgentToken { agent_id: r.get(0)?, label: r.get(1)?, created_at: r.get(2)?, last_used: r.get(3)?, revoked: r.get(4)? })
 }
 
-const AGENT_COLS: &str = "id, name, site, version, subnet, first_seen, last_report_at, last_run_id, last_seq";
+const AGENT_COLS: &str = "id, name, site, version, subnet, first_seen, last_report_at, last_run_id, last_seq, reports_into";
 
 fn row_to_agent(r: &Row) -> rusqlite::Result<AgentInfo> {
     Ok(AgentInfo {
@@ -1533,6 +1539,7 @@ fn row_to_agent(r: &Row) -> rusqlite::Result<AgentInfo> {
         last_report_at: r.get(6)?,
         last_run_id: r.get(7)?,
         last_seq: r.get::<_, i64>(8)? as u64,
+        reports_into: r.get(9)?,
     })
 }
 
@@ -1845,6 +1852,7 @@ mod tests {
         let mut ag = AgentInfo {
             id: "site-b".into(), name: "Office".into(), site: Some("HQ".into()), version: "0.2.0".into(),
             subnet: "10.1.0.0/24".into(), first_seen: 10, last_report_at: 20, last_run_id: "r1".into(), last_seq: 3,
+            reports_into: None,
         };
         s.upsert_agent(&ag).unwrap();
         ag.last_seq = 4;
@@ -1853,6 +1861,39 @@ mod tests {
         assert_eq!(s.get_agent("site-b").unwrap().unwrap(), ag);
         assert_eq!(s.list_agents().unwrap().len(), 1);
         assert!(s.get_agent("nope").unwrap().is_none());
+    }
+
+    #[test]
+    fn reports_into_is_set_only_by_an_explicit_call_never_by_the_agents_own_upsert() {
+        // MULTI_AGENT_DEDUP.md: an agent's own report must never be able to choose which site its
+        // data lands in - only an administrator's explicit join action can.
+        let s = SqliteStore::open_in_memory().unwrap();
+        let ag = AgentInfo {
+            id: "site-b".into(), name: "Office".into(), site: None, version: "1".into(),
+            subnet: "10.1.0.0/24".into(), first_seen: 10, last_report_at: 20, last_run_id: "r1".into(), last_seq: 1,
+            reports_into: None,
+        };
+        s.upsert_agent(&ag).unwrap();
+        assert_eq!(s.get_agent("site-b").unwrap().unwrap().reports_into, None);
+
+        s.set_reports_into("site-b", Some("")).unwrap();
+        assert_eq!(s.get_agent("site-b").unwrap().unwrap().reports_into, Some("".into()), "joined into the local site");
+
+        // the agent's own next report (an ordinary upsert_agent call, whatever it passes for
+        // reports_into) must never move it back out of the join
+        let mut later = ag.clone();
+        later.last_seq = 2;
+        later.reports_into = None; // what an agent's own report would naturally carry
+        s.upsert_agent(&later).unwrap();
+        assert_eq!(s.get_agent("site-b").unwrap().unwrap().reports_into, Some("".into()), "still joined - upsert_agent must not touch this column");
+
+        s.set_reports_into("site-b", Some("site-a")).unwrap();
+        assert_eq!(s.get_agent("site-b").unwrap().unwrap().reports_into, Some("site-a".into()), "re-joined into a different site");
+
+        s.set_reports_into("site-b", None).unwrap();
+        assert_eq!(s.get_agent("site-b").unwrap().unwrap().reports_into, None, "un-joined: back to being its own site");
+
+        assert!(s.set_reports_into("no-such-agent", Some("")).is_err());
     }
 
     #[test]

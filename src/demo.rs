@@ -136,7 +136,7 @@ pub fn load(store: &dyn Store, now: i64) -> Result<Loaded> {
     }
     let mut b = Builder { store, now, n: 0, ids: BTreeMap::new() };
     for (id, name, site, subnet, seq) in [(HQ, "Headquarters", "Košice", "10.20.0.0/16", 412), (BRANCH, "Branch office", "Bratislava", "10.30.0.0/24", 88)] {
-        store.upsert_agent(&AgentInfo { id: id.into(), name: name.into(), site: Some(site.into()), version: env!("CARGO_PKG_VERSION").into(), subnet: subnet.into(), first_seen: now - 20 * DAY, last_report_at: now - 40, last_run_id: "demo".into(), last_seq: seq })?;
+        store.upsert_agent(&AgentInfo { id: id.into(), name: name.into(), site: Some(site.into()), version: env!("CARGO_PKG_VERSION").into(), subnet: subnet.into(), first_seen: now - 20 * DAY, last_report_at: now - 40, last_run_id: "demo".into(), last_seq: seq, reports_into: None })?;
     }
     let d = |days| date(now, days);
 

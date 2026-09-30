@@ -1234,7 +1234,7 @@ mod tests {
         store.save_asset(&mut site_a_asset).unwrap();
         store.upsert_agent(&crate::model::AgentInfo {
             id: "site-a".into(), name: "Site A".into(), site: None, version: "0.7.0".into(), subnet: "10.0.0.0/24".into(),
-            first_seen: 10, last_report_at: 10, last_run_id: String::new(), last_seq: 0,
+            first_seen: 10, last_report_at: 10, last_run_id: String::new(), last_seq: 0, reports_into: None,
         }).unwrap();
         let vera_id = store.find_user("vera").unwrap().unwrap().user.id;
 
@@ -1294,7 +1294,7 @@ mod tests {
         store
             .upsert_agent(&crate::model::AgentInfo {
                 id: "site-a".into(), name: "Site A".into(), site: None, version: "0.7.0".into(), subnet: "10.0.0.0/24".into(),
-                first_seen: 10, last_report_at: 10, last_run_id: String::new(), last_seq: 0,
+                first_seen: 10, last_report_at: 10, last_run_id: String::new(), last_seq: 0, reports_into: None,
             })
             .unwrap();
         let vera_id = store.find_user("vera").unwrap().unwrap().user.id;
@@ -2362,7 +2362,7 @@ mod tests {
 
         // agents
         assert!(get_json(&app, "/api/agents", "localhost").await.1.as_array().unwrap().is_empty());
-        store.upsert_agent(&AgentInfo { id: "site-b".into(), name: "Office".into(), site: None, version: "t".into(), subnet: "10.0.0.0/24".into(), first_seen: 1, last_report_at: 2, last_run_id: "r".into(), last_seq: 1 }).unwrap();
+        store.upsert_agent(&AgentInfo { id: "site-b".into(), name: "Office".into(), site: None, version: "t".into(), subnet: "10.0.0.0/24".into(), first_seen: 1, last_report_at: 2, last_run_id: "r".into(), last_seq: 1, reports_into: None }).unwrap();
         assert_eq!(get_json(&app, "/api/agents", "localhost").await.1[0]["id"], "site-b");
     }
 
@@ -2514,7 +2514,7 @@ mod tests {
         store
             .upsert_agent(&crate::model::AgentInfo {
                 id: "site-a".into(), name: "Site A".into(), site: None, version: "0.7.0".into(), subnet: "10.0.1.0/24".into(),
-                first_seen: 10, last_report_at: 10, last_run_id: String::new(), last_seq: 0,
+                first_seen: 10, last_report_at: 10, last_run_id: String::new(), last_seq: 0, reports_into: None,
             })
             .unwrap();
         let eda_id = store.find_user("eda").unwrap().unwrap().user.id;
@@ -2927,8 +2927,8 @@ mod tests {
     #[tokio::test]
     async fn deleting_a_site_needs_its_id_typed_back_admin_only_and_leaves_other_sites_alone() {
         let (app, store, [viewer, editor, admin]) = secured().await;
-        store.upsert_agent(&crate::model::AgentInfo { id: "site-a".into(), name: "HQ".into(), site: None, version: "t".into(), subnet: "10.0.0.0/24".into(), first_seen: 1, last_report_at: 2, last_run_id: "r".into(), last_seq: 1 }).unwrap();
-        store.upsert_agent(&crate::model::AgentInfo { id: "site-b".into(), name: "Branch".into(), site: None, version: "t".into(), subnet: "10.1.0.0/24".into(), first_seen: 1, last_report_at: 2, last_run_id: "r".into(), last_seq: 1 }).unwrap();
+        store.upsert_agent(&crate::model::AgentInfo { id: "site-a".into(), name: "HQ".into(), site: None, version: "t".into(), subnet: "10.0.0.0/24".into(), first_seen: 1, last_report_at: 2, last_run_id: "r".into(), last_seq: 1, reports_into: None }).unwrap();
+        store.upsert_agent(&crate::model::AgentInfo { id: "site-b".into(), name: "Branch".into(), site: None, version: "t".into(), subnet: "10.1.0.0/24".into(), first_seen: 1, last_report_at: 2, last_run_id: "r".into(), last_seq: 1, reports_into: None }).unwrap();
         let mut a1 = Asset::new(Mac([0x00, 0x1b, 0x63, 1, 1, 1]), 100);
         a1.agent_id = Some("site-a".into());
         store.save_asset(&mut a1).unwrap();
@@ -4473,7 +4473,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let db_path = tmp.path().join("denis.db");
         let (app, store, [viewer, editor, admin]) = secured_with(crate::engine::test_shared_at(db_path.clone())).await;
-        store.upsert_agent(&crate::model::AgentInfo { id: "customer-a".into(), name: "Customer A".into(), site: None, version: "1.0".into(), subnet: "10.0.0.0/24".into(), first_seen: 1, last_report_at: 1, last_run_id: String::new(), last_seq: 0 }).unwrap();
+        store.upsert_agent(&crate::model::AgentInfo { id: "customer-a".into(), name: "Customer A".into(), site: None, version: "1.0".into(), subnet: "10.0.0.0/24".into(), first_seen: 1, last_report_at: 1, last_run_id: String::new(), last_seq: 0, reports_into: None }).unwrap();
 
         // nothing uploaded yet
         let (_, _, list) = send(&app, req("GET", "/api/msp-backups", Some(&admin), None)).await;
@@ -4555,7 +4555,7 @@ mod tests {
         store
             .upsert_agent(&crate::model::AgentInfo {
                 id: "site-a".into(), name: "Site A".into(), site: None, version: "0.7.0".into(), subnet: "10.0.0.0/24".into(),
-                first_seen: 10, last_report_at: 10, last_run_id: String::new(), last_seq: 0,
+                first_seen: 10, last_report_at: 10, last_run_id: String::new(), last_seq: 0, reports_into: None,
             })
             .unwrap();
         let eda_id = store.find_user("eda").unwrap().unwrap().user.id;

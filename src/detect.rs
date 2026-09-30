@@ -2966,7 +2966,7 @@ mod tests {
         use crate::model::AgentInfo;
         let s = SqliteStore::open_in_memory().unwrap();
         let mut d = Detector::new(presence_cfg(), vec![], T0);
-        let ag = |last_report_at| AgentInfo { id: "site-b".into(), name: "Branch".into(), site: None, version: "t".into(), subnet: "10.9.0.0/24".into(), first_seen: T0, last_report_at, last_run_id: "r".into(), last_seq: 1 };
+        let ag = |last_report_at| AgentInfo { id: "site-b".into(), name: "Branch".into(), site: None, version: "t".into(), subnet: "10.9.0.0/24".into(), first_seen: T0, last_report_at, last_run_id: "r".into(), last_seq: 1, reports_into: None };
         // three devices at the branch, reliably online for 3 days
         let mut devs: Vec<Asset> = (1..=3u8)
             .map(|i| {
