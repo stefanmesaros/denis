@@ -254,17 +254,66 @@ year. This is what is still missing, in rough order. Pull requests welcome.
   IPV6.md).
 * An independent penetration test.
 
-## Known bug with a design, not yet scheduled above
+## Known bug with a design: now scheduled
 
 * **Two collectors on one network segment list every device twice** (found 2026-09-30 with the
   master's own capture and the Windows agent on the same LAN). Not a keying typo: a site *is* a
   collector and device identity is `(site, MAC)` by design, so two collectors on one segment are
   two sites with the same devices. The fix — an administrator joining an agent into an existing
   site, with field-by-field merging that never overwrites human edits — is designed in
-  [MULTI_AGENT_DEDUP.md](MULTI_AGENT_DEDUP.md), together with a smaller latent bug it found (the
-  local inventory reloads *every* site's rows after a restart, so local capture can start writing
-  into an agent's rows). **Status: design only, nothing implemented.** Where it lands in the order
-  above is an open decision, not made here.
+  [MULTI_AGENT_DEDUP.md](MULTI_AGENT_DEDUP.md). The smaller latent bug it also found (the local
+  inventory reloaded *every* site's rows after a restart, so local capture could start writing
+  into an agent's rows) is fixed (v2.52.0). The join mechanism itself is in progress: the
+  `reports_into` field and its dedicated setter shipped in v2.55.0; ingest routing and the actual
+  merge are next. No longer an open ordering decision — see "Confirmed order" below.
+
+## Confirmed order (2026-09-30, two independent Opus review passes)
+
+Everything below this line was cross-checked twice for dependency ordering before being locked
+in; nothing here should be resequenced without a reason as concrete as what motivated this pass
+(see SECURITY_ARCHITECTURE_REVIEW.md, DETECTION_RULES_REVIEW.md, MULTI_AGENT_DEDUP.md,
+MULTI_TENANCY_HA.md, NAC.md, UX_REVIEW.md for the source material):
+
+1. Multi-agent dedup join mechanism (in progress).
+2. Security fixes: H2 (SSO — no allowed-domains check, email-keyed account takeover, the on/off
+   switch is cosmetic), H3 (a panic in any background task silently kills detection while
+   `/api/health` still reports healthy), H5 ("Verify fix" scans a remote site's IP from the
+   master's own network) — plus the cheap, high-value Medium findings folded into this same
+   window: M1 (unauthenticated passkey-lockout DoS), M2 (agent token kind/scope), M3
+   (credential read-back via changing a destination), M4 (unlimited password guessing after
+   session hijack), M9 (SSO login CSRF — settle before SAML below copies the flow), M10 (file
+   permissions / secrets in backups sent upstream).
+3. Windows collectors (service wrapper, installer, the privilege/service-account decision),
+   Qualys/Tenable.io, SAML (must inherit H2's rules: link on IdP entity id/NameID, never email;
+   fail closed with no allowed domains) — restored to their place *before* tenancy work, per this
+   document's own original order.
+4. Detection rule fixes/additions (DETECTION_RULES_REVIEW.md), bundled into one release except the
+   `new_destination` rotation fix's live-validation-dependent half, kept as a separate, droppable
+   commit.
+5. Multi-tenancy groundwork, landed on **main**, not the side branch: a site-level `Scope` value in
+   the store read API (filtered in SQL, not after `LIMIT`) plus a two-principal
+   route-walking test harness; the "mergeable on its own" Phase 0 items from MULTI_TENANCY_HA.md
+   (grants loaded once per request, a `store::conformance` test suite, `--data-dir`,
+   `store::open(&StoreConfig)`); and PostgreSQL's own prerequisites pulled forward as ordinary
+   refactors (settings blobs moved into real tables, engine store calls moved off async threads).
+6. UI: Settings → Integrations rework (source-list + dialog, UX_REVIEW.md finding 1) and all 17
+   UX_REVIEW.md findings with concrete solutions, landed on **main**, in parallel with items 8-10
+   below — then a four-way theme switcher (today's look, plus "Ink"/"Deep Field"/"Workbench" from
+   DESIGN_LANGUAGE_ALTERNATIVES.md, each with its own light/dark variant, user-selectable rather
+   than DENIS picking one for everybody).
+7. Updated README/GitHub screenshots, after item 6 so they show the real, current UI.
+8. Multi-tenancy on SQLite files (one store per tenant) — separate `multi-tenancy-ha-design`
+   branch, rebased onto main regularly, built as a stack of small steps each preserving
+   single-tenant behavior, reviewed and merged individually rather than as one large branch.
+9. PostgreSQL support (second `Store` implementation) — same branch.
+10. HA, active-passive, Postgres advisory-lock leader election — same branch.
+11. NAC (policy enforcement / port blocking) — **absolutely last**, confirmed explicitly: it is
+    experimental and opt-in, and there is no test hardware for it yet.
+
+Not given a slot, parked until real data exists to justify them: the rest of IPv6 (item 6 above,
+rule parity and active discovery) and the "longer run" check on Windows capture (WINDOWS.md).
+Medium/Low security findings not named above (M5, M6, and the Low list) have no fixed slot either
+— fold them in anywhere convenient before item 8.
 
 ## Notes on items already covered above
 Ticketing already exists: Jira and ServiceNow each file a real issue/incident per alert (Settings →
