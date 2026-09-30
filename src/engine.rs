@@ -412,6 +412,12 @@ struct Collector {
     aggregator: JoinHandle<()>,
 }
 
+/// Every stored asset that belongs to the local collector itself, never a remote agent's - see the
+/// call site's comment for why loading an agent's rows into the local `Inventory` is unsafe.
+fn local_only_assets(all: Vec<crate::model::Asset>) -> Vec<crate::model::Asset> {
+    all.into_iter().filter(|a| a.agent_id.is_none()).collect()
+}
+
 impl Collector {
     async fn start(cfg: &CollectorConfig, store: Arc<dyn Store>, mode: &'static str, cli_retention_days: i64) -> Result<Collector> {
         let iface = net::select(cfg.iface.as_deref())?;
@@ -423,7 +429,12 @@ impl Collector {
             iface.net,
             gateway.map(|g| g.to_string()).unwrap_or_else(|| "?".into())
         );
-        let inv = Arc::new(Mutex::new(Inventory::new(crate::store::real_assets(&*store)?, gateway, None)));
+        // Only this collector's own rows: loading a remote agent's rows here too would let a
+        // local observation for a MAC both this capture and an agent have seen overwrite the
+        // agent's row (`entry()` finds it by MAC alone and never resets `agent_id`), and the
+        // agent's next report would then overwrite it right back - a flip-flop discovered on a
+        // real deployment where both watched the same network (see MULTI_AGENT_DEDUP.md).
+        let inv = Arc::new(Mutex::new(Inventory::new(local_only_assets(crate::store::real_assets(&*store)?), gateway, None)));
         tracing::info!("{} known assets loaded from {}", inv.lock().unwrap().len(), cfg.db.display());
 
         // Open capture before anything else so a privilege problem is the first,
@@ -1530,6 +1541,21 @@ pub fn test_shared_at(db_path: std::path::PathBuf) -> Arc<Shared> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_only_assets_drops_every_row_that_belongs_to_a_remote_agent() {
+        // regression: `Collector::start` used to load every stored asset (including remote
+        // agents' rows) into the local, MAC-keyed `Inventory` - a local observation of a MAC an
+        // agent had also seen would then silently start overwriting the agent's row, and the
+        // agent's next report would overwrite it right back. See MULTI_AGENT_DEDUP.md.
+        let mut local = crate::model::Asset::new(Mac([1, 2, 3, 4, 5, 6]), 1000);
+        let mut agent_owned = crate::model::Asset::new(Mac([6, 5, 4, 3, 2, 1]), 1000);
+        agent_owned.agent_id = Some("windows-test-laptop".into());
+        local.agent_id = None;
+        let kept = local_only_assets(vec![local.clone(), agent_owned]);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].mac, local.mac);
+    }
 
     #[test]
     fn excluded_ranges_are_never_probed() {

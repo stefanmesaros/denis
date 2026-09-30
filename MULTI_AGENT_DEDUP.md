@@ -397,8 +397,10 @@ has no demonstrated need.
 
 ## Suggested order
 
-1. **Latent bug:** the local `Inventory` loads only `agent_id IS NULL` rows. Include the reload
-   test. Ships alone.
+1. ~~**Latent bug:** the local `Inventory` loads only `agent_id IS NULL` rows. Include the reload
+   test. Ships alone.~~ Done (2026-09-30): `Collector::start` now filters through
+   `local_only_assets`, with a regression test. Not yet independently re-verified against a real
+   restart on production (see "What was not verified").
 2. **Schema V20** (`agents.reports_into`, `asset_sightings` + backfill), and sightings recorded on
    every save. No behaviour change yet, but the "seen by" chip already works.
 3. **`merge_observed` + `Inventory::absorb`**, and ingest routing for `reports_into = ''`,

@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.52.0: Fix: a local capture and a remote agent on the same network could overwrite each other's device rows
+
+* **Fix: `Collector::start` loaded every stored device into the local in-memory inventory,
+  including devices reported by remote agents.** On a network where the master's own capture and
+  a remote agent (e.g. a Windows agent) both see the same physical devices, a MAC-keyed lookup
+  could find and then update an agent's stored row from local observations, and the agent's next
+  report would overwrite it right back — a flip-flop that could freeze a device's `last_seen` and
+  eventually raise a false `device_silent` alert for a device that was plainly still online. Found
+  while designing a proper fix for the same-network duplicate-device problem (see
+  MULTI_AGENT_DEDUP.md) on a real deployment, reasoned from code rather than reproduced live.
+  `Collector::start` now loads only rows with no `agent_id` (its own), with a regression test.
+* This is a first, independent step from that same design document — the larger fix (letting an
+  administrator explicitly join a second collector into an existing site instead of it becoming
+  its own site, so two vantage points on one network show one set of devices) is not implemented
+  yet.
+
 ## 2.51.0: Cloud asset discovery: GCP Compute Engine instances
 
 * **Pulls Compute Engine instance inventory from one GCP project** (Settings → Integrations →
