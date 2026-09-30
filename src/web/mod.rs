@@ -1628,6 +1628,10 @@ mod tests {
         // saving again with a blank secret keeps the one already stored, rather than clearing it
         let keep_secret = serde_json::json!({"enabled": true, "issuer_url": "https://idp.example.com", "client_id": "abc", "client_secret": "", "button_label": "Sign in with Acme", "allowed_domains": ["acme.com"]});
         assert_eq!(send(&app, req("PUT", "/api/sso", Some(&admin), Some(keep_secret))).await.2["secret_set"], true);
+        // M3: but changing the issuer with a blank secret must not carry the old one to the new
+        // issuer's token endpoint - it is cleared, not kept, forcing it to be re-entered
+        let new_issuer_no_secret = serde_json::json!({"enabled": false, "issuer_url": "https://other-idp.example.com", "client_id": "abc", "client_secret": "", "button_label": "Sign in with Acme", "allowed_domains": ["acme.com"]});
+        assert_eq!(send(&app, req("PUT", "/api/sso", Some(&admin), Some(new_issuer_no_secret))).await.2["secret_set"], false, "the issuer changed: the old secret is not carried over");
 
         // starting a sign-in with a real (unreachable-in-tests) issuer fails cleanly, not a panic
         let (st, ..) = send(&app, req("GET", "/api/auth/sso/login", None, None)).await;
@@ -4013,9 +4017,11 @@ mod tests {
         crate::passkey::b64url(b)
     }
 
-    /// Register `auth` for the signed-in user; returns the HTTP status.
+    /// Register `auth` for the signed-in user; returns the HTTP status. Every caller signs in via
+    /// `with_passkeys()`, whose one user's password is `a-long-passphrase-1` (M4: register/begin
+    /// now re-checks it).
     async fn register(app: &Router, cookie: &str, cfg: &crate::passkey::Config, auth: &crate::passkey::soft::Authenticator, name: &str) -> StatusCode {
-        let (_, _, v) = send(app, req("POST", "/api/auth/passkey/register/begin", Some(cookie), Some(serde_json::json!({})))).await;
+        let (_, _, v) = send(app, req("POST", "/api/auth/passkey/register/begin", Some(cookie), Some(serde_json::json!({"password": "a-long-passphrase-1"})))).await;
         let challenge = crate::passkey::unb64url(v["publicKey"]["challenge"].as_str().unwrap()).unwrap();
         let (cd, att) = auth.register(cfg, &challenge);
         let body = serde_json::json!({"ceremony": v["ceremony"], "name": name, "credential": {"id": b64(&auth.credential_id), "response": {"clientDataJSON": b64(&cd), "attestationObject": b64(&att)}}});
@@ -4041,6 +4047,9 @@ mod tests {
         assert_eq!((m["passkey"].as_bool(), m["rp_id"].as_str()), (Some(true), Some("localhost")));
         // registering needs a session
         assert_eq!(send(&app, req("POST", "/api/auth/passkey/register/begin", None, Some(serde_json::json!({})))).await.0, StatusCode::UNAUTHORIZED);
+        // M4: a session alone is not enough - the password is re-checked, so a hijacked cookie
+        // cannot plant a lasting passkey without also knowing it
+        assert_eq!(send(&app, req("POST", "/api/auth/passkey/register/begin", Some(&cookie), Some(serde_json::json!({"password": "wrong"})))).await.0, StatusCode::UNAUTHORIZED);
         let mut mine = Authenticator::new();
         assert_eq!(register(&app, &cookie, &cfg, &mine, "Work laptop").await, StatusCode::CREATED);
         let (_, _, list) = send(&app, req("GET", "/api/auth/passkeys", Some(&cookie), None)).await;
@@ -4107,6 +4116,30 @@ mod tests {
         let (app2, ..) = secured().await;
         assert_eq!(send(&app2, req("GET", "/api/auth/methods", None, None)).await.2["passkey"], false);
         assert_eq!(send(&app2, req("POST", "/api/auth/passkey/login/begin", None, Some(serde_json::json!({})))).await.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn passkey_login_begin_is_throttled_per_address_and_never_locks_out_a_signed_in_registration(
+    ) {
+        // M1: an unauthenticated flood of login/begin must not exhaust the shared challenge pool
+        // (which would also lock out passkey-only accounts) - it is refused per-address long
+        // before that, and registration - which needs a session - lives in its own pool untouched.
+        let (app, _store, cookie, cfg) = with_passkeys().await;
+        let begin_from = |peer: &str| {
+            let mut r = req("POST", "/api/auth/passkey/login/begin", None, Some(serde_json::json!({})));
+            r.extensions_mut().insert(axum::extract::ConnectInfo(format!("{peer}:5555").parse::<std::net::SocketAddr>().unwrap()));
+            r
+        };
+        for i in 0..30 {
+            assert_eq!(send(&app, begin_from("10.9.9.20")).await.0, StatusCode::OK, "request {i}");
+        }
+        assert_eq!(send(&app, begin_from("10.9.9.20")).await.0, StatusCode::TOO_MANY_REQUESTS, "throttled after 30 in the window");
+        // a different address is unaffected
+        assert_eq!(send(&app, begin_from("10.9.9.21")).await.0, StatusCode::OK);
+        // and the signed-in registration ceremony still works: the flood above never touched it
+        use crate::passkey::soft::Authenticator;
+        let auth = Authenticator::new();
+        assert_eq!(register(&app, &cookie, &cfg, &auth, "laptop").await, StatusCode::CREATED);
     }
 
     #[tokio::test]

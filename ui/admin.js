@@ -834,7 +834,8 @@ async function renderTokens() {
   const r = await api('GET', '/api/agent-tokens');
   if (!r.ok) return;
   $('tokens-table').tBodies[0].replaceChildren(...r.json.map((t) => el('tr', {},
-    el('td', { class: 'mono', text: t.agent_id }), el('td', { text: t.revoked ? tr('revoked') : tr('active') }), el('td', { text: t.label }),
+    el('td', { class: 'mono', text: t.agent_id }), el('td', { text: t.kind === 'msp_relay' ? tr('MSP relay') : tr('Agent') }),
+    el('td', { text: t.revoked ? tr('revoked') : tr('active') }), el('td', { text: t.label }),
     el('td', { text: fmtTime(t.created_at) }), el('td', { text: t.last_used ? ago(t.last_used) : tr('never') }),
     el('td', {}, t.revoked ? el('button', { type: 'button', text: tr('Delete'), onclick: async () => {
       if (!confirm(tr('Delete the revoked key of {agent}? This cannot be undone.', { agent: t.agent_id }))) return;
@@ -852,9 +853,9 @@ async function renderTokens() {
 $('token-form').onsubmit = async (ev) => {
   ev.preventDefault();
   const id = $('token-agent').value.trim();
-  const r = await api('POST', '/api/agent-tokens', { agent_id: id, label: $('token-label').value.trim() });
+  const r = await api('POST', '/api/agent-tokens', { agent_id: id, label: $('token-label').value.trim(), kind: $('token-kind').value });
   if (!r.ok) { showMessage(tr('Could not issue token'), el('p', { text: apiError(r) })); return; }
-  $('token-agent').value = ''; $('token-label').value = '';
+  $('token-agent').value = ''; $('token-label').value = ''; $('token-kind').value = 'agent';
   showSecret(tr('Token for agent {agent}', { agent: id }), tr('Shown only once. Any earlier token for this agent has been revoked.'), r.json.token,
     tr('On the agent:') + '  DENIS_AGENT_TOKEN=<token> denis agent --master https://THIS-SERVER:8081 --master-ca ca.pem --id ' + id);
   renderTokens();
@@ -1071,9 +1072,11 @@ $('login-passkey').onclick = async () => {
   await start();
 };
 
-/** Register a new passkey for the signed-in user. Returns an error message, or null. */
-async function addPasskey(name) {
-  const b = await api('POST', '/api/auth/passkey/register/begin', {});
+/** Register a new passkey for the signed-in user. Returns an error message, or null.
+ * `password` re-proves who is asking (M4: a stolen session cookie must not be enough on its own
+ * to plant a lasting passkey on the account). */
+async function addPasskey(name, password) {
+  const b = await api('POST', '/api/auth/passkey/register/begin', { password });
   if (!b.ok) return apiError(b);
   const o = b.json.publicKey;
   let cred;
@@ -1096,10 +1099,21 @@ async function renderPasskeys(message) {
   const list = r.ok ? r.json : [];
   const name = el('input', { placeholder: tr('name, e.g. "Work laptop" or "YubiKey"'), maxLength: 40 });
   const status = el('div', { class: message && message.ok ? 'muted' : 'form-error', text: message ? message.text : '' });
-  const add = el('button', { type: 'button', class: 'primary', text: tr('Add a passkey'), onclick: async () => {
-    add.disabled = true;
-    const e = await addPasskey(name.value.trim());
-    renderPasskeys(e ? { ok: false, text: e } : { ok: true, text: tr('Passkey added. You can now sign in with it.') });
+  const add = el('button', { type: 'button', class: 'primary', text: tr('Add a passkey'), onclick: () => {
+    const passkeyName = name.value.trim();
+    const pw = el('input', { type: 'password', autocomplete: 'current-password', required: true });
+    openForm(tr('Confirm your password'), [
+      el('p', { class: 'muted', text: tr('First, your password once more.') }),
+      field(tr('Current password'), pw),
+    ], {
+      submitLabel: tr('Continue'),
+      onSubmit: async () => {
+        const e = await addPasskey(passkeyName, pw.value);
+        if (e) return e;
+        setTimeout(() => renderPasskeys({ ok: true, text: tr('Passkey added. You can now sign in with it.') }), 50);
+        return null;
+      },
+    });
   } });
   // absent parts are null: replaceChildren(null) would print the word "null"
   $('passkeys-body').replaceChildren(...[

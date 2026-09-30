@@ -50,9 +50,13 @@ pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Ext
     }
     let now = now_ts();
     blocking(&st.store, move |s| {
+        // M3: the client secret is only ever safe to keep for the server it was entered for.
+        let destination_changed = crate::jamf::settings(s).server_url.trim() != b.settings.server_url.trim();
         crate::jamf::save_settings(s, &b.settings, now)?;
         if !b.client_secret.is_empty() {
             crate::jamf::save_client_secret(s, &b.client_secret, now)?;
+        } else if destination_changed {
+            crate::jamf::save_client_secret(s, "", now)?;
         }
         Ok(())
     })

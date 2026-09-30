@@ -33,6 +33,10 @@ pub const MAX_FLOWS: usize = 100_000;
 pub const MAX_SIGNALS: usize = 10_000;
 pub const MAX_CONVS: usize = 20_000;
 const MAX_BODY: usize = 32 * 1024 * 1024;
+/// An MSP-relayed event's `raw_details` past this size is replaced rather than stored as-is
+/// (SECURITY_ARCHITECTURE_REVIEW.md M2): it is shown verbatim in the console, SIEM export and AI
+/// prompts, so an oversized or adversarial value must not reach any of them.
+const MAX_RAW_DETAILS_BYTES: usize = 8 * 1024;
 
 #[derive(Debug)]
 pub enum IngestError {
@@ -66,9 +70,10 @@ pub struct Ingest {
     local_inventory: Option<Arc<Mutex<Inventory>>>,
 }
 
-/// The agent id a request's token was issued for.
+/// The agent id a request's token was issued for, and the token's kind (`"agent"` or
+/// `"msp_relay"` - SECURITY_ARCHITECTURE_REVIEW.md M2).
 #[derive(Clone)]
-pub struct AgentIdentity(pub String);
+pub struct AgentIdentity(pub String, pub String);
 
 /// More than this many bad tokens per window from one address are refused.
 const MAX_FAILURES: u32 = 10;
@@ -122,6 +127,14 @@ impl Ingest {
         let name = format!("denis-auto-{stamp}.db");
         let tmp = site_dir.join(format!(".{name}.part"));
         std::fs::write(&tmp, bytes)?;
+        // Readable/writable by its owner only, before the rename makes it visible under its real
+        // name: a received backup is a full copy of that agent's database, secrets included
+        // (SECURITY_ARCHITECTURE_REVIEW.md M10).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+        }
         std::fs::rename(&tmp, site_dir.join(&name))?;
         let keep = crate::backups::load_agent_keep(&*self.store);
         crate::backups::prune_agent_dir(&site_dir, keep as usize);
@@ -130,11 +143,22 @@ impl Ingest {
 
     /// Upsert a customer's relayed devices and store their already-scored alerts as-is (no
     /// detection re-run here — see `msp_sync`). Returns (devices applied, events inserted).
+    ///
+    /// This path trusts the sender far more than `apply`/`validate` do (it stores kind, severity,
+    /// score and arbitrary `raw_details` as-is, since the customer's own console already decided
+    /// them) - SECURITY_ARCHITECTURE_REVIEW.md M2 bounds what that trust can be abused for: a
+    /// garbage MAC or an oversized list is clamped exactly like an ordinary agent's report,
+    /// `raw_details` is size-capped, `acked`/`ack_reason` are never taken from the sender, and a
+    /// resend cannot double-count an event already recorded for that device at that timestamp.
     fn apply_msp_sync(&self, id: &str, sync: crate::msp_relay::Sync, now: i64) -> anyhow::Result<(usize, usize)> {
         let _guard = self.apply_lock.lock().unwrap();
-        let n_devices = sync.devices.len();
+        let mut n_devices = 0usize;
         for doc in sync.devices {
             let mut a = doc.asset;
+            if !a.mac.is_valid() {
+                continue;
+            }
+            clamp_asset(&mut a);
             a.agent_id = Some(id.to_string());
             match self.store.find_asset(Some(id), &a.mac)? {
                 Some(existing) => {
@@ -148,9 +172,13 @@ impl Ingest {
                 }
             }
             self.store.save_meta(a.id, &doc.meta, &format!("customer:{id}"), now)?;
+            n_devices += 1;
         }
-        let n_events = sync.events.len();
+        let mut n_events = 0usize;
         for r in sync.events {
+            if !r.mac.is_valid() {
+                continue;
+            }
             // the sender's own asset_id is meaningless here: resolve the real device by MAC
             // (the identity every install already agrees on), skip if we truly don't have it yet
             let Some(local) = self.store.find_asset(Some(id), &r.mac)? else {
@@ -158,9 +186,22 @@ impl Ingest {
                 continue;
             };
             let mut e = r.event;
+            // acknowledging is a decision made in *this* console, never handed over by a sender.
+            e.acked = false;
+            e.ack_reason = None;
+            if serde_json::to_string(&e.raw_details).map(|s| s.len()).unwrap_or(0) > MAX_RAW_DETAILS_BYTES {
+                e.raw_details = serde_json::json!({"truncated": true});
+            }
+            // a resend of the same (or an overlapping) batch must not double-count: an identical
+            // kind at the same timestamp for this device is treated as the same event.
+            let recent = self.store.list_events(&crate::store::EventQuery { limit: 50, asset_id: Some(local.id), ..Default::default() })?;
+            if recent.iter().any(|x| x.kind == e.kind && x.timestamp == e.timestamp) {
+                continue;
+            }
             e.asset_id = local.id;
             e.agent_id = Some(id.to_string());
             self.store.insert_event(&mut e)?;
+            n_events += 1;
         }
         let existing = self.store.get_agent(id)?;
         let label = existing.as_ref().map(|a| a.name.clone()).or_else(|| {
@@ -417,7 +458,7 @@ async fn auth(State(ing): State<Arc<Ingest>>, mut req: Request, next: Next) -> R
         ing.note_failure(ip, now);
         return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "unauthorized"}))).into_response();
     };
-    req.extensions_mut().insert(AgentIdentity(id.agent_id));
+    req.extensions_mut().insert(AgentIdentity(id.agent_id, id.kind));
     next.run(req).await
 }
 
@@ -427,6 +468,12 @@ async fn auth(State(ing): State<Arc<Ingest>>, mut req: Request, next: Next) -> R
 /// upserted — an MSP mirrors what each customer's own console already decided, it does not
 /// re-decide it. The customer becomes a "site" (its token's agent id) like any agent's.
 async fn msp_sync(State(ing): State<Arc<Ingest>>, Extension(who): Extension<AgentIdentity>, Json(sync): Json<crate::msp_relay::Sync>) -> Response {
+    // Only a token issued specifically as `msp_relay` may use this far-less-validated path
+    // (SECURITY_ARCHITECTURE_REVIEW.md M2): an ordinary agent token, even a genuine one, must not
+    // be able to inject pre-scored alerts or edit metadata through it.
+    if who.1 != "msp_relay" {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "this token is not an MSP relay token"}))).into_response();
+    }
     if sync.devices.len() > MAX_ASSETS || sync.events.len() > MAX_ASSETS {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "sync too large"}))).into_response();
     }
@@ -741,8 +788,8 @@ mod tests {
     #[tokio::test]
     async fn http_requires_a_token_issued_for_that_agent() {
         let (ing, store) = setup(1000);
-        let token = ing.auth.issue_agent_token("site-b", "Branch", 1).unwrap();
-        let other = ing.auth.issue_agent_token("site-c", "Other", 1).unwrap();
+        let token = ing.auth.issue_agent_token("site-b", "Branch", "agent", 1).unwrap();
+        let other = ing.auth.issue_agent_token("site-c", "Other", "agent", 1).unwrap();
         let app = router(ing);
         let body = serde_json::to_vec(&report(1, vec![asset(M, [10, 1, 0, 5])], vec![])).unwrap();
         assert_eq!(call(&app, post_report(None, &body)).await.0, StatusCode::UNAUTHORIZED);
@@ -767,7 +814,7 @@ mod tests {
     #[tokio::test]
     async fn msp_sync_upserts_devices_and_events_without_running_detection_and_registers_the_site() {
         let (ing, store) = setup(1000);
-        let token = ing.auth.issue_agent_token("customer-a", "Customer A", 1).unwrap();
+        let token = ing.auth.issue_agent_token("customer-a", "Customer A", "msp_relay", 1).unwrap();
         let app = router(ing);
         let post = |token: &str, body: &crate::msp_relay::Sync| {
             axum::http::Request::post("/api/v1/msp-sync")
@@ -815,6 +862,60 @@ mod tests {
         assert_eq!(agents.len(), 1);
         assert_eq!(agents[0].id, "customer-a");
         assert_eq!(agents[0].name, "Customer A");
+
+        // resending the exact same batch must not double the event (M2: a resend, or an
+        // overlapping one, cannot inflate the count)
+        let (st, v) = call(&app, post(&token, &sync)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["events"].as_u64(), Some(0), "the same (kind, timestamp) for this device was already recorded");
+        assert_eq!(store.list_events(&EventQuery { limit: 10, ..Default::default() }).unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn msp_sync_refuses_an_ordinary_agent_token_never_trusts_the_senders_ack_and_caps_raw_details() {
+        // M2: msp-sync is a far-less-validated path than an ordinary report, so only a token
+        // issued specifically as msp_relay may use it at all.
+        let (ing, store) = setup(1000);
+        let agent_token = ing.auth.issue_agent_token("not-a-relay", "Ordinary agent", "agent", 1).unwrap();
+        let relay_token = ing.auth.issue_agent_token("customer-b", "Customer B", "msp_relay", 1).unwrap();
+        let app = router(ing);
+        let post = |token: &str, body: &crate::msp_relay::Sync| {
+            axum::http::Request::post("/api/v1/msp-sync")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(body).unwrap()))
+                .unwrap()
+        };
+        let a = asset(M, [10, 6, 0, 9]);
+        let big = serde_json::json!({"pad": "x".repeat(MAX_RAW_DETAILS_BYTES + 1)});
+        let ev = crate::model::Event {
+            id: 1,
+            agent_id: None,
+            asset_id: a.id,
+            kind: "new_device".into(),
+            timestamp: 100,
+            severity: "high".into(),
+            score: 80,
+            acked: true,
+            ack_reason: Some("resolved".into()),
+            raw_details: big,
+        };
+        let sync = crate::msp_relay::Sync {
+            devices: vec![crate::msp_relay::DeviceDoc { asset: a.clone(), meta: Default::default() }],
+            events: vec![crate::msp_relay::RelayedEvent { event: ev, mac: a.mac }],
+            full: true,
+        };
+        // an ordinary agent token, even a genuine one, is refused outright
+        assert_eq!(call(&app, post(&agent_token, &sync)).await.0, StatusCode::FORBIDDEN);
+        assert!(store.list_agents().unwrap().is_empty(), "nothing was applied");
+
+        // the same sync through the relay token it was actually issued for: applied, but
+        // acked/ack_reason are never taken from the sender, and oversized raw_details is capped
+        let (st, v) = call(&app, post(&relay_token, &sync)).await;
+        assert_eq!((st, v["events"].as_u64()), (StatusCode::OK, Some(1)));
+        let stored = store.list_events(&EventQuery { limit: 10, ..Default::default() }).unwrap();
+        assert_eq!((stored[0].acked, stored[0].ack_reason.as_deref()), (false, None));
+        assert!(serde_json::to_string(&stored[0].raw_details).unwrap().len() < MAX_RAW_DETAILS_BYTES, "an oversized raw_details is replaced, not stored as-is");
     }
 
     #[tokio::test]
@@ -822,8 +923,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let backups_dir = dir.path().join("from-agents");
         let (ing, _store) = setup_with(1000, Some(backups_dir.clone()));
-        let token = ing.auth.issue_agent_token("site-b", "Branch", 1).unwrap();
-        let other = ing.auth.issue_agent_token("site-c", "Other", 1).unwrap();
+        let token = ing.auth.issue_agent_token("site-b", "Branch", "agent", 1).unwrap();
+        let other = ing.auth.issue_agent_token("site-c", "Other", "agent", 1).unwrap();
         let app = router(ing);
         let post = |token: &str, body: &'static [u8]| {
             axum::http::Request::post("/api/v1/backup").header("authorization", format!("Bearer {token}")).body(Body::from(body)).unwrap()
@@ -841,6 +942,12 @@ mod tests {
         let files: Vec<_> = std::fs::read_dir(backups_dir.join("site-b")).unwrap().collect();
         assert_eq!(files.len(), 1);
         assert_eq!(std::fs::read(files[0].as_ref().unwrap().path()).unwrap(), sqlite_bytes);
+        // M10: a received backup is a full copy of that agent's database, secrets included
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(files[0].as_ref().unwrap().path()).unwrap().permissions().mode() & 0o777, 0o600);
+        }
 
         // site-c's token cannot write into site-b's folder or vice versa: each writes its own
         let (st, _) = call(&app, post(&other, Box::leak(sqlite_bytes.clone().into_boxed_slice()))).await;
@@ -864,7 +971,7 @@ mod tests {
     #[tokio::test]
     async fn repeated_bad_tokens_from_one_address_are_throttled() {
         let (ing, _) = setup(1000);
-        let good = ing.auth.issue_agent_token("site-b", "Branch", 1).unwrap();
+        let good = ing.auth.issue_agent_token("site-b", "Branch", "agent", 1).unwrap();
         let app = router(ing);
         let from = |t: &str| {
             let mut r = axum::http::Request::get("/api/v1/ping").header("authorization", format!("Bearer {t}")).body(Body::empty()).unwrap();

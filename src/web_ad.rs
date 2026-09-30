@@ -50,9 +50,13 @@ pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Ext
     }
     let now = now_ts();
     blocking(&st.store, move |s| {
+        // M3: the bind password is only ever safe to keep for the server it was entered for.
+        let destination_changed = crate::ad::settings(s).url.trim() != b.settings.url.trim();
         crate::ad::save_settings(s, &b.settings, now)?;
         if !b.bind_password.is_empty() {
             crate::ad::save_bind_password(s, &b.bind_password, now)?;
+        } else if destination_changed {
+            crate::ad::save_bind_password(s, "", now)?;
         }
         Ok(())
     })

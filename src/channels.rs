@@ -334,11 +334,16 @@ pub fn from_body(body: &Value, existing: Option<&Channel>) -> Result<Channel, St
     if let Some(v) = obj.get("min_score") {
         c.min_score = v.as_i64().and_then(|n| i32::try_from(n).ok()).ok_or("min_score must be a whole number")?;
     }
+    let prev_url = c.url.clone();
     if let Some(v) = text("url")? {
         c.url = v;
     }
+    // M3: a stored secret is only ever safe to keep bound to the destination it was entered for.
+    let url_changed = c.url != prev_url;
     if let Some(v) = text("secret")? {
         c.secret = v;
+    } else if url_changed {
+        c.secret = None;
     }
     if let Some(v) = text("user")? {
         c.user = v;
@@ -355,8 +360,12 @@ pub fn from_body(body: &Value, existing: Option<&Channel>) -> Result<Channel, St
             Some(Value::String(s)) => s.split([',', ';', ' ']).map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect(),
             _ => prev.as_ref().map(|p| p.to.clone()).unwrap_or_default(),
         };
+        let host = get("host").or_else(|| prev.as_ref().map(|p| p.host.clone())).unwrap_or_default();
+        // M3: a stored password is only ever safe to keep bound to the host it was entered for -
+        // changing the host without also typing a new password must not carry it to the new one.
+        let host_changed = prev.as_ref().is_some_and(|p| p.host != host);
         c.smtp = Some(Smtp {
-            host: get("host").or_else(|| prev.as_ref().map(|p| p.host.clone())).unwrap_or_default(),
+            host,
             port: o.get("port").and_then(Value::as_u64).and_then(|p| u16::try_from(p).ok()).or(prev.as_ref().map(|p| p.port)).unwrap_or(587),
             security: get("security").or_else(|| prev.as_ref().map(|p| p.security.clone())).unwrap_or_else(|| "starttls".into()),
             username: match o.get("username") {
@@ -364,10 +373,12 @@ pub fn from_body(body: &Value, existing: Option<&Channel>) -> Result<Channel, St
                 Some(v) => v.as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from),
                 None => prev.as_ref().and_then(|p| p.username.clone()),
             },
-            // an omitted password keeps the stored one; null or "" removes it
+            // an omitted password keeps the stored one, unless the host just changed; null or ""
+            // removes it outright
             password: match o.get("password") {
                 Some(Value::Null) => None,
                 Some(v) => v.as_str().filter(|s| !s.is_empty()).map(String::from),
+                None if host_changed => None,
                 None => prev.as_ref().and_then(|p| p.password.clone()),
             },
             from: get("from").or_else(|| prev.as_ref().map(|p| p.from.clone())).unwrap_or_default(),
@@ -1152,6 +1163,16 @@ mod tests {
         assert_eq!(e2.smtp.as_ref().unwrap().password.as_deref(), Some("hunter2hunter2"));
         assert!(!e2.enabled);
         assert!(from_body(&json!({"kind": "slack"}), Some(&e)).is_err());
+        // M3: changing the SMTP host without also typing a new password must not carry the old
+        // one to it - and likewise for a webhook-style channel's url/secret pair.
+        let e3 = from_body(&json!({"smtp": {"host": "smtp.other.example.com"}}), Some(&e)).unwrap();
+        assert_eq!(e3.smtp.as_ref().unwrap().password, None, "the host changed: the old password is not carried over");
+        let wh = from_body(&json!({"name": "x", "kind": "webhook", "url": "https://a.example/hook", "secret": "0123456789abcdef"}), None).unwrap();
+        assert_eq!(wh.secret.as_deref(), Some("0123456789abcdef"));
+        let wh2 = from_body(&json!({"url": "https://b.example/hook"}), Some(&wh)).unwrap();
+        assert_eq!(wh2.secret, None, "the url changed: the old secret is not carried over");
+        let wh3 = from_body(&json!({"min_score": 10}), Some(&wh)).unwrap();
+        assert_eq!(wh3.secret.as_deref(), Some("0123456789abcdef"), "the url did not change: the secret is kept");
         // errors mention neither the URL nor its token
         let msg = c.scrub("could not connect to https://hooks.slack.com/services/T000/B000/SECRETSECRET".into());
         assert!(!msg.contains("SECRET"), "{msg}");

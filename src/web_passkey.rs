@@ -29,8 +29,45 @@ pub(crate) async fn methods(State(st): State<AppState>) -> Json<Value> {
     Json(json!({ "password": true, "passkey": c.is_some(), "rp_id": c.map(|c| c.rp_id) }))
 }
 
-pub(crate) async fn register_begin(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>) -> Result<Response, ApiError> {
+#[derive(Deserialize)]
+pub struct RegisterBeginReq {
+    #[serde(default)]
+    password: String,
+}
+
+const E_PASSWORD: &str = "that password is not right";
+
+/// M4: a stolen session cookie alone must not be enough to plant a lasting passkey on the
+/// account, so the password is re-proved first (the same re-authentication `web_totp.rs::begin`
+/// already requires). An account that only ever uses passkeys still has a password hash from
+/// creation, so this never locks anyone out; a full "confirm with an existing passkey instead"
+/// alternative is not built.
+fn wrong_password(e: crate::auth::AuthError) -> Response {
+    match e {
+        crate::auth::AuthError::Locked(secs) => {
+            let mut r = err(StatusCode::TOO_MANY_REQUESTS, format!("too many attempts; try again in {secs} seconds"));
+            if let Ok(v) = header::HeaderValue::from_str(&secs.to_string()) {
+                r.headers_mut().insert(header::RETRY_AFTER, v);
+            }
+            r
+        }
+        crate::auth::AuthError::Invalid => err(StatusCode::UNAUTHORIZED, E_PASSWORD),
+        _ => err(StatusCode::INTERNAL_SERVER_ERROR, "internal error"),
+    }
+}
+
+pub(crate) async fn register_begin(State(st): State<AppState>, Extension(AuthUser(me)): Extension<AuthUser>, Json(b): Json<RegisterBeginReq>) -> Result<Response, ApiError> {
     let Some(cfg) = cfg(&st) else { return Ok(err(StatusCode::BAD_REQUEST, NOT_AVAILABLE)) };
+    if b.password.len() > 256 {
+        return Ok(err(StatusCode::BAD_REQUEST, E_PASSWORD));
+    }
+    let auth = st.auth.clone();
+    let (u, pw) = (me.clone(), b.password);
+    match tokio::task::spawn_blocking(move || auth.confirm_password(&u, &pw, now_ts())).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return Ok(wrong_password(e)),
+        Err(_) => return Ok(err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")),
+    }
     let (uid, uname) = (me.id, me.username.clone());
     let (existing, brand) = blocking(&st.store, move |s| Ok((s.list_passkeys(uid)?, crate::branding::load(s)?))).await?;
     if existing.len() >= MAX_PER_USER {
@@ -107,7 +144,22 @@ pub(crate) async fn register_finish(State(st): State<AppState>, Extension(AuthUs
 }
 
 /// Public: start a sign-in with a passkey (no user name needed).
-pub(crate) async fn login_begin(State(st): State<AppState>) -> Response {
+pub(crate) async fn login_begin(
+    State(st): State<AppState>,
+    peer: Option<Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    let ip = client_ip(peer.map(|Extension(c)| c.0), &headers);
+    let now = now_ts();
+    let wait = st.auth.passkey_begin_wait(ip, now);
+    if wait > 0 {
+        let mut r = err(StatusCode::TOO_MANY_REQUESTS, format!("too many attempts; try again in {wait} seconds"));
+        if let Ok(v) = header::HeaderValue::from_str(&wait.to_string()) {
+            r.headers_mut().insert(header::RETRY_AFTER, v);
+        }
+        return r;
+    }
+    st.auth.passkey_begin_hit(ip, now);
     let Some(cfg) = cfg(&st) else { return err(StatusCode::BAD_REQUEST, NOT_AVAILABLE) };
     match st.auth.ceremonies.lock().unwrap().begin(Kind::Login, None) {
         Ok((ceremony, challenge)) => Json(json!({ "ceremony": ceremony, "publicKey": passkey::request_options(&cfg, &challenge) })).into_response(),

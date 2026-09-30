@@ -85,6 +85,11 @@ pub struct Auth {
     /// Failed sign-ins per client address: (count, window start). Complements the
     /// per-account lock-out, which cannot stop one address trying *many* accounts.
     ip_failures: Mutex<HashMap<std::net::IpAddr, (u32, i64)>>,
+    /// `passkey/login/begin` calls per client address: (count, window start). Unlike
+    /// `ip_failures`, this counts every call, not just failures - `begin` never fails on its
+    /// own, so a flood that never gets as far as `login_finish` would otherwise be unbounded
+    /// (M1: it can also fill `Ceremonies` and lock out passkey-only accounts).
+    passkey_begin_ip: Mutex<HashMap<std::net::IpAddr, (u32, i64)>>,
     /// Where passkeys are valid (`None` = passkeys are off on this setup) and the challenges in flight.
     pub passkey_cfg: Mutex<Option<crate::passkey::Config>>,
     pub ceremonies: Mutex<crate::passkey::Ceremonies>,
@@ -115,6 +120,10 @@ pub const MFA_POLICIES: &[&str] = &["off", "admins", "all"];
 /// Failed sign-ins one address may make per window before it is refused outright.
 const IP_MAX_FAILURES: u32 = 20;
 const IP_WINDOW_SECS: i64 = 600;
+
+/// `passkey/login/begin` calls one address may make per window before it is refused outright.
+const PASSKEY_BEGIN_MAX: u32 = 30;
+const PASSKEY_BEGIN_WINDOW_SECS: i64 = 60;
 
 pub fn sha256_hex(s: &str) -> String {
     Sha256::digest(s.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
@@ -194,7 +203,18 @@ pub fn validate_username(u: &str) -> Result<(), String> {
 
 impl Auth {
     pub fn new(store: Arc<dyn Store>) -> Self {
-        Auth { store, attempts: Mutex::new(HashMap::new()), last_agent_touch: Mutex::new(HashMap::new()), ip_failures: Mutex::new(HashMap::new()), passkey_cfg: Mutex::new(None), ceremonies: Mutex::new(Default::default()), mfa_tickets: Mutex::new(HashMap::new()), mfa_policy: Mutex::new(None), passkey_policy: Mutex::new(None) }
+        Auth {
+            store,
+            attempts: Mutex::new(HashMap::new()),
+            last_agent_touch: Mutex::new(HashMap::new()),
+            ip_failures: Mutex::new(HashMap::new()),
+            passkey_begin_ip: Mutex::new(HashMap::new()),
+            passkey_cfg: Mutex::new(None),
+            ceremonies: Mutex::new(Default::default()),
+            mfa_tickets: Mutex::new(HashMap::new()),
+            mfa_policy: Mutex::new(None),
+            passkey_policy: Mutex::new(None),
+        }
     }
 
     /// First run: create `admin` with a random one-time password. Returns it
@@ -228,6 +248,29 @@ impl Auth {
         }
         let e = m.entry(ip).or_insert((0, now));
         if now - e.1 >= IP_WINDOW_SECS {
+            *e = (0, now);
+        }
+        e.0 += 1;
+    }
+
+    /// Seconds this address must wait before another `passkey/login/begin` (0 = free to try).
+    pub fn passkey_begin_wait(&self, ip: std::net::IpAddr, now: i64) -> i64 {
+        self.passkey_begin_ip
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&ip)
+            .filter(|(n, start)| *n >= PASSKEY_BEGIN_MAX && now - start < PASSKEY_BEGIN_WINDOW_SECS)
+            .map_or(0, |(_, start)| PASSKEY_BEGIN_WINDOW_SECS - (now - start))
+    }
+
+    /// Count one `passkey/login/begin` call against the address (memory is bounded).
+    pub fn passkey_begin_hit(&self, ip: std::net::IpAddr, now: i64) {
+        let mut m = self.passkey_begin_ip.lock().unwrap_or_else(|e| e.into_inner());
+        if m.len() > 10_000 {
+            m.retain(|_, (_, start)| now - *start < PASSKEY_BEGIN_WINDOW_SECS);
+        }
+        let e = m.entry(ip).or_insert((0, now));
+        if now - e.1 >= PASSKEY_BEGIN_WINDOW_SECS {
             *e = (0, now);
         }
         e.0 += 1;
@@ -530,9 +573,20 @@ impl Auth {
     // -------------------------------------------------------- passwords
 
     /// Change one's own password. Signs the user out everywhere but here.
-    pub fn change_password(&self, user_id: i64, current: &str, new: &str, keep_token: Option<&str>) -> Result<(), AuthError> {
+    ///
+    /// `current` goes through the same lock-out as `confirm_password` (M4:
+    /// SECURITY_ARCHITECTURE_REVIEW.md) - without it, a stolen session cookie is an unlimited
+    /// password-guessing oracle, limited only by Argon2's cost, since this call alone needs no
+    /// second factor and a session survives well past a single request.
+    pub fn change_password(&self, user_id: i64, current: &str, new: &str, keep_token: Option<&str>, now: i64) -> Result<(), AuthError> {
         let rec = self.store.get_user_record(user_id)?.ok_or(AuthError::Invalid)?;
+        let key = rec.user.username.trim().to_lowercase();
+        let wait = self.lock_remaining(&key, now);
+        if wait > 0 {
+            return Err(AuthError::Locked(wait));
+        }
         if !verify_password(&rec.password_hash, current) {
+            self.record_failure(&key, now);
             return Err(AuthError::Invalid);
         }
         validate_password(new, &rec.user.username).map_err(AuthError::Rejected)?;
@@ -644,14 +698,20 @@ impl Auth {
 
     // ----------------------------------------------------- agent tokens
 
-    /// Issue (or rotate) the token for `agent_id`. Shown once.
-    pub fn issue_agent_token(&self, agent_id: &str, label: &str, now: i64) -> Result<String, AuthError> {
+    /// Issue (or rotate) the token for `agent_id`. Shown once. `kind` is fixed at issue time and
+    /// never taken from a request the token itself makes (SECURITY_ARCHITECTURE_REVIEW.md M2):
+    /// only a `msp_relay` token may call `/api/v1/msp-sync`, so a compromised ordinary agent
+    /// cannot use that far-less-validated path to inject events or edit metadata.
+    pub fn issue_agent_token(&self, agent_id: &str, label: &str, kind: &str, now: i64) -> Result<String, AuthError> {
         let ok = !agent_id.is_empty() && agent_id.len() <= 64 && agent_id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
         if !ok {
             return Err(AuthError::Rejected("agent id must be 1-64 characters of [A-Za-z0-9._-]".into()));
         }
+        if !crate::store::AGENT_TOKEN_KINDS.contains(&kind) {
+            return Err(AuthError::Rejected(format!("kind must be one of {:?}", crate::store::AGENT_TOKEN_KINDS)));
+        }
         let token = format!("dat_{}", random_token()?);
-        self.store.set_agent_token(agent_id, &sha256_hex(&token), label, now)?;
+        self.store.set_agent_token(agent_id, &sha256_hex(&token), label, kind, now)?;
         Ok(token)
     }
 
@@ -892,15 +952,31 @@ mod tests {
         let admin = admin_with(&a, "a-long-passphrase-1");
         let (keep, _) = a.login("admin", "a-long-passphrase-1", 10).unwrap();
         let (other, _) = a.login("admin", "a-long-passphrase-1", 11).unwrap();
-        assert!(matches!(a.change_password(admin.id, "wrong", "another-long-pass-2", Some(&keep)), Err(AuthError::Invalid)));
+        assert!(matches!(a.change_password(admin.id, "wrong", "another-long-pass-2", Some(&keep), 12), Err(AuthError::Invalid)));
         for weak in ["short", "aaaaaaaaaaaaaaaa", "myPassword123456", "admin-admin-admin-1", "a-long-passphrase-1"] {
-            assert!(matches!(a.change_password(admin.id, "a-long-passphrase-1", weak, Some(&keep)), Err(AuthError::Rejected(_))), "{weak}");
+            assert!(matches!(a.change_password(admin.id, "a-long-passphrase-1", weak, Some(&keep), 12), Err(AuthError::Rejected(_))), "{weak}");
         }
-        a.change_password(admin.id, "a-long-passphrase-1", "another-long-pass-2", Some(&keep)).unwrap();
+        a.change_password(admin.id, "a-long-passphrase-1", "another-long-pass-2", Some(&keep), 12).unwrap();
         assert!(a.session_user(&keep, 20).is_some());
         assert!(a.session_user(&other, 20).is_none(), "other sessions are revoked");
         assert!(a.login("admin", "a-long-passphrase-1", 30).is_err());
         assert!(a.login("admin", "another-long-pass-2", 31).is_ok());
+    }
+
+    #[test]
+    fn changing_a_password_is_locked_out_by_wrong_currents_just_like_confirm_password() {
+        // M4: a stolen session cookie must not be an unlimited password-guessing oracle.
+        let a = auth();
+        let admin = admin_with(&a, "a-long-passphrase-1");
+        let (keep, _) = a.login("admin", "a-long-passphrase-1", 10).unwrap();
+        for i in 0..5 {
+            assert!(matches!(a.change_password(admin.id, "wrong", "another-long-pass-2", Some(&keep), 10), Err(AuthError::Invalid)), "attempt {i}");
+        }
+        assert!(matches!(a.change_password(admin.id, "wrong", "another-long-pass-2", Some(&keep), 10), Err(AuthError::Locked(_))), "locked out after repeated wrong currents");
+        // the correct password is refused too, while locked
+        assert!(matches!(a.change_password(admin.id, "a-long-passphrase-1", "another-long-pass-2", Some(&keep), 10), Err(AuthError::Locked(_))));
+        // once the lock-out window passes, it works again
+        a.change_password(admin.id, "a-long-passphrase-1", "another-long-pass-2", Some(&keep), 1000).unwrap();
     }
 
     #[test]
@@ -972,20 +1048,23 @@ mod tests {
     #[test]
     fn agent_tokens_bind_to_an_agent_rotate_and_revoke() {
         let a = auth();
-        let t1 = a.issue_agent_token("branch-1", "Branch office", 10).unwrap();
+        let t1 = a.issue_agent_token("branch-1", "Branch office", "agent", 10).unwrap();
         assert!(t1.starts_with("dat_") && t1.len() == 68);
         let v = a.verify_agent_token(&t1, 20).unwrap();
-        assert_eq!(v.agent_id, "branch-1");
+        assert_eq!((v.agent_id.as_str(), v.kind.as_str()), ("branch-1", "agent"));
         assert!(a.verify_agent_token("dat_wrong", 20).is_none());
         assert!(a.verify_agent_token(&format!("dat_{}", "0".repeat(64)), 20).is_none());
         // the stored value is a hash
         assert!(a.store.find_agent_token(&t1).unwrap().is_none());
         // rotating invalidates the old token
-        let t2 = a.issue_agent_token("branch-1", "Branch office", 30).unwrap();
+        let t2 = a.issue_agent_token("branch-1", "Branch office", "agent", 30).unwrap();
         assert!(a.verify_agent_token(&t1, 31).is_none());
         assert!(a.verify_agent_token(&t2, 31).is_some());
         assert!(a.store.revoke_agent_token("branch-1").unwrap());
         assert!(a.verify_agent_token(&t2, 32).is_none());
-        assert!(matches!(a.issue_agent_token("../etc", "x", 0), Err(AuthError::Rejected(_))));
+        assert!(matches!(a.issue_agent_token("../etc", "x", "agent", 0), Err(AuthError::Rejected(_))));
+        assert!(matches!(a.issue_agent_token("ok-id", "x", "bogus", 0), Err(AuthError::Rejected(_))), "kind is a fixed set, not free text");
+        let relay = a.issue_agent_token("customer-a", "Customer A", "msp_relay", 40).unwrap();
+        assert_eq!(a.verify_agent_token(&relay, 41).unwrap().kind, "msp_relay");
     }
 }

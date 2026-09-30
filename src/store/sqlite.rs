@@ -12,7 +12,7 @@ use super::{
 };
 use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, ReportMeta, RiskAcceptance, User};
 
-const SCHEMA_VERSION: i64 = 21;
+const SCHEMA_VERSION: i64 = 22;
 
 /// Phase 1 schema.
 const V1: &str = "CREATE TABLE assets (
@@ -299,6 +299,11 @@ const V21: &str = "CREATE TABLE sso_identities (
         PRIMARY KEY (issuer, sub)
      );";
 
+/// `kind` distinguishes an ordinary remote-agent token from an MSP relay's, so `/api/v1/msp-sync`
+/// can refuse the former (SECURITY_ARCHITECTURE_REVIEW.md M2). Existing tokens become `agent`,
+/// which is exactly what they already were used as.
+const V22: &str = "ALTER TABLE agent_tokens ADD COLUMN kind TEXT NOT NULL DEFAULT 'agent';";
+
 /// Phase 3.8: API tokens for scripts and integrations.
 const V7: &str = "CREATE TABLE api_tokens (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -377,6 +382,14 @@ impl SqliteStore {
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)
             .with_context(|| format!("opening database {}", path.display()))?;
+        // Readable/writable by its owner only: it holds password hashes, TOTP secrets and every
+        // integration credential in plaintext settings rows (SECURITY_ARCHITECTURE_REVIEW.md M10).
+        // Harmless (and cheap) to redo on every open of an existing database, not just the first.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        }
         Self::init(conn)
     }
 
@@ -395,7 +408,7 @@ impl SqliteStore {
         }
         // Each step runs in its own transaction and bumps user_version, so a
         // crash mid-migration leaves the database at a consistent older version.
-        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13), (14, V14), (15, V15), (16, V16), (17, V17), (18, V18), (19, V19), (20, V20), (21, V21)] {
+        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13), (14, V14), (15, V15), (16, V16), (17, V17), (18, V18), (19, V19), (20, V20), (21, V21), (22, V22)] {
             if version < target {
                 let tx = conn.unchecked_transaction()?;
                 tx.execute_batch(sql)?;
@@ -1220,13 +1233,13 @@ impl AuthStore for SqliteStore {
         Ok(true)
     }
     // ------------------------------------------------ per-agent tokens
-    fn set_agent_token(&self, agent_id: &str, token_hash: &str, label: &str, ts: i64) -> Result<()> {
+    fn set_agent_token(&self, agent_id: &str, token_hash: &str, label: &str, kind: &str, ts: i64) -> Result<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         tx.execute("UPDATE agent_tokens SET revoked = 1 WHERE agent_id = ?1", [agent_id])?;
         tx.execute(
-            "INSERT INTO agent_tokens (token_hash, agent_id, label, created_at) VALUES (?1,?2,?3,?4)",
-            params![token_hash, agent_id, label, ts],
+            "INSERT INTO agent_tokens (token_hash, agent_id, label, kind, created_at) VALUES (?1,?2,?3,?4,?5)",
+            params![token_hash, agent_id, label, kind, ts],
         )?;
         tx.commit()?;
         Ok(())
@@ -1235,7 +1248,7 @@ impl AuthStore for SqliteStore {
         let conn = self.conn();
         Ok(conn
             .query_row(
-                "SELECT agent_id, label, created_at, last_used, revoked FROM agent_tokens WHERE token_hash = ?1",
+                "SELECT agent_id, label, kind, created_at, last_used, revoked FROM agent_tokens WHERE token_hash = ?1",
                 [token_hash],
                 row_to_agent_token,
             )
@@ -1244,7 +1257,7 @@ impl AuthStore for SqliteStore {
     fn list_agent_tokens(&self) -> Result<Vec<AgentToken>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT agent_id, label, created_at, last_used, revoked FROM agent_tokens ORDER BY agent_id, created_at DESC",
+            "SELECT agent_id, label, kind, created_at, last_used, revoked FROM agent_tokens ORDER BY agent_id, created_at DESC",
         )?;
         let rows = stmt.query_map([], row_to_agent_token)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -1553,7 +1566,7 @@ fn row_to_user_record(r: &Row) -> rusqlite::Result<UserRecord> {
 }
 
 fn row_to_agent_token(r: &Row) -> rusqlite::Result<AgentToken> {
-    Ok(AgentToken { agent_id: r.get(0)?, label: r.get(1)?, created_at: r.get(2)?, last_used: r.get(3)?, revoked: r.get(4)? })
+    Ok(AgentToken { agent_id: r.get(0)?, label: r.get(1)?, kind: r.get(2)?, created_at: r.get(3)?, last_used: r.get(4)?, revoked: r.get(5)? })
 }
 
 const AGENT_COLS: &str = "id, name, site, version, subnet, first_seen, last_report_at, last_run_id, last_seq, reports_into";
@@ -1591,7 +1604,7 @@ mod tests {
     #[test]
     fn ipv6_history_round_trips_and_defaults_to_empty() {
         let store = SqliteStore::open_in_memory().unwrap();
-        assert_eq!(store.stats(false).unwrap().schema_version, 21);
+        assert_eq!(store.stats(false).unwrap().schema_version, 22);
         let mut a = sample();
         assert!(a.ipv6_history.is_empty(), "nothing sets this yet");
         store.save_asset(&mut a).unwrap();
@@ -1686,7 +1699,7 @@ mod tests {
             ).unwrap();
         }
         let s = SqliteStore::open(&path).unwrap();
-        assert_eq!(s.stats(false).unwrap().schema_version, 21);
+        assert_eq!(s.stats(false).unwrap().schema_version, 22);
         let assets = s.load_assets().unwrap();
         assert_eq!(assets.len(), 2);
         let local = assets.iter().find(|a| a.agent_id.is_none()).unwrap();
@@ -1735,6 +1748,8 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             assert_eq!(std::fs::metadata(&out).unwrap().permissions().mode() & 0o777, 0o600);
+            // M10: the live database itself, not only its backups, is created private
+            assert_eq!(std::fs::metadata(dir.path().join("live.db")).unwrap().permissions().mode() & 0o777, 0o600);
         }
         // the live database keeps working, and an existing file is never replaced
         live.set_setting("x", b"1", 2).unwrap();
@@ -1835,7 +1850,7 @@ mod tests {
     #[test]
     fn a_revoked_agent_or_api_token_can_be_deleted_but_an_active_one_is_refused() {
         let s = SqliteStore::open_in_memory().unwrap();
-        s.set_agent_token("branch-1", "hash1", "Branch office", 1).unwrap();
+        s.set_agent_token("branch-1", "hash1", "Branch office", "agent", 1).unwrap();
         assert!(!s.delete_agent_token("branch-1").unwrap(), "still active");
         assert!(s.revoke_agent_token("branch-1").unwrap());
         assert!(s.delete_agent_token("branch-1").unwrap());

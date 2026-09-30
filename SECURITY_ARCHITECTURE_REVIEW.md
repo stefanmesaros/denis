@@ -328,6 +328,13 @@ code copies the pattern.
 
 ### M1. Unauthenticated denial of service against passkey sign-in and registration
 
+**Status (2026-09-30): fixed.** `login/begin` is now rate-limited per client address (30 per
+minute, mirroring `Auth::ip_wait`'s shape). Login and registration ceremonies are also split into
+separate pools (`Ceremonies::login`/`register`): a public, unauthenticated flood of `login/begin`
+can no longer fill the pool `register_begin` (which needs a session) draws from. The registration
+pool is bounded too, but evicts its oldest entry rather than refusing outright, since refusing
+would lock out a signed-in person instead of an attacker.
+
 **Where** (verified by reading): `passkey.rs:156 Ceremonies::begin`, `web_passkey.rs:110
 login_begin` (public).
 
@@ -342,6 +349,12 @@ Keep registration ceremonies in a separate, per-user bounded map. Evict the olde
 of refusing new ones.
 
 ### M2. Any agent token can use the MSP-sync endpoint to inject forged alerts and unbounded data
+
+**Status (2026-09-30): fixed.** Tokens now carry a `kind` (`agent` or `msp_relay`, fixed at issue
+time - `store::AGENT_TOKEN_KINDS`), and `msp_sync` refuses any token that is not `msp_relay`
+outright. `apply_msp_sync` also now clamps list sizes and rejects invalid MACs exactly like an
+ordinary report, caps `raw_details` size, never accepts `acked`/`ack_reason` from the sender, and
+dedupes a resend against the device's own recent events (same kind, same timestamp).
 
 **Where** (verified by reading): `ingest.rs:355 msp_sync` and `:112 apply_msp_sync`.
 
@@ -374,6 +387,15 @@ only for the relay kind. Also:
 
 ### M3. The "never round-tripped" secrets can still be read back by an admin who changes the destination
 
+**Status (2026-09-30): fixed** for every source that has an admin-configurable destination:
+vulnscan, Jamf and AD (`server_url`/`url` change clears the stored key/secret/bind password when
+the request leaves it blank), SMTP and generic webhook channels (`host`/`url` change clears the
+password/secret the same way), switches (an address change without a fresh community is refused
+outright, since a switch cannot function with none at all), SSO (`issuer_url` change clears the
+client secret) and SIEM/Elastic (`host` change clears the api key). AWS/Azure/GCP were checked and
+excluded: their API endpoint is fixed by the provider, not admin-configurable, so there is no
+destination for a secret to be redirected to.
+
 **Where** (verified by reading for vulnscan, SMTP and switches; the other sources follow the same
 "blank keeps the stored secret" rule and are suspected to share the problem):
 
@@ -397,6 +419,13 @@ secret and require it to be entered again. Bind each secret to the destination i
 for.
 
 ### M4. A hijacked session can guess the password without limit and plant a lasting passkey
+
+**Status (2026-09-30): fixed.** `change_password` now goes through the same lock-out as
+`confirm_password` (5 wrong currents locks the account out with backoff, exactly as a wrong
+password does anywhere else). `register_begin` now requires the password to be re-confirmed first
+(the same re-authentication `web_totp.rs::begin` already uses), so a stolen session cookie alone
+cannot plant a lasting passkey. An admin password reset revoking existing passkeys, or at least
+listing them, is not built.
 
 **Where** (verified by reading): `auth.rs:533 change_password` and `web_passkey.rs:32
 register_begin` / `:66 register_finish`.
@@ -493,6 +522,16 @@ constant the agent reads, not a duplicated literal.
 
 ### M9. SSO sign-in can be forced onto the attacker's account (login CSRF)
 
+**Status (2026-09-30): fixed.** `start` now also returns a random `browser_token`, which
+`web_sso.rs::login` sets as a short-lived, `HttpOnly`, `SameSite=Lax` cookie (`denis_sso`, scoped
+to `/api/auth/sso`) alongside the redirect. `finish` takes that same cookie's value from the
+callback and refuses unless it matches what `start` stashed for that `state` - a captured
+`state`/`code` pair alone is no longer enough, since the attacker's browser never held the
+victim's cookie. A mismatch or missing cookie leaves the real pending entry untouched (peeked, not
+removed, before the comparison), so the legitimate browser can still complete its own sign-in
+afterward. `SameSite=Lax` rather than `Strict` deliberately, since the cookie must still ride along
+on the identity provider's own top-level, cross-site GET back to the callback.
+
 **Where** (verified by reading): `sso.rs:104 stash_pending` and `:170 finish`. The `state`,
 nonce and PKCE verifier are kept in a process-global map keyed by `state` alone, not bound to the
 browser (no cookie). The error text says "does not belong to this browser", but nothing checks
@@ -507,6 +546,13 @@ account), but it is the textbook OIDC login-CSRF.
 at `login`. Key the pending map on it together with `state`, and compare in `callback`.
 
 ### M10. Credentials at rest are readable by other local users, and backups carry every one of them
+
+**Status (2026-09-30): fixed.** Both systemd units now set `StateDirectoryMode=0700` and
+`UMask=0077`. `SqliteStore::open` now chmods the database to 0600 right after opening it (covers
+both a fresh database and every subsequent open of an existing one, cheap either way), and an
+agent's uploaded backup is chmoded to 0600 before the rename that makes it visible under its real
+name. `--backup-upstream` shipping a customer's whole database to the MSP is a deliberate,
+documented feature, not a bug this closes - it is unchanged.
 
 **Where** (verified by reading):
 

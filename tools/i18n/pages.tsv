@@ -116,6 +116,9 @@ Agent tokens || Agent-Token || Jetons d'agent || Tokens de agente || Tokeny agen
 Each remote agent authenticates with its own token, bound to its agent id. A token is shown once when issued; issuing a new one revokes the old one. || Jeder entfernte Agent authentifiziert sich mit einem eigenen Token, der an seine Agent-ID gebunden ist. Ein Token wird bei der Ausstellung einmal angezeigt; ein neuer widerruft den alten. || Chaque agent distant s'authentifie avec son propre jeton, lié à son identifiant d'agent. Un jeton n'est affiché qu'une fois à l'émission ; en émettre un nouveau révoque l'ancien. || Cada agente remoto se autentica con su propio token, ligado a su id de agente. Un token se muestra una vez al emitirlo; emitir uno nuevo revoca el anterior. || Každý vzdialený agent sa overuje vlastným tokenom viazaným na jeho ID. Token sa zobrazí raz pri vydaní; vydanie nového starý zruší.
 Issue token || Token ausstellen || Émettre un jeton || Emitir token || Vydať token
 Agent || Agent || Agent || Agente || Agent
+Kind || Art || Type || Tipo || Druh
+MSP relay || MSP-Relay || Relais MSP || Relé MSP || MSP relé
+Agent: an ordinary remote collector. MSP relay: a customer master's --report-to; only this kind may use /api/v1/msp-sync. || Agent: ein gewöhnlicher entfernter Collector. MSP-Relay: das --report-to eines Kunden-Masters; nur diese Art darf /api/v1/msp-sync verwenden. || Agent : un collecteur distant ordinaire. Relais MSP : le --report-to du master d'un client ; seul ce type peut utiliser /api/v1/msp-sync. || Agente: un recolector remoto ordinario. Relé MSP: el --report-to del master de un cliente; solo este tipo puede usar /api/v1/msp-sync. || Agent: bežný vzdialený kolektor. MSP relé: --report-to hlavného servera zákazníka; iba tento druh smie používať /api/v1/msp-sync.
 State || Zustand || État || Estado || Stav
 Label || Bezeichnung || Libellé || Etiqueta || Popis
 Created || Erstellt || Créé || Creado || Vytvorené

@@ -93,7 +93,11 @@ impl Config {
             let mut c = t.check()?;
             if c.community.is_empty() {
                 match self.targets.iter().find(|o| o.id == c.id) {
-                    Some(old) => c.community = old.community.clone(),
+                    // M3: the stored community is only ever safe to keep for the address it was
+                    // entered for - a changed address must not silently reuse it, since that
+                    // sends it in cleartext SNMP to whatever host now sits there.
+                    Some(old) if old.address == c.address => c.community = old.community.clone(),
+                    Some(_) => return Err("the address changed: enter this switch's SNMP community again".into()),
                     None => return Err("a switch needs its SNMP community (a read-only one)".into()),
                 }
             }
@@ -203,6 +207,10 @@ mod tests {
         assert_eq!((c.interval_secs, c.targets[0].community.as_str()), (120, "s3cret"));
         c.update(None, &[Target { name: "Renamed".into(), ..t("core1", "") }, t("core2", "other")]).unwrap();
         assert_eq!((c.targets[0].name.as_str(), c.targets[0].community.as_str(), c.targets.len()), ("Renamed", "s3cret", 2), "blank keeps the old secret");
+        // M3: the stored community is bound to the address it was entered for - changing the
+        // address without also typing a new community is refused, not silently carried over.
+        assert!(c.update(None, &[Target { address: "192.0.2.99".into(), ..t("core1", "") }]).is_err(), "address changed: the old community is not reused");
+        assert_eq!(c.targets[0].address, "192.0.2.10", "the refused change left the address as it was");
         let before = c.clone();
         assert!(c.update(None, &[t("core1", "x"), t("core1", "y")]).is_err(), "ids must be unique");
         assert!(c.update(Some(5), &[]).is_err() && c.update(Some(99_999), &[]).is_err());

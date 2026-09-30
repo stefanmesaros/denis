@@ -52,12 +52,20 @@ pub(crate) async fn put(State(st): State<AppState>, Extension(AuthUser(me)): Ext
     }
     let now = now_ts();
     blocking(&st.store, move |s| {
+        // M3: a stored key is only ever safe to keep for the destination it was entered for - an
+        // admin who changes server_url and leaves the key field blank must re-enter it, rather
+        // than have it silently sent to whatever host now sits at server_url.
+        let destination_changed = crate::vulnscan::settings(s).server_url.trim() != b.settings.server_url.trim();
         crate::vulnscan::save_settings(s, &b.settings, now)?;
         if !b.access_key.is_empty() {
             crate::vulnscan::save_access_key(s, &b.access_key, now)?;
+        } else if destination_changed {
+            crate::vulnscan::save_access_key(s, "", now)?;
         }
         if !b.secret_key.is_empty() {
             crate::vulnscan::save_secret_key(s, &b.secret_key, now)?;
+        } else if destination_changed {
+            crate::vulnscan::save_secret_key(s, "", now)?;
         }
         Ok(())
     })

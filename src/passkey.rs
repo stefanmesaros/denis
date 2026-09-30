@@ -36,8 +36,13 @@ use serde_json::{json, Value as Json};
 
 /// How long a challenge stays valid.
 const CEREMONY_TTL: Duration = Duration::from_secs(300);
-/// Unfinished ceremonies kept at once (a flood of `begin` calls cannot exhaust memory).
+/// Unfinished *login* ceremonies kept at once (a flood of unauthenticated `begin` calls cannot
+/// exhaust memory, or crowd out registration - the two are separate pools; see `Ceremonies`).
 const MAX_CEREMONIES: usize = 2000;
+/// Unfinished *registration* ceremonies kept at once. `register_begin` needs a session, so this
+/// pool is far smaller; on overflow the oldest is evicted rather than refusing a signed-in
+/// person outright (M1).
+const MAX_REGISTER_CEREMONIES: usize = 500;
 const MAX_CRED_ID: usize = 1023;
 
 const FLAG_UP: u8 = 0x01;
@@ -133,16 +138,18 @@ pub enum Kind {
 
 struct Pending {
     challenge: Vec<u8>,
-    kind: Kind,
     /// Who is registering (login ceremonies have no user yet: the credential says who).
     user_id: Option<i64>,
     expires: Instant,
 }
 
-/// Outstanding challenges: single use, short lived, bounded.
+/// Outstanding challenges: single use, short lived, bounded. Login and registration are kept in
+/// separate pools so an unauthenticated flood of one can never crowd out or lock out the other
+/// (M1) - `login/begin` is public, `register_begin` needs a session.
 #[derive(Default)]
 pub struct Ceremonies {
-    map: HashMap<String, Pending>,
+    login: HashMap<String, Pending>,
+    register: HashMap<String, Pending>,
 }
 
 fn random(n: usize) -> Result<Vec<u8>, String> {
@@ -151,24 +158,46 @@ fn random(n: usize) -> Result<Vec<u8>, String> {
     Ok(b)
 }
 
+/// The id of the entry closest to expiring, if any.
+fn oldest(map: &HashMap<String, Pending>) -> Option<String> {
+    map.iter().min_by_key(|(_, p)| p.expires).map(|(id, _)| id.clone())
+}
+
 impl Ceremonies {
     /// Issue a challenge. Returns `(ceremony id, challenge bytes)`.
     pub fn begin(&mut self, kind: Kind, user_id: Option<i64>) -> Result<(String, Vec<u8>), String> {
         let now = Instant::now();
-        self.map.retain(|_, p| p.expires > now);
-        if self.map.len() >= MAX_CEREMONIES {
-            return Err("too many sign-ins in progress; try again in a minute".into());
+        let map = match kind {
+            Kind::Login => &mut self.login,
+            Kind::Register => &mut self.register,
+        };
+        map.retain(|_, p| p.expires > now);
+        match kind {
+            // public and unauthenticated: refuse outright rather than evict, so an attacker
+            // cannot use a flood to bump a real ceremony out before it is used.
+            Kind::Login if map.len() >= MAX_CEREMONIES => return Err("too many sign-ins in progress; try again in a minute".into()),
+            // needs a session: never lock a signed-in person out, evict the oldest instead.
+            Kind::Register if map.len() >= MAX_REGISTER_CEREMONIES => {
+                if let Some(id) = oldest(map) {
+                    map.remove(&id);
+                }
+            }
+            _ => {}
         }
         let id = b64url(&random(24)?);
         let challenge = random(32)?;
-        self.map.insert(id.clone(), Pending { challenge: challenge.clone(), kind, user_id, expires: now + CEREMONY_TTL });
+        map.insert(id.clone(), Pending { challenge: challenge.clone(), user_id, expires: now + CEREMONY_TTL });
         Ok((id, challenge))
     }
 
     /// Take a ceremony (it can never be used twice, even if verification then fails).
     pub fn take(&mut self, id: &str, kind: Kind) -> Option<(Vec<u8>, Option<i64>)> {
-        let p = self.map.remove(id)?;
-        (p.kind == kind && p.expires > Instant::now()).then_some((p.challenge, p.user_id))
+        let map = match kind {
+            Kind::Login => &mut self.login,
+            Kind::Register => &mut self.register,
+        };
+        let p = map.remove(id)?;
+        (p.expires > Instant::now()).then_some((p.challenge, p.user_id))
     }
 }
 
@@ -478,8 +507,11 @@ mod tests {
         let mut c = Ceremonies::default();
         let (id, ch) = c.begin(Kind::Login, None).unwrap();
         assert_eq!(ch.len(), 32);
+        // login and registration are separate pools (M1): a wrong-kind lookup finds nothing,
+        // and - crucially - does not disturb the real ceremony sitting in the other pool.
         assert!(c.take(&id, Kind::Register).is_none(), "a login challenge cannot finish a registration");
-        assert!(c.take(&id, Kind::Login).is_none(), "and the wrong attempt consumed it");
+        assert_eq!(c.take(&id, Kind::Login), Some((ch, None)), "the wrong-kind attempt left it alone");
+        assert!(c.take(&id, Kind::Login).is_none(), "never twice");
         let (id, ch) = c.begin(Kind::Register, Some(7)).unwrap();
         assert_eq!(c.take(&id, Kind::Register), Some((ch, Some(7))));
         assert!(c.take(&id, Kind::Register).is_none(), "never twice");
@@ -487,7 +519,14 @@ mod tests {
         for _ in 0..MAX_CEREMONIES {
             let _ = c.begin(Kind::Login, None);
         }
-        assert!(c.begin(Kind::Login, None).is_err(), "bounded");
+        assert!(c.begin(Kind::Login, None).is_err(), "login is bounded and refuses outright");
+        // registration is a separate, smaller pool that evicts the oldest instead of refusing -
+        // a flood of (authenticated) register_begin calls never locks a signed-in person out.
+        let (first, _) = c.begin(Kind::Register, Some(1)).unwrap();
+        for _ in 0..MAX_REGISTER_CEREMONIES {
+            c.begin(Kind::Register, Some(2)).unwrap();
+        }
+        assert!(c.take(&first, Kind::Register).is_none(), "the oldest registration was evicted, not refused");
     }
 
     #[test]

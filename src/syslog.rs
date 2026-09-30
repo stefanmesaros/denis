@@ -267,14 +267,17 @@ impl Settings {
 /// `channels::from_body` uses.
 pub fn from_body(body: &Value, existing: &Settings) -> Result<Settings, String> {
     let obj = body.as_object().ok_or("expected a JSON object")?;
+    let mut s: Settings = serde_json::from_value(body.clone()).map_err(|e| e.to_string())?;
+    // M3: the api key is only ever safe to keep for the host it was entered for.
+    let destination_changed = existing.host != s.host;
     let api_key = match obj.get("api_key") {
+        None if destination_changed => None,
         None => existing.api_key.clone(),
         Some(Value::Null) => None,
         Some(Value::String(s)) if s.is_empty() => None,
         Some(Value::String(s)) => Some(s.clone()),
         Some(_) => return Err("api_key must be text".into()),
     };
-    let mut s: Settings = serde_json::from_value(body.clone()).map_err(|e| e.to_string())?;
     s.api_key = api_key;
     Ok(s)
 }

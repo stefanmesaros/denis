@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.61.0: Fix (M1, M2, M3, M4, M9, M10): six Medium-severity hardening fixes
+
+* **M1: an unauthenticated flood of passkey sign-in attempts could exhaust the shared challenge
+  pool and lock everyone out**, including passkey-required administrators. `login/begin` is now
+  rate-limited per client address, and login/registration challenges live in separate pools so a
+  public flood of one can never crowd out or lock out the other.
+* **M2: any agent token, not just an MSP's, could call the far-less-validated MSP-sync endpoint**
+  to inject pre-scored alerts or edit device metadata. Tokens now carry a `kind` fixed at issue
+  time; only `msp_relay` may use that endpoint, which now also clamps list sizes, rejects invalid
+  MACs, caps `raw_details` size, never trusts the sender's `acked`/`ack_reason`, and dedupes a
+  resent event against what that device already has recorded.
+* **M3: changing an integration's destination (a server URL, host or address) while leaving the
+  secret field blank kept sending the old secret to the new destination.** vulnscan, Jamf, AD,
+  SMTP, generic webhook channels, switches, SSO and SIEM/Elastic all now clear (or, for switches,
+  refuse to reuse) the stored credential when its destination changes.
+* **M4: a hijacked session cookie was an unlimited password-guessing oracle, and could plant a
+  lasting passkey with no re-authentication at all.** `change_password` now locks out repeated
+  wrong currents exactly like every other password check; adding a passkey now re-confirms the
+  password first.
+* **M9: SSO sign-in was vulnerable to the classic OIDC login-CSRF** — an attacker could complete
+  their own sign-in, capture the callback URL, and get a victim to open it, landing the victim in
+  the attacker's account. A short-lived, `HttpOnly`, `SameSite=Lax` cookie now binds a sign-in
+  attempt to the browser that started it; the callback refuses without a match.
+* **M10: the database (TOTP secrets, every integration credential) and received agent backups had
+  no permission hardening**, readable by any other local account. Both systemd units now set
+  `StateDirectoryMode=0700`/`UMask=0077`; the database and agent backups are now created mode 0600.
+
 ## 2.60.0: Fix (H2): single sign-on can no longer be tricked into signing in as someone else
 
 * **Fix: SSO's "disabled" switch was cosmetic, and any IdP account could take over a matching

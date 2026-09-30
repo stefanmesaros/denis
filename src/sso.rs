@@ -126,6 +126,11 @@ struct Pending {
     nonce: Nonce,
     pkce_verifier: PkceCodeVerifier,
     created_at: i64,
+    /// The random value handed to the browser as a short-lived cookie at `start` (M9: login CSRF,
+    /// see the module docs). `finish` refuses unless the browser presents this same value back,
+    /// so a link captured by an attacker and opened by the victim cannot complete a sign-in: the
+    /// attacker's browser holds the cookie, not the victim's.
+    browser_token: String,
 }
 
 static PENDING: Mutex<Option<HashMap<String, Pending>>> = Mutex::new(None);
@@ -136,21 +141,32 @@ fn now_secs() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
-fn stash_pending(state: String, nonce: Nonce, pkce_verifier: PkceCodeVerifier) {
+fn stash_pending(state: String, nonce: Nonce, pkce_verifier: PkceCodeVerifier, browser_token: String) {
     let mut g = PENDING.lock().unwrap_or_else(|e| e.into_inner());
     let map = g.get_or_insert_with(HashMap::new);
     let now = now_secs();
     map.retain(|_, p: &mut Pending| now - p.created_at < PENDING_TTL_SECS);
-    map.insert(state, Pending { nonce, pkce_verifier, created_at: now });
+    map.insert(state, Pending { nonce, pkce_verifier, created_at: now, browser_token });
 }
 
-fn take_pending(state: &str) -> Option<(Nonce, PkceCodeVerifier)> {
+/// `browser_token` is whatever the request's own short-lived cookie carried (empty if there was
+/// none) - compared against what `start` handed that same browser, not merely checked for
+/// presence, so a captured `state`/`code` pair is useless without also holding the cookie.
+fn take_pending(state: &str, browser_token: &str) -> Option<(Nonce, PkceCodeVerifier)> {
     let mut g = PENDING.lock().unwrap_or_else(|e| e.into_inner());
     let map = g.as_mut()?;
-    let p = map.remove(state)?;
+    // Peek before removing: a wrong or missing cookie must not burn the real pending login, since
+    // the legitimate browser (which never sent this request) still needs to be able to complete
+    // it - only an actual match, or an expiry, consumes the entry.
+    let p = map.get(state)?;
     if now_secs() - p.created_at >= PENDING_TTL_SECS {
+        map.remove(state);
         return None;
     }
+    if browser_token.is_empty() || p.browser_token != browser_token {
+        return None;
+    }
+    let p = map.remove(state)?;
     Some((p.nonce, p.pkce_verifier))
 }
 
@@ -176,9 +192,11 @@ fn build_client(cfg: &SsoConfig, redirect_url: &str) -> Result<SsoClient> {
     Ok(CoreClient::from_provider_metadata(metadata, ClientId::new(cfg.client_id.clone()), Some(ClientSecret::new(cfg.client_secret.clone()))).set_redirect_uri(redirect))
 }
 
-/// Start a sign-in: the URL to send the browser to, having stashed what the callback needs to
-/// verify it really is the same request coming back (CSRF state, nonce, PKCE verifier).
-pub fn start(cfg: &SsoConfig, redirect_url: &str) -> Result<String> {
+/// Start a sign-in: the URL to send the browser to, and a random value the caller must set as a
+/// short-lived, `HttpOnly`, `SameSite=Lax` cookie on this same response (M9) - `finish` will
+/// refuse unless that exact cookie comes back with the callback. Having stashed what the callback
+/// needs to verify it really is the same request coming back (CSRF state, nonce, PKCE verifier).
+pub fn start(cfg: &SsoConfig, redirect_url: &str) -> Result<(String, String)> {
     // Checked here, not only by the console's decision to show a button
     // (SECURITY_ARCHITECTURE_REVIEW.md H2): a direct request to this route must be refused too,
     // so turning SSO off in Settings actually stops it, including for anyone who bookmarked the
@@ -194,8 +212,9 @@ pub fn start(cfg: &SsoConfig, redirect_url: &str) -> Result<String> {
         .add_scope(Scope::new("profile".into()))
         .set_pkce_challenge(pkce_challenge)
         .url();
-    stash_pending(csrf_state.secret().clone(), nonce, pkce_verifier);
-    Ok(auth_url.to_string())
+    let browser_token = CsrfToken::new_random().secret().clone();
+    stash_pending(csrf_state.secret().clone(), nonce, pkce_verifier, browser_token.clone());
+    Ok((auth_url.to_string(), browser_token))
 }
 
 /// A verified identity handed back by the provider: enough to find or provision a local account.
@@ -217,14 +236,18 @@ pub struct Identity {
 
 /// Finish a sign-in: exchange the code, verify the ID token's signature and claims (issuer,
 /// audience, expiry, and — critically — the nonce from `start`, which is what stops a token
-/// meant for a different login attempt from being replayed into this one).
-pub fn finish(cfg: &SsoConfig, redirect_url: &str, code: &str, state: &str) -> Result<Identity> {
+/// meant for a different login attempt from being replayed into this one). `browser_token` is the
+/// cookie `start` asked to be set on this same browser (M9): without a match, this is refused
+/// before ever contacting the identity provider, which is what actually stops the classic OIDC
+/// login-CSRF (an attacker completes their own sign-in, then gets the victim to open the callback
+/// URL, landing the victim in the attacker's account).
+pub fn finish(cfg: &SsoConfig, redirect_url: &str, code: &str, state: &str, browser_token: &str) -> Result<Identity> {
     // Same reasoning as `start` (SECURITY_ARCHITECTURE_REVIEW.md H2): checked here too, not only
     // where the button is shown.
     if !cfg.enabled {
         bail!("single sign-on is turned off");
     }
-    let (nonce, pkce_verifier) = take_pending(state).ok_or_else(|| anyhow!("this sign-in link was already used, took too long, or does not belong to this browser — start again"))?;
+    let (nonce, pkce_verifier) = take_pending(state, browser_token).ok_or_else(|| anyhow!("this sign-in link was already used, took too long, or does not belong to this browser — start again"))?;
     let client = build_client(cfg, redirect_url)?;
     let http = http_client();
     let token_response = client
@@ -324,19 +347,19 @@ mod tests {
         let mut c = cfg();
         c.enabled = false;
         assert!(start(&c, "https://denis.example/callback").unwrap_err().to_string().contains("turned off"));
-        assert!(finish(&c, "https://denis.example/callback", "code", "state").unwrap_err().to_string().contains("turned off"));
+        assert!(finish(&c, "https://denis.example/callback", "code", "state", "tok").unwrap_err().to_string().contains("turned off"));
     }
 
     #[test]
     fn a_pending_login_is_single_use_and_a_wrong_state_is_refused() {
         clear_pending_for_test();
-        stash_pending("state1".into(), Nonce::new("n1".into()), PkceCodeVerifier::new("v1".into()));
-        assert!(take_pending("no-such-state").is_none());
-        let (nonce, verifier) = take_pending("state1").expect("was stashed");
+        stash_pending("state1".into(), Nonce::new("n1".into()), PkceCodeVerifier::new("v1".into()), "tok1".into());
+        assert!(take_pending("no-such-state", "tok1").is_none());
+        let (nonce, verifier) = take_pending("state1", "tok1").expect("was stashed");
         assert_eq!(nonce.secret(), "n1");
         assert_eq!(verifier.secret(), "v1");
         // used once: a replay of the same callback (e.g. the browser's back button) fails closed
-        assert!(take_pending("state1").is_none());
+        assert!(take_pending("state1", "tok1").is_none());
     }
 
     #[test]
@@ -345,9 +368,21 @@ mod tests {
         let mut g = PENDING.lock().unwrap();
         g.get_or_insert_with(HashMap::new).insert(
             "stale".to_string(),
-            Pending { nonce: Nonce::new("n".into()), pkce_verifier: PkceCodeVerifier::new("v".into()), created_at: now_secs() - PENDING_TTL_SECS - 1 },
+            Pending { nonce: Nonce::new("n".into()), pkce_verifier: PkceCodeVerifier::new("v".into()), created_at: now_secs() - PENDING_TTL_SECS - 1, browser_token: "tok".into() },
         );
         drop(g);
-        assert!(take_pending("stale").is_none());
+        assert!(take_pending("stale", "tok").is_none());
+    }
+
+    #[test]
+    fn a_pending_login_is_refused_without_the_matching_browser_cookie() {
+        // M9: this is the actual login-CSRF fix - a captured (state, code) pair is useless to an
+        // attacker who cannot also present the victim's browser_token cookie.
+        clear_pending_for_test();
+        stash_pending("state1".into(), Nonce::new("n1".into()), PkceCodeVerifier::new("v1".into()), "victims-cookie".into());
+        assert!(take_pending("state1", "attackers-cookie").is_none(), "wrong cookie: refused");
+        assert!(take_pending("state1", "").is_none(), "no cookie at all: refused");
+        // the pending entry is untouched by a refused attempt: the real browser can still complete it
+        assert!(take_pending("state1", "victims-cookie").is_some(), "the right cookie still works");
     }
 }

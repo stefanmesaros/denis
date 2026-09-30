@@ -15,7 +15,7 @@ async function apiFetch(input, init = {}) {
   if (method !== 'GET') init = { ...init, headers: { 'X-Denis': '1', ...(init.headers || {}) } };
   const r = await window.fetch(input, { credentials: 'same-origin', ...init });
   // a wrong password or code typed into a form is a 401 too, but it is not the end of the session
-  if (url.startsWith('/api/') && !/^\/api\/auth\/(login|mfa|password|totp)/.test(url)) {
+  if (url.startsWith('/api/') && !/^\/api\/auth\/(login|mfa|password|totp|passkey\/register\/begin)/.test(url)) {
     if (r.status === 401) onUnauthenticated();
     else if (r.status === 403) r.clone().json().then((j) => { if (j.code === 'must_change') onMustChange(); else if (j.code === 'mfa_required') onMustEnrol(); }).catch(() => {});
   }

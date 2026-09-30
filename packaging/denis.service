@@ -39,8 +39,12 @@ ExecStart=/usr/local/lib/denis/denis run --db /var/lib/denis/denis.db
 Restart=on-failure
 RestartSec=5
 
-# /var/lib/denis, owned by the service user
+# /var/lib/denis, owned by the service user, and readable/writable by no one else: the database
+# holds TOTP secrets and every integration credential in plaintext settings rows
+# (SECURITY_ARCHITECTURE_REVIEW.md M10).
 StateDirectory=denis
+StateDirectoryMode=0700
+UMask=0077
 
 # Only what capture/injection needs: CAP_NET_RAW (packet sockets, raw ICMP),
 # CAP_NET_ADMIN (promiscuous mode via PACKET_ADD_MEMBERSHIP).

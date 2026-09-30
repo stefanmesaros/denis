@@ -198,7 +198,7 @@ pub(crate) async fn change_password(
     let keep = token_from(&req_headers);
     let auth = st.auth.clone();
     let id = user.id;
-    let res = tokio::task::spawn_blocking(move || auth.change_password(id, &body.current, &body.new, keep.as_deref())).await;
+    let res = tokio::task::spawn_blocking(move || auth.change_password(id, &body.current, &body.new, keep.as_deref(), now_ts())).await;
     match res {
         Ok(Ok(())) => {
             audit(&st, &user.username, "auth.password_changed", None, json!({}));
@@ -1193,7 +1193,7 @@ pub(crate) async fn tokens_list(State(st): State<AppState>) -> Result<Json<Value
     let t = blocking(&st.store, |s| s.list_agent_tokens()).await?;
     Ok(Json(json!(t
         .into_iter()
-        .map(|t| json!({ "agent_id": t.agent_id, "label": t.label, "created_at": t.created_at, "last_used": t.last_used, "revoked": t.revoked }))
+        .map(|t| json!({ "agent_id": t.agent_id, "label": t.label, "kind": t.kind, "created_at": t.created_at, "last_used": t.last_used, "revoked": t.revoked }))
         .collect::<Vec<_>>())))
 }
 
@@ -1202,6 +1202,13 @@ pub struct NewToken {
     agent_id: String,
     #[serde(default)]
     label: String,
+    /// "agent" (default) or "msp_relay" - see `store::AGENT_TOKEN_KINDS`.
+    #[serde(default = "default_token_kind")]
+    kind: String,
+}
+
+fn default_token_kind() -> String {
+    "agent".to_string()
 }
 
 /// Issue (or rotate) an agent's token; the value is shown exactly once.
@@ -1209,9 +1216,9 @@ pub(crate) async fn tokens_issue(State(st): State<AppState>, Extension(AuthUser(
     if b.label.len() > 100 {
         return err(StatusCode::BAD_REQUEST, "label too long");
     }
-    match st.auth.issue_agent_token(&b.agent_id, b.label.trim(), now_ts()) {
+    match st.auth.issue_agent_token(&b.agent_id, b.label.trim(), &b.kind, now_ts()) {
         Ok(token) => {
-            audit(&st, &me.username, "agent_token.issue", None, json!({ "agent_id": b.agent_id }));
+            audit(&st, &me.username, "agent_token.issue", None, json!({ "agent_id": b.agent_id, "kind": b.kind }));
             (StatusCode::CREATED, Json(json!({ "agent_id": b.agent_id, "token": token }))).into_response()
         }
         Err(e) => map_auth_err(e),

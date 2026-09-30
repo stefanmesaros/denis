@@ -45,10 +45,16 @@ pub struct SessionRecord {
 pub struct AgentToken {
     pub agent_id: String,
     pub label: String,
+    /// `"agent"` (an ordinary remote collector, the default) or `"msp_relay"` (a customer
+    /// master's `--report-to`, only kind allowed on `/api/v1/msp-sync` - SECURITY_ARCHITECTURE_REVIEW.md M2).
+    pub kind: String,
     pub created_at: i64,
     pub last_used: Option<i64>,
     pub revoked: bool,
 }
+
+/// `AgentToken::kind` values `issue_agent_token` accepts.
+pub const AGENT_TOKEN_KINDS: &[&str] = &["agent", "msp_relay"];
 
 /// A long-lived credential for scripts and integrations, tied to no user.
 #[derive(Clone, Debug, serde::Serialize)]
@@ -304,7 +310,7 @@ pub trait AuthStore: Send + Sync {
 
     // ------------------------------------------------ per-agent tokens
     /// Replaces (revokes) any earlier token for the same agent.
-    fn set_agent_token(&self, agent_id: &str, token_hash: &str, label: &str, ts: i64) -> Result<()>;
+    fn set_agent_token(&self, agent_id: &str, token_hash: &str, label: &str, kind: &str, ts: i64) -> Result<()>;
     fn find_agent_token(&self, token_hash: &str) -> Result<Option<AgentToken>>;
     fn list_agent_tokens(&self) -> Result<Vec<AgentToken>>;
     fn revoke_agent_token(&self, agent_id: &str) -> Result<bool>;

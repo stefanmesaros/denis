@@ -468,6 +468,10 @@ enum TokenCmd {
         id: String,
         #[arg(long, default_value = "")]
         label: String,
+        /// "agent" (an ordinary remote collector) or "msp_relay" (a customer master's
+        /// `--report-to`; only this kind may call /api/v1/msp-sync).
+        #[arg(long, default_value = "agent")]
+        kind: String,
     },
     List,
     /// Revoke an agent's token immediately.
@@ -810,16 +814,17 @@ fn token_cmd(db: &std::path::Path, action: TokenCmd) -> Result<()> {
     use denis::auth::Auth;
     let store = std::sync::Arc::new(SqliteStore::open(db)?);
     match action {
-        TokenCmd::Issue { id, label } => {
-            let t = Auth::new(store).issue_agent_token(&id, &label, now_ts()).map_err(|e| anyhow::anyhow!("{e:?}"))?;
-            println!("token for agent {id} (shown once; any earlier token for it is now revoked):\n{t}\n\nOn the agent:  DENIS_AGENT_TOKEN={t} denis agent --master URL --id {id}");
+        TokenCmd::Issue { id, label, kind } => {
+            let t = Auth::new(store).issue_agent_token(&id, &label, &kind, now_ts()).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            println!("{kind} token for agent {id} (shown once; any earlier token for it is now revoked):\n{t}\n\nOn the agent:  DENIS_AGENT_TOKEN={t} denis agent --master URL --id {id}");
         }
         TokenCmd::List => {
-            println!("{:<24} {:<8} {:<24} LABEL", "AGENT", "STATE", "LAST USED");
+            println!("{:<24} {:<10} {:<8} {:<24} LABEL", "AGENT", "KIND", "STATE", "LAST USED");
             for t in store.list_agent_tokens()? {
                 println!(
-                    "{:<24} {:<8} {:<24} {}",
+                    "{:<24} {:<10} {:<8} {:<24} {}",
                     t.agent_id,
+                    t.kind,
                     if t.revoked { "revoked" } else { "active" },
                     t.last_used.map_or("never".into(), denis::report::iso),
                     t.label
