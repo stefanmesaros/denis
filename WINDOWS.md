@@ -1,16 +1,45 @@
 # A Windows build: what exists, what does not, and the plan
 
 DENIS has no finished Windows build today (see README's Status section and ROADMAP.md), but as of
-2026-09-29 real progress exists: a real Windows 11 machine (via `--target x86_64-pc-windows-gnu`
+2026-09-30 real progress exists: a real Windows 11 machine (via `--target x86_64-pc-windows-gnu`
 cross-compilation for everything checked from this side, and a genuine `cargo build --release` run
 on the Windows machine itself for everything in the next section) has actually built and run parts
-of it. This document tracks the groundwork: an honest audit of what already works, what is
-missing, and a phased plan, updated only with what was actually run, not what "should" work.
+of it, **including local packet capture with real traffic** (see "Verified on a real Windows
+machine" below). This document tracks the groundwork: an honest audit of what already works, what
+is missing, and a phased plan, updated only with what was actually run, not what "should" work.
 Writing untested platform-specific code and calling it a "Windows agent" would be exactly the kind
 of unverified claim this project's own README explicitly refuses to make elsewhere (self-update,
 ARP-conflict detection, the SMB/MSSQL banner readers all carry a stated verification bar before
 they are called done — a Windows build deserves the same bar, not a lower one because it's harder
 to check).
+
+## Verified on a real Windows machine (2026-09-30): local capture works
+
+The interface-naming fix below (shipped in v2.48.0, "cross-compile-clean but not yet re-verified
+live" at the time) has now actually been run: `denis.exe run` (agent name `windows-test-laptop`,
+DENIS v2.50.0) opened a real adapter on the Windows 11 machine's own network and captured real
+traffic, reporting to the same production master over Tailscale used for the earlier `agent`-mode
+test. Observed directly from the master's own database (read-only inspection, not the console UI):
+
+* **42 devices discovered** on the machine's `10.0.10.0/24` segment within about two minutes of the
+  agent's first report, with real vendor OUIs (Apple, TP-Link, Ubiquiti, ASUS, Western Digital,
+  Espressif, D-Link and others) — this is genuine ARP/traffic-based discovery, not a static list.
+* **Port scanning and OS fingerprinting both work** through this path: banners and open ports
+  (SSH, HTTP/HTTPS, SMB, NFS, AFP, OpenVPN, AirPlay, Webmin, rpcbind) were read back correctly, and
+  `os_guess` correctly distinguished Linux, "Unix-like", iOS, and "Embedded firmware (lwIP/RTOS)"
+  across different devices on the same segment.
+* **The detection engine correctly consumes this agent's data**: `new_device` events and an
+  `arp_conflict` alert (two ASUS Wi-Fi radios claiming the same IP moments apart, a real and
+  correctly-scored finding, not a Windows-specific artifact) were generated directly from packets
+  this Windows agent captured, flowing through the same pipeline as every Linux/macOS agent.
+* The agent kept reporting continuously (`last_report_at` within 1–2 seconds of "now" on repeated
+  checks), with no capture errors observed in this window.
+
+This confirms the `net.rs` `FriendlyName`/`AdapterName` fix (below) genuinely resolved the original
+`libpcap error: Error opening adapter: ...(123)` failure, not just cross-compiled clean. **Not yet
+observed in this pass**: behavior over a longer run (hours/days), the Windows Service wrapper (this
+was `denis.exe run`, interactive, not a service), and elevated-privilege/service-account behavior
+(item 1 under "What is genuinely missing" below) — those remain open.
 
 ## Verified on a real Windows machine (2026-09-29)
 
@@ -93,10 +122,12 @@ nothing on macOS/Linux.
    user must install first (confirmed: build-time needs the Npcap *SDK*, runtime needs the Npcap
    *driver* itself — two different downloads from npcap.com), with its own licensing to check
    (Npcap's free tier restricts redistribution; bundling it into an installer is a licensing
-   decision, not a code change). The interface-naming bug found and fixed this pass (see "Verified
-   on a real Windows machine" above) was the actual immediate blocker, not licensing — that fix is
-   cross-compile-clean but still needs a real re-run to confirm capture genuinely opens now.
-   Capture also needs elevated privileges on Windows (raw sockets require Administrator, or Npcap's
+   decision, not a code change). The interface-naming bug that was the actual immediate blocker is
+   now confirmed fixed on real hardware (see "Verified on a real Windows machine (2026-09-30)"
+   above): capture opens and reports real traffic. Still open: this ran interactively, as the
+   signed-in user (not yet as a service or as a different, more restricted account), so the
+   privileged-account question below is not yet answered by this test. Capture also needs elevated
+   privileges on Windows (raw sockets require Administrator, or Npcap's
    "WinPcap API-compatible Mode" with specific driver options) — there is no Windows equivalent of
    Linux's `setcap`/`AmbientCapabilities` that lets an unprivileged service open a capture handle,
    so the service itself likely needs to run as `LocalSystem` or a privileged account, a materially
@@ -139,12 +170,12 @@ kind of "should work" code this project's own testing standard exists to prevent
    same way net.rs's were (`cargo check`/`clippy --target x86_64-pc-windows-gnu`, both clean).
 4. Decide the capture/privilege story (Npcap *runtime* licensing for end users, which account the
    service runs as) — a product decision, not code.
-5. A minimal `denis.exe` that can `run` interactively (no service yet) against Npcap, verified on a
-   real Windows machine with real traffic — in progress: `denis.exe agent` (the reporting path) is
-   confirmed working end to end against a real master; `denis.exe run` (local capture) hit a real
-   bug (interface naming, found and fixed this pass, not yet re-verified) before it could be judged
-   either way. The same bar `docs/security.md`'s "not yet verified" list already holds every other
-   platform-sensitive capability to.
+5. ~~A minimal `denis.exe` that can `run` interactively (no service yet) against Npcap, verified on
+   a real Windows machine with real traffic~~ — done (2026-09-30): both `denis.exe agent` (the
+   reporting path) and `denis.exe run` (local capture, the interface-naming fix) are confirmed
+   working end to end against a real master, with real traffic, real port scans, real OS
+   fingerprints and real detection events. See "Verified on a real Windows machine (2026-09-30)"
+   above for specifics.
 6. The service wrapper and installer, once (5) has actually been run for real.
 
 ## For IPv6
