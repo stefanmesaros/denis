@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.53.0: Groundwork: which collector has seen each device
+
+* **New `asset_sightings` table (schema v20)** recording which collector(s) have ever seen each
+  device and when — the local capture is `''`, a remote agent is its own id, matching
+  `assets.agent_id`'s own convention. Written on every device save; existing installs get their
+  current devices backfilled automatically on upgrade.
+* No visible behavior change yet — this is groundwork from MULTI_AGENT_DEDUP.md's design for
+  letting an administrator explicitly join a second collector into an existing site (so two
+  vantage points on one network show one set of devices instead of duplicates), and for an
+  eventual "seen by: local, windows-test-laptop" chip on the device detail panel. Neither the join
+  mechanism nor the UI exist yet.
+
 ## 2.52.0: Fix: a local capture and a remote agent on the same network could overwrite each other's device rows
 
 * **Fix: `Collector::start` loaded every stored device into the local in-memory inventory,

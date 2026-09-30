@@ -582,6 +582,20 @@ pub struct AgentInfo {
     pub last_seq: u64,
 }
 
+/// One collector's record of having seen one device (`asset_sightings` table) - groundwork for a
+/// future "seen by: local, windows-test-laptop" UI (MULTI_AGENT_DEDUP.md). Not yet read anywhere;
+/// written on every `save_asset`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Sighting {
+    pub asset_id: i64,
+    /// `""` for the local capture, else an agent id - matches `assets.agent_id`'s own
+    /// `COALESCE(agent_id, '')` convention throughout the store.
+    pub collector: String,
+    pub first_seen: i64,
+    pub last_seen: i64,
+    pub is_self: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AgentMeta {
     pub id: String,

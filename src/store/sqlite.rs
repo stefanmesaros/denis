@@ -12,7 +12,7 @@ use super::{
 };
 use crate::model::{AgentInfo, Asset, AssetMeta, AuditEntry, Baseline, Conversation, Event, Fingerprint, Mac, Metric, Presence, ReportMeta, RiskAcceptance, User};
 
-const SCHEMA_VERSION: i64 = 19;
+const SCHEMA_VERSION: i64 = 20;
 
 /// Phase 1 schema.
 const V1: &str = "CREATE TABLE assets (
@@ -266,6 +266,26 @@ const V19: &str = "CREATE TABLE imported_vulns (
         updated_at  INTEGER NOT NULL
      );";
 
+/// Multi-agent dedup, part 1 (see MULTI_AGENT_DEDUP.md): which collector(s) have seen each
+/// device, and the (not yet used by any code) column that will let an administrator join a
+/// second collector into an existing site instead of it staying its own site. `reports_into` is
+/// NULL for every agent today - the default, unchanged behaviour - and is only ever set by an
+/// administrator's explicit action, never inferred from a report. One row per (device,
+/// collector); `collector` is `''` for the local capture, else an agent id, matching
+/// `assets.agent_id`'s own `COALESCE(agent_id, '')` convention. Backfilled from every existing
+/// asset so the eventual \"seen by\" UI has data for installs that upgrade into this version.
+const V20: &str = "ALTER TABLE agents ADD COLUMN reports_into TEXT;
+     CREATE TABLE asset_sightings (
+        asset_id   INTEGER NOT NULL REFERENCES assets(id),
+        collector  TEXT    NOT NULL,
+        first_seen INTEGER NOT NULL,
+        last_seen  INTEGER NOT NULL,
+        is_self    INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (asset_id, collector)
+     ) WITHOUT ROWID;
+     INSERT INTO asset_sightings (asset_id, collector, first_seen, last_seen, is_self)
+        SELECT id, COALESCE(agent_id, ''), first_seen, last_seen, is_self FROM assets;";
+
 /// Phase 3.8: API tokens for scripts and integrations.
 const V7: &str = "CREATE TABLE api_tokens (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -362,7 +382,7 @@ impl SqliteStore {
         }
         // Each step runs in its own transaction and bumps user_version, so a
         // crash mid-migration leaves the database at a consistent older version.
-        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13), (14, V14), (15, V15), (16, V16), (17, V17), (18, V18), (19, V19)] {
+        for (target, sql) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6), (7, V7), (8, V8), (9, V9), (10, V10), (11, V11), (12, V12), (13, V13), (14, V14), (15, V15), (16, V16), (17, V17), (18, V18), (19, V19), (20, V20)] {
             if version < target {
                 let tx = conn.unchecked_transaction()?;
                 tx.execute_batch(sql)?;
@@ -544,7 +564,27 @@ impl AssetStore for SqliteStore {
             )?;
             anyhow::ensure!(n == 1, "asset {} vanished from the database", a.id);
         }
+        // Record (or extend) which collector saved this - groundwork for a future "seen by"
+        // UI (MULTI_AGENT_DEDUP.md); no behaviour depends on this table yet. `collector` matches
+        // `assets.agent_id`'s own `COALESCE(agent_id, '')` convention throughout this file.
+        conn.execute(
+            "INSERT INTO asset_sightings (asset_id, collector, first_seen, last_seen, is_self)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(asset_id, collector) DO UPDATE SET
+                first_seen = MIN(first_seen, excluded.first_seen),
+                last_seen  = MAX(last_seen, excluded.last_seen),
+                is_self    = excluded.is_self",
+            params![a.id, a.agent_id.clone().unwrap_or_default(), a.first_seen, a.last_seen, a.is_self],
+        )?;
         Ok(())
+    }
+    fn list_sightings(&self, asset_id: i64) -> Result<Vec<crate::model::Sighting>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT asset_id, collector, first_seen, last_seen, is_self FROM asset_sightings WHERE asset_id = ?1 ORDER BY collector")?;
+        let rows = stmt.query_map([asset_id], |r| {
+            Ok(crate::model::Sighting { asset_id: r.get(0)?, collector: r.get(1)?, first_seen: r.get(2)?, last_seen: r.get(3)?, is_self: r.get(4)? })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
     fn get_asset(&self, id: i64) -> Result<Option<Asset>> {
         let conn = self.conn();
@@ -671,6 +711,7 @@ impl AssetStore for SqliteStore {
             "DELETE FROM presence WHERE asset_id = ?1",
             "DELETE FROM conversations WHERE client_id = ?1 OR server_id = ?1",
             "DELETE FROM events WHERE asset_id = ?1",
+            "DELETE FROM asset_sightings WHERE asset_id = ?1",
             "DELETE FROM assets WHERE id = ?1",
         ] {
             tx.execute(sql, [id])?;
@@ -1334,6 +1375,7 @@ impl AdminStore for SqliteStore {
             "DELETE FROM presence WHERE asset_id IN (SELECT id FROM assets WHERE agent_id = ?1)",
             "DELETE FROM conversations WHERE client_id IN (SELECT id FROM assets WHERE agent_id = ?1) OR server_id IN (SELECT id FROM assets WHERE agent_id = ?1)",
             "DELETE FROM events WHERE asset_id IN (SELECT id FROM assets WHERE agent_id = ?1)",
+            "DELETE FROM asset_sightings WHERE asset_id IN (SELECT id FROM assets WHERE agent_id = ?1)",
             "DELETE FROM assets WHERE agent_id = ?1",
             "DELETE FROM metrics WHERE agent_id = ?1",
             "DELETE FROM agents WHERE id = ?1",
@@ -1360,7 +1402,7 @@ impl AdminStore for SqliteStore {
         // children first
         for sql in [
             "DELETE FROM events", "DELETE FROM baselines", "DELETE FROM conversations", "DELETE FROM presence", "DELETE FROM metrics",
-            "DELETE FROM asset_meta", "DELETE FROM risk_acceptances", "DELETE FROM reports", "DELETE FROM topo_snapshots", "DELETE FROM assets", "DELETE FROM agents",
+            "DELETE FROM asset_meta", "DELETE FROM risk_acceptances", "DELETE FROM reports", "DELETE FROM topo_snapshots", "DELETE FROM asset_sightings", "DELETE FROM assets", "DELETE FROM agents",
             // learned state that belongs to the old network
             "DELETE FROM settings WHERE key = 'dhcp_servers'",
         ] {
@@ -1512,7 +1554,7 @@ mod tests {
     #[test]
     fn ipv6_history_round_trips_and_defaults_to_empty() {
         let store = SqliteStore::open_in_memory().unwrap();
-        assert_eq!(store.stats(false).unwrap().schema_version, 19);
+        assert_eq!(store.stats(false).unwrap().schema_version, 20);
         let mut a = sample();
         assert!(a.ipv6_history.is_empty(), "nothing sets this yet");
         store.save_asset(&mut a).unwrap();
@@ -1522,6 +1564,104 @@ mod tests {
         store.save_asset(&mut a).unwrap();
         let back = store.get_asset(a.id).unwrap().unwrap().ipv6_history;
         assert_eq!(back, a.ipv6_history);
+    }
+
+    #[test]
+    fn saving_an_asset_records_a_sighting_and_extends_it_on_every_later_save() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let mut a = sample();
+        a.first_seen = 100;
+        a.last_seen = 100;
+        store.save_asset(&mut a).unwrap();
+        let sightings = store.list_sightings(a.id).unwrap();
+        assert_eq!(sightings.len(), 1);
+        assert_eq!(sightings[0].collector, "", "local capture is the empty-string collector");
+        assert_eq!((sightings[0].first_seen, sightings[0].last_seen, sightings[0].is_self), (100, 100, false));
+
+        // a later save with a wider time range extends the sighting, never shrinks it
+        a.first_seen = 50;
+        a.last_seen = 300;
+        a.is_self = true;
+        store.save_asset(&mut a).unwrap();
+        let sightings = store.list_sightings(a.id).unwrap();
+        assert_eq!(sightings.len(), 1, "still one row: same asset, same collector");
+        assert_eq!((sightings[0].first_seen, sightings[0].last_seen, sightings[0].is_self), (50, 300, true));
+    }
+
+    #[test]
+    fn an_agent_owned_asset_records_its_own_agent_id_as_the_collector() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let mut a = sample();
+        a.agent_id = Some("windows-test-laptop".into());
+        store.save_asset(&mut a).unwrap();
+        let sightings = store.list_sightings(a.id).unwrap();
+        assert_eq!(sightings.len(), 1);
+        assert_eq!(sightings[0].collector, "windows-test-laptop");
+    }
+
+    #[test]
+    fn deleting_an_asset_removes_its_sightings_too() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let mut a = sample();
+        store.save_asset(&mut a).unwrap();
+        assert_eq!(store.list_sightings(a.id).unwrap().len(), 1);
+        store.delete_asset(a.id).unwrap();
+        assert_eq!(store.list_sightings(a.id).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn deleting_an_agent_and_its_devices_removes_their_sightings_too() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        let mut a = sample();
+        a.agent_id = Some("site-a".into());
+        store.save_asset(&mut a).unwrap();
+        let id = a.id;
+        assert_eq!(store.list_sightings(id).unwrap().len(), 1);
+        store.delete_agent_and_its_devices("site-a").unwrap();
+        assert_eq!(store.list_sightings(id).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn upgrading_from_v19_backfills_asset_sightings_for_every_existing_device() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v19.db");
+        {
+            // Exactly what a pre-V20 build left on disk: a local device and an agent-owned one,
+            // neither with any asset_sightings row (the table doesn't exist yet at v19).
+            let c = Connection::open(&path).unwrap();
+            for sql in [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19] {
+                c.execute_batch(sql).unwrap();
+            }
+            c.pragma_update(None, "user_version", 19).unwrap();
+            c.execute(
+                "INSERT INTO assets (agent_id, mac, vendor, randomized_mac, ip_history, hostnames, device_type,
+                    os_guess, guess_reasons, open_ports, ports_scanned_at, fingerprint, is_self, is_gateway, first_seen, last_seen, ipv6_history)
+                 VALUES (NULL,'aa:bb:cc:00:00:01','V',0,'[]','[]','router',NULL,'[]','[]',NULL,
+                    '{\"dhcp_vendor_class\":null,\"dhcp_param_list\":null,\"mdns_services\":[],\"mdns_names\":[],\"mdns_models\":[],\"ssdp_server\":null,\"ssdp_types\":[],\"tcp_sig\":null,\"ttl\":null}',1,1,50,60,'[]')",
+                [],
+            ).unwrap();
+            c.execute(
+                "INSERT INTO assets (agent_id, mac, vendor, randomized_mac, ip_history, hostnames, device_type,
+                    os_guess, guess_reasons, open_ports, ports_scanned_at, fingerprint, is_self, is_gateway, first_seen, last_seen, ipv6_history)
+                 VALUES ('windows-test-laptop','aa:bb:cc:00:00:02','V',0,'[]','[]','computer',NULL,'[]','[]',NULL,
+                    '{\"dhcp_vendor_class\":null,\"dhcp_param_list\":null,\"mdns_services\":[],\"mdns_names\":[],\"mdns_models\":[],\"ssdp_server\":null,\"ssdp_types\":[],\"tcp_sig\":null,\"ttl\":null}',0,0,70,80,'[]')",
+                [],
+            ).unwrap();
+        }
+        let s = SqliteStore::open(&path).unwrap();
+        assert_eq!(s.stats(false).unwrap().schema_version, 20);
+        let assets = s.load_assets().unwrap();
+        assert_eq!(assets.len(), 2);
+        let local = assets.iter().find(|a| a.agent_id.is_none()).unwrap();
+        let agent_owned = assets.iter().find(|a| a.agent_id.is_some()).unwrap();
+
+        let local_sightings = s.list_sightings(local.id).unwrap();
+        assert_eq!(local_sightings.len(), 1);
+        assert_eq!((local_sightings[0].collector.as_str(), local_sightings[0].first_seen, local_sightings[0].last_seen, local_sightings[0].is_self), ("", 50, 60, true));
+
+        let agent_sightings = s.list_sightings(agent_owned.id).unwrap();
+        assert_eq!(agent_sightings.len(), 1);
+        assert_eq!((agent_sightings[0].collector.as_str(), agent_sightings[0].first_seen, agent_sightings[0].last_seen, agent_sightings[0].is_self), ("windows-test-laptop", 70, 80, false));
     }
 
     #[test]

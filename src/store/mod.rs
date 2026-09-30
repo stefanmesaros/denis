@@ -131,6 +131,8 @@ pub trait AssetStore: Send + Sync {
     fn find_asset(&self, agent_id: Option<&str>, mac: &Mac) -> Result<Option<Asset>>;
     /// Remove an asset and everything hanging off it (meta, baseline, presence, events).
     fn delete_asset(&self, id: i64) -> Result<()>;
+    /// Every collector that has ever saved this asset - see [`crate::model::Sighting`].
+    fn list_sightings(&self, asset_id: i64) -> Result<Vec<crate::model::Sighting>>;
 
     fn load_baselines(&self) -> Result<Vec<Baseline>>;
     fn get_baseline(&self, asset_id: i64) -> Result<Option<Baseline>>;
