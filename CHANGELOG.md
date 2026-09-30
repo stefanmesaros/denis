@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.58.0: "Up but not detecting" is no longer silent (H3)
+
+* **Fix (H3): a panic inside any background detection task used to be invisible.** Tokio catches
+  a panic inside a spawned task and logs it once — it does not crash the process, and nothing else
+  was watching those tasks. If the panic happened while holding the detector's lock, every later
+  access to it would have failed the same way forever, while the web console, `/api/health` and
+  systemd's `Restart=` all kept seeing a perfectly healthy process. For a monitoring product,
+  "up but not detecting" is the worst failure mode, and it was completely silent.
+* The periodic detector tick now recovers from a poisoned lock instead of also failing (best
+  effort — the detector's own state tolerates a partially-applied update far better than every
+  other engine task panicking right after it would), and reports two new facts on `/api/system`
+  and the Health page: how long ago the detector last ticked (warns past 60 seconds; it should
+  tick every 5), and whether its lock has ever been found poisoned (a permanent, sticky signal
+  once it happens — a restart is recommended, not automatic).
+* This is the visibility half of H3, not the full architectural fix (a proper task supervisor or
+  dedicated detector thread) — that is deliberately deferred to the multi-tenancy groundwork phase,
+  where the same restructuring is needed anyway (see ROADMAP.md's confirmed order).
+
 ## 2.57.0: Multi-agent dedup: an administrator can now join two collectors together
 
 * **The core of MULTI_AGENT_DEDUP.md's fix is now live**: an administrator can join a second

@@ -215,6 +215,17 @@ pub struct StatusInfo {
     /// Whether `--backup-upstream` is configured on this install (so the console can show the
     /// upload-to-MSP schedule only when it would actually do anything).
     pub backup_upstream_configured: bool,
+    /// When the periodic detector tick (every 5s) last completed - `None` before the first one.
+    /// Used by the Health page to show "up but not detecting" (SECURITY_ARCHITECTURE_REVIEW.md
+    /// H3) rather than leaving that failure mode silent: a panic inside a `tokio::spawn` task is
+    /// caught and logged by Tokio, not by this process, so nothing else makes that task's death
+    /// visible on its own.
+    pub last_detector_tick: Option<i64>,
+    /// Whether the detector's own lock was found poisoned (a panic happened while some other task
+    /// held it) the last time anything checked - see the same H3 note above. Once poisoned it
+    /// stays poisoned (this codebase does not clear it - see the module doc on why), so this is a
+    /// one-way, sticky "detection may be inconsistent from here on" signal, not a transient blip.
+    pub detector_poisoned: bool,
 }
 
 /// A request to scan these devices again right now (to confirm that a finding was fixed).
@@ -525,6 +536,8 @@ impl Collector {
                 frames_matched: 0,
                 exports: Vec::new(),
                 backup_upstream_configured: false, // set right after Collector::start in `run()`, which knows it
+                last_detector_tick: None,
+                detector_poisoned: false,
             }),
             frames: frames.clone(),
             exports: Mutex::new(Vec::new()),
@@ -773,6 +786,8 @@ pub async fn serve_only(cfg: ServeConfig) -> Result<()> {
             frames_matched: 0,
             exports: Vec::new(),
             backup_upstream_configured: false,
+            last_detector_tick: None,
+            detector_poisoned: false,
         }),
         frames: Arc::new(AtomicU64::new(0)),
         exports: Mutex::new(Vec::new()),
@@ -1115,7 +1130,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     }));
 
     // periodic detector work + baseline persistence
-    let (d, s, al) = (detector.clone(), store.clone(), alerts.clone());
+    let (d, s, al, shared) = (detector.clone(), store.clone(), alerts.clone(), coll.shared.clone());
     tasks.push(tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(5));
         let mut n = 0u64;
@@ -1124,19 +1139,26 @@ pub async fn run(mut cfg: Config) -> Result<()> {
         loop {
             tick.tick().await;
             n += 1;
+            // Surfaced on the Health page (SECURITY_ARCHITECTURE_REVIEW.md H3): a panic elsewhere
+            // that poisoned this lock must not stay invisible just because the process itself
+            // keeps running and the web server keeps answering. `is_poisoned()` never blocks.
+            if d.is_poisoned() {
+                shared.update(|st| st.detector_poisoned = true);
+            }
             refresh_rules(&*s, &base_detect, &d, &mut applied_rules, &mut was_learning);
             if n.is_multiple_of(12) {
                 if let Some(p) = &threat_path {
                     refresh_threat_list(p, &mut threat_mtime, &d);
                 }
             }
-            let ev = d.lock().unwrap().tick(&*s, now_ts());
+            let ev = d.lock().unwrap_or_else(|e| e.into_inner()).tick(&*s, now_ts());
             al.emit(ev);
             if n.is_multiple_of(6) {
-                if let Err(e) = d.lock().unwrap().flush(&*s) {
+                if let Err(e) = d.lock().unwrap_or_else(|e| e.into_inner()).flush(&*s) {
                     tracing::error!("saving baselines failed: {e:#}");
                 }
             }
+            shared.update(|st| st.last_detector_tick = Some(now_ts()));
         }
     }));
 
@@ -1520,6 +1542,8 @@ pub fn test_shared_at(db_path: std::path::PathBuf) -> Arc<Shared> {
             frames_matched: 0,
             exports: Vec::new(),
             backup_upstream_configured: false,
+            last_detector_tick: None,
+            detector_poisoned: false,
         }),
         frames: Arc::new(AtomicU64::new(0)),
         exports: Mutex::new(Vec::new()),
@@ -1555,6 +1579,41 @@ mod tests {
         let kept = local_only_assets(vec![local.clone(), agent_owned]);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].mac, local.mac);
+    }
+
+    #[test]
+    fn health_flags_a_stale_or_poisoned_detector_so_up_but_not_detecting_is_never_silent() {
+        // SECURITY_ARCHITECTURE_REVIEW.md H3: a panic inside a background task is caught and
+        // logged by Tokio, not by this process, so nothing else makes "detection has quietly
+        // stopped" visible on its own - these two status fields (and the Health warnings they
+        // drive) are the fix.
+        let store = crate::store::sqlite::SqliteStore::open_in_memory().unwrap();
+        let shared = test_shared();
+        let now = crate::model::now_ts();
+
+        // a fresh install, tick not due yet: no warning
+        shared.update(|s| s.started_at = now);
+        let h = crate::health::gather(&store, &shared, now, false).unwrap();
+        assert!(!h.warnings.iter().any(|w| w.text == crate::health::W_DETECTOR_STALE), "{:?}", h.warnings);
+
+        // ticked recently: no warning
+        shared.update(|s| s.last_detector_tick = Some(now - 5));
+        let h = crate::health::gather(&store, &shared, now, false).unwrap();
+        assert!(!h.warnings.iter().any(|w| w.text == crate::health::W_DETECTOR_STALE));
+
+        // ticked long ago: stale, warns
+        shared.update(|s| s.last_detector_tick = Some(now - 300));
+        let h = crate::health::gather(&store, &shared, now, false).unwrap();
+        assert!(h.warnings.iter().any(|w| w.text == crate::health::W_DETECTOR_STALE));
+
+        // poisoned: warns too, independent of staleness
+        shared.update(|s| {
+            s.last_detector_tick = Some(now - 1);
+            s.detector_poisoned = true;
+        });
+        let h = crate::health::gather(&store, &shared, now, false).unwrap();
+        assert!(!h.warnings.iter().any(|w| w.text == crate::health::W_DETECTOR_STALE), "fresh tick: not stale");
+        assert!(h.warnings.iter().any(|w| w.text == crate::health::W_DETECTOR_POISONED));
     }
 
     #[test]

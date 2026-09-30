@@ -43,9 +43,11 @@ pub const W_NO_BACKUP: &str = "There is no backup yet. Switch the schedule on, o
 pub const W_OLD_BACKUP: &str = "The newest backup is {age} old.";
 pub const W_MIRROR_IP: &str = "The mirror interface {name} has an IP address of its own ({ip}). A monitor/SPAN port normally should not: an address there can conflict with a real device and cause outages on the network you are watching, not just on this box. See below to remove it.";
 pub const W_DNS: &str = "This machine could not resolve a domain name just now. Check its own DNS settings, or whether the router it uses for DNS is itself working and can reach the internet.";
+pub const W_DETECTOR_STALE: &str = "The detector has not run its regular check in {age}, though it should run every few seconds. Detection may have stopped even though this console is still answering. Restarting the service is the safest fix.";
+pub const W_DETECTOR_POISONED: &str = "Something inside the detector panicked earlier and left its internal state marked unreliable. It is still running on a best-effort basis, but a restart is recommended to be sure detection is working correctly again.";
 
-pub fn texts() -> [&'static str; 9] {
-    [W_CAPTURE_DOWN, W_DROPS, W_SWEEP_LATE, W_NO_SWEEP, W_DISK, W_NO_BACKUP, W_OLD_BACKUP, W_MIRROR_IP, W_DNS]
+pub fn texts() -> [&'static str; 11] {
+    [W_CAPTURE_DOWN, W_DROPS, W_SWEEP_LATE, W_NO_SWEEP, W_DISK, W_NO_BACKUP, W_OLD_BACKUP, W_MIRROR_IP, W_DNS, W_DETECTOR_STALE, W_DETECTOR_POISONED]
 }
 
 /// A DNS resolution attempt from this host, in its own thread so a genuinely broken resolver
@@ -266,6 +268,21 @@ pub fn gather(store: &dyn Store, shared: &impl StatusSource, now: i64, with_rows
 
     if !viewer && !dns_ok(now) {
         warnings.push(warn(W_DNS, &[]));
+    }
+
+    // "Up but not detecting" must never be silent (SECURITY_ARCHITECTURE_REVIEW.md H3): a panic
+    // inside a background task is caught and logged by Tokio, not by this process, so the web
+    // server, /api/system and even systemd's `Restart=` all keep seeing a perfectly live process
+    // either way. These two checks are the only thing that makes that failure mode visible.
+    if !viewer {
+        match info.last_detector_tick {
+            Some(t) if now - t > 60 => warnings.push(warn(W_DETECTOR_STALE, &[("age", human_span(now - t))])),
+            None if now - info.started_at > 60 => warnings.push(warn(W_DETECTOR_STALE, &[("age", human_span(now - info.started_at))])),
+            _ => {}
+        }
+        if info.detector_poisoned {
+            warnings.push(warn(W_DETECTOR_POISONED, &[]));
+        }
     }
 
     Ok(Health { version: info.version, mode: info.mode, uptime_secs: now - info.started_at, db, disk, capture, sweep, backups, mirror_ips, warnings })

@@ -192,6 +192,15 @@ exactly the kind the doc's rule of thumb misses.
 
 ### H3. A panic in any engine task silently stops detection while the console looks healthy
 
+**Status (2026-09-30): visibility half fixed (v2.58.0), architectural half deferred on purpose.**
+The periodic detector tick now recovers from a poisoned lock (best effort) instead of also dying,
+and `/api/health`/the Health page now show detector tick staleness and lock-poisoned state, so
+this failure mode can never be silent again. The full fix this section asks for — a real
+supervisor or dedicated detector thread, chosen "with M7 and Phase 2 in mind" per this session's
+own follow-up review — is intentionally left for the multi-tenancy groundwork phase, where the
+same ~25 `tokio::spawn` tasks get restructured anyway (see ROADMAP.md's confirmed order). Every
+other lock site in `engine.rs`/`ingest.rs` still fails loudly (plain `.lock().unwrap()`), unchanged.
+
 **Where** (verified by reading):
 
 * `engine.rs:996-1174`: roughly 25 `tokio::spawn` tasks are pushed into `tasks`. Those handles
