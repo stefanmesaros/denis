@@ -1989,6 +1989,7 @@
 "this DENIS cannot scan (viewer mode or passive-only): run a scan yourself, then verify again": "tento DENIS nemôže skenovať (režim čitateľa alebo len pasívne): spustite sken sami a potom overte znova",
 "this address is excluded from probing (--exclude)": "táto adresa je vylúčená zo sondovania (--exclude)",
 "this device": "toto zariadenie",
+"this device belongs to a remote site: the master cannot tell whether that address means the same thing on the master's own network, so it is never probed from here": "toto zariadenie patrí na vzdialenú lokalitu: master nemôže vedieť, či táto adresa znamená to isté aj na jeho vlastnej sieti, takže sa odtiaľto nikdy neskenuje",
 "this installation cannot update itself (no release key in this build, or the program folder is not writable): update by hand": "táto inštalácia sa nemôže aktualizovať sama (táto zostava nemá kľúč vydania alebo priečinok programu nie je zapisovateľný): aktualizujte ručne",
 "this machine": "tento počítač",
 "this program gets its packet-capture permission from setcap, which an updated file would lose: run it under systemd with AmbientCapabilities, or update by hand and run setcap again": "tento program dostáva oprávnenie na zachytávanie paketov cez setcap, o ktoré by aktualizovaný súbor prišiel: spúšťajte ho pod systemd s AmbientCapabilities, alebo aktualizujte ručne a znova spustite setcap",

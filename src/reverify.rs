@@ -149,7 +149,11 @@ pub fn evaluate(assets: &[Asset], metas: &HashMap<i64, AssetMeta>, acceptances: 
                 }
             }
         }
-        if recheck_due && crate::findings::is_scan_finding(&acc.finding_id) && !crate::fingerprint::is_ot_device(asset) {
+        // `agent_id.is_none()`: a remote site's device is never probed from here - the master's
+        // own rescanner has no notion of sites and would probe the address on its own network,
+        // which may be a different device entirely that happens to share the same private IP
+        // (SECURITY_ARCHITECTURE_REVIEW.md H5).
+        if recheck_due && crate::findings::is_scan_finding(&acc.finding_id) && !crate::fingerprint::is_ot_device(asset) && asset.agent_id.is_none() {
             if let Some(ip) = asset.current_ip() {
                 rescan.push((asset.id, ip));
             }
@@ -339,6 +343,19 @@ mod tests {
         assert_eq!(o.state.last_recheck, NOW);
         assert!(evaluate(&assets, &none, &acc, o.state.clone(), NOW + DAY - 1).rescan.is_empty(), "not again within a day");
         assert_eq!(evaluate(&assets, &none, &acc, o.state, NOW + DAY).rescan.len(), 1);
+    }
+
+    #[test]
+    fn a_remote_sites_device_is_never_queued_for_the_daily_rescan() {
+        // SECURITY_ARCHITECTURE_REVIEW.md H5: the master's own rescanner has no notion of sites,
+        // so a remote device's address must never reach it - even though the device otherwise
+        // looks exactly like a normal local one (an open port, an accepted risk needing a scan).
+        let mut remote = dev(1, "camera", &[23]);
+        remote.agent_id = Some("branch-b".into());
+        let none = HashMap::new();
+        let acc = [accept(1, 1, "telnet_open", Some(90.0))];
+        let o = evaluate(&[remote], &none, &acc, State::default(), NOW);
+        assert!(o.rescan.is_empty(), "a remote site's device must never be queued for the local rescanner");
     }
 
     #[test]

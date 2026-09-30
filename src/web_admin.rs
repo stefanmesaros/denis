@@ -1830,6 +1830,7 @@ const D_GONE: &str = "the device is no longer in the register";
 const D_REG_STILL: &str = "the register still shows it";
 const D_REG_FIXED: &str = "the register no longer shows it";
 const D_OT: &str = "industrial devices are never scanned: check the device itself and update its ports by hand";
+const D_REMOTE_SITE: &str = "this device belongs to a remote site: the master cannot tell whether that address means the same thing on the master's own network, so it is never probed from here";
 const D_NO_ADDR: &str = "no address is known for this device";
 const D_CANNOT_SCAN: &str = "this DENIS cannot scan (viewer mode or passive-only): run a scan yourself, then verify again";
 const D_PORT_OPEN: &str = "scanned just now: the port is still open";
@@ -1846,8 +1847,8 @@ const E_NOT_APPLY: &str = "that finding does not apply to any device right now";
 const E_NO_RISK: &str = "no such accepted risk";
 
 /// Every fixed sentence of the risk and verify endpoints, so the translation test can check them.
-pub fn risk_texts() -> [&'static str; 18] {
-    [D_BANNER_STILL, D_BANNER_GONE, D_GONE, D_REG_STILL, D_REG_FIXED, D_OT, D_NO_ADDR, D_CANNOT_SCAN, D_PORT_OPEN, D_PORT_CLOSED, D_EXCLUDED, D_SILENT, E_REASON, E_UNKNOWN, E_DEVICES, E_DAYS, E_NOT_APPLY, E_NO_RISK]
+pub fn risk_texts() -> [&'static str; 19] {
+    [D_BANNER_STILL, D_BANNER_GONE, D_GONE, D_REG_STILL, D_REG_FIXED, D_OT, D_REMOTE_SITE, D_NO_ADDR, D_CANNOT_SCAN, D_PORT_OPEN, D_PORT_CLOSED, D_EXCLUDED, D_SILENT, E_REASON, E_UNKNOWN, E_DEVICES, E_DAYS, E_NOT_APPLY, E_NO_RISK]
 }
 
 /// The decisions in force with the words of the finding each is about.
@@ -1997,6 +1998,13 @@ pub(crate) async fn finding_verify(State(st): State<AppState>, Extension(AuthUse
             results.push(json!({ "asset_id": id, "status": if still { "still_present" } else { "fixed" }, "detail": if still { D_REG_STILL } else { D_REG_FIXED } }));
         } else if crate::fingerprint::is_ot_device(a) {
             results.push(json!({ "asset_id": id, "status": "not_probed", "detail": D_OT }));
+        } else if a.agent_id.is_some() {
+            // The master's own rescanner has no notion of sites: it would probe this address on
+            // *its own* network, which may be an entirely different device that happens to share
+            // the same private IP as the remote one (SECURITY_ARCHITECTURE_REVIEW.md H5). Remote
+            // active scanning needs the owning agent to do its own probing, which does not exist
+            // yet - refusing is the safe default until it does.
+            results.push(json!({ "asset_id": id, "status": "not_probed", "detail": D_REMOTE_SITE }));
         } else if let Some(ip) = a.current_ip() {
             to_scan.push((*id, ip));
         } else {

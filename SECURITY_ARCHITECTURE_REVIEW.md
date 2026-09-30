@@ -280,6 +280,14 @@ network.
 
 ### H5. "Verify fix" and scheduled re-verification port-scan a remote site's device IP from the master's own network
 
+**Status (2026-09-30): fixed (v2.59.0).** Both call sites (`web_admin.rs::finding_verify` and
+`reverify.rs::evaluate`) now refuse any device with `agent_id.is_some()` before it ever reaches
+the master's local rescanner — reported as `not_probed`, with a plain sentence explaining why,
+rather than silently scanning whatever shares that IP on the master's own network. Routing the
+request to the owning agent instead (so a remote device's fix really can be re-verified) is not
+built — that needs the agent side to gain its own on-demand port-scan capability, which does not
+exist yet.
+
 **Where** (verified by reading): `web_admin.rs:1903 finding_verify`, `reverify.rs:152-155` and
 `:210-214`, and `engine.rs:1367 rescanner`.
 

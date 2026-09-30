@@ -1989,6 +1989,7 @@
 "this DENIS cannot scan (viewer mode or passive-only): run a scan yourself, then verify again": "Dieses DENIS kann nicht scannen (Betrachtermodus oder nur passiv): Starten Sie selbst einen Scan und prüfen Sie dann erneut",
 "this address is excluded from probing (--exclude)": "Diese Adresse ist vom Abtasten ausgeschlossen (--exclude)",
 "this device": "dieses Gerät",
+"this device belongs to a remote site: the master cannot tell whether that address means the same thing on the master's own network, so it is never probed from here": "dieses Gerät gehört zu einem entfernten Standort: Der Master kann nicht wissen, ob diese Adresse im eigenen Netzwerk des Masters dasselbe bedeutet, daher wird von hier aus nie geprüft",
 "this installation cannot update itself (no release key in this build, or the program folder is not writable): update by hand": "diese Installation kann sich nicht selbst aktualisieren (kein Release-Schlüssel in dieser Version oder Programmordner nicht beschreibbar): bitte von Hand aktualisieren",
 "this machine": "dieser Rechner",
 "this program gets its packet-capture permission from setcap, which an updated file would lose: run it under systemd with AmbientCapabilities, or update by hand and run setcap again": "dieses Programm erhält seine Berechtigung zum Paketmitschnitt über setcap, die eine aktualisierte Datei verlieren würde: unter systemd mit AmbientCapabilities betreiben oder von Hand aktualisieren und setcap erneut ausführen",

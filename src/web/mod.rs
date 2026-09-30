@@ -4646,6 +4646,16 @@ mod tests {
         };
         let (still, gone, silent, excluded) = (mk(7, "camera", "Acme"), mk(8, "camera", "Acme"), mk(9, "camera", "Acme"), mk(10, "camera", "Acme"));
         let plc = mk(11, "plc", "Siemens AG");
+        // a remote site's device happens to share an IP with .7 above (SECURITY_ARCHITECTURE_REVIEW.md
+        // H5): it must never be handed to this master's own local rescanner, which has no notion
+        // of sites and would probe *this* network's .7 instead of the remote one.
+        let mut remote = Asset::new(Mac([2, 0, 0, 1, 0, 12]), 10);
+        remote.agent_id = Some("branch-b".into());
+        remote.device_type = "camera".into();
+        remote.last_seen = now_ts();
+        remote.open_ports = vec![crate::model::OpenPort { port: 23, proto: "tcp".into(), service: None }];
+        remote.ip_history.push(crate::model::IpRecord { ip: std::net::Ipv4Addr::new(10, 0, 0, 7), first_seen: 1, last_seen: 1 });
+        store.save_asset(&mut remote).unwrap();
         let (st, v) = {
             let (st, _, v) = send(&app, req("POST", "/api/findings/telnet_open/verify", None, None)).await;
             (st, v)
@@ -4653,8 +4663,11 @@ mod tests {
         assert_eq!(st, StatusCode::OK, "{v}");
         let status = |a: &Asset| v["results"].as_array().unwrap().iter().find(|r| r["asset_id"] == a.id).unwrap()["status"].as_str().unwrap().to_string();
         assert_eq!((status(&still), status(&gone), status(&silent), status(&excluded), status(&plc)), ("still_present".into(), "fixed".into(), "unreachable".into(), "excluded".into(), "not_probed".into()), "{v}");
+        assert_eq!(status(&remote), "not_probed", "a remote site's device is never scanned from the master's own network");
+        assert_eq!(v["results"].as_array().unwrap().iter().find(|r| r["asset_id"] == remote.id).unwrap()["detail"], "this device belongs to a remote site: the master cannot tell whether that address means the same thing on the master's own network, so it is never probed from here");
         assert_eq!((v["rescanned"].as_bool(), v["fixed"].as_i64(), v["still_present"].as_i64()), (Some(true), Some(1), Some(1)));
         assert!(!asked.lock().unwrap().contains(&std::net::Ipv4Addr::new(10, 0, 0, 11)), "an industrial device is never sent to the scanner");
+        assert_eq!(asked.lock().unwrap().iter().filter(|ip| **ip == std::net::Ipv4Addr::new(10, 0, 0, 7)).count(), 1, "the remote device's shared IP was sent to the scanner exactly once, for the master's own local device only");
         // asking about one device only scans that one
         asked.lock().unwrap().clear();
         let (_, _, v) = send(&app, req("POST", "/api/findings/telnet_open/verify", None, Some(serde_json::json!({"asset_ids": [gone.id]})))).await;

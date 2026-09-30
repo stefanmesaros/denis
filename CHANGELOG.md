@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.59.0: Fix (H5): "Verify fix" no longer scans the wrong host for a remote site's device
+
+* **Fix: "Verify fix" and the daily re-verification job could port-scan the wrong machine
+  entirely.** Both only ever worked with a device's bare IP address, with no notion of which site
+  it belonged to. For a remote site's device, that address was handed straight to the master's own
+  local scanner — which happily probed whatever *its own* network has at that address, a
+  completely different device if the master's and the remote site's private ranges happen to
+  overlap (common: many networks use `192.168.1.0/24`). The report then said a remote device was
+  "fixed" or "still present" based on results from an unrelated machine, and — worse — an
+  industrial device at that address on the master's own network could get actively probed even
+  though its *own* site's industrial device was correctly protected, breaking the "industrial
+  devices are never scanned" guarantee for the wrong reason entirely.
+* Both paths now refuse to scan any device that belongs to a remote site, reporting "not probed:
+  belongs to a remote site" instead. Re-verifying a remote device's fix by actually reaching that
+  site is not built yet — it needs the agent side to gain its own on-demand scan capability.
+
 ## 2.58.0: "Up but not detecting" is no longer silent (H3)
 
 * **Fix (H3): a panic inside any background detection task used to be invisible.** Tokio catches
