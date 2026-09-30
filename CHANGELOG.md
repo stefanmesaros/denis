@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.51.0: Cloud asset discovery: GCP Compute Engine instances
+
+* **Pulls Compute Engine instance inventory from one GCP project** (Settings → Integrations →
+  CMDB import → GCP) via the `instances.aggregatedList` API, and cross-references it into the same
+  shared device list as Entra ID/Intune/Active Directory/Jamf Pro/Azure/AWS — matched by hostname
+  (the instance's own name), shown as extra context, nothing ever written back. This completes
+  ROADMAP.md's "Cloud asset discovery" item: all three of AWS, Azure and GCP are now covered.
+* **A fourth authorization model, a genuine hybrid of the other two cloud sources**: like Azure,
+  the permission that matters is an IAM role (`roles/compute.viewer` is enough) granted at the
+  project, not a scoped API permission; like AWS, there is no interactive admin-consent step. But
+  the credential is a service account JSON key (an RSA private key), and instead of a plain
+  client-credentials exchange or no exchange at all, GCP uses a signed JWT bearer assertion (RFC
+  7523): a JWT signed with the service account's own RSA private key (RS256) is exchanged once for
+  a short-lived OAuth2 access token, then used as a normal bearer token.
+* Implemented the JWT-bearer flow with `ring`'s existing RSA signing support (already a dependency,
+  used here for RSA for the first time in this codebase — everywhere else uses ECDSA or Ed25519)
+  and a small hand-rolled PEM/base64 decoder, rather than pulling in a JWT crate for one exchange.
+* Verified end to end against the real Google token endpoint using a locally-generated, throwaway
+  RSA key that was never registered with any real GCP project — the JWT is correctly built,
+  signed, and reaches Google's real server, which rejects it with a genuine HTTP 400 (the service
+  account doesn't exist). Not yet exercised against a real GCP project with a real service account
+  and real Compute Engine instances — see CMDB.md for exactly what is and isn't verified.
+
 ## 2.50.0: Cloud asset discovery: AWS EC2 instances
 
 * **Pulls EC2 instance inventory from one AWS region** (Settings → Integrations → CMDB import →

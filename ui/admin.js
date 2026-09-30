@@ -1609,11 +1609,11 @@ $('ai-save').onclick = async () => {
   if (r.ok) { loadAiBox(); loadAiStatus(); }
 };
 
-const CMDB_SOURCE_LABEL = (source) => (source === 'intune' ? tr('Intune') : source === 'ad' ? tr('Active Directory') : source === 'jamf' ? tr('Jamf Pro') : source === 'azure' ? tr('Azure') : source === 'aws' ? tr('AWS') : tr('Entra ID'));
+const CMDB_SOURCE_LABEL = (source) => (source === 'intune' ? tr('Intune') : source === 'ad' ? tr('Active Directory') : source === 'jamf' ? tr('Jamf Pro') : source === 'azure' ? tr('Azure') : source === 'aws' ? tr('AWS') : source === 'gcp' ? tr('GCP') : tr('Entra ID'));
 
 async function loadCmdbBox() {
   if (!can('admin')) return;
-  const [s, a, j, z, w, d] = await Promise.all([api('GET', '/api/cmdb/settings'), api('GET', '/api/ad/settings'), api('GET', '/api/jamf/settings'), api('GET', '/api/azure/settings'), api('GET', '/api/aws/settings'), api('GET', '/api/cmdb/devices')]);
+  const [s, a, j, z, w, g, d] = await Promise.all([api('GET', '/api/cmdb/settings'), api('GET', '/api/ad/settings'), api('GET', '/api/jamf/settings'), api('GET', '/api/azure/settings'), api('GET', '/api/aws/settings'), api('GET', '/api/gcp/settings'), api('GET', '/api/cmdb/devices')]);
   if (s.ok) {
     $('cmdb-enabled').checked = s.json.enabled;
     $('cmdb-tenant').value = s.json.tenant_id || '';
@@ -1661,6 +1661,14 @@ async function loadCmdbBox() {
     $('aws-secret-access-key').value = '';
     $('aws-secret-access-key').placeholder = w.json.secret_access_key_set ? tr('(unchanged)') : '';
     $('aws-secret-status').textContent = w.json.secret_access_key_set ? tr('A secret access key is saved.') : tr('No secret access key saved yet.');
+  }
+  if (g.ok) {
+    $('gcp-enabled').checked = g.json.enabled;
+    $('gcp-project-id').value = g.json.project_id || '';
+    $('gcp-interval').value = g.json.sync_interval_hours || 24;
+    $('gcp-service-account-json').value = '';
+    $('gcp-service-account-json').placeholder = g.json.service_account_json_set ? tr('(unchanged)') : '';
+    $('gcp-secret-status').textContent = g.json.service_account_json_set ? tr('A service account key is saved.') : tr('No service account key saved yet.');
   }
   $('cmdb-devices').replaceChildren(...(d.ok ? d.json : []).map((dev) => {
     const asset = dev.matched_asset_id != null ? assetById(dev.matched_asset_id) : null;
@@ -1774,6 +1782,24 @@ $('aws-sync').onclick = async () => {
   const r = await api('POST', '/api/aws/sync');
   $('aws-sync').disabled = false;
   $('aws-msg').textContent = r.ok && r.json.ok ? tr('Imported {n} device(s).', { n: r.json.imported }) : (r.ok ? r.json.error : apiError(r));
+  if (r.ok && r.json.ok) loadCmdbBox();
+};
+$('gcp-save').onclick = async () => {
+  const r = await api('PUT', '/api/gcp/settings', {
+    enabled: $('gcp-enabled').checked,
+    project_id: $('gcp-project-id').value.trim(),
+    sync_interval_hours: Number($('gcp-interval').value) || 24,
+    service_account_json: $('gcp-service-account-json').value.trim(),
+  });
+  $('gcp-msg').textContent = r.ok ? tr('Saved.') : apiError(r);
+  if (r.ok) loadCmdbBox();
+};
+$('gcp-sync').onclick = async () => {
+  $('gcp-sync').disabled = true;
+  $('gcp-msg').textContent = tr('Syncing…');
+  const r = await api('POST', '/api/gcp/sync');
+  $('gcp-sync').disabled = false;
+  $('gcp-msg').textContent = r.ok && r.json.ok ? tr('Imported {n} device(s).', { n: r.json.imported }) : (r.ok ? r.json.error : apiError(r));
   if (r.ok && r.json.ok) loadCmdbBox();
 };
 

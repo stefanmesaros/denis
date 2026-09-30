@@ -156,14 +156,17 @@ year. This is what is still missing, in rough order. Pull requests welcome.
     (signature-wrapping attacks) and meaningfully less mature Rust tooling than OIDC's — valuable
     for enterprise procurement, but a materially bigger, riskier piece of work than the OIDC path
     already shipped. Revisit the order if a specific customer's procurement is blocked on it.
-13. **Cloud asset discovery** (AWS/Azure/GCP inventory as another CMDB-like source). *(effort: 2/10
-    remaining)* Azure done (2026-09-29, `azure_cloud.rs`): virtual machine inventory via Azure
-    Resource Graph, authorized by an Azure RBAC role at the subscription, not a Graph application
-    permission. AWS done (2026-09-29, `aws_cloud.rs`): EC2 instance inventory via the EC2 API,
-    authorized by a long-lived IAM access key signed with AWS Signature Version 4 — a third,
-    genuinely different authorization model again (no bearer token or OAuth2 exchange at all).
-    Both write into the same shared CMDB device list, matched by hostname the same way as the four
-    directory/MDM sources. GCP not yet started. See CMDB.md for exactly what is verified.
+13. ~~**Cloud asset discovery** (AWS/Azure/GCP inventory as another CMDB-like source).~~ *(done
+    2026-09-30)* All three providers shipped, each with a genuinely different authorization model:
+    Azure (`azure_cloud.rs`, 2026-09-29) via Azure Resource Graph, an Azure RBAC role at the
+    subscription, not a Graph application permission; AWS (`aws_cloud.rs`, 2026-09-29) via the EC2
+    API, a long-lived IAM access key signed with AWS Signature Version 4, no bearer token or OAuth2
+    exchange at all; GCP (`gcp_cloud.rs`, 2026-09-30) via Compute Engine's `aggregatedList`, a
+    service account JSON key exchanged for an access token through a self-signed RFC 7523 JWT
+    bearer assertion — a hybrid of the other two models. All three write into the same shared CMDB
+    device list, matched by hostname the same way as the four directory/MDM sources. See CMDB.md
+    for exactly what is verified against real fixtures/throwaway keys versus what still needs a
+    real account of each provider to confirm.
 14. **Multi-tenancy** *(effort: 9/10)* for managed-service providers (white-label branding already exists; tenant
     isolation does not). A real architectural change (data isolation between tenants, not just
     cosmetic branding), ordered after the integration work above since it's a scaling concern for

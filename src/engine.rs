@@ -1033,6 +1033,7 @@ pub async fn run(mut cfg: Config) -> Result<()> {
     tasks.push(tokio::spawn(crate::jamf::run(store.clone())));
     tasks.push(tokio::spawn(crate::azure_cloud::run(store.clone())));
     tasks.push(tokio::spawn(crate::aws_cloud::run(store.clone())));
+    tasks.push(tokio::spawn(crate::gcp_cloud::run(store.clone())));
     tasks.push(tokio::spawn(crate::vulnscan::run(store.clone())));
     let ai_summary_generating = Arc::new(std::sync::atomic::AtomicBool::new(false));
     tasks.push(tokio::spawn(crate::ai_summary::run(store.clone(), ai_summary_generating.clone())));

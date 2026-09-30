@@ -712,6 +712,16 @@
           </div>
           <p class="muted small" id="aws-secret-status"></p>
           <div class="row"><button id="aws-save" type="button" class="primary">Save</button><button id="aws-sync" type="button">Sync now</button><span id="aws-msg" class="muted"></span></div>
+          <h4 class="section">GCP (cloud asset discovery)</h4>
+          <p class="muted">Pulls Compute Engine instance inventory from one GCP project via the Compute Engine API, authorized by a service account with only the <code>roles/compute.viewer</code> IAM role, and cross-references it the same way — matched by hostname (the instance's own name), shown as extra context, nothing ever written back.</p>
+          <label class="check"><input id="gcp-enabled" type="checkbox"> Enabled</label>
+          <div class="row">
+            <label>Project ID<input id="gcp-project-id" placeholder="my-project-123456"></label>
+            <label>Sync every<span class="row"><input id="gcp-interval" type="number" min="1" max="720" value="24"> hours</span></label>
+          </div>
+          <label>Service account key (JSON)<textarea id="gcp-service-account-json" rows="4" autocomplete="off" placeholder="Paste the downloaded service account key file's contents here…"></textarea></label>
+          <p class="muted small" id="gcp-secret-status"></p>
+          <div class="row"><button id="gcp-save" type="button" class="primary">Save</button><button id="gcp-sync" type="button">Sync now</button><span id="gcp-msg" class="muted"></span></div>
           <h4 class="section">Imported devices</h4>
           <div id="cmdb-devices"></div>
         </div>

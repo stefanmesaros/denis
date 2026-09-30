@@ -1,4 +1,4 @@
-# CMDB import (Microsoft Entra ID, Intune, Active Directory, Jamf Pro, Azure, and AWS)
+# CMDB import (Microsoft Entra ID, Intune, Active Directory, Jamf Pro, Azure, AWS, and GCP)
 
 What DENIS supports, what was actually verified, and what still needs a real tenant to confirm —
 written with the same honesty bar as [SSO.md](SSO.md) and [WINDOWS.md](WINDOWS.md): if something
@@ -15,7 +15,7 @@ OS version, join/enrollment type, compliance state, when the source last saw it)
 merged into or treated as authoritative over a device's own fingerprinted identity, and nothing is
 ever written back to Entra ID or Intune. Import is entirely read-only and one-directional.
 
-Six sources, six independent settings sections:
+Seven sources, seven independent settings sections:
 
 * **Entra ID device objects** (`Device.Read.All` application permission) — always, once enabled,
   via one app registration (client ID + secret).
@@ -60,13 +60,31 @@ Six sources, six independent settings sections:
   `src/aws_cloud.rs`, same `ureq`-based HTTPS client as the other sources, with a small hand-rolled
   SigV4 signer and XML-response reader (EC2's API is XML, not JSON, unlike every other source
   here) rather than pulling in the full AWS SDK for one read-only call.
+* **GCP Compute Engine instances** (ROADMAP.md's "Cloud asset discovery", last of AWS/Azure/GCP) —
+  a fourth authorization model, a genuine hybrid of the other two cloud sources: like Azure, the
+  permission that matters is an IAM *role* (`roles/compute.viewer` is enough) granted at the
+  project; like AWS, there is no interactive admin-consent step. But the credential is a **service
+  account JSON key** (an RSA private key, not a client secret or an access key pair), and instead
+  of a plain client-credentials exchange (Azure) or no exchange at all (AWS), GCP uses a **signed
+  JWT bearer assertion** (RFC 7523) — a JWT whose claims are signed with the service account's own
+  RSA private key (RS256), exchanged once for a short-lived OAuth2 access token, then used as a
+  normal bearer token. Scoped to one GCP project per sync, Compute Engine VM instances only (not
+  Cloud SQL, GKE or other resource types) — same "narrowest useful slice first" choice as every
+  source above. Matched by hostname using the instance's own name (GCE instances have no separate
+  hostname field the way an Azure VM resource has a `name` and EC2 relies on a `Name` tag — the
+  instance name itself is the closest equivalent, and is genuinely the VM's own hostname inside its
+  VPC in the overwhelming majority of real deployments). `src/gcp_cloud.rs`, same `ureq`-based
+  HTTPS client as the other sources, with RSA-SHA256 JWT signing built on `ring`'s existing RSA
+  support (already a dependency) rather than a JWT crate, and the same small nesting-free JSON
+  parsing every source here already uses (`aggregatedList`'s response is JSON, unlike EC2's XML).
 
-All six write into the same imported-device list, each row tagged with which source it came
-from (`entra`/`intune`/`ad`/`jamf`/`azure`/`aws`) and keyed `<source>:<id>` so the different ID
-spaces — two different Graph GUID spaces, an LDAP distinguished name, a Jamf computer id, an Azure
-resource id, and an EC2 instance id — can never collide even for what is the same physical device.
-Each source's own sync only prunes its own source's rows: no source's sync can ever delete a
-device another source imported, even though each runs on its own independent schedule.
+All seven write into the same imported-device list, each row tagged with which source it came
+from (`entra`/`intune`/`ad`/`jamf`/`azure`/`aws`/`gcp`) and keyed `<source>:<id>` so the different
+ID spaces — two different Graph GUID spaces, an LDAP distinguished name, a Jamf computer id, an
+Azure resource id, an EC2 instance id, and a GCP project-scoped instance name — can never collide
+even for what is the same physical device. Each source's own sync only prunes its own source's
+rows: no source's sync can ever delete a device another source imported, even though each runs on
+its own independent schedule.
 
 ## What was actually built and verified
 
@@ -148,22 +166,44 @@ device another source imported, even though each runs on its own independent sch
   to leave the other five sources' rows untouched. The web layer's permissions and secret
   redaction are tested the same way as the other five sources.
 
+* `src/gcp_cloud.rs` implements the RFC 7523 JWT-bearer flow from scratch: PEM-to-DER decoding of
+  the service account's private key (a small hand-rolled standard-base64 decoder, mirroring
+  `report::base64`'s own encoder — this module cannot reuse that one directly, since it is
+  `pub(crate)` to a different module's own concerns and only encodes), RSA-SHA256 signing of the
+  JWT via `ring`'s existing `RsaKeyPair`/`RSA_PKCS1_SHA256` (already a dependency, used here for
+  the first time in this codebase for RSA rather than ECDSA/Ed25519), the token exchange itself,
+  `pageToken`-based pagination over `aggregatedList`'s per-zone response shape (capped at 50 pages,
+  same reasoning as every other source's own page cap), the hostname-matching/upsert/prune logic,
+  and its own periodic background job. Settings and the service account key round-trip and default
+  to off; `sync_now` refuses cleanly when disabled or unconfigured (missing project id, missing
+  key); a PEM key's wrapper is stripped and its body correctly decoded; `aggregatedList`'s
+  per-zone `items` map is correctly flattened across zones, including zones that carry only a
+  `warning` and no `instances` key at all (skipped rather than treated as an error); `nextPageToken`
+  is read when present; a GCP sync's own pruning is proven to leave the other six sources' rows
+  untouched. The web layer's permissions and secret redaction are tested the same way as the other
+  six sources, plus an extra check the other cloud sources don't need: the service account field is
+  a whole JSON document, not a single string, so an admin pasting something that is not valid JSON
+  is refused with a clear error before it is ever saved.
+
 ## What is *not* yet verified
 
 * **The actual exchange with a real Entra ID tenant, a real Intune enrollment, a real Active
-  Directory domain controller, a real Jamf Pro instance, a real Azure subscription, and a real AWS
-  account have not been run.** Token fetch, Graph pagination against a tenant large enough to
-  actually paginate, the real JSON shape Graph returns for `/devices` and
+  Directory domain controller, a real Jamf Pro instance, a real Azure subscription, a real AWS
+  account, and a real GCP project have not been run.** Token fetch, Graph pagination against a
+  tenant large enough to actually paginate, the real JSON shape Graph returns for `/devices` and
   `/deviceManagement/managedDevices`, the real LDAP bind/search/attribute shape a genuine domain
   controller returns, the real JSON shape (and exact field names) a genuine Jamf Pro instance's
   `computers-inventory` endpoint returns, the real Resource Graph response shape (and whether the
   RBAC-role-not-Graph-permission authorization model actually works the way Microsoft's docs
-  describe) a genuine Azure subscription returns, and the real `DescribeInstances` XML response
-  shape (and whether the hand-rolled SigV4 signer is byte-for-byte correct against AWS's actual
-  verification, not just against the algorithm reference) a genuine AWS account returns, have not
-  been exercised end to end against the genuine services — only against hand-written JSON/XML/
-  attribute fixtures matching each provider's documented shape. Everything above this point is
-  verified; this specific path is not, and should not be treated as working until it is.
+  describe) a genuine Azure subscription returns, the real `DescribeInstances` XML response shape
+  (and whether the hand-rolled SigV4 signer is byte-for-byte correct against AWS's actual
+  verification, not just against the algorithm reference) a genuine AWS account returns, and the
+  real `aggregatedList` JSON response shape (and whether a real service account's RSA key, IAM role
+  grant, and the JWT-bearer exchange all work the way Google's docs describe) a genuine GCP project
+  returns, have not been exercised end to end against the genuine services — only against
+  hand-written JSON/XML/attribute fixtures and one locally-generated, throwaway RSA key matching
+  each provider's documented shape. Everything above this point is verified; this specific path is
+  not, and should not be treated as working until it is.
 * No mock Graph server, mock LDAP server or mock Jamf Pro server was built for this pass, for the
   same reason none was built for SSO: a correct one is itself real work, and doing it under time
   pressure risks a mock that "passes" without exercising the same code paths a real server would.
@@ -203,10 +243,19 @@ device another source imported, even though each runs on its own independent sch
   both surface as an HTTP 401/403 from EC2 — this codebase has not yet confirmed which one a real
   mistake in the signer itself would actually produce, only that a deliberately wrong credential
   against the real endpoint produces the expected-shaped rejection.
+* Recommended before relying on GCP: a service account with only `roles/compute.viewer` granted at
+  the project (not an administrator's own credentials), and confirm a full sync against a real
+  project — including that a wrong/revoked service account key, a service account without the
+  required role, and an empty or wrong project id are each refused with a clear, distinguishable
+  error. Verified so far: the JWT-bearer flow reaches Google's real token endpoint and is
+  correctly rejected end to end using a locally-generated, throwaway RSA key that was never
+  registered with any real GCP project (proving the PEM parsing, RS256 signing and HTTPS exchange
+  all work) — but a real service account, a real IAM role grant, and a real
+  `aggregatedList` response have not been exercised.
 
 ## Configuration
 
-Settings → Integrations → CMDB import (admin only), six independent sections:
+Settings → Integrations → CMDB import (admin only), seven independent sections:
 
 * **Entra ID / Intune**: enable, tenant ID, client (application) ID, client secret, sync interval
   (1 hour to 30 days), and the "Also import Intune managed devices" checkbox.
@@ -217,6 +266,7 @@ Settings → Integrations → CMDB import (admin only), six independent sections
 * **Azure**: enable, tenant ID, client (application) ID, client secret, subscription ID, sync
   interval.
 * **AWS**: enable, access key ID, secret access key, region, sync interval.
+* **GCP**: enable, project ID, service account key (JSON), sync interval.
 
 Each has its own "Sync now" to run one immediately instead of waiting for the schedule, and all
-six feed the one shared imported-device list below. Nothing here needs a restart.
+seven feed the one shared imported-device list below. Nothing here needs a restart.
