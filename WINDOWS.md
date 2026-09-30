@@ -125,13 +125,27 @@ nothing on macOS/Linux.
    decision, not a code change). The interface-naming bug that was the actual immediate blocker is
    now confirmed fixed on real hardware (see "Verified on a real Windows machine (2026-09-30)"
    above): capture opens and reports real traffic. Still open: this ran interactively, as the
-   signed-in user (not yet as a service or as a different, more restricted account), so the
-   privileged-account question below is not yet answered by this test. Capture also needs elevated
-   privileges on Windows (raw sockets require Administrator, or Npcap's
-   "WinPcap API-compatible Mode" with specific driver options) — there is no Windows equivalent of
-   Linux's `setcap`/`AmbientCapabilities` that lets an unprivileged service open a capture handle,
-   so the service itself likely needs to run as `LocalSystem` or a privileged account, a materially
-   different trust model than the dedicated unprivileged `denis` user Linux installs use today.
+   signed-in user (not yet as a service or as a different, more restricted account).
+   **Correction (2026-09-30), researched rather than assumed: this document previously said
+   raw-socket capture "requires Administrator... so the service itself likely needs to run as
+   `LocalSystem`". That was wrong.** Npcap is an NDIS filter driver, not raw sockets, and its
+   default install (`/admin_only=no`, the out-of-the-box setting) makes the capture devices
+   readable by *any* local user, including an unprivileged service account — no group membership
+   or registry change needed. There is no separate "Npcap users" group (a real per-group ACL is an
+   open, unassigned upstream feature request). The *other* installer setting, "Restrict Npcap
+   driver's access to Administrators only" (`/admin_only=yes`, off by default), is what actually
+   forces `LocalSystem`/Administrator — an administrator choosing that setting is choosing the
+   restriction, not something DENIS's own service account model should assume by default.
+   **Recommendation: a dedicated low-privilege Windows service account (a virtual account, `NT
+   SERVICE\denis`), not `LocalSystem`**, mirroring Linux's own unprivileged `denis` user as closely
+   as Windows allows — the same reasoning as Linux's dedicated account: this process parses hostile
+   network traffic, exactly where a parsing bug becomes worse if the process is SYSTEM. This is
+   not a novel or risky choice: Microsoft's own Defender for Identity sensor, also Npcap-based,
+   ships exactly this way (its service runs as `LocalService`, installing Npcap with
+   `/admin_only=no`). `LocalSystem` should remain a documented fallback only for administrators who
+   deliberately set `admin_only=yes` on their own network. **Not yet verified: whether `NT
+   SERVICE\denis` can actually list adapters and open a capture on the real Windows 11 test
+   machine** — everything above is Npcap's own documented behavior, not something run here yet.
 2. **The service.** `packaging/install.sh` and `packaging/denis.service` set up a `systemd` unit;
    Windows needs a Windows Service (via `sc.exe`, or a Rust service wrapper such as the `windows-
    service` crate) with its own install/uninstall, start/stop, and log destination (systemd's
@@ -168,8 +182,11 @@ kind of "should work" code this project's own testing standard exists to prevent
    only — this step is done for a local/manual build, not yet for CI.
 3. ~~Fill in the remaining small `#[cfg(windows)]` gaps (certs.rs, health.rs)~~ — done, checked the
    same way net.rs's were (`cargo check`/`clippy --target x86_64-pc-windows-gnu`, both clean).
-4. Decide the capture/privilege story (Npcap *runtime* licensing for end users, which account the
-   service runs as) — a product decision, not code.
+4. ~~Decide the capture/privilege story (which account the service runs as)~~ — researched
+   2026-09-30 (see "Verified on a real Windows machine" above for the correction and
+   recommendation): a dedicated low-privilege virtual service account (`NT SERVICE\denis`), not
+   `LocalSystem`, matching Microsoft Defender for Identity's own precedent. Not yet verified live.
+   Npcap *runtime* redistribution licensing for end users is still an open product decision.
 5. ~~A minimal `denis.exe` that can `run` interactively (no service yet) against Npcap, verified on
    a real Windows machine with real traffic~~ — done (2026-09-30): both `denis.exe agent` (the
    reporting path) and `denis.exe run` (local capture, the interface-naming fix) are confirmed
