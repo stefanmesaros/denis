@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.56.0: Multi-agent dedup: the merge function, and a quicker way to acknowledge an alert
+
+* **`merge_observed`: the function that will combine a joined agent's view of a device into its
+  site's own row** (MULTI_AGENT_DEDUP.md's design) — widens first/last-seen and IP history, unions
+  hostnames and fingerprint data, treats a port scan as a snapshot (whichever side scanned more
+  recently wins outright, never a union that could resurrect a closed port), and never overwrites
+  a value the site's own row already has. Not yet wired into ingest — this is the merge logic
+  itself, tested standalone; the join transaction that will call it is still to come.
+* **"Acknowledge" is now a button on the alert detail dialog itself**, between "Open device" and
+  "Add exception" — previously only reachable from the Alerts list row. Same on-click reason
+  picker as everywhere else (a dropdown opens in place, no separate dialog).
+
 ## 2.55.0: Groundwork: an administrator can now mark an agent's join target
 
 * **New `AgentInfo.reports_into` field and `set_reports_into` store method** — part of

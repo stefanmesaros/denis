@@ -507,6 +507,106 @@ fn add_hostname(a: &mut Asset, h: String) -> bool {
     true
 }
 
+/// Merges a joined agent's reported view of a device into the target site's own row
+/// (MULTI_AGENT_DEDUP.md's "join" design). `stored` is always the survivor - the site's own row,
+/// whose id every alert/exception/audit entry already points at - and this function only ever
+/// fills its gaps, never overwrites a value it already has. `is_self` is deliberately not merged:
+/// it belongs to `asset_sightings` per collector, not to the shared row (a device can be one
+/// collector's own host and another's ordinary neighbour at the same time). `vendor` and
+/// `randomized_mac` are not merged either - identical by construction, since both sides describe
+/// the same MAC. `device_type`/`os_guess`/`guess_reasons` are re-derived from the merged
+/// fingerprint at the end, the same way every other mutation to a stored asset already does.
+pub fn merge_observed(stored: &mut Asset, incoming: &Asset) {
+    stored.first_seen = stored.first_seen.min(incoming.first_seen);
+    stored.last_seen = stored.last_seen.max(incoming.last_seen);
+
+    for r in &incoming.ip_history {
+        match stored.ip_history.iter_mut().find(|s| s.ip == r.ip) {
+            Some(s) => {
+                s.first_seen = s.first_seen.min(r.first_seen);
+                s.last_seen = s.last_seen.max(r.last_seen);
+            }
+            None => stored.ip_history.push(r.clone()),
+        }
+    }
+    if stored.ip_history.len() > MAX_IP_HISTORY {
+        stored.ip_history.sort_by_key(|r| r.last_seen);
+        let extra = stored.ip_history.len() - MAX_IP_HISTORY;
+        stored.ip_history.drain(0..extra);
+    }
+
+    for r in &incoming.ipv6_history {
+        match stored.ipv6_history.iter_mut().find(|s| s.ip == r.ip) {
+            Some(s) => {
+                s.first_seen = s.first_seen.min(r.first_seen);
+                s.last_seen = s.last_seen.max(r.last_seen);
+            }
+            None => stored.ipv6_history.push(r.clone()),
+        }
+    }
+    if stored.ipv6_history.len() > MAX_IP_HISTORY {
+        stored.ipv6_history.sort_by_key(|r| r.last_seen);
+        let extra = stored.ipv6_history.len() - MAX_IP_HISTORY;
+        stored.ipv6_history.drain(0..extra);
+    }
+
+    for h in &incoming.hostnames {
+        if !stored.hostnames.contains(h) && stored.hostnames.len() < MAX_HOSTNAMES {
+            stored.hostnames.push(h.clone());
+        }
+    }
+
+    // A port scan is a snapshot, not history: a union would resurrect ports the fresher side has
+    // since seen closed. Whichever side scanned more recently wins outright, ports included.
+    if incoming.ports_scanned_at > stored.ports_scanned_at {
+        stored.open_ports = incoming.open_ports.clone();
+        stored.ports_scanned_at = incoming.ports_scanned_at;
+    }
+
+    let f = &mut stored.fingerprint;
+    let i = &incoming.fingerprint;
+    if f.dhcp_vendor_class.is_none() {
+        f.dhcp_vendor_class = i.dhcp_vendor_class.clone();
+    }
+    if f.dhcp_param_list.is_none() {
+        f.dhcp_param_list = i.dhcp_param_list.clone();
+    }
+    if f.ssdp_server.is_none() {
+        f.ssdp_server = i.ssdp_server.clone();
+    }
+    if f.tcp_sig.is_none() {
+        f.tcp_sig = i.tcp_sig.clone();
+    }
+    if f.ttl.is_none() {
+        f.ttl = i.ttl;
+    }
+    push_all(&mut f.mdns_services, i.mdns_services.clone());
+    push_all(&mut f.mdns_names, i.mdns_names.clone());
+    push_all(&mut f.mdns_models, i.mdns_models.clone());
+    push_all(&mut f.ssdp_types, i.ssdp_types.clone());
+    for (k, v) in &i.identity {
+        f.identity.entry(k.clone()).or_insert_with(|| v.clone());
+    }
+    for (k, v) in &i.ot {
+        f.ot
+            .entry(k.clone())
+            .and_modify(|r| {
+                r.server |= v.server;
+                r.client |= v.client;
+                r.first_seen = r.first_seen.min(v.first_seen);
+                r.last_seen = r.last_seen.max(v.last_seen);
+            })
+            .or_insert_with(|| v.clone());
+    }
+
+    stored.is_gateway |= incoming.is_gateway;
+
+    let g = guess(stored);
+    stored.device_type = g.device_type;
+    stored.os_guess = g.os;
+    stored.guess_reasons = g.reasons;
+}
+
 fn set_if_some(slot: &mut Option<String>, v: Option<String>) -> bool {
     match v {
         Some(v) if slot.as_ref() != Some(&v) => {
@@ -540,6 +640,123 @@ mod tests {
 
     fn ip(n: u8) -> Ipv4Addr {
         Ipv4Addr::new(192, 168, 1, n)
+    }
+
+    #[test]
+    fn merge_observed_never_overwrites_a_value_the_stored_row_already_has() {
+        // MULTI_AGENT_DEDUP.md: the site's own row is always the survivor, and only ever has its
+        // gaps filled - a value it already carries must never be replaced by the incoming side.
+        let mut stored = Asset::new(A, 100);
+        stored.hostnames.push("kept".into());
+        stored.fingerprint.ttl = Some(64);
+        stored.is_gateway = false;
+
+        let mut incoming = Asset::new(A, 50);
+        incoming.hostnames.push("kept".into()); // same value: must not duplicate
+        incoming.hostnames.push("also-incoming".into());
+        incoming.fingerprint.ttl = Some(128); // stored already has one: must not overwrite
+        incoming.is_gateway = true; // OR'd in, never cleared once true
+
+        merge_observed(&mut stored, &incoming);
+
+        assert_eq!(stored.hostnames, vec!["kept".to_string(), "also-incoming".to_string()]);
+        assert_eq!(stored.fingerprint.ttl, Some(64), "stored's own value wins");
+        assert!(stored.is_gateway, "OR, never cleared");
+    }
+
+    #[test]
+    fn merge_observed_takes_the_widest_first_and_last_seen_across_both_sides() {
+        let mut stored = Asset::new(A, 200);
+        stored.last_seen = 300;
+        let mut incoming = Asset::new(A, 100); // earlier first_seen
+        incoming.last_seen = 500; // later last_seen
+
+        merge_observed(&mut stored, &incoming);
+
+        assert_eq!(stored.first_seen, 100);
+        assert_eq!(stored.last_seen, 500);
+    }
+
+    #[test]
+    fn merge_observed_unions_ip_history_by_address_and_widens_each_records_range() {
+        let mut stored = Asset::new(A, 0);
+        stored.ip_history.push(IpRecord { ip: ip(5), first_seen: 100, last_seen: 200 });
+        let mut incoming = Asset::new(A, 0);
+        incoming.ip_history.push(IpRecord { ip: ip(5), first_seen: 50, last_seen: 300 }); // same ip: widen
+        incoming.ip_history.push(IpRecord { ip: ip(9), first_seen: 10, last_seen: 20 }); // new ip: added
+
+        merge_observed(&mut stored, &incoming);
+
+        let a = stored.ip_history.iter().find(|r| r.ip == ip(5)).unwrap();
+        assert_eq!((a.first_seen, a.last_seen), (50, 300));
+        assert!(stored.ip_history.iter().any(|r| r.ip == ip(9)));
+        assert_eq!(stored.ip_history.len(), 2);
+    }
+
+    #[test]
+    fn merge_observed_open_ports_take_whichever_side_scanned_more_recently_never_a_union() {
+        // a port scan is a snapshot, not history: a union would resurrect a port the fresher side
+        // has since seen closed.
+        let mut stored = Asset::new(A, 0);
+        stored.open_ports.push(OpenPort { port: 22, proto: "tcp".into(), service: None });
+        stored.ports_scanned_at = Some(100);
+        let mut incoming = Asset::new(A, 0);
+        incoming.open_ports.push(OpenPort { port: 443, proto: "tcp".into(), service: None });
+        incoming.ports_scanned_at = Some(200); // newer: wins outright
+
+        merge_observed(&mut stored, &incoming);
+
+        assert_eq!(stored.ports_scanned_at, Some(200));
+        assert_eq!(stored.open_ports, vec![OpenPort { port: 443, proto: "tcp".into(), service: None }], "replaced, not unioned");
+    }
+
+    #[test]
+    fn merge_observed_reports_open_ports_are_kept_when_stored_scanned_more_recently() {
+        let mut stored = Asset::new(A, 0);
+        stored.open_ports.push(OpenPort { port: 22, proto: "tcp".into(), service: None });
+        stored.ports_scanned_at = Some(500);
+        let mut incoming = Asset::new(A, 0);
+        incoming.open_ports.push(OpenPort { port: 443, proto: "tcp".into(), service: None });
+        incoming.ports_scanned_at = Some(100); // older: stored wins
+
+        merge_observed(&mut stored, &incoming);
+
+        assert_eq!(stored.ports_scanned_at, Some(500));
+        assert_eq!(stored.open_ports, vec![OpenPort { port: 22, proto: "tcp".into(), service: None }]);
+    }
+
+    #[test]
+    fn merge_observed_fingerprint_lists_union_and_maps_union_keeping_stored_on_conflict() {
+        let mut stored = Asset::new(A, 0);
+        stored.fingerprint.mdns_services.push("_ssh._tcp".into());
+        stored.fingerprint.identity.insert("lldp.system_name".into(), "stored-name".into());
+        stored.fingerprint.tcp_sig = Some(TcpSig { window: 1, ttl: 64, options: "mss".into(), mss: None, wscale: None });
+
+        let mut incoming = Asset::new(A, 0);
+        incoming.fingerprint.mdns_services.push("_http._tcp".into());
+        incoming.fingerprint.identity.insert("lldp.system_name".into(), "incoming-name".into()); // conflict: stored wins
+        incoming.fingerprint.identity.insert("enip.product_name".into(), "plc".into()); // new key: added
+        incoming.fingerprint.tcp_sig = Some(TcpSig { window: 2, ttl: 128, options: "sack".into(), mss: None, wscale: None }); // stored already has one
+
+        merge_observed(&mut stored, &incoming);
+
+        assert_eq!(stored.fingerprint.mdns_services, vec!["_ssh._tcp".to_string(), "_http._tcp".to_string()]);
+        assert_eq!(stored.fingerprint.identity.get("lldp.system_name"), Some(&"stored-name".to_string()));
+        assert_eq!(stored.fingerprint.identity.get("enip.product_name"), Some(&"plc".to_string()));
+        assert_eq!(stored.fingerprint.tcp_sig, Some(TcpSig { window: 1, ttl: 64, options: "mss".into(), mss: None, wscale: None }), "stored's own tcp_sig wins");
+    }
+
+    #[test]
+    fn merge_observed_re_derives_device_type_and_os_guess_from_the_merged_fingerprint() {
+        let mut stored = Asset::new(A, 0);
+        let mut incoming = Asset::new(A, 0);
+        incoming.fingerprint.ssdp_server = Some("Linux/3.14 UPnP/1.0 MiniUPnPd/2.0".into());
+        incoming.fingerprint.ssdp_types.push("urn:schemas-upnp-org:device:InternetGatewayDevice:1".into());
+
+        merge_observed(&mut stored, &incoming);
+
+        // re-derivation actually ran off the merged data, not the stored side's (empty) original
+        assert_ne!(stored.device_type, "unknown");
     }
 
     #[test]

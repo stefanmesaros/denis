@@ -815,6 +815,7 @@ function showAlert(e, a) {
     aiBehaviorButton(e.id, e.type),
     el('div', { class: 'row' },
       a ? el('button', { type: 'button', text: tr('Open device'), onclick: () => { $('msg-dialog').close(); showDetail(a.id); } }) : null,
+      ackButton(e),
       can('admin') ? el('button', {
         type: 'button', text: tr('Add exception'), title: exceptionLabel(e),
         onclick: async (ev) => {
