@@ -1,29 +1,17 @@
----
-
 # Roadmap
 
 DENIS already discovers every device on your network passively, learns how each one normally
-behaves, tells you when something changes with every alert explaining itself, and — as of v3.1.0 —
-shows everything it knows about a device (directory, MDM, cloud, scanner findings, incidents) in
-one place. Next, DENIS connects that picture across devices, so it can answer **who talked to
-whom, what should be allowed to, and what do we do when it isn't**.
+behaves, tells you when something changes with every alert explaining itself, and shows everything
+it knows about a device (directory, MDM, cloud, scanner findings, incidents) in one place. As of
+v3.2.0 it also ranks the devices that most need attention today, with the reasons listed, and — if
+you switch it on — records traffic between your own devices, so an alert can show who talked to
+whom. Next, DENIS uses that picture to answer **what should be allowed to talk, and what do we do
+when something does not follow the rules**.
 
 The list is in rough order. Plans can change, and nothing here is a delivery promise. Ideas and
 pull requests are welcome.
 
 ## Coming next
-
-**"Top exposures today."** A short, ranked list of the devices that most need attention, such as
-a known-exploited vulnerability on a critical machine or an open incident on something with no
-owner. Every entry lists the reasons it is there. There is no black-box score. *In progress.*
-
-**See what talks to what inside your network.** Optional visibility into traffic between devices
-on the same network, not just traffic to the internet. You will be able to ask "what talks to this
-server?" or "what can reach this PLC?" and get an answer with evidence and dates. *In progress.*
-
-**Investigate an alert without leaving it.** The alert view will show what else the device did
-around that time, which other devices contacted the same address and who was first, and what is
-known about the destination.
 
 **Multiple customers on one installation, with real identity.** Each customer's data isolated by
 design, for managed service providers and for organisations that need that separation internally.
@@ -47,14 +35,14 @@ automatically: every action needs an administrator's confirmation, and there is 
 This always comes after the approved policies above — quarantining a device only makes sense
 against a policy it actually violated.
 
-## Later
-
 **Names, not just addresses.** Optional passive DNS, so connections show `vendor.example` rather
 than a cloud IP address, and a device that switches to an unexpected DNS server is flagged.
 
 **Fix it, and know it is fixed.** Assign findings to a person, set a due date, and link a Jira or
 ServiceNow ticket. DENIS confirms a fix either by rescanning or by checking that the unwanted
 traffic really stopped while the device stayed online.
+
+## Later
 
 **The switches and cables view, redrawn.** Real switch ports, cabling and VLANs, plus an alert
 when a device moves to another port or VLAN, or something new appears on a port you have marked
