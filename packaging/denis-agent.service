@@ -1,0 +1,37 @@
+# Remote agent (a second site / network segment). UNTESTED under systemd:
+#   systemd-analyze verify denis-agent.service
+# Install (same binary and user as the master unit):
+#   sudo mkdir -p /etc/denis && sudo install -m600 /dev/null /etc/denis/agent.env
+#   echo 'DENIS_AGENT_TOKEN=<the token from: denis agent-token issue --id branch-1>' | sudo tee -a /etc/denis/agent.env
+#   sudo cp packaging/denis-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now denis-agent
+# The agent only makes OUTBOUND connections to the master, so it works behind NAT.
+[Unit]
+Description=denis remote agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=denis
+EnvironmentFile=/etc/denis/agent.env
+# Edit --master (the master's --ingest-listen address) and the id/name/site.
+ExecStart=/usr/local/lib/denis/denis agent --master http://MASTER-HOST:8081 --id branch-1 --name "Branch office" --site Branch --flows --db /var/lib/denis-agent/agent.db
+Restart=on-failure
+RestartSec=5
+# Readable/writable by no one else (SECURITY_ARCHITECTURE_REVIEW.md M10).
+StateDirectory=denis-agent
+StateDirectoryMode=0700
+UMask=0077
+
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_PACKET AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

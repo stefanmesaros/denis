@@ -1,0 +1,108 @@
+# Operations: backup, demo data, monitoring, upgrades
+
+## Backup and restore
+
+**In the console** (*Health* → Backups, administrators): DENIS backs its own database up **every day** and keeps the
+newest 7 (change or switch off the schedule there, keep up to 60). *Back up now* makes one by hand; each backup can be
+**downloaded** or deleted. They are written to the `backups` folder beside the database (`/var/lib/denis/backups/`
+for the installer's layout), named `denis-auto-…`, `denis-manual-…`; the copies made before an update
+(`denis-before-…`) are listed too, but the updater looks after those. Only scheduled backups are ever removed
+automatically. DENIS refuses to make a backup when the disk could not hold it, and the Health page warns when the
+newest backup is too old. A backup on the same disk does not survive the disk: fetch some copies elsewhere.
+
+From the command line:
+
+```bash
+denis backup /safe/place/denis-2026-09-21.db      # a verified copy, made while DENIS keeps running
+```
+
+* The copy is consistent (a snapshot), is **integrity-checked** before the command reports success, and is readable
+  by its owner only. It contains password hashes and notification secrets: store it like a secret.
+* The command refuses to overwrite an existing file.
+* Schedule it, for example a nightly cron job or systemd timer:
+
+```bash
+0 2 * * *  denis backup /backups/denis-$(date +\%F).db --db /var/lib/denis/denis.db && find /backups -name 'denis-*.db' -mtime +14 -delete
+```
+
+**Restore:** stop DENIS, copy the backup over the database file (`denis.db`), start DENIS. Test a restore once
+before you need it: `denis serve --db /backups/denis-2026-09-21.db` opens a backup in a console **without
+capturing anything**, so you can check it safely (see below).
+
+## Looking at a database without capturing: `denis serve`
+
+```bash
+denis serve --db copy.db --listen 127.0.0.1:8080
+```
+
+A console over an existing database with **no capture, no probing and no detection**: for checking a backup, for
+reviewing data on another machine, for training and for demonstrations. Reading and editing the register works;
+live discovery does not.
+
+## Demo data, and starting clean (erase all data)
+
+**Settings → Data → Demo data and reset** (administrators) has three buttons:
+
+* **Load demo data**: a fictional company so you can explore every screen. Marked as demo; ignored by the
+  collector and the detectors; a banner says it is loaded. (API: `POST /api/demo`; command line: `denis demo load`.)
+* **Remove demo data**: deletes only the demo records. (`DELETE /api/demo`; `denis demo remove`.)
+* **Erase all data**: for when you have finished exploring, or are moving from a trial to the real network. It deletes
+  **every device, edit, alert, baseline, communications record, trend sample and remote site**, forgets what was
+  learned, and starts a **new learning period**. It keeps user accounts and sign-in methods (passkeys, API tokens),
+  notification channels, branding, rule settings, agent tokens and the **audit log** (which records that the erase
+  happened and who did it). You must type `ERASE ALL DATA` to confirm. **It cannot be undone: take a backup first.**
+  (`POST /api/data/erase` with `{"confirm": "ERASE ALL DATA"}`; with DENIS stopped, `denis erase --yes`.)
+
+## Retention
+
+*Settings → Data → Data retention* (administrators) sets how long events, alerts and trend samples are kept
+(1 to 1095 days) before DENIS deletes them on its own, within the hour, no restart. Until a value is saved there
+the `--retention-days` flag (default 90) applies. The asset register, baselines, accepted risks, saved reports
+and the audit log are not affected by retention.
+
+## Monitoring DENIS itself (Prometheus)
+
+`GET /metrics` exposes counts and health in the Prometheus text format: devices (total, online, by type), open
+alerts by severity, findings by severity, learning time left, remote sites and how long ago each reported,
+failing exports and notification channels, maintenance mode, uptime. It contains **no device names, addresses or
+alert text**.
+
+It needs the same sign-in as the console. For Prometheus, create a **viewer API token** (*Users* → API tokens) and
+give it as a bearer token:
+
+```yaml
+scrape_configs:
+  - job_name: denis
+    scheme: https
+    authorization:
+      credentials: dnt_…            # the token, ideally from a file: credentials_file
+    static_configs:
+      - targets: ["denis.example.com"]
+```
+
+Useful alerts: `denis_channel_failing == 1` (a notification channel is broken), `denis_export_failing == 1`,
+`denis_site_last_report_age_seconds > 900` (a remote site went quiet), `denis_alerts_unacknowledged{severity="high"} > 0`,
+`denis_health_warnings > 0` (the Health page has something to say), `denis_backup_age_seconds > 172800` (no backup for two days),
+`denis_capture_dropped_packets` rising (the capture cannot keep up). Also exposed: `denis_database_bytes`, `denis_disk_free_bytes`.
+
+## Upgrading
+
+DENIS can update itself from GitHub releases, with a backup first ([Updates](updates.md)). To update by hand:
+
+1. Take a backup (above).
+2. Replace the `denis` binary and restart the service. On a Linux service installed with `install.sh`, just run the
+   newest `install.sh` again: it does both steps ([Deployment](deployment.md#installing-on-a-linux-server-a-permanent-service)).
+
+The database is upgraded in place, in small transactional steps; a crash mid-upgrade leaves it at a consistent
+older version. A database newer than the program is refused with a clear message (never silently downgraded).
+
+## Refreshing the threat list
+
+`--threat-list bad-ips.txt` is re-read whenever the file changes, so refreshing it is a cron job that replaces the
+file (write to a temporary name and rename, so DENIS never reads a half-written file). If the new file is broken,
+DENIS keeps the old list and logs a warning.
+
+## Logs
+
+DENIS logs to standard error (systemd: `journalctl -u denis`). `RUST_LOG=debug` adds detail. Secrets (webhook
+URLs, keys, passwords, tokens) are never logged.

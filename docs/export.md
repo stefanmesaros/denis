@@ -1,0 +1,138 @@
+# Exporting data: OpenObserve, SIEM (syslog) and Elasticsearch/OpenSearch
+
+DENIS can push its data to [OpenObserve](https://openobserve.ai) so a customer who already runs it (for
+logs, deep-packet-inspection output, etc.) can see network inventory, alerts and trends in the same console.
+
+## Turn it on
+
+```bash
+export DENIS_OPENOBSERVE_USER='root@example.com'
+export DENIS_OPENOBSERVE_PASSWORD='…'          # environment only, never a command-line flag
+denis run --openobserve-url https://openobserve.example.com
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--openobserve-url` / `DENIS_OPENOBSERVE_URL` | off | server address only (no path, user name or query) |
+| `--openobserve-org` / `DENIS_OPENOBSERVE_ORG` | `default` | organisation |
+| `--openobserve-prefix` | `denis` | stream name prefix |
+| `--openobserve-interval` | `15` | seconds between export cycles (5–3600) |
+
+With systemd, put the two credentials in an `EnvironmentFile=` readable only by the service user.
+
+## What is sent
+
+| Stream | Contents | When |
+|---|---|---|
+| `denis_events` | every event and alert: kind, severity, score, summary, details, and the device's name/IP/MAC | as they happen |
+| `denis_audit` | who changed what (sign-ins, edits, user and token administration) | as they happen |
+| `denis_metrics` | 5-minute trend samples: devices, online, bytes in/out, alerts, per site | once a sample is 10 minutes old |
+| `denis_assets` | the inventory, including the fields you maintain (owner, location, serial number, criticality, zone, Purdue level…) | when a device changes, and a full snapshot every 6 hours |
+
+Timestamps are in `_timestamp` (microseconds), the field OpenObserve indexes on. History that already exists
+is sent the first time you enable the export.
+
+## Behaviour you can rely on
+
+* **DENIS never waits for OpenObserve.** Detection and the UI are unaffected by a slow or dead server; the
+  exporter simply catches up later from its saved position (kept in the database, so restarts resume).
+* **At least once.** After a crash a batch may arrive twice. Events and audit entries carry their `id`;
+  de-duplicate on it if that matters for your dashboards.
+* **Health is visible**: the header shows `export ok 12s ago`, or `FAILING` with the reason underneath.
+* Documents OpenObserve refuses (for example a field whose type clashes with an earlier schema) are logged
+  and skipped rather than retried for ever.
+* Trend samples that reach a master *late* from an agent (older than the newest sample already exported) are
+  not exported.
+
+## Security
+
+* Credentials travel as HTTP Basic auth and are never logged or shown. Use **https://**; DENIS logs a
+  warning if you use plain `http://` to another machine.
+* Use a dedicated OpenObserve user that may only write to these streams.
+* The audit log contains user names and the details of edits; treat the destination as sensitive.
+
+## Not verified
+
+The exporter is tested against a simulated OpenObserve endpoint (paths, authentication, batching, retry,
+resume). It has **not yet been tried against a real OpenObserve server**: do that before promising it.
+
+---
+
+# SIEM export (syslog: CEF, LEEF or JSON)
+
+Fully configured from the console — **Settings → Integrations → SIEM / Log export** — with no restart: turn it on, pick a
+format and a transport, choose which streams to send, and use **Send a test message** to check a target
+before saving it.
+
+* **Format**: **CEF** (ArcSight; Splunk, QRadar, Wazuh, Microsoft Sentinel, Graylog and others parse it
+  natively), **LEEF** (IBM QRadar's own format), or plain **JSON** (one object per message, for anything
+  else — a custom collector, …). All three share the same RFC 5424 syslog envelope; only the body
+  differs. For Elasticsearch/OpenSearch specifically, use the **Elasticsearch (Bulk API)** transport below
+  instead of routing JSON through a syslog collector.
+* **Transport**: **UDP** (one datagram per message, fire and forget), **TCP** (newline-framed, retried after
+  a failure so the backlog arrives in order), or **TLS** (TCP wrapped in encryption — the usual choice
+  crossing anything but a trusted LAN or a VPN). A self-signed collector's certificate can be trusted without
+  verification (an explicit opt-out in the settings) when there is no public CA to check it against.
+* **Streams**, each independently on or off:
+  * **Events and alerts** — everything the detector raised (the same as every DENIS release before this
+    one sent); `info`-level events are skipped as noise for a SIEM.
+  * **Findings** — standing weaknesses (end-of-support software, known-exploited vulnerabilities, risky
+    open ports, …). These have no natural sequence, so each one is sent once, the first time it is seen,
+    and again if it clears and later comes back.
+  * **Audit log** — who changed what in the console.
+
+A CEF message looks like this (LEEF and JSON carry the same fields, in their own format):
+
+```
+<163>1 2026-09-20T21:42:48Z denis-host denis - arp_conflict - CEF:0|DENIS|DENIS|1.13.0|arp_conflict|192.0.2.10 claimed by two devices|8|rt=1789940568000 cs1Label=score cs1=85 src=192.0.2.130 smac=02:00:5e:10:00:01 shost=Laptop-42 msg=+60 claims the gateway address; +25 first seen 2 min ago eventId=7
+```
+
+* Facility `local4`; syslog severity error / warning / notice for high / medium / low; CEF severity 1–10.
+* Fields: `src` (IP), `smac`, `shost` (the device's name), `cs1` score, `eventId`, `site` (for agents), `msg`
+  the reasons behind the score or, for a finding, what to do about it, `rt`/`devTime` the event time.
+* Like the OpenObserve export each stream runs from its own saved position in the database, so a dead SIEM
+  never affects detection, and delivery is at least once (de-duplicate on `eventId` for events).
+* Text from the network (device names, hostnames) is escaped so it cannot forge a CEF/LEEF field or an
+  extra record, in any of the three formats.
+* Health shows in the header (`syslog ok …` / `FAILING`).
+
+## The legacy `--syslog` flag
+
+```bash
+denis run --syslog udp://siem.example.com:514        # or tcp://…:6514, or tls://…:6514
+```
+
+Still works, for a headless install or a config-management script: CEF, the events stream only, exactly as
+before. It only **seeds** the console's own setting, once, the first time nothing has been saved there yet —
+after that, Settings → Integrations → SIEM / Log export is authoritative, and the flag is ignored on every later start.
+
+---
+
+# Elasticsearch / OpenSearch export (ECS over the Bulk API)
+
+The same **Settings → Integrations → SIEM / Log export** page, transport **Elasticsearch (Bulk API)**: documents go straight
+to an index or data stream via `POST .../_bulk`, shaped as [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html)
+— no Logstash or Filebeat in between, and no syslog envelope. Selecting this transport switches the format to
+`ecs` automatically; it is the only format this transport accepts.
+
+* **Elastic URL**: the full base address, e.g. `https://es.example.com:9200`. Must be `https://` (or a
+  loopback address, for local testing).
+* **Index or data stream**: where documents are written, e.g. `denis-events`.
+* **API key** (optional): sent as `Authorization: ApiKey <key>`. Like every other secret in DENIS, the
+  console never shows it back to you; saving the form again without retyping it keeps the one already stored,
+  and an explicitly empty field clears it.
+* **Streams** (events/findings/audit) work exactly as for syslog, independently toggled, same cursor-based
+  at-least-once delivery, same health line in the header.
+
+A document's ECS field groups: `event.*` (kind, action, reason, severity 0–3, risk_score), `source.ip`/`mac`,
+`host.name`, `observer.*` (DENIS itself, plus `observer.name` for the reporting agent/site), `user.name`, and
+`labels.*` for anything else DENIS carries that has no dedicated ECS field (`eventId`, `assetId`, …) — ECS's
+own place for free-form extension data, rather than inventing new top-level field groups.
+
+```json
+{"@timestamp":"2026-09-20T21:42:48Z","ecs":{"version":"8.11"},"event":{"kind":"event","category":["network"],"action":"arp_conflict","reason":"192.0.2.10 claimed by two devices","severity":3,"risk_score":85},"message":"192.0.2.10 claimed by two devices","source":{"ip":"192.0.2.130","mac":"02:00:5e:10:00:01"},"host":{"name":"Laptop-42"},"observer":{"product":"DENIS","vendor":"DENIS","type":"network-monitor","version":"2.9.0","hostname":"denis-host"},"labels":{"eventId":"7"}}
+```
+
+Elasticsearch's own per-document bulk errors (a malformed or rejected single document inside an otherwise-200
+response) are not inspected — a bad document must not make the whole export retry forever; check
+Elasticsearch's own logs if documents seem to be missing despite the exporter reporting `ok`.
