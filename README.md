@@ -26,35 +26,27 @@ scope — see [License](#license).
 
 **[See DENIS in action →](#demo-try-denis-without-installing-a-sensor)** no capture, no login, a fictional company already loaded.
 
-## What's new in 3.0.0
+## What's new in 3.2.0
 
-**Automatic Incidents.** Until now, a compromised device produced a flood of separate alerts — new destination,
-unusual hour, control command, contact with a known-bad address — and it was up to you to notice they were the
-same story. DENIS 3.0 groups related alerts into one Incident with a single priority verdict ("Act now",
-"Investigate today", and so on), so you see the attack chain as one thing rather than fifteen. An Incident can
-optionally get an AI-generated plain-language assessment of its likely consequences, and is delivered as one
-grouped message to Slack, Teams or similar, or as one event to your SIEM, instead of one notification per alert.
+**"Top exposures today."** A short, ranked list of the devices that most need attention right now — a
+known-exploited vulnerability on a critical machine, an open Incident on something with no owner, a critical
+scanner finding — each with the reasons it's there, on the Dashboard and on the device's own panel. No
+black-box score.
 
-**Threat intelligence that keeps itself current.** Known-bad IP and domain blocklists from abuse.ch and Spamhaus
-now refresh automatically on a schedule you set, merged with the existing CISA/NVD known-exploited-vulnerability
-and end-of-support feeds. Matching is done entirely against the local copy: DENIS downloads the lists, it never
-sends your own traffic or addresses out for lookup.
+**See what talks to what inside your network** (optional, off by default). DENIS can now record traffic between
+devices on the same network, not just traffic to the internet, so you can ask "what talks to this server?" and
+get an answer with evidence. An alert's new "Investigate" section shows what else the device did around that
+time and which other devices contacted the same address.
 
-**A much more capable "Ask DENIS" assistant** (optional, bring your own API key). Ask it, in plain language, to
-search your alerts ("what changed in the last 24 hours?"), check whether anything on your network has ever
-talked to a specific address, jump straight to any screen or settings page ("take me to Topology"), or how to
-configure something — answered from DENIS's own documentation rather than guessed. Ask it what it can and
-cannot do and it will tell you. It never invents facts and never takes an action by itself.
+**Everything about a device, in one place** (3.1.0). The device panel shows what your directory (Entra ID,
+Intune, Active Directory, Jamf, cloud accounts) and vulnerability scanner say about it, alongside its open
+findings, related Incidents and which collectors see it — and you can merge two collectors watching the same
+segment directly from the console.
 
-**A redesigned Dashboard.** The separate "Trends" page is gone. All eight trend charts — devices online and
-offline, new devices, traffic sent and received, alerts raised — plus a live "Top talkers" leaderboard now sit
-directly on the Dashboard, so the first screen you open already answers "what does the network look like right
-now, and what has moved." An optional AI-generated summary of recent changes can sit alongside them.
-
-**Clearer Topology and alerts.** The network map now uses icon-based device chips coloured by risk, with
-click-to-select. Alerts that belong to a group are visually distinguished from standalone ones, and the separate
-"Explain", "Assess" and "Recommend" AI buttons on an alert have been merged into a single "Assess & Explain with
-AI" action.
+**Automatic Incidents, a much more capable "Ask DENIS", and a redesigned Dashboard** (3.0.0). Related alerts
+group into one Incident with a priority verdict instead of a flood of separate ones; Ask DENIS can search alerts
+in plain language, navigate the console, and answer "how do I…?" from DENIS's own documentation; the Dashboard
+gained all the former Trends charts and a live "Top talkers" leaderboard.
 
 See [CHANGELOG.md](CHANGELOG.md) for the complete list, including smaller fixes.
 
