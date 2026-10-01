@@ -99,7 +99,7 @@ port is never learned as normal and never promoted to "rotating". Score 75, +1 p
 threshold. Devices typed `server`, or whose type contains "mail", are exempt (a mail server legitimately fans
 out on 25).
 
-### `new_destination_v6` / `ndp_mismatch`: the IPv6 counterparts *(opt-in, `--ipv6`)*
+### `new_destination_v6` / `ndp_mismatch`: the IPv6 counterparts *(opt-in, `--ipv6`; see IPV6.md in the repository)*
 `new_destination_v6` is `new_destination`'s IPv6 twin *(needs `--flows`, `--ipv6-subnet`)*: a device contacts an
 outside IPv6 address it has never used. Simpler for now — no rotation-burst suppression yet, so a service that
 hands out a fresh IPv6 address per session may repeat more than its IPv4 counterpart would. `ndp_mismatch` is
@@ -109,12 +109,12 @@ with its own Ethernet source. Score 45, folded into `arp_conflict`'s own weight 
 `arp_conflict`'s weight, so turning down IPv6 rotation noise never silently disables this L2 spoofing signal too).
 At most one alert per claimant/address pair per cooldown window.
 
-### `rogue_ra`: an unrecognised IPv6 router *(opt-in, `--ipv6`)*
+### `rogue_ra`: an unrecognised IPv6 router *(opt-in, `--ipv6`; see IPV6.md in the repository)*
 `rogue_dhcp`'s IPv6 twin, same shape: a device that was not sending IPv6 Router Advertisements during the
 learning period starts sending them — a rogue router can redirect every IPv6-capable device's traffic through
 itself. Score 70, folded into `rogue_dhcp`'s own weight. Reported once per new router, remembered across
 restarts (`router_advertisers_v6`). Does not cover IPv6 address conflicts (rare by design under SLAAC/DAD,
-deliberately left out).
+deliberately left out — see IPV6.md).
 
 ### `device_silent` / `agent_offline`: a reliable device disappeared
 A device that was online in ≥90% of hours over the last week (and observed ≥48 h) has not been seen for
@@ -152,16 +152,30 @@ Five or more new devices within ten minutes (after the learning period). Score 5
 One alert per half hour; each device still gets its own `new_device` entry. Fits a scan, an ARP flood or a bridged
 network, but also a meeting or a delivery of new equipment.
 
-### `threat_list_match`: contact with a known-bad address *(needs `--flows` and `--threat-list`)*
+### `threat_list_match`: contact with a known-bad address *(needs `--flows` and a threat list)*
 ```bash
 denis run --flows --threat-list /var/lib/denis/bad-ips.txt
 ```
-The file lists IPv4 addresses and networks, one per line (`203.0.113.9`, `198.51.100.0/24`; `#` comments allowed):
-the format of the free lists from abuse.ch (Feodo Tracker), Spamhaus DROP and similar. DENIS ships no list and never
-downloads one: refresh the file yourself (for example with cron); DENIS notices when it changes and reloads it, and
-keeps the old list if the new file is broken. A device contacting a listed address scores 85 (+10 if it sent ≥100 kB),
-from the first day (no learning period), once per device and address per six hours. Traffic is only seen when it
-crosses the interface DENIS listens on (see [Concepts](concepts.md#visibility-what-can-be-seen-from-where)).
+Checks every outside address a device contacts against a list of known-bad IPv4 addresses and networks. Two sources,
+unioned together — a hit on either counts:
+
+* **Your own file**, named with `--threat-list`: one entry per line (`203.0.113.9`, `198.51.100.0/24`; `#` comments
+  allowed) — the format of the free lists from abuse.ch (Feodo Tracker), Spamhaus DROP and similar. DENIS never
+  downloads this one itself: refresh the file yourself (for example with cron, writing to a temporary name and
+  renaming it so DENIS never reads a half-written file); DENIS notices when it changes and reloads it, and keeps the
+  old list if the new file is broken.
+* **Auto-fetched sources**, under *Settings* → **Data** → **Threat list sources**: **abuse.ch Feodo Tracker** (botnet
+  command-and-control addresses) and **Spamhaus DROP** (hijacked and spammer networks), each off by default and
+  switched on independently, each with its own refresh schedule (Daily / Weekly / Monthly). **Refresh now** fetches
+  one immediately; the provider, entry count and last-fetched time are shown live. A response that does not parse as
+  a real list (a captive portal, a broken download) is refused and the previous fetch, if any, stays in force —
+  exactly like a broken local file.
+
+Turning on a fetched source can only ever add coverage: it is unioned with your own file, never a replacement for it,
+and a source you turn back off stops being used immediately even if its last fetch is still cached. A device
+contacting a listed address scores 85 (+10 if it sent ≥100 kB), from the first day (no learning period), once per
+device and address per six hours. Traffic is only seen when it crosses the interface DENIS listens on (see
+[Concepts](concepts.md#visibility-what-can-be-seen-from-where)).
 
 ### `it_watch`: your own network watches *(needs `--flows`)*
 

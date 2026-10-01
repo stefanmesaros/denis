@@ -29,6 +29,13 @@ which carries anything about your network, and each of which can be switched off
 | end-of-support dates | `endoflife.date` | weekly | *Settings → Data → Software versions* |
 | known-exploited vulnerabilities | CISA, NVD, FIRST.org (EPSS) | weekly | *Settings → Data → Software versions* |
 
+Two more are **opt-in**, off by default rather than on-by-default like the four above: the **abuse.ch Feodo Tracker**
+and **Spamhaus DROP** blocklists that `threat_list_match` checks contacted addresses against, each switched on and
+scheduled (Daily/Weekly/Monthly) independently under *Settings → Data → Threat list sources*
+([details](detection-rules.md#threat_list_match-contact-with-a-known-bad-address-needs---flows-and-a-threat-list)).
+Turning either on is the one deliberate exception to "nothing fetched unless you asked for it" — not a silent
+default.
+
 Reverse-DNS lookups of public addresses go to the resolver you set (`1.1.1.1` by default) and do carry the
 address being looked up; switch them off or point them at your own resolver under *Network Intelligence*.
 
@@ -50,7 +57,7 @@ address being looked up; switch them off or point them at your own resolver unde
 * **Passkeys** (WebAuthn) and **one-time codes from an authenticator app** (TOTP) are supported for sign-in (below).
   **Single sign-on** over OpenID Connect exists (*Settings → Sign-in & security → Single sign-on*) but has not yet
   been exercised against a real identity provider — ID-token signature verification end to end is the specific
-  gap. SAML is not supported.
+  gap; see `SSO.md` in the repository before relying on it. SAML is not supported.
 * Login lock-out is **per account name**: an attacker can lock a known account for short periods (denial of
   service), but cannot guess passwords faster. On top of that each **source address** may make 20 failed
   sign-ins per 10 minutes, then is refused (HTTP 429) for the rest of the window, which stops one address

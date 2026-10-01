@@ -13,31 +13,64 @@ row to open that site's devices.
 
 ## Header
 
-Product name and logo (yours, see [Branding](branding.md)), a status line (mode, network, devices, last sweep,
-health of exports), the **language** picker, the **colour theme** button (auto / day / night), your name (click it for [My account](#my-account)),
+Product name and logo (yours, see [Branding](branding.md)), a status pill (a dot plus "sweep 3m ago" or
+"sweeping…", with an "export ok" / "export FAILING" chip when an export is configured; hover it for the full
+sentence — mode, network, devices, last sweep, health of exports — also shown on the [Health](#health) page),
+the **language** picker, the **colour theme** button (auto / day / night), your name (click it for [My account](#my-account)),
 **Help** (this documentation), **Sign out** and **Scan now** (an immediate sweep and port scan; disabled in passive-only mode).
 **Ask DENIS** appears next to *Scan now* when that AI feature is on ([Settings → AI](#settings-administrators)): a
-floating question box that stays open while you move between pages. A yellow banner appears while **maintenance
-mode** silences notifications; a blue one while demo data is loaded or an update is available.
+floating question box that stays open while you move between pages. It does five things, each answered from DENIS's
+own real data or real documentation — never from what the model already "knows" about networks in general:
 
-The menu on the left is grouped into *Monitor* (Devices, Alerts, Findings), *Analyze* (Topology, OT, Software,
-Trends, Events, Compliance, Reports) and *Manage* (Rules, Alerting, Health, Sites, Users, Settings, Audit log);
+* **Search recent alerts.** *"Any high-severity alerts today?"*, *"new destinations from the finance VLAN this
+  week"* — a plain-language stand-in for the Alerts page's own filters.
+* **Hunt for a destination across every device's history.** *"Has anything ever talked to 203.0.113.9?"*, *"which
+  devices have contacted evil.example?"* — searches every device's own learned baseline, not just recent alerts.
+* **Navigate.** *"Take me to Topology"*, *"open the SSO settings"*, *"show me the OT devices"* — jumps straight
+  there, the same as typing the address, with nothing to read afterwards.
+* **Answer how-to and configuration questions** from this very documentation. *"How do I add a switch?"*, *"how do
+  I set up single sign-on?"* — answered from the one real page that covers it, never guessed.
+* **Say what it can do**, truthfully and from this installation's own feature toggles: *"what can you do?"* lists
+  exactly the five things above plus whichever on-click AI features (assessment, behavior explanations, incident
+  consequences…) are actually switched on for you, never more.
+
+It never changes a setting, acknowledges an alert, or takes any action by itself — only looks things up, navigates,
+or describes what is really there. A yellow banner appears while **maintenance mode** silences notifications; a blue
+one while demo data is loaded or an update is available.
+
+The menu on the left is grouped into *Monitor* (Devices, Incidents, Alerts, Findings), *Analyze* (Topology, OT,
+Software, Events, Compliance, Reports) and *Manage* (Rules, Alerting, Health, Sites, Users, Settings, Audit log);
 the ☰ button collapses it to an icon rail.
 
 ## Dashboard
 
 ![Dashboard](img/dashboard.png)
 
-The home screen, and the first thing you see after signing in. Twelve at-a-glance counts (devices,
-online/offline, needs review, open alerts, high-severity alerts, OT devices, high-risk devices,
-findings needing attention, accepted risks, sites, new devices in the chosen period) — click any of
-them to jump straight to the filtered list behind it. Below: two trend charts (alerts raised,
-devices online) over a period you pick (24 hours / 7 days / 30 days), four donut breakdowns
-(devices by risk, open alerts by severity, devices by type, findings by severity — click a segment
-or its legend entry to drill into exactly what it shows), and three lists of what actually needs a
-look right now: recent alerts, the most at-risk devices, and standing findings. Every number here
-is drawn from state the console already has, so opening it costs nothing extra beyond its own two
-trend-chart requests. Every other tab is unchanged and still one click away in the sidebar.
+The home screen, and the first thing you see after signing in — and, since the standalone Trends page was folded
+into it, the one screen that answers both "what needs attention right now" and "what has this network been doing".
+With an AI provider configured and **Settings → AI → Dashboard AI summary** on, an **AI Security Summary** card sits
+at the very top: a short, plain-language read of recent alert activity, written only when it actually changes (not on
+every page load), never what drives alerting itself.
+
+Below that: twelve at-a-glance counts (devices, online/offline, needs review, open alerts, high-severity alerts, OT
+devices, high-risk devices, findings needing attention, accepted risks, sites, new devices in the chosen period) —
+click any of them to jump straight to the filtered list behind it — and four donut breakdowns (devices by risk, open
+alerts by severity, devices by type, findings by severity — click a segment or its legend entry to drill into exactly
+what it shows). Next, three lists of what actually needs a look right now: recent alerts, the most at-risk devices,
+and standing findings.
+
+The rest of the page is the former Trends page, over the same period you pick at the top (24 hours / 7 days / 30
+days): eight charts — devices online, devices offline, devices in the register, new devices, traffic sent outside the
+network, traffic received, total traffic, and alerts raised (traffic needs `--flows`) — followed by **Top talkers**:
+which devices have sent and received the most, from each device's own traffic baseline. Unlike the charts above it,
+this is a live leaderboard, not a period (a device seen longer naturally shows more; hover a bar for that device's
+own start). The gateway and this monitoring host are left out automatically, since traffic naturally funnels through
+them; click **×** on any device to hide it from all three lists too.
+
+![Top talkers](img/top-talkers.png)
+
+Every number on this page is drawn from state the console already has, so opening it costs nothing extra beyond its
+own trend-chart request. Every other tab is unchanged and still one click away in the sidebar.
 
 ## Tables: columns
 
@@ -89,6 +122,17 @@ The icon row shows the current icon with **Change…** right beside it; that ope
 
 ![Choosing an icon](img/icon-picker.png)
 
+## Incidents
+
+![Incidents](img/incidents.png)
+
+Related alerts grouped into one incident with its own priority (*Act now* / *Investigate today* / *Review* / *Can
+wait*), so a device going through several stages of trouble is one row to work instead of several scattered across
+the Alerts page. An alert that stays on its own just stays on Alerts — incidents never hide or replace anything
+there. Click one for its timeline, the devices involved, and, with an AI provider configured, **Assess consequences
+with AI**. Full details, including what triggers grouping and how incidents reach your notification channels, in
+[Incidents](incidents.md).
+
 ## Alerts
 
 ![Alerts](img/alerts.png)
@@ -103,9 +147,10 @@ with an optional reason (resolved / false positive / expected behaviour); acknow
 towards a device's risk score. Tick several rows to acknowledge them together, or **Acknowledge all**. The same
 alert kind repeating for the same device is folded into one row ("×12, recurring since…") that expands on click.
 **Add exception** (administrators) silences that exact alert for that device without a trip to the Rules page.
-With an AI provider configured, **Explain with AI**, **Triage with AI**, **Recommended actions** and — for alerts
-about a change from a device's own baseline — **Explain behavior change** appear in the dialog, each only on
-click. **Alerts CSV** (a button, next to *show acknowledged*) exports the list.
+With an AI provider configured, **Assess & Explain with AI** appears in the dialog: one click covers what the
+alert means, whether it looks malicious, the consequences of ignoring it and what to do next, plus — for alerts
+about a change from a device's own baseline — a behavior-change explanation, all in the same answer.
+**Alerts CSV** (a button, next to *show acknowledged*) exports the list.
 
 Any public IP address the alert mentions gets its own **Network context** section: the address, its country/ASN/ISP
 (or "private"/"loopback"/etc. for one that is not public), reverse-DNS hostname, and — click it — a full detail
@@ -163,7 +208,12 @@ to keep it.
 
 ![Topology](img/topology.png)
 
-Devices grouped by type around the gateway; colour shows risk. Hover a device for its name, address and score.
+Devices grouped by type around the gateway, each one an icon chip coloured by its risk level (see the legend above
+the map). Click a chip to select it: every other node and spoke dims and the selected device's own spoke to the
+gateway is highlighted, so a crowded map stays readable; click the same chip again (or its already-selected self) to
+open that device's own page. Hover any chip for its name, address, type and risk score. A device with an unacknowledged
+alert raised in the last five minutes gets a pulsing ring around it, so something that just happened stands out
+without having to scan every number.
 
 **Switches and cables** is the physical map, read from your switches over SNMP: which port each device is plugged into and
 how the switches are cabled together. A device's panel gets a *Connected to* line. Set it up under *Settings* → *Switches (SNMP)*
@@ -185,22 +235,6 @@ Every product and version DENIS has read from a service banner (SSH, HTTP, FTP, 
 software instead of by device, with a status per row: known-exploited, end of support, end of support soon, or
 no known issue — the same data the Findings page checks, seen fleet-wide. Click a device count to see which
 devices run that version.
-
-## Trends
-
-![Trends](img/trends.png)
-
-Devices online, traffic sent outside the network and alerts raised over the last hours or days, per site.
-(Traffic needs `--flows`.)
-
-### Top talkers
-
-![Top talkers](img/top-talkers.png)
-
-Below the charts: which devices have sent and received the most, from each device's own traffic baseline — a live
-leaderboard, not a period like the charts above it (a device seen longer naturally shows more; hover a bar for that
-device's own start). The gateway and this monitoring host are left out automatically, since traffic naturally
-funnels through them; click **×** on any device to hide it from all three lists too.
 
 ## Events
 
@@ -235,8 +269,10 @@ device it reported (the site id has to be typed back to confirm; the token is re
 ![Alerting](img/alerting.png)
 
 Where alerts go outside the console: Slack, Microsoft Teams, Discord, PagerDuty, Pushover, ntfy, e-mail, Jira, ServiceNow and a signed webhook, each
-with its own minimum score, a **Test** button and live delivery status. **Maintenance mode** silences everything for
-30 minutes to 7 days ([details](alerting.md)).
+with its own minimum score, its own **Delivery** choice (every alert individually, or grouped into
+[incidents](incidents.md#turning-it-off-and-sending-incidents-out)), a **Test** button and live delivery status.
+**Maintenance mode** silences everything for 30 minutes to 7 days, and **Group related alerts into incidents** (on by
+default) turns the correlation itself on or off network-wide ([details](alerting.md)).
 
 ## Users (administrators)
 
@@ -265,7 +301,8 @@ Everything about the installation that is not about people, in seven categories 
 * **Network** — the discovery and mirror interfaces and the agent listener, switches (SNMP), Network Intelligence
   (GeoIP / reverse DNS).
 * **Data** — data retention, the software-version data (end-of-support and known-exploited refreshes, custom
-  CVEs), and demo data: load a fictional company to explore, remove it, or **erase all data** when you are ready
+  CVEs), threat list sources (the auto-fetched abuse.ch/Spamhaus blocklists, each independently schedulable), and
+  demo data: load a fictional company to explore, remove it, or **erase all data** when you are ready
   for the real network ([details](operations.md#demo-data-and-starting-clean-erase-all-data)).
 * **Integrations** — SIEM / log export, CMDB import (Entra ID, Intune, Active Directory, Jamf Pro, Azure, AWS,
   GCP), the vulnerability scanner (Nessus).

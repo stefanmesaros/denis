@@ -100,7 +100,9 @@ older version. A database newer than the program is refused with a clear message
 
 `--threat-list bad-ips.txt` is re-read whenever the file changes, so refreshing it is a cron job that replaces the
 file (write to a temporary name and rename, so DENIS never reads a half-written file). If the new file is broken,
-DENIS keeps the old list and logs a warning.
+DENIS keeps the old list and logs a warning. For the two public blocklists (abuse.ch, Spamhaus) DENIS can fetch and
+refresh itself, opt-in under *Settings* → **Data** → **Threat list sources**, see
+[Detection rules › `threat_list_match`](detection-rules.md#threat_list_match-contact-with-a-known-bad-address-needs---flows-and-a-threat-list).
 
 ## Logs
 
