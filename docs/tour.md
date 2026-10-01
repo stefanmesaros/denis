@@ -25,7 +25,9 @@ own real data or real documentation — never from what the model already "knows
 * **Search recent alerts.** *"Any high-severity alerts today?"*, *"new destinations from the finance VLAN this
   week"* — a plain-language stand-in for the Alerts page's own filters.
 * **Hunt for a destination across every device's history.** *"Has anything ever talked to 203.0.113.9?"*, *"which
-  devices have contacted evil.example?"* — searches every device's own learned baseline, not just recent alerts.
+  devices have contacted 10.0.5.0/24?"* — searches every device's own learned baseline and its recorded
+  [relationships](concepts.md#relationships-and-the-investigate-section), not just recent alerts. An exact IP
+  address or a CIDR range only: DENIS does not keep which domain names a device looked up.
 * **Navigate.** *"Take me to Topology"*, *"open the SSO settings"*, *"show me the OT devices"* — jumps straight
   there, the same as typing the address, with nothing to read afterwards.
 * **Answer how-to and configuration questions** from this very documentation. *"How do I add a switch?"*, *"how do
@@ -56,8 +58,11 @@ Below that: twelve at-a-glance counts (devices, online/offline, needs review, op
 devices, high-risk devices, findings needing attention, accepted risks, sites, new devices in the chosen period) —
 click any of them to jump straight to the filtered list behind it — and four donut breakdowns (devices by risk, open
 alerts by severity, devices by type, findings by severity — click a segment or its legend entry to drill into exactly
-what it shows). Next, three lists of what actually needs a look right now: recent alerts, the most at-risk devices,
-and standing findings.
+what it shows). Next, **Top exposures today**: the devices with a serious standing fact (a known-exploited or
+critical vulnerability, unsupported software, an open incident, a high-severity finding), ranked, each with every
+point listed and where it comes from — the top five, and **Show all** for the rest ([how it is ranked](concepts.md#top-exposures-today)).
+Then three lists of what actually needs a look right now: recent alerts, the most at-risk devices, and standing
+findings.
 
 The rest of the page is the former Trends page, over the same period you pick at the top (24 hours / 7 days / 30
 days): eight charts — devices online, devices offline, devices in the register, new devices, traffic sent outside the
@@ -107,7 +112,8 @@ how well the device is identified, and its open alerts. Devices you rate *critic
 
 Everything DENIS knows: your data (owner, serial number, warranty…), what it *discovered* and the **evidence
 behind each guess** ("Why this guess"), IP history, open ports, the learned **traffic baseline** (usual
-destinations, ports, volume, active hours), its alerts and the **change history** of your edits.
+destinations, ports, volume, active hours), its alerts and the **change history** of your edits. A device on the
+Dashboard's Top exposures list also gets a **Why this is a top exposure** section on its Overview, line by line.
 
 ### Editing a device
 
@@ -151,6 +157,12 @@ With an AI provider configured, **Assess & Explain with AI** appears in the dial
 alert means, whether it looks malicious, the consequences of ignoring it and what to do next, plus — for alerts
 about a change from a device's own baseline — a behavior-change explanation, all in the same answer.
 **Alerts CSV** (a button, next to *show acknowledged*) exports the list.
+
+**Investigate**, a collapsible section in the same dialog, shows the alert in context: the device's other events an
+hour either side, what DENIS recorded between the device and the alert's other party, which other devices contacted
+that same party, and the incident it belongs to. Traffic between two of your own devices only shows up there with
+east-west traffic switched on (Settings → Network interfaces; off by default). See
+[Relationships](concepts.md#relationships-and-the-investigate-section).
 
 Any public IP address the alert mentions gets its own **Network context** section: the address, its country/ASN/ISP
 (or "private"/"loopback"/etc. for one that is not public), reverse-DNS hostname, and — click it — a full detail
