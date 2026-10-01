@@ -4,6 +4,31 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 3.2.0
+
+* **"Top exposures today."** A short, ranked list of the devices that most need attention right
+  now — a known-exploited vulnerability on a critical machine, an open Incident on something with
+  no owner, a critical scanner finding — each with the reasons it's there, shown on the Dashboard
+  and on the device's own panel. No black-box score.
+* **See what talks to what inside your network** (optional, off by default). DENIS can now record
+  traffic between devices on the same network, not just traffic to the internet, so you can ask
+  "what talks to this server?" and get an answer with evidence. Turn it on under Settings →
+  Network interfaces.
+* **Investigate an alert without leaving it.** Alerts now have a collapsible "Investigate" section
+  showing what else the device did around that time, which other devices contacted the same
+  address, and the Incident it belongs to, if any.
+
+## 3.1.0
+
+* **Everything about a device, in one place.** The device panel now shows what your directory
+  (Entra ID, Intune, Active Directory, Jamf, cloud accounts) and vulnerability scanner say about a
+  device, alongside its open findings, related Incidents, and which collectors see it. You can
+  also merge two collectors that watch the same network segment, directly from the console.
+* **A refreshed Topology view.** Devices are grouped by type, and you can see which devices talk to
+  each other over industrial protocols, with zoom and pan around the map.
+* Findings now remember when they first appeared and when they were resolved, instead of only
+  showing the current state.
+
 ## 3.0.0
 
 * **Automatic Incidents.** Related alerts (the full chain of a compromised device's behaviour) are
