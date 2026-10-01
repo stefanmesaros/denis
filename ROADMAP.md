@@ -38,6 +38,12 @@ free, well-known threat feeds.
 SQLite file for installations with heavy traffic history or many tenants, plus an active-passive
 failover mode for sites that need it running even through a maintenance restart.
 
+**A more useful Ask DENIS.** Ask it to look at your recent alerts and it already finds real patterns
+— a noisy device, scanning activity, an exposed port. The natural next step, "add an exception for
+that" or "adjust the rule so it stops flagging this", will be able to draft the change for an
+administrator to review and apply with one click, the same way it can already draft a brand-new
+rule today. It still never changes anything by itself.
+
 ## Later
 
 **Say what should happen, see what does.** Turn a device's observed behaviour into an approved
