@@ -1,0 +1,121 @@
+# Quick start
+
+From nothing to a working, useful DENIS in about an hour. Every step says *why*, so you can skip what you do not need.
+
+## 1. What you need
+
+* **macOS or Linux** (Ubuntu 22.04+ recommended for a server). There is no Windows release yet: a `denis.exe`
+  can be built from source with the Npcap SDK and has been run on a real Windows 11 machine, but there is no
+  installer or service wrapper.
+* **Permission to capture packets:**
+  * Linux: run as root, or grant it once: `sudo setcap cap_net_raw,cap_net_admin=eip ./denis`
+  * macOS: read access to `/dev/bpf*` (Wireshark's *ChmodBPF* does this) or run with `sudo`.
+* **Where to put it.** On a normal switched network a machine sees broadcast traffic and its own. That is enough
+  to discover devices. To also see who talks to whom, run DENIS on the router/firewall or on a **mirror (SPAN)
+  port** ([Concepts › Visibility](concepts.md#visibility-what-can-be-seen-from-where)).
+* The pre-built program on Linux needs only the libpcap runtime library (`libpcap0.8`; `libpcap0.8t64` on Ubuntu 24.04),
+  which most systems have. Note that a program updated from the console keeps its capture permission only if the
+  updater can replace the file in place; run `setcap` again after a manual replacement.
+* To build from source: Rust (stable) and libpcap headers (`sudo apt install build-essential libpcap-dev`).
+
+## 2. Get it and start it
+
+**On a Linux server that should run DENIS permanently**, use the installer: it needs no compiler and does everything
+(signature check, service, free port, first password): see [Deployment](deployment.md#installing-on-a-linux-server-a-permanent-service).
+
+**To try it on a Mac or Linux machine**, download the program for your platform from the
+[Releases](https://github.com/stefanmesaros/denis/releases) page (`denis-aarch64-apple-darwin` for an Apple-silicon Mac,
+`denis-x86_64-apple-darwin` for Intel, `denis-x86_64-unknown-linux-gnu` or `denis-aarch64-unknown-linux-gnu` for Linux),
+check it against `SHA256SUMS` on that page (`shasum -a 256 denis-…`), and start it:
+
+```bash
+chmod +x denis-aarch64-apple-darwin          # your file name
+xattr -d com.apple.quarantine denis-aarch64-apple-darwin 2>/dev/null   # macOS: allow a file downloaded in a browser
+./denis-aarch64-apple-darwin run
+```
+
+(or build it yourself: `cargo build --release`, then `./target/release/denis run`; one file, console and documentation
+included.) Only one program can use a port: if **8080 is taken** DENIS says `Address already in use` and stops; start it
+with another one, `./denis run --listen 127.0.0.1:9000`, and open that port instead of 8080 below.
+
+The first start creates an administrator and prints a **one-time password**. Copy it now, it is shown only once:
+
+```
+  ┌─ FIRST START ──────────────────────────────────────────────┐
+  │ Created the administrator account:                          │
+  │   username: admin                                           │
+  │   password: xxxxxxxxxxxxxxxxxxxx                            │
+```
+
+Open **https://localhost:8080** (DENIS uses HTTPS by default; your browser will warn once about the certificate DENIS created: see [Deployment](deployment.md#reaching-the-ui-securely-https-is-on-by-default) to trust it or use your own). Sign in as `admin` and choose your own password (at least 12 characters).
+Lost it later? `denis user reset admin` on the same machine prints a new one-time password.
+
+The **Dashboard** is the first screen; within seconds its counts move and the **Devices** page fills up.
+
+![The Devices tab](img/devices.png)
+
+## 3. Explore with demo data (optional)
+
+Not on a real network yet, or want to look around first? Sign in as an administrator, open **Settings** → **Data**
+→ **Demo data and reset** and press **Load demo data** (or start with `denis demo --db demo.db load`, see the
+README). It fills the console with a fictional company (an office, a production hall with PLCs and HMIs, a branch
+site): 42 devices, alerts, industrial communications, trends. Every screen has something to look at.
+
+Demo data is clearly marked and never mixed up with your real devices: a banner says it is loaded, the collector and
+detectors ignore it, and **Remove demo data** deletes exactly that and nothing else. When you are ready to use DENIS
+for real, remove it (and, if you edited things while exploring, use **Erase all data** in the same place to start from
+a clean slate; see [Operations](operations.md#demo-data-and-starting-clean-erase-all-data)).
+
+## 4. The first hour: what to set, in this order
+
+The first time an administrator signs in, the **setup guide** opens by itself: a checklist of your network, sign-in
+security, notifications, colleagues, backups and branding. Each item turns green when it is really done (DENIS checks
+what is configured, it does not take your word for it), and each has a button to the right page. **Remind me later**
+closes it until your next sign-in; **Mark as done** stops it opening (for everyone). You can open it again any time
+under *Settings* → *Setup guide*. The list below is the same job in more detail.
+
+1. **Look at what was found.** Open **Devices**. Each row has an icon, a risk score, the address, the
+   manufacturer and a guessed type and operating system. Click a device to see *why* DENIS thinks so.
+2. **Work through the review queue.** Tick **needs review** (top right). Every device nobody has looked at
+   is listed. Open the unfamiliar ones; for the rest press **Mark all shown as known**. From now on a new device
+   stands out ([details](asset-management.md#the-review-queue)).
+
+   ![The review queue](img/review-queue.png)
+3. **Describe your important devices.** Open a server, NAS or camera → **Edit asset**: a name, an owner, a
+   location, a criticality (*high* for things you cannot lose). Correct a wrong device type; your value wins
+   everywhere. Or import a spreadsheet: **Devices CSV** → edit → **Import CSV**.
+4. **Get alerts where you will see them.** *Alerting* tab → add **Slack**, **Teams**, **e-mail**,
+   **PagerDuty** or a **webhook**, press **Test** ([details](alerting.md)).
+5. **Let it learn.** For the first 24 hours DENIS *learns*: new devices and destinations are recorded but not
+   alerted on (a banner shows the time left). Do not judge the alerts before that is over.
+6. **Tune the noise.** *Rules* tab: every detection, with its weight and thresholds. A rule that is too loud for
+   you (say new destinations on laptops) can be turned down, not off
+   ([details](detection-rules.md)).
+7. **Secure the console.** Add a **passkey** or an authenticator app (click your name → *My account*), create one
+   named account per person, and require a second step under *Settings → Sign-in & security*. HTTPS is already on
+   (a self-signed certificate; trust the DENIS CA or install your own, see
+   [Deployment](deployment.md#reaching-the-ui-securely-https-is-on-by-default)).
+8. **Look at *Findings* and *Compliance*.** They turn what DENIS knows into a to-do list and into evidence for
+   an audit ([tour](tour.md#findings)).
+
+## 5. Options you will use
+
+```bash
+denis run --passive-only            # listen only; never send a single packet
+denis run --flows                   # also analyse traffic (who talks to what)
+denis run --profile ot              # industrial network: passive and gentle (see OT guide)
+denis run --listen 127.0.0.1:9000   # another port
+denis run --db /var/lib/denis/denis.db
+denis run --public-url https://denis.example.com   # the address people type; enables passkeys over HTTPS
+denis run --threat-list bad-ips.txt --flows        # alert on contact with known-bad addresses
+denis serve --db copy.db            # look at a database (a backup, a copy) without capturing anything
+denis backup /safe/place/denis-backup.db           # verified copy of the database, while running
+denis --help                        # everything
+```
+
+Reading data without the console: `denis list`, `denis alerts`, `denis report`.
+
+## 6. Stopping and starting again
+
+Press **Ctrl-C**. DENIS saves everything and exits; the next start continues where it stopped.
+To run it as a service, see [Deployment](deployment.md).
