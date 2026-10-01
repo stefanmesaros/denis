@@ -23,8 +23,12 @@ the binary and the GitHub Release page for that version.
 * **Clearer Topology and alerts**: icon-based, risk-coloured device chips with click-to-select on
   the network map; the separate "Explain"/"Assess"/"Recommend" AI buttons on an alert are now one
   "Assess & Explain with AI" button.
-* Smaller fixes: clearer Devices CSV export naming, better Dashboard spacing, reordered Settings
-  navigation, and more.
+* **More reliable Incidents.** Fixed a case where an alert could be grouped into the wrong open
+  Incident; and deleting a device, a site, or your whole inventory now also cleans up the
+  Incidents that referenced it, instead of leaving orphaned entries behind.
+* Smaller fixes: the "Close" button on alert and incident dialogs is clearer about what it does
+  and sits with the other action buttons instead of on its own row, clearer Devices CSV export
+  naming, better Dashboard spacing, reordered Settings navigation, and more.
 
 ## 2.x series
 
