@@ -87,11 +87,16 @@ network itself rather than trusting whatever was last typed into a CMDB.
    talkers" leaderboards for who is moving the most data, and — for any public IP address mentioned anywhere —
    country (flag included), ASN, AS organisation and reverse-DNS hostname from a local GeoIP database (DB-IP Lite
    by default, auto-updated monthly, or your own licensed MaxMind file), never a live lookup that sends your
-   traffic's addresses to a third party.
+   traffic's addresses to a third party. **Relationships** (opt-in for traffic between your own devices): with
+   east-west recording switched on (Settings → Network interfaces, off by default), DENIS also keeps which of your
+   devices talked to which, over which protocol and port, first and last seen, and whether it saw who opened the
+   connection or only guessed from the ports — the lateral-movement view a perimeter device never has.
 4. **Detect, with a score you can read.** New device, rogue DHCP server, ARP hijack / gateway takeover, a new
    destination or port, unusual volume or hour, a device gone silent, a burst of newcomers, contact with a
    known-bad address — each scored 0–100 with the factors behind the score and what to do about it. No black-box
-   number: every point is attributed to a named reason.
+   number: every point is attributed to a named reason. An alert's **Investigate** section shows it in context:
+   the device's other events an hour either side, what was recorded between the device and the other party,
+   which other devices contacted that same party, and the incident it belongs to.
 5. **Protect OT.** Passive decoding of Modbus, S7comm, EtherNet/IP-CIP, DNP3, BACnet, OPC UA and IEC 60870-5-104;
    alerts for control commands (a PLC stop, a program download), traffic crossing the network boundary, Purdue-level
    skipping, and writes from a device that should only ever read.
@@ -107,7 +112,10 @@ network itself rather than trusting whatever was last typed into a CMDB.
    warranty…) with **Verify fix** and **Accept risk**; a *Compliance* view showing where your register and
    detections already give you evidence for CIS Controls v8, NIST CSF 2.0, IEC 62443-3-3, NIST SP 800-82,
    ISO/IEC 27001 Annex A, NIS2, DORA, PCI DSS v4.0, HIPAA, SOC 2 and CMMC 2.0; and *Reports* kept on the server to
-   view, download or print.
+   view, download or print. **Top exposures today**, on the Dashboard and each device's panel, ranks the devices
+   that most need attention (a known-exploited vulnerability, critical scanner results, unsupported software, an
+   open incident, a high-severity finding, weighed by what is at stake on the device), every point listed with
+   where it came from.
 
 ## Why DENIS
 
@@ -221,7 +229,9 @@ your actual register — three of the console's 20-odd pages ([more screenshots 
 | Anomaly detection | New device, rogue DHCP, ARP hijack/gateway takeover, new destination/port, unusual volume/hour, silent device, internal host sweep / port scan, known-bad addresses, your own network watches — each with an explainable 0–100 score. IPv6 (new destination, NDP mismatch, rogue router advertisement) is opt-in |
 | OT protocols | Modbus, S7comm, EtherNet/IP-CIP, DNP3, BACnet, OPC UA, IEC 60870-5-104 (passive decode) |
 | Communications matrix | Who talks to whom, which protocol, reads/writes/control commands |
-| Dashboard | 12 clickable KPI tiles, trend charts, risk/severity/type breakdowns, recent alerts, most at-risk devices — the home screen |
+| Relationships (lateral movement) | Which device talks to which, per protocol and port, with first/last seen and how DENIS knows it (observed or inferred; client confirmed by a TCP handshake or guessed from ports); "talks to", "talked to by" and "who has contacted this address" in the API. Traffic between your own devices is recorded only once you switch east-west recording on (off by default), bounded per device, with every limit shown on the Health page |
+| Alert investigation | An **Investigate** section on every alert: the device's surrounding timeline, its recorded relationship with the other party, the other devices that contacted the same party, the incident link |
+| Dashboard | 12 clickable KPI tiles, trend charts, risk/severity/type breakdowns, **Top exposures today** (devices ranked by known-exploited and critical vulnerabilities, unsupported software, open incidents and high findings, weighed by what is at stake — every point attributed), recent alerts, most at-risk devices — the home screen |
 | SNMP topology | Switch ports, LLDP neighbours, MAC-to-port physical map |
 | IP enrichment | Country (flag), city, ASN, AS organisation, reverse-DNS hostname for any public IP (Alerts, Events, Recent destinations, IP history) — local GeoIP (DB-IP Lite, auto-updated, or your own MMDB), never sent to a third party |
 | Vulnerability & EOL findings | Live CISA/NVD known-exploited feed (+ EPSS score) and end-of-support dates, matched per device — both refreshed weekly by default; your own custom CVEs |
