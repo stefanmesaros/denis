@@ -40,9 +40,12 @@ Edit asset → Device type / Operating system. Your value is used everywhere. Th
 shows what DENIS saw.
 
 **Two of every device in Sites (or in the "All sites" device list)**
-Two collectors on the same network segment, each reporting the same devices under its own site. Keep one
-collector per segment; filtering the Devices page to one site shows each device once. A proper "same network"
-join is designed but not built yet (`MULTI_AGENT_DEDUP.md` in the repository).
+Two collectors on the same network segment, each reporting the same devices under its own site. Sites →
+*Same network as…* on the agent's row (an administrator; the Sites page also suggests it when an agent sees
+most of the same devices as the local capture) previews what a join does, then sends that agent's future
+reports into the local site. The copies it already listed stay under its own site and stop updating; merging
+those into the local ones is not built yet (`MULTI_AGENT_DEDUP.md` in the repository). A site that has
+received an MSP relay sync cannot be joined.
 
 **An agent is not connecting**
 Check `denis agent-token list` (revoked?), the master's `--ingest-listen` address and firewall, that the agent

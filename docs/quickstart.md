@@ -34,8 +34,8 @@ xattr -d com.apple.quarantine denis-aarch64-apple-darwin 2>/dev/null   # macOS: 
 ./denis-aarch64-apple-darwin run
 ```
 
-(one file, console and documentation included — nothing else to install.) Only one program can use a
-port: if **8080 is taken** DENIS says `Address already in use` and stops; start it
+(or build it yourself: `cargo build --release`, then `./target/release/denis run`; one file, console and documentation
+included.) Only one program can use a port: if **8080 is taken** DENIS says `Address already in use` and stops; start it
 with another one, `./denis run --listen 127.0.0.1:9000`, and open that port instead of 8080 below.
 
 The first start creates an administrator and prints a **one-time password**. Copy it now, it is shown only once:

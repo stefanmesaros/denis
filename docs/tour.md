@@ -313,7 +313,7 @@ Everything about the installation that is not about people, in seven categories 
 * **Network** — the discovery and mirror interfaces and the agent listener, switches (SNMP), Network Intelligence
   (GeoIP / reverse DNS).
 * **Data** — data retention, the software-version data (end-of-support and known-exploited refreshes, custom
-  CVEs), threat list sources (the auto-fetched abuse.ch/Spamhaus blocklists, each independently schedulable), and
+  CVEs), threat list sources (the auto-fetched abuse.ch, Spamhaus and Tor exit blocklists, each independently schedulable), and
   demo data: load a fictional company to explore, remove it, or **erase all data** when you are ready
   for the real network ([details](operations.md#demo-data-and-starting-clean-erase-all-data)).
 * **Integrations** — SIEM / log export, CMDB import (Entra ID, Intune, Active Directory, Jamf Pro, Azure, AWS,

@@ -85,6 +85,34 @@ Useful alerts: `denis_channel_failing == 1` (a notification channel is broken), 
 `denis_health_warnings > 0` (the Health page has something to say), `denis_backup_age_seconds > 172800` (no backup for two days),
 `denis_capture_dropped_packets` rising (the capture cannot keep up). Also exposed: `denis_database_bytes`, `denis_disk_free_bytes`.
 
+## Is it your connection, or is it DENIS?
+
+The icon button next to **Scan now**, in the header, opens a 10-20 second **connection stability
+test** — not a speed test. It measures packet loss, jitter and latency over two legs at once: this
+browser's own connection to DENIS, and DENIS's own connection to your gateway or a public resolver
+(your choice, under the test's own settings — pick "gateway only" on a network with no internet
+access). Because both legs are measured, the result can say *which side* was unstable, not just that
+something was.
+
+The result rates the connection separately for web browsing, a video call, and 1080p/4K streaming —
+each has a different tolerance for loss and jitter, so one is often fine while another is borderline
+or poor, each with the specific number that tripped it. It also says whether DENIS's own recent
+network activity (a sweep or scan) overlapped the test and made things measurably worse, had no
+effect, or was not running at all — the question this feature exists to answer. Every result is
+saved and shown on the **Health** page with a short history, so a pattern across tests (a sweep
+always correlating with trouble, say) becomes visible over time.
+
+## Tracking a fix: work items
+
+A finding or a Top-exposures item can be turned into a **work item** (*Track fix…*, from the
+device panel or the Findings page): an owner, a status, a due date and notes, and optionally a
+linked Jira or ServiceNow ticket (DENIS can create it, or you can link an existing one by hand).
+DENIS confirms the fix itself, by one of three methods depending on what makes sense for that
+finding: rescanning the device, checking that the underlying record is simply gone, or watching
+that there has been no further contact matching the problem for a set number of hours (default 24,
+an administrator can change it) while the device stays online. A confirmed fix is watched for 30
+days and reopens automatically if the problem comes back.
+
 ## Upgrading
 
 DENIS can update itself from GitHub releases, with a backup first ([Updates](updates.md)). To update by hand:
@@ -100,7 +128,8 @@ older version. A database newer than the program is refused with a clear message
 
 `--threat-list bad-ips.txt` is re-read whenever the file changes, so refreshing it is a cron job that replaces the
 file (write to a temporary name and rename, so DENIS never reads a half-written file). If the new file is broken,
-DENIS keeps the old list and logs a warning. For the two public blocklists (abuse.ch, Spamhaus) DENIS can fetch and
+DENIS keeps the old list and logs a warning. For the public blocklists (abuse.ch Feodo Tracker, ThreatFox and URLhaus, Spamhaus DROP and
+ASN-DROP, the Tor exit list) DENIS can fetch and
 refresh itself, opt-in under *Settings* → **Data** → **Threat list sources**, see
 [Detection rules › `threat_list_match`](detection-rules.md#threat_list_match-contact-with-a-known-bad-address-needs---flows-and-a-threat-list).
 

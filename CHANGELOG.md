@@ -4,6 +4,33 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 3.3.0
+
+* **Multiple customers on one installation.** Separate databases, detectors and consoles per
+  customer, with nothing reachable across them; MSP technician accounts that work across customers
+  without a separate login in each one; export or import a customer as a standalone database.
+* **Optionally disable a switch port, from DENIS.** For a switch DENIS already monitors over SNMP:
+  one access port at a time, with a preview of what's behind it, a reason, your password, and
+  one-click undo. DENIS never blocks anything on its own.
+* **Track a fix until it's actually fixed.** Assign a finding to a person with a due date and a
+  linked Jira/ServiceNow ticket; DENIS confirms the fix itself (a rescan, or no further contact
+  while the device stays online) and watches for 30 days in case it comes back. Also closes the
+  gap where two collectors watching the same network could leave a device listed twice after
+  being joined.
+* **Is it your connection, or is it DENIS?** A one-click, 10-20 second test of packet loss, jitter
+  and latency — not a speed test — rated separately for browsing, a video call, and 1080p/4K
+  streaming, with a note on whether DENIS's own network activity was the cause. A button next to
+  "Scan now"; every result is saved on the Health page.
+* **More threat intelligence, and certificate/TLS findings.** ThreatFox, URLhaus, Spamhaus
+  ASN-DROP and the Tor exit list join the existing Feodo Tracker and Spamhaus DROP, each opt-in
+  and named on a hit. An opt-in probe reads TLS certificates and protocol/cipher strength on your
+  own devices' already-open ports, flagging an expired, soon-to-expire, self-signed or weak-TLS
+  certificate.
+* **Ask DENIS can now draft, not just answer.** A follow-up like "add an exception for that" or
+  "this rule is too sensitive" drafts the exact change — a new rule, an exception, or a setting
+  change — for an administrator to review and apply with one click. It never changes anything by
+  itself.
+
 ## 3.2.0
 
 * **"Top exposures today."** A short, ranked list of the devices that most need attention right

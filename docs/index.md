@@ -14,6 +14,7 @@ It works on office and home networks (IT) and on industrial networks (OT).
 | Work one grouped incident instead of a dozen separate alerts, with a priority to tell you what to do first | [Incidents](incidents.md) |
 | Use it on an industrial (OT/ICS) network | [OT guide](ot-guide.md) |
 | Run it for a client: users, agents, TLS, backups | [Deployment & administration](deployment.md) |
+| Run it for several customers on one installation, with MSP technician accounts | [Multi-tenancy](multi-tenancy.md) |
 | Send alerts to Slack, Teams, e-mail, PagerDuty, Pushover, ntfy, Jira, ServiceNow or a webhook; maintenance mode | [Alerting](alerting.md) |
 | Send events, audit log and inventory to OpenObserve, events/findings/audit to a SIEM (syslog: CEF/LEEF/JSON), or ECS documents to Elasticsearch/OpenSearch | [Export](export.md) |
 | See which switch port each device is plugged into (SNMP) | [Switches](switches.md) |
@@ -39,7 +40,8 @@ It works on office and home networks (IT) and on industrial networks (OT).
 
 ## What DENIS is not
 
-* Not an intrusion *prevention* system: it observes and alerts, it does not block traffic.
+* Not an intrusion *prevention* system: it observes and alerts, it does not block anything on its own; an
+  administrator can optionally disable a switch port from it ([Disabling a port](switches.md#disabling-a-port)).
 * Not a vulnerability scanner: it does not test passwords or exploit anything. It flags exposed risky
   services (Telnet, RDP, …) and unusual behaviour.
 * It sees only what reaches it. On a normal switched network a collector sees broadcast traffic and its own

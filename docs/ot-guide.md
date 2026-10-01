@@ -171,4 +171,5 @@ This needs the mirror port to carry the traffic between the devices (the same re
 * IPv4 only; non-IP real-time protocols (PROFINET RT, EtherCAT) are not analysed, only PROFINET DCP identity.
 * Anything not visible on the mirror port is not seen. Verify that the port really carries the traffic you care
   about (the **OT** tab should show the expected controllers within minutes).
-* DENIS is a **monitoring** tool. It never sends commands to controllers and never blocks anything.
+* DENIS is a **monitoring** tool. It never sends commands to controllers and never blocks anything on its own (an
+  administrator can optionally disable a switch port from it; see [Disabling a port](switches.md#disabling-a-port)).
