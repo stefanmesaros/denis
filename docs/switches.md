@@ -11,12 +11,15 @@ For every switch you add (*Settings* → **Switches (SNMP)**), DENIS reads, and 
 | MIB | What for |
 |---|---|
 | system (`sysDescr`, `sysName`) | the switch's name and description |
-| IF-MIB (`ifName`, `ifAlias`, `ifOperStatus`, `ifHighSpeed`) | the ports: name, the label somebody typed, up or down, speed |
+| IF-MIB (`ifName`, else `ifDescr`; `ifAlias`, `ifOperStatus`, `ifAdminStatus`, `ifType`, `ifHighSpeed`) | the ports: name, the label somebody typed, up or down (link), switched on or off (administratively), physical or not, speed |
 | LLDP-MIB (`lldpRemTable`, `lldpLocChassisId`) | what each port sees on the other end of the cable: another switch, an access point, a phone: as that device announces itself |
 | Q-BRIDGE-MIB (`dot1qTpFdbPort`), else BRIDGE-MIB (`dot1dTpFdbPort`) | the forwarding table: which MAC address was learned on which port |
 
-DENIS never sends a SET and never changes anything on a switch. A table a switch does not implement is simply left out; only
-a switch that does not answer at all is an error, shown on the switch's line with the reason.
+A poll only ever reads, always with the read community. DENIS sends **one kind of SET**: `ifAdminStatus` of **one
+port**, only for a switch you gave a separate **write community**, only when an **administrator asks and confirms** with
+their password (see [Disabling a port](#disabling-a-port)). A switch without a write community is never written to.
+A table a switch does not implement is simply left out; only a switch that does not answer at all is an error, shown on
+the switch's line with the reason.
 
 ## Setting it up
 
@@ -31,6 +34,96 @@ a switch that does not answer at all is an error, shown on the switch's line wit
 4. Open **Topology** → *Switches and cables*. A device's own panel also gets a **Connected to** line.
 
 Polling runs from the DENIS collector (not in a `denis serve` viewer). The interval is 5 minutes by default (60 to 3600 seconds).
+
+## Disabling a port
+
+**DENIS never blocks anything on its own.** A person with the administrator role asks for every block, for one port at a
+time. They see exactly what will be cut off before they confirm. They confirm with their password. Every block is
+logged, announced on every alerting channel, and listed until someone undoes it.
+
+### Turning it on (twice)
+
+1. *Settings* → **Port control**: *Allow administrators to disable switch ports* (off by default), and the most blocks
+   per hour across all administrators (10 by default). Switching it off stops new blocks at once; it does not enable
+   ports that are already off, and enabling them from DENIS keeps working.
+2. Per switch: *Settings* → *Switches (SNMP)* → *Edit* → **Allow DENIS to disable ports on this switch**, and enter a
+   **write community**. Each switch's line then says *Port control* (or *Port control (off)* while step 1 is off)
+   instead of *Read only*. Like the read community it is never shown again, never logged or audited (the audit log
+   only says `port_control: true`); leave it blank to keep it, or tick *Remove the write community* to clear it. It
+   may be the same as the read community (some inexpensive switches have only one), but then every regular poll sends a
+   community that can write, and the form says so.
+
+Recommended on the switch, **not yet verified per vendor**:
+
+* a **separate write community**, limited by an access list to the DENIS server's address;
+* where the switch supports SNMP views, a view that allows writing **only `ifAdminStatus`** (`1.3.6.1.2.1.2.2.1.7`);
+* ideally, SNMP on a management VLAN.
+
+SNMP v2c sends the write community **unencrypted** each time a port is disabled or enabled: the same caveat as for
+reading, but for a credential that can take ports down. SNMPv3 is not supported yet.
+
+### Who can, and how
+
+Only a signed-in **administrator** with access to every site (switches do not belong to a site yet): never a viewer
+or editor, never an API token, never under `--insecure-no-auth`. Two places offer it, when port control is on and the
+switch has a write community:
+
+* **Topology** → *Switches and cables* → a switch's **Ports** table: **Disable…** on a port;
+* a device's panel, under *Connected to*: **Disable this device's switch port…**
+
+Either way DENIS first **reads the switch again, right now** (for a device: every switch that last placed it) and shows
+a preview built only from that fresh read: the switch and port, every device it can name behind the port, how many MAC
+addresses it cannot name, and every warning and refusal. The preview is valid for **two minutes** and can be confirmed
+once, only by whoever asked for it. Confirming needs a **reason** (3 to 200 characters) and your **password** (wrong
+answers count against the account's lockout, like restarting DENIS). Right before acting, DENIS reads the port once more
+and refuses if that index now carries another port's name (some switches renumber ports after a reboot or a module
+change). Then it sends the SET and **reads the port back**:
+
+* **disabled**: the switch reads it as switched off;
+* **not confirmed**: the SET or the read-back got no clear answer; the port may or may not be off. Check the switch, or
+  use **Check now**;
+* **refused**: the switch answered with an error (for example "this community cannot write"); nothing changed.
+
+### What DENIS refuses, whatever you confirm
+
+* cutting off **DENIS itself**, the **gateway**, or a **switch DENIS reads**;
+* a device whose identity is in doubt: an open **address-conflict** alert, or its MAC learned on **more than one access
+  port** right now (MAC cloning, a man in the middle: the port may be the victim's). Find the right port by hand;
+* an **uplink** (an LLDP neighbour that is a switch DENIS reads) or a **trunk** (more than 24 MACs behind it);
+* anything but a **physical Ethernet port** (`ifType` 6): no VLAN interfaces, port-channels, loopbacks or the CPU;
+* a switch that gave back **no forwarding table**, or forwarding entries without a bridge-port map: DENIS cannot tell
+  what is on the port and will not guess. **Many inexpensive "smart" switches are like this** (the D-Link DGS-1100-08V2
+  is one): DENIS reads their ports, but cannot disable any of them;
+* a device DENIS **cannot see** on any access port right now;
+* a port that is **already switched off** at the switch (so that undoing a block can never switch on a port someone
+  shut on purpose), or whose state the switch does not report;
+* more than the hourly limit, another action on the same switch in progress, a switch without a write community, or one
+  that is not read regularly (DENIS could not notice the port coming back).
+
+Allowed, but only after ticking *I understand this also cuts off the devices listed above*: **several MACs** behind the
+port (a desk phone with a PC behind it, a small switch under a desk), an **LLDP neighbour that is not a switch** (an
+access point: every wireless client behind it), or **nothing seen** on the port right now.
+
+LAG (port-channel) membership is not read yet (`ifStackTable`): a member port of a LAG is not recognised as such.
+
+### Undo, drift, and what is announced
+
+* **Enable** (Topology → *Disabled by DENIS*, or the port's row) takes one ordinary confirmation and no password, and
+  works while port control is switched off. DENIS only enables ports **it** disabled (its own ledger), after checking the
+  index still carries the same port name.
+* Removing a switch, or its write community, while ports DENIS disabled are still off asks for confirmation first:
+  DENIS can no longer enable them after that; it would have to be done at the switch.
+* **Drift**: every regular poll reads `ifAdminStatus`. A port DENIS disabled that is switched on again (`no shutdown` at
+  the switch, or the switch restarted) is recorded as *switched on outside DENIS*, logged by `system`, and announced.
+  DENIS never disables it again on its own.
+* **Restarts**: on many switches a port disabled over SNMP is only off in the running configuration and comes back
+  on when the switch restarts, unless someone saves the configuration. **A block by DENIS is not guaranteed to survive a
+  switch restart.** Not yet verified per vendor.
+* Every block, enable, *not confirmed* outcome and drift goes to **every enabled alerting channel**, regardless of its
+  minimum score and of maintenance mode. While any port is disabled by DENIS, **Health** shows a warning. Everyone who
+  can see Topology sees the *Disabled by DENIS* list (who, when); only administrators see the reason and can enable.
+* The audit log records `nac.plan.refused`, `nac.disable`, `nac.disable.denied` (wrong password, expired plan, renamed
+  port), `nac.restore`, `nac.check`, `nac.drift` and `nac.settings`. Neither community ever appears in them.
 
 ## How a device is placed
 
@@ -48,8 +141,20 @@ Polling runs from the DENIS collector (not in a `denis serve` viewer). The inter
 The SNMP client (BER encoding and decoding, GET, GETBULK and GETNEXT walks) is tested against byte sequences worked out
 from the specifications, against hostile and corrupted answers (it never panics; every length is bounded), and against
 two independent stand-in switches (one written in Rust for the tests, one in JavaScript for the browser test).
-**It has not been tried against real switches from any vendor.** Vendors differ (VLAN-specific communities on some
-Cisco models, LLDP local port numbering, bridge-port to interface maps), so read the map critically at first and please
-report a switch that shows something wrong.
+It has been tried against **one real switch so far, a D-Link DGS-1100-08V2** (2026-10-01): it answers IF-MIB (names only
+in `ifDescr`, "port1" to "port8"; `ifType`, `ifAdminStatus`, `ifOperStatus`), but **no forwarding table, no bridge-port
+map and no LLDP**, so DENIS lists its ports and cannot place any device on them. It answers larger GETBULK requests with
+`tooBig` (DENIS now asks for fewer rows per answer), and a GET for several variables, one of which it lacks, with only
+that one (DENIS now matches answers by OID and asks again for the rest). Vendors differ (VLAN-specific communities on
+some Cisco models, LLDP local port numbering, bridge-port to interface maps), so read the map critically at first and
+please report a switch that shows something wrong.
+
+Port control on that switch (one empty port, by hand, with DENIS's own connector code): a SET of `ifAdminStatus` with
+the write community was accepted and read back as off; the port came back on with a SET back to on; a SET with the
+**read** community got **no answer** (silence, not an error status) and changed nothing; a port switched on from outside
+DENIS (`snmpset`) was noticed by the next poll as drift. A plan through the console is refused on every port of this
+switch ("no forwarding table"), as it should be. **Not verified yet:** whether a block survives a switch restart (with
+and without saving the configuration), and the self-lockout and uplink refusals on real hardware (they need a switch
+that has a forwarding table). Those are tested only against the stand-in switches.
 
 **Not supported yet:** SNMPv3 (authentication and encryption). Until it is, restrict the v2c community as described above.

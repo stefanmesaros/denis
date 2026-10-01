@@ -29,11 +29,13 @@ which carries anything about your network, and each of which can be switched off
 | end-of-support dates | `endoflife.date` | weekly | *Settings → Data → Software versions* |
 | known-exploited vulnerabilities | CISA, NVD, FIRST.org (EPSS) | weekly | *Settings → Data → Software versions* |
 
-Two more are **opt-in**, off by default rather than on-by-default like the four above: the **abuse.ch Feodo Tracker**
-and **Spamhaus DROP** blocklists that `threat_list_match` checks contacted addresses against, each switched on and
+Six more are **opt-in**, off by default rather than on-by-default like the four above: the blocklists that
+`threat_list_match` checks contacted addresses against — **abuse.ch Feodo Tracker**, **ThreatFox** and **URLhaus**,
+**Spamhaus DROP** and **ASN-DROP**, and **the Tor Project's exit-node list** — each switched on and
 scheduled (Daily/Weekly/Monthly) independently under *Settings → Data → Threat list sources*
 ([details](detection-rules.md#threat_list_match-contact-with-a-known-bad-address-needs---flows-and-a-threat-list)).
-Turning either on is the one deliberate exception to "nothing fetched unless you asked for it" — not a silent
+Each download is a plain GET of the publisher's public file; nothing about your network is sent (ASN-DROP's AS numbers
+are resolved to networks offline, with the local GeoIP database). Turning any of them on is the one deliberate exception to "nothing fetched unless you asked for it" — not a silent
 default.
 
 Reverse-DNS lookups of public addresses go to the resolver you set (`1.1.1.1` by default) and do carry the

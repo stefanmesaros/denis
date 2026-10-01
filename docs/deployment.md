@@ -109,9 +109,12 @@ sudo systemctl daemon-reload && sudo systemctl enable --now denis
 sudo journalctl -u denis | grep -A4 "FIRST START"
 ```
 
-(`SHA256SUMS.sig` is an Ed25519 signature of `SHA256SUMS`; the installer checks it with the project's
-release key, which is built into DENIS itself — a compromised GitHub account alone cannot push you a
-tampered binary.)
+(`SHA256SUMS.sig` is an Ed25519 signature of `SHA256SUMS`; the installer checks it with the project's release key.
+To check it yourself: the key is in `src/update_key.rs`, and `openssl pkeyutl -verify -rawin` verifies it.)
+
+Or **build from source** (needs [Rust](https://rustup.rs)): `sudo apt install build-essential libpcap-dev`,
+`cargo build --release`, `sudo install -m755 -o denis -g denis target/release/denis /usr/local/lib/denis/denis`
+(after the `useradd`/`install -d` steps above), then the service steps above.
 
 The service runs as the unprivileged `denis` user with only the capabilities packet capture needs
 (`CAP_NET_RAW`, `CAP_NET_ADMIN`; no `setcap` is needed) and keeps its data in `/var/lib/denis`. The unit's syntax is
@@ -127,6 +130,15 @@ DENIS serves the console **and the agent port over HTTPS out of the box**. On fi
 certificate authority ("DENIS local CA") and a server certificate for `localhost`, this machine's name and addresses
 (and any `--tls-name`). The certificate lasts about two years and is **renewed automatically** before it ends, or
 when the machine gets a new address. TLS 1.2/1.3 only, HTTP/2 offered, session cookie marked `Secure`.
+
+The authority can only vouch for this console: it is created with X.509 name constraints that limit it to the
+console's own host names (and their subdomains) and to private, loopback, link-local and carrier-grade-NAT
+addresses (plus any public address the machine has or is named with). Even someone who later copies `tls/ca.key`
+cannot use it to impersonate another website to a browser that trusts the CA. A new `--tls-name` (or a new public
+address) outside those names makes DENIS create a new authority, which then has to be trusted again (the log says
+so). An authority made by an earlier version has no constraints: it keeps working, and the log warns at every
+start until you replace it (delete `tls/ca.pem` and `tls/ca.key`, restart, trust the new CA, and give agents the
+new file with `--master-ca`).
 
 Browse to **https://localhost:8080** (or the address and port you set in `DENIS_LISTEN`). Browsers do not know the DENIS authority, so they warn once. Two ways to make the
 warning go away:

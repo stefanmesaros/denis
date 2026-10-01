@@ -164,9 +164,24 @@ unioned together — a hit on either counts:
   downloads this one itself: refresh the file yourself (for example with cron, writing to a temporary name and
   renaming it so DENIS never reads a half-written file); DENIS notices when it changes and reloads it, and keeps the
   old list if the new file is broken.
-* **Auto-fetched sources**, under *Settings* → **Data** → **Threat list sources**: **abuse.ch Feodo Tracker** (botnet
-  command-and-control addresses) and **Spamhaus DROP** (hijacked and spammer networks), each off by default and
-  switched on independently, each with its own refresh schedule (Daily / Weekly / Monthly). **Refresh now** fetches
+* **Auto-fetched sources**, under *Settings* → **Data** → **Threat list sources**, each off by default and
+  switched on independently, each with its own refresh schedule (Daily / Weekly / Monthly):
+  * **abuse.ch Feodo Tracker** — botnet command-and-control addresses.
+  * **abuse.ch ThreatFox** — malware command-and-control addresses (`ip:port` indicators from the last 48 hours;
+    the port is dropped). ThreatFox's domain and URL indicators are not used yet: DENIS has nothing to match a
+    domain against until it records DNS answers.
+  * **abuse.ch URLhaus** — addresses currently serving malware downloads; only URLs whose host is an IP address
+    are used, for the same reason.
+  * **Spamhaus DROP** — hijacked and spammer networks.
+  * **Spamhaus ASN-DROP** — whole autonomous systems run by or for criminals. The list names AS numbers, not
+    addresses, so DENIS turns it into networks with the GeoIP ASN database already used for IP enrichment (*Settings*
+    → **IP enrichment**), offline — nothing is looked up online. Without an ASN database installed this source
+    cannot be fetched (the refresh says so); the networks are as current as the older of the two downloads.
+  * **The Tor Project's exit-node list** — current Tor exit relays. Not malware: a hit means a device talked to a Tor
+    exit, which most networks treat as a policy question.
+
+  Every hit names the list that flagged it, the most specific first (your own file, then the abuse.ch lists, then
+  Spamhaus, then Tor). **Refresh now** fetches
   one immediately; the provider, entry count and last-fetched time are shown live. A response that does not parse as
   a real list (a captive portal, a broken download) is refused and the previous fetch, if any, stays in force —
   exactly like a broken local file.
@@ -272,10 +287,34 @@ finding, each with why it matters and what to do.
 | `ot_no_purdue_level` | low | industrial device without a Purdue level |
 | `unidentified` | low | type unknown and no name entered |
 | `warranty_expired` / `warranty_expiring` | low / info | from the warranty date you entered |
+| `cert_expired` / `cert_expiring` | medium / low | a TLS certificate has expired, or expires within 30 days ([service probe](#certificates-and-web-pages-opt-in), off by default) |
+| `weak_tls` | medium | a TLS port still accepts TLS 1.0/1.1, or RC4, 3DES, NULL, export-grade or anonymous ciphers (service probe) |
+| `cert_self_signed` | info | a TLS port presents a self-signed certificate (service probe) |
 
 Only devices seen in the last 7 days are considered, and devices whose status is *spare*, *retired*, *lost*
 or *stolen* are not nagged about exposed services. Exposure findings come from the port scan, so they appear
 only for devices that have been scanned (never industrial devices).
+
+## Certificates and web pages (opt-in)
+
+Under *Settings* → **Network** → **Certificates and web pages** an administrator can switch on the **service probe**
+(off by default; daily or weekly). It connects only to ports the port scan **already found open** — it never looks for
+new ones — on local devices the scan is allowed to touch: never an industrial device, an excluded range, a device seen
+only through a remote agent, or anything at all when DENIS runs `--passive-only`.
+
+* **TLS ports** (443, 465, 636, 993, 995, 2376, 5001, 5986, 6443, 8006, 8443, 9443, 10250): one ordinary TLS 1.2/1.3
+  handshake reads the certificate (subject, issuer, expiry, whether it signed itself) and the protocol and cipher; two
+  short extra handshakes ask whether the service would still agree to TLS 1.0/1.1, or to RC4, 3DES, NULL, export-grade
+  or anonymous ciphers, and are closed as soon as it answers. A device that only speaks TLS 1.0 still has its
+  certificate read (it is sent unencrypted before TLS 1.3).
+* **Web ports** (80, 3000, 8000, 8080, 8888, and 443, 5001, 8006, 8443, 9443 over TLS): one `GET /`, at most 64 kB
+  read, and the page's `<title>` kept. Redirects are never followed.
+
+Every connection has a short timeout, at most eight devices are probed at once with a pause between one device's
+connections, and at most 1,024 devices per run. What comes back is kept as plain text in the device's panel
+(*Certificates and web pages*) and feeds the four findings above. Switching the probe off removes what it found, and a
+port that closes loses its result at the next run. The certificate is only read, never trusted: nothing is sent over
+these connections except the `GET /`.
 
 ## Software versions: end of support and known exploits
 

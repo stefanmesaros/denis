@@ -26,6 +26,36 @@ scope — see [License](#license).
 
 **[See DENIS in action →](#demo-try-denis-without-installing-a-sensor)** no capture, no login, a fictional company already loaded.
 
+## What's new in 3.3.0
+
+**Multiple customers on one installation.** Separate databases, detectors and consoles per
+customer, with nothing reachable across them; MSP technician accounts that work across customers
+without a separate login in each one; export or import a customer as a standalone database.
+
+**Optionally disable a switch port, from DENIS.** For a switch DENIS already monitors over SNMP:
+one access port at a time, with a preview of what's behind it, a reason, your password, and
+one-click undo. DENIS never blocks anything on its own — this is an administrator's action, never
+automatic.
+
+**Track a fix until it's actually fixed.** Assign a finding to a person with a due date and a
+linked Jira/ServiceNow ticket; DENIS confirms the fix itself (a rescan, or no further contact while
+the device stays online) and watches for 30 days in case it comes back. Also closes the gap where
+two collectors watching the same network could leave a device listed twice after being joined.
+
+**Is it your connection, or is it DENIS?** A one-click, 10-20 second test of packet loss, jitter
+and latency — not a speed test — rated separately for browsing, a video call, and 1080p/4K
+streaming, with a note on whether DENIS's own network activity was the cause.
+
+**More threat intelligence, and certificate/TLS findings.** ThreatFox, URLhaus, Spamhaus ASN-DROP
+and the Tor exit list join the existing Feodo Tracker and Spamhaus DROP, each opt-in and named on a
+hit. An opt-in probe reads TLS certificates and protocol/cipher strength on your own devices'
+already-open ports, flagging an expired, soon-to-expire, self-signed or weak-TLS certificate.
+
+**Ask DENIS can now draft, not just answer.** A follow-up like "add an exception for that" or
+"this rule is too sensitive" drafts the exact change — a new rule, an exception, or a setting
+change — for an administrator to review and apply with one click. It never changes anything by
+itself.
+
 ## What's new in 3.2.0
 
 **"Top exposures today."** A short, ranked list of the devices that most need attention right now — a
@@ -37,16 +67,6 @@ black-box score.
 devices on the same network, not just traffic to the internet, so you can ask "what talks to this server?" and
 get an answer with evidence. An alert's new "Investigate" section shows what else the device did around that
 time and which other devices contacted the same address.
-
-**Everything about a device, in one place** (3.1.0). The device panel shows what your directory (Entra ID,
-Intune, Active Directory, Jamf, cloud accounts) and vulnerability scanner say about it, alongside its open
-findings, related Incidents and which collectors see it — and you can merge two collectors watching the same
-segment directly from the console.
-
-**Automatic Incidents, a much more capable "Ask DENIS", and a redesigned Dashboard** (3.0.0). Related alerts
-group into one Incident with a priority verdict instead of a flood of separate ones; Ask DENIS can search alerts
-in plain language, navigate the console, and answer "how do I…?" from DENIS's own documentation; the Dashboard
-gained all the former Trends charts and a live "Top talkers" leaderboard.
 
 See [CHANGELOG.md](CHANGELOG.md) for the complete list, including smaller fixes.
 
@@ -227,6 +247,10 @@ your actual register — three of the console's 20-odd pages ([more screenshots 
 | SNMP topology | Switch ports, LLDP neighbours, MAC-to-port physical map |
 | IP enrichment | Country (flag), city, ASN, AS organisation, reverse-DNS hostname for any public IP (Alerts, Events, Recent destinations, IP history) — local GeoIP (DB-IP Lite, auto-updated, or your own MMDB), never sent to a third party |
 | Vulnerability & EOL findings | Live CISA/NVD known-exploited feed (+ EPSS score) and end-of-support dates, matched per device — both refreshed weekly by default; your own custom CVEs |
+| Threat intelligence | abuse.ch Feodo Tracker, ThreatFox and URLhaus, Spamhaus DROP and ASN-DROP, the Tor exit-node list — each an opt-in, named source on a match; your own list too |
+| Certificates & web pages | Opt-in: TLS certificate (expiry, self-signed, weak protocol/cipher) and HTTP page title on already-open ports of your own devices — findings for an expired, expiring, self-signed or weak-TLS certificate |
+| Remediation tracking | Assign a finding or exposure to a person, a due date, a linked Jira/ServiceNow ticket; DENIS confirms the fix itself (rescan, or no further contact while the device stays online) and watches for 30 days in case it comes back |
+| Connection stability test | One-click, 10-20s test of packet loss, jitter and latency over this browser's link to DENIS and DENIS's own link to your gateway or the internet — rated for browsing, a video call, and 1080p/4K streaming, with a note on whether DENIS's own activity was the cause |
 | CMDB / cloud import | Entra ID, Intune, Active Directory (LDAP/LDAPS), Jamf Pro, Azure VMs, AWS EC2, GCP Compute Engine — read-only, matched by hostname, each on its own schedule |
 | Vulnerability-scanner import | Nessus / Tenable.io findings, matched by IP then hostname, read-only (Qualys not yet) |
 | AI assistant (optional) | Bring your own key (Claude, ChatGPT, Gemini, Grok, or a local OpenAI-compatible model): alert explanation, triage, recommended actions, behaviour-change explanation, a background dashboard summary, "Ask DENIS", a rule-drafting assistant, a report summary — every feature off by default, never in the detection path |
@@ -238,6 +262,8 @@ your actual register — three of the console's 20-odd pages ([more screenshots 
 | Prometheus | `/metrics` exposition |
 | REST API | Read the register and alerts, manage assets, API tokens |
 | Multi-site agents | Outbound-only agents report to one master; per-user, per-site access |
+| Multi-tenancy | Separate customers on one installation — own database, detector and console each, nothing reachable across them; MSP operator accounts; export/import a customer as a standalone database |
+| Port control (NAC) | Optional, administrator-confirmed: disable one switch access port at a time on a switch DENIS already monitors over SNMP, with a preview, a reason, a password and one-click undo. DENIS never blocks anything on its own |
 | White-label | Your logo, colour, default theme |
 | Authentication | Roles, per-site access, passkeys (WebAuthn, optionally passkey-only), authenticator apps (TOTP), OIDC single sign-on, Argon2id, lock-outs, audit log, built-in HTTPS |
 | Data retention | Events, alerts and trend samples pruned after a period you set (Settings → Data); the register itself is never pruned |
