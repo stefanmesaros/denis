@@ -18,11 +18,26 @@ watch the console. Add as many channels as you like; each one has its own minimu
 
 Press **Test** on a channel to send a test message and see straight away whether it works.
 
+## Individually, or grouped into incidents
+
+Each channel also has its own **Delivery** choice:
+
+* **Every alert, individually** (the default) — one message per alert, as described below.
+* **Group related alerts into incidents** — one message the moment an [incident](incidents.md) opens or escalates,
+  plus any alert that never joined one. An alert already absorbed into an incident that was already reported never
+  sends a second message for it. PagerDuty and ServiceNow update the same incident/ticket on escalation instead of
+  opening a new one, the same idea as their own repeat-folding below.
+
+Turning incidents off entirely — **Group related alerts into incidents** at the top of the *Alerting* tab (on by
+default) — does not touch delivery: it just means there is never anything for a channel set to "grouped" to group,
+so that channel quietly behaves like "individually" until incidents are back on.
+
 ## What gets sent, and when
 
 * Only real alerts (not the low-level `info` events) at or above the channel's **minimum score**.
 * **One message per alert**, unless more than five are waiting for a channel; then they go out as **one summary**
-  listing the most serious. An alert storm never floods a chat room.
+  listing the most serious. An alert storm never floods a chat room. (This individual-alert behaviour; a channel set
+  to deliver grouped incidents instead follows the rule above.)
 * A channel that is down does not lose alerts: it retries with a growing pause (up to 15 minutes) and catches up
   when it returns. Alerts older than 24 hours are dropped rather than sent late.
 * A new channel starts from *now*; it does not replay history.
@@ -65,4 +80,7 @@ and use `sent_at` to reject old replays.
 
 * `--webhook <url>` on the command line: a simple Slack/Discord-compatible text webhook (older; the channels
   above are more capable and can be edited without a restart).
-* [SIEM export (CEF/LEEF/JSON) and OpenObserve](export.md) for SIEMs and log platforms.
+* [SIEM export (CEF/LEEF/JSON) and OpenObserve](export.md) for SIEMs and log platforms — it has its own, separate
+  **Incidents** stream, alongside the per-channel grouping above.
+* [Incidents](incidents.md): how related alerts get grouped in the first place, and what the priority on a grouped
+  message means.

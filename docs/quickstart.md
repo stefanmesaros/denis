@@ -6,7 +6,7 @@ From nothing to a working, useful DENIS in about an hour. Every step says *why*,
 
 * **macOS or Linux** (Ubuntu 22.04+ recommended for a server). There is no Windows release yet: a `denis.exe`
   can be built from source with the Npcap SDK and has been run on a real Windows 11 machine, but there is no
-  installer or service wrapper.
+  installer or service wrapper (see `WINDOWS.md` in the repository).
 * **Permission to capture packets:**
   * Linux: run as root, or grant it once: `sudo setcap cap_net_raw,cap_net_admin=eip ./denis`
   * macOS: read access to `/dev/bpf*` (Wireshark's *ChmodBPF* does this) or run with `sudo`.
@@ -34,8 +34,8 @@ xattr -d com.apple.quarantine denis-aarch64-apple-darwin 2>/dev/null   # macOS: 
 ./denis-aarch64-apple-darwin run
 ```
 
-(or build it yourself: `cargo build --release`, then `./target/release/denis run`; one file, console and documentation
-included.) Only one program can use a port: if **8080 is taken** DENIS says `Address already in use` and stops; start it
+(one file, console and documentation included — nothing else to install.) Only one program can use a
+port: if **8080 is taken** DENIS says `Address already in use` and stops; start it
 with another one, `./denis run --listen 127.0.0.1:9000`, and open that port instead of 8080 below.
 
 The first start creates an administrator and prints a **one-time password**. Copy it now, it is shown only once:

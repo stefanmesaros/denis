@@ -109,12 +109,9 @@ sudo systemctl daemon-reload && sudo systemctl enable --now denis
 sudo journalctl -u denis | grep -A4 "FIRST START"
 ```
 
-(`SHA256SUMS.sig` is an Ed25519 signature of `SHA256SUMS`; the installer checks it with the project's release key.
-To check it yourself: the key is in `src/update_key.rs`, and `openssl pkeyutl -verify -rawin` verifies it.)
-
-Or **build from source** (needs [Rust](https://rustup.rs)): `sudo apt install build-essential libpcap-dev`,
-`cargo build --release`, `sudo install -m755 -o denis -g denis target/release/denis /usr/local/lib/denis/denis`
-(after the `useradd`/`install -d` steps above), then the service steps above.
+(`SHA256SUMS.sig` is an Ed25519 signature of `SHA256SUMS`; the installer checks it with the project's
+release key, which is built into DENIS itself — a compromised GitHub account alone cannot push you a
+tampered binary.)
 
 The service runs as the unprivileged `denis` user with only the capabilities packet capture needs
 (`CAP_NET_RAW`, `CAP_NET_ADMIN`; no `setcap` is needed) and keeps its data in `/var/lib/denis`. The unit's syntax is

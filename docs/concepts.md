@@ -42,7 +42,7 @@ A network switch sends each machine only the traffic addressed to it, plus broad
 Put **one collector per network segment**. Two collectors on the same segment (for example the master's own
 capture plus an agent on the same LAN) report every device twice, once per site: a device's identity is
 `(site, MAC)` by design, and the console has no way yet to say that two collectors watch one network. The fix is
-designed but not built.
+designed (`MULTI_AGENT_DEDUP.md` in the repository) but not built.
 
 ## Learning period
 
@@ -65,6 +65,10 @@ notifications). Severity follows the score: below `--min-score` (30) it is only 
 
 Noisy? **Turn a rule down instead of off:** `--rule-weight new_destination=0.5` halves its scores; a weight of
 `0` disables it. Raise `--min-score` to see fewer, more important alerts. See [Detection rules](detection-rules.md).
+
+Related alerts about the same device (or the same recognisable attack pattern) are also grouped into one
+**[incident](incidents.md)** with its own priority, so a multi-stage event is one thing to work rather than several
+separate rows.
 
 ## Risk score
 

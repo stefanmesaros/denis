@@ -55,18 +55,18 @@ This is the one that needs real trade-offs, spelled out rather than hidden in a 
 **What is verified here, and what is not.** The image builds, starts, binds its port, and serves
 the console with real demo data through a real login — all confirmed by actually doing it. **Real
 packet capture from inside this container, on a real network, has not been verified** — this
-development machine's own network topology is not a stand-in for that, stated plainly rather than
-assuming it away.
+development machine's own network topology is not a stand-in for that, the same honest gap
+WINDOWS.md states for the Windows build rather than assuming it away.
 
 ## Real bugs found by actually building and running this (not by inspection)
 
 * A `.dockerignore` line meant to exclude runtime artifacts (`data/`) also excluded
   `data/vulndata.json`, a required *source* file (`include_str!`'d into the binary) — the build
   failed outright until this was narrowed.
-* `Serve.listen` (used by the `demo` service) had no `env = "DENIS_LISTEN"` binding, unlike
-  `Run.listen` — setting the environment variable silently did nothing, and the console kept
-  binding to `127.0.0.1` inside the container, unreachable through the published port. Fixed in
-  `src/main.rs` to match `Run`'s existing convention.
+* The `demo` service's listen address had no `DENIS_LISTEN` environment-variable binding, unlike
+  the regular `run` command — setting the environment variable silently did nothing, and the console
+  kept binding to `127.0.0.1` inside the container, unreachable through the published port. Fixed to
+  match `run`'s existing behaviour.
 * `DENIS_NO_TLS=1` is not a valid value — clap parses a plain `bool` env var with Rust's own
   `bool::from_str`, which only accepts the literal strings `true`/`false`. `denis run` refused to
   start at all until the Dockerfile used `true`.

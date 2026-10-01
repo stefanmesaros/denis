@@ -80,6 +80,8 @@ before saving it.
     open ports, …). These have no natural sequence, so each one is sent once, the first time it is seen,
     and again if it clears and later comes back.
   * **Audit log** — who changed what in the console.
+  * **Incidents** — one record per [incident](incidents.md) opened, escalated or acknowledged; never a repeat for
+    every alert already sent above through **Events and alerts**.
 
 A CEF message looks like this (LEEF and JSON carry the same fields, in their own format):
 
@@ -121,7 +123,7 @@ to an index or data stream via `POST .../_bulk`, shaped as [Elastic Common Schem
 * **API key** (optional): sent as `Authorization: ApiKey <key>`. Like every other secret in DENIS, the
   console never shows it back to you; saving the form again without retyping it keeps the one already stored,
   and an explicitly empty field clears it.
-* **Streams** (events/findings/audit) work exactly as for syslog, independently toggled, same cursor-based
+* **Streams** (events/findings/audit/incidents) work exactly as for syslog, independently toggled, same cursor-based
   at-least-once delivery, same health line in the header.
 
 A document's ECS field groups: `event.*` (kind, action, reason, severity 0–3, risk_score), `source.ip`/`mac`,

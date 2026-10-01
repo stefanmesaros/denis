@@ -26,7 +26,7 @@ marked `Secure` but you are on plain HTTP (`--secure-cookies` requires HTTPS in 
 DENIS only answers requests whose `Host` is `localhost`, `127.0.0.1` or `[::1]` when bound to loopback (defence
 against DNS rebinding). Behind a reverse proxy, pass the original `Host` (`proxy_set_header Host $host;`).
 
-**"No traffic baseline yet" / Trends and OT tabs are empty**
+**"No traffic baseline yet" / the Dashboard's traffic charts and the OT tab are empty**
 Traffic analysis needs `--flows` (or `--profile ot`) and traffic that reaches the collector. See
 [Concepts › Visibility](concepts.md#visibility-what-can-be-seen-from-where).
 
@@ -42,7 +42,7 @@ shows what DENIS saw.
 **Two of every device in Sites (or in the "All sites" device list)**
 Two collectors on the same network segment, each reporting the same devices under its own site. Keep one
 collector per segment; filtering the Devices page to one site shows each device once. A proper "same network"
-join is designed but not built yet.
+join is designed but not built yet (`MULTI_AGENT_DEDUP.md` in the repository).
 
 **An agent is not connecting**
 Check `denis agent-token list` (revoked?), the master's `--ingest-listen` address and firewall, that the agent
