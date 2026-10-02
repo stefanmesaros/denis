@@ -26,6 +26,25 @@ scope — see [License](#license).
 
 **[See DENIS in action →](#demo-try-denis-without-installing-a-sensor)** no capture, no login, a fictional company already loaded.
 
+## What's new in 3.4.0
+
+**Zones and segmentation policies.** Group devices into zones, write allow-list and
+zone-boundary policies, and get an alert when traffic crosses a boundary your policies don't
+allow. A zone × zone matrix shows what's actually been verified, honestly separating "nothing
+seen" from "not covered" when traffic recording is off. A new policy starts in a silent
+record-only mode; "freeze this device's behaviour" turns its own observed traffic into a
+reviewable starting policy, never saved until you confirm it.
+
+**Passive DNS, opt-in.** DENIS can remember the name that resolved to each address your own
+devices contacted, so connections show a name instead of a bare IP wherever one already appeared —
+the device panel, alert evidence, Ask DENIS's own destination search (which can now search by
+domain name, not just an IP). Off by default, with its own retention and a one-click "delete
+everything recorded". A new rule flags a device being pointed at an unexpected DNS resolver.
+
+**Deep Field: an optional animated look for the Topology map.** A quiet star-field background, a
+slow pulse on your gateway showing the page is live, and a brighter pulse on a fresh alert — off
+by default, and scoped to the Topology page only.
+
 ## What's new in 3.3.0
 
 **Multiple customers on one installation.** Separate databases, detectors and consoles per
@@ -55,18 +74,6 @@ already-open ports, flagging an expired, soon-to-expire, self-signed or weak-TLS
 "this rule is too sensitive" drafts the exact change — a new rule, an exception, or a setting
 change — for an administrator to review and apply with one click. It never changes anything by
 itself.
-
-## What's new in 3.2.0
-
-**"Top exposures today."** A short, ranked list of the devices that most need attention right now — a
-known-exploited vulnerability on a critical machine, an open Incident on something with no owner, a critical
-scanner finding — each with the reasons it's there, on the Dashboard and on the device's own panel. No
-black-box score.
-
-**See what talks to what inside your network** (optional, off by default). DENIS can now record traffic between
-devices on the same network, not just traffic to the internet, so you can ask "what talks to this server?" and
-get an answer with evidence. An alert's new "Investigate" section shows what else the device did around that
-time and which other devices contacted the same address.
 
 See [CHANGELOG.md](CHANGELOG.md) for the complete list, including smaller fixes.
 
