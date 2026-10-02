@@ -4,7 +4,7 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
-## 3.4.0 (in progress — this section is a working draft, not yet released)
+## 3.4.0
 
 * **Zones and segmentation policies.** Group devices into zones — by subnet, device type, tag, or
   pinning one in by hand — and write policies on top: explicit allow-lists, and a default for
@@ -15,11 +15,16 @@ the binary and the GitHub Release page for that version.
   "all clear". A new policy starts in a quiet record-only mode, visible but never notified, until
   you switch it on; "Freeze this device's behaviour" turns a device's own observed traffic into a
   ready-to-review starting policy — nothing is saved until you confirm it.
+* **Passive DNS, opt-in.** Settings → Network interfaces gains a Passive DNS section (off by
+  default): DENIS remembers the name that resolved to each address your own devices contacted, with
+  its own retention period and a "Delete all recorded names…" button. Names then show up wherever
+  an address already did — the device panel, the Investigate section, alert evidence — always as
+  "looked up as …", never "is …". Ask DENIS can now search by domain name, not just an IP. A new
+  rule flags a device being pointed at an unexpected DNS resolver.
 * **Deep Field: an optional animated look for the Topology map.** A new "Deep Field" console look
   (Settings, next to light/dark) gives the Topology map a quiet star-field background, a slow
   pulse on your gateway to show the page is live, and a brighter pulse on a fresh alert — off by
   default, and only changes the Topology page, not the rest of the console.
-<!-- Passive DNS (names instead of raw addresses) lands here once it's done. -->
 
 ## 3.3.0
 
