@@ -4,6 +4,23 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 3.4.0 (in progress — this section is a working draft, not yet released)
+
+* **Zones and segmentation policies.** Group devices into zones — by subnet, device type, tag, or
+  pinning one in by hand — and write policies on top: explicit allow-lists, and a default for
+  whether traffic may cross a zone's boundary at all. DENIS judges every flow it already sees
+  against your policies and raises an alert when one is crossed without permission. A new **Zones**
+  page shows a zone × zone matrix of what DENIS has actually verified — and says plainly when it
+  can't verify a pair at all (traffic recording off for that site) rather than showing a false
+  "all clear". A new policy starts in a quiet record-only mode, visible but never notified, until
+  you switch it on; "Freeze this device's behaviour" turns a device's own observed traffic into a
+  ready-to-review starting policy — nothing is saved until you confirm it.
+* **Deep Field: an optional animated look for the Topology map.** A new "Deep Field" console look
+  (Settings, next to light/dark) gives the Topology map a quiet star-field background, a slow
+  pulse on your gateway to show the page is live, and a brighter pulse on a fresh alert — off by
+  default, and only changes the Topology page, not the rest of the console.
+<!-- Passive DNS (names instead of raw addresses) lands here once it's done. -->
+
 ## 3.3.0
 
 * **Multiple customers on one installation.** Separate databases, detectors and consoles per
