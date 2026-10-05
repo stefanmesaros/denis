@@ -4,6 +4,26 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 3.5.1
+
+* **Fixed:** an incident you closed opens again when you click it from the list.
+* **Fixed:** the "Assign" and "Explain with AI" buttons in findings, events and alerts are where you
+  expect them, and long names in Zones and Policies wrap instead of running off the page.
+* **Changed:** the device page has one action bar. "Unmerge" is there when a device has merged
+  addresses.
+* **Changed:** incidents have one AI button. A saved assessment is shown on request, and "Ask
+  again" runs a fresh one.
+* **Changed:** an expanded alert group can be collapsed from its footer.
+* **Changed:** the sign-in screen appears at once, and the device list shows a loading state until
+  the devices arrive.
+* **Changed:** switch and cable labels no longer overlap, and the Users page keeps its columns
+  button next to "Add user".
+* **Changed:** Software rows open the device list.
+* **Changed:** the look (Default or Deep Field) is chosen under My account, not in the header.
+* **Background jobs** that stop unexpectedly are reported in Health and restarted where that is
+  safe. A connection stability test can only be read and stopped by the user who started it.
+* **Health** warns about a legacy local certificate authority that has no name constraints.
+
 ## 3.5.0
 
 * **Control coverage.** A new Coverage view shows, for every device, whether it is managed (MDM),

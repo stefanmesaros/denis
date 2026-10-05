@@ -26,6 +26,14 @@ scope — see [License](#license).
 
 **[See DENIS in action →](#demo-try-denis-without-installing-a-sensor)** no capture, no login, a fictional company already loaded.
 
+## What's new in 3.5.1
+
+**Fixes and console polish.** An incident you closed opens again from the list, and incidents have
+one AI button: a saved assessment is shown on request, and "Ask again" runs a fresh one. The device
+page has one action bar, the sign-in screen appears at once, and the look (Default or Deep Field)
+is now chosen under My account rather than in the header. Full notes in the
+[changelog](CHANGELOG.md).
+
 ## What's new in 3.5.0
 
 **Control coverage.** A Coverage view shows which devices are managed, in your directory, scanned
