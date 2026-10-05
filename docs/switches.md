@@ -136,6 +136,17 @@ LAG (port-channel) membership is not read yet (`ifStackTable`): a member port of
   register by its chassis MAC.
 * MACs on access ports that are **not in the register** are only counted (the map says how many).
 
+## Watching ports and VLANs, and what DENIS notices
+
+DENIS keeps a bounded history of where each MAC has been seen (per switch, port and VLAN) and a change log, and a
+change is only believed when **two consecutive polls agree**, so one flaky read never raises anything. A port or VLAN can
+be **watched** (*Watch* in the port drawer or port table; administrators only, up to 64 of each, ports by ifIndex so it is
+offered only for switches that answered a bridge-port map). Four detection rules read this, see
+[Detection rules](detection-rules.md): `port_move`, `new_on_port` (watched ports and VLANs only), `vlan_change` and
+`fingerprint_changed` (which needs no switch at all). Port-level configuration changes (PVID, admin state changed by
+someone else, neighbours coming and going) are logged and shown in the drawer but do not alert.
+The history can be browsed: `GET /api/topology/changes` and `GET /api/assets/{id}/locations` ([API](api.md)).
+
 ## What is verified, and what is not
 
 The SNMP client (BER encoding and decoding, GET, GETBULK and GETNEXT walks) is tested against byte sequences worked out

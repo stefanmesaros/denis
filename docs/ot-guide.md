@@ -107,8 +107,8 @@ and target scores 45 instead of 85 and is held for 10 minutes; if it is routine 
 | Name | Shown in the alert: `Stop commands to line 1: HMI sent PLC stop (0x29) to PLC Line 1 (s7)`. |
 | Protocol | one protocol (Modbus, Siemens S7, EtherNet/IP, DNP3, BACnet, OPC UA, IEC 104, or *any TLS* and the secured variants) or any. |
 | What | **any communication at all** (also encrypted: see below), **any control command** (stop, start, download, restart, operate), **any write** (registers, coils, tags, setpoints), and/or **functions whose name contains** words you type (`PLC stop`, `write single register`, `0x29`, `restart`). Any of them matching is enough. The form offers the functions actually seen on your network. |
-| Targets | only when the receiving device is one of these: devices, device types, tags or networks. Empty = any device. |
-| Allowed senders | never for these senders: your **engineering workstation**, for example. |
+| Targets | only when the receiving device is one of these: devices, device types, tags, networks (the address it has now, IPv4), a Purdue level, a register "Zone / cell" value or a site. Empty = any device. |
+| Allowed senders | never for these senders (same choices as Targets): your **engineering workstation**, for example. |
 | Score / gap | the score the alert gets (1-100; it is raised even if it is under the global minimum, because you asked for it) and at most one alert per sender, target and protocol in this many minutes. |
 
 Start from a ready-made one ("Siemens S7: CPU stop", "Modbus: any write", "DNP3: restart", "BACnet: reinitialize

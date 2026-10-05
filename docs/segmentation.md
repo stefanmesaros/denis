@@ -73,10 +73,58 @@ edit, delete or restore is one click to undo):
   with byte-for-byte the same matching, limits raised from 30 to 500 each. They still judge only
   what they always judged: a flow (local device to an address **outside** the networks DENIS
   monitors) for `it_watch`, a decoded industrial conversation for `ot_watch`. They are edited on the
-  *Rules* page exactly as before — the Zones tab only links there ("N network watches and M command
-  watches are on the Rules page"). See [Detection rules › your own watches](detection-rules.md#it_watch-your-own-network-watches-needs---flows)
+  *Rules* page exactly as before. The Zones tab's **Policies** view lists them too, read-only, each
+  with a "network watch" or "command watch" chip, what it looks for and who it is about, and an
+  **Edit on Rules** button that opens the Rules page at that watch; the Rules page links back
+  (**Zone policies**), so everything that can alert on traffic is in one list. See [Detection rules › your own watches](detection-rules.md#it_watch-your-own-network-watches-needs---flows)
   for why a watch is not the fix for "these two devices should only talk to each other" once both
   are on networks DENIS monitors — a `zone_rule` or `allow_list` is.
+
+A watch and a zone policy overlap only in a narrow case: "this kind of device must not talk to that
+kind of place". A network watch (cameras to the internet) and a `zone_rule` (CCTV to Internet: deny) can
+both exist and both fire; they raise different alerts (`it_watch`, `segmentation_violation`) with their
+own cooldowns. A watch is "tell me when this happens" over one flow or one command; a zone policy is
+"this path is (not) approved" over the paths DENIS has seen, can be tried in `record` mode, and is cited
+by revision. Muting an alert for certain devices is a third thing, an **exception**, on the Rules
+page. The picker for "which devices" is the same on both pages: a device, a type, a tag, a network, and
+(for zones and watches) a Purdue level, the register's "Zone / cell" field or a site.
+
+### A zone as a watch's subject
+
+A network or command watch may name a **zone** in its device lists (an IT watch's *for these devices* and *never for*,
+an OT watch's *targets* and *allowed senders*; never an exception). It is stored as `{"kind": "zone", "value": "z:<id>"}`
+and means exactly what the zone means: the devices that resolve into it (the first matching zone by position, a device
+pin first). Things worth knowing before using it:
+
+* **The watch follows the zone.** Editing the zone, editing another zone that takes devices from it (the first matching zone
+  wins), or moving a device (tag, register field, Purdue level, address) changes which devices the watch covers, with no
+  edit to the watch. The device's own
+  attributes are read at match time, like every other watch subject; the zone definitions are the ones the segmentation
+  engine compiled at its last reload (within seconds of a zone edit).
+* **Observed placements count.** A device that is in a zone only by its address (`cidr`) or by a detected type is
+  covered like any other; the preview reports how many are in the zone only that way, since a device can change those
+  itself.
+* **Network watches see outside traffic only.** A zone in a network watch means these devices' traffic to addresses
+  outside the networks DENIS monitors. The card, the form and the Policies list are labelled *outside traffic only*.
+  Command watches see decoded industrial conversations between devices, east-west included.
+* **A missing zone suspends the watch.** A watch that names a zone which does not exist (deleted, no zones compiled
+  yet, or not found after an import) matches nothing and is shown as suspended on the Rules page; it is never
+  widened. The console refuses to delete a zone a watch follows (`409`, naming the watches) and a *new* zone subject
+  must name an existing zone when saved. Zones cannot be disabled; only built-in places (Unzoned, Internet, Other
+  private networks) cannot be named.
+* **The zone side says who follows it.** The zone list, the zone editor and its history name the watches that follow
+  the zone, and after a zone is edited, deleted or restored the console reports how many devices each followed zone
+  gained or lost (also noted in the audit log, `watches_following`), because moving a device out of one zone can move
+  it into another.
+* **Why it matched, later.** A watch alert has no policy revision, so one that matched through a zone records the zone
+  id, name and revision, how the device was placed and the segmentation snapshot in its details (`zone_subject`); the
+  revision's contents are in the zone's history.
+* **Export and import.** `GET /api/rules/export` writes each zone subject with the zone's name in `note`. Importing a
+  file whose zone id exists here under a different name is refused (zone ids differ between installs), as is one that
+  names a zone that does not exist. An older DENIS refuses the new kind on import with "unknown subject kind". If DENIS is downgraded
+  with such a watch saved, the older version treats a zone subject as matching no device: a watch whose *for these devices*
+  or *targets* list names only zones then matches nothing, but a zone in a *never for* or *allowed senders* list excludes
+  nobody, so that watch would alert on more. Remove zone subjects before downgrading.
 
 A `zone_rule` or `allow_list` has a **mode**: `alert` (the default once saved by hand) or `record`.
 In `record` mode, the very same violations are stored at `info` severity — visible in Events and in

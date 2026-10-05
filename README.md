@@ -26,6 +26,22 @@ scope — see [License](#license).
 
 **[See DENIS in action →](#demo-try-denis-without-installing-a-sensor)** no capture, no login, a fictional company already loaded.
 
+## What's new in 3.5.0
+
+**Control coverage.** A Coverage view shows which devices are managed, in your directory, scanned
+and protected by endpoint security, with the evidence for each, and keeps "DENIS checked and found
+nothing" apart from "DENIS could not check". Missing controls become findings, a daily history lets
+you set goals and watch the numbers move, and Microsoft Defender for Endpoint is a new source. See
+[Coverage](docs/coverage.md).
+
+**One workflow for alerts, incidents and findings.** Incidents are open, acknowledged or resolved,
+resolving needs an outcome, every decision is recorded with who, when and why (kept three years by
+default), and incidents and findings link both ways. See [Incidents](docs/incidents.md).
+
+**Watches and policies, closer together.** Watches are listed with your policies, share one device
+picker with them, and can follow a zone, with a preview of which devices they cover today. See
+[Segmentation](docs/segmentation.md).
+
 ## What's new in 3.4.0
 
 **Zones and segmentation policies.** Group devices into zones, write allow-list and

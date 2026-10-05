@@ -86,5 +86,4 @@ channel or alert ever contains another tenant's data, and a request naming anoth
 * A tenant's console shows install-wide controls as "managed by the operator of this
   installation" rather than hiding them outright.
 
-See `MULTI_TENANCY_HA.md` in the source repository for the full design and what a later phase
-(PostgreSQL, active-passive failover) will add.
+A later phase (PostgreSQL, active-passive failover) will add more operational options; it is not available yet.

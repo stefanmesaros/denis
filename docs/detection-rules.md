@@ -16,7 +16,7 @@ All rules are **rule-based and explainable**: each alert shows the factors that 
 Rule names for `--rule-weight`: `new_device`, `new_destination`, `volume_anomaly`, `new_port`,
 `unusual_hours`, `arp_conflict`, `device_silent`, `rogue_dhcp`, `new_device_burst`, `threat_list_match`,
 `lan_scan`, `lan_sweep`, `outbound_fanout`, `dhcp_options_changed`, `dhcp_starvation`, `new_destination_v6`, `ot_new_conversation`, `ot_control_command`, `ot_internet_exposure`,
-`ot_purdue_skip`, `ot_unexpected_writer`, `ot_command_watch`, `ot_write_escalation`, `it_watch`.
+`ot_purdue_skip`, `ot_unexpected_writer`, `ot_command_watch`, `ot_write_escalation`, `it_watch`, `segmentation_violation`.
 
 Every alert carries **advice**: click an alert (Alerts or Events tab) to see its summary, *why* it scored what
 it did, and *what to do next*. The same advice is in `GET /api/meta/options` (`advice`).
@@ -138,6 +138,76 @@ per server, learning period or not, and persisted across restarts; one alert per
 *Typical false positive:* none really — an administrator switching DNS providers or replacing a router is exactly
 what this is meant to surface, and it is a single acknowledgeable alert.
 
+### `dns_resolver_changed`: a device started using a resolver it never has before *(needs passive DNS — see [Passive DNS](passive-dns.md))*
+A device gets a DNS answer from a resolver address it has not received one from before, after its own resolver set
+has had time to settle (learned silently for the usual learning period once passive DNS first sees the device, so
+switching the feature on does not instantly judge every device's pre-existing resolver). This judges only the
+*change*, never which resolver a device uses on its own — a Chromecast that always asks `8.8.8.8` learns `8.8.8.8`
+once and never alerts for it again. Base score 40, +25 if the new resolver is a public address no other device on
+this network uses, +15 if it is a local device that is neither the gateway nor a DNS server your DHCP hands out,
+−10 for a well-known public resolver (Google, Cloudflare, Quad9, OpenDNS, …), −30 if it is the DNS server your own
+DHCP server currently hands out (a lease renewal, most likely), −20 if at least 3 other devices here already use
+it (an established resolver). One alert per device every six hours; three or more devices switching to the *same*
+new resolver within an hour are recorded but only the first three raise an alert, with a note that this looks like
+a deliberate network-wide change. Firing here suppresses the matching `new_destination` on port 53 for ten minutes,
+so one resolver change is one alert, not two.
+*Typical false positive:* you changed DNS provider, turned on a VPN client, or replaced the router — the alert
+says so plainly, and no action is needed when that is what happened.
+*Investigate:* the device's network settings and installed software; if many devices changed at once, check the
+router and the DHCP server first. The looked-up names themselves are never included in this alert — only the
+resolver address — since they would export browsing data for no detection value.
+
+### `port_move`: a device moved to another switch port *(needs switches read over SNMP — see [Switches](switches.md))*
+A registered device that had been plugged into one port for **at least 7 days** (and seen there on at least 3 polls)
+turns up on another port, confirmed by two consecutive polls. Base score 30, +25 for a device that normally stays put
+(industrial equipment, a server, printer, camera, access point, firewall, point of sale, …), +15 if you rated its
+criticality high or critical, +15 if the new port or VLAN is one you watch, +10 if it moved to a different switch, −40
+for a mobile device (laptop, phone, tablet or a randomised address), −10 if the new port's name is a guess because the
+switch gave no bridge-port map. So a PLC that moves after months is **high**, an office PC **low**, and a laptop docking
+at another desk **info**. Five or more devices moving together between the same two ports in one poll are one alert
+(a desk switch or an uplink was re-cabled, not five devices). One alert per device every 24 hours. A move on its own
+never opens an incident.
+*Typical false positive:* someone moved a desk or re-patched a cable. *Investigate:* ask whoever works there; for a
+stationary or critical device, check whether the machine now on the port is really the same one (a trusted address on a
+new port with a different machine behind it is the classic MAC-clone pattern — `fingerprint_changed` below looks for
+exactly that). DENIS only reports this; nothing on the switch is changed. Not judged until a switch has been tracked
+for the learning period, and an unregistered MAC is never judged.
+
+### `new_on_port`: a new device on a port or VLAN you watch *(needs switches read over SNMP)*
+Fires only on ports and VLANs you chose to watch (the *Watch* toggle in the Topology port drawer and port table;
+nothing watched means this rule never fires). A MAC that has not been on that port in the last 30 days appears there:
+base 55, +20 if the address is not in the register (a minimal entry is created for it, the one place a switch rule does
+that, so the alert has a device to be about), +10 if the device type is unknown, −20 if it was seen there before more
+than 30 days ago, +5 if it moved here from another port within the hour. Its severity is the *watch* severity: watching
+a port is an explicit request, so it is never downgraded below your minimum. It is exempt from the switch learning
+period, so a port watched before any history exists reports every first MAC once. More than 10 new MACs on one watched
+port in a single poll (a hub, an access point or a loop) are one alert. It joins the *arrival* step of the
+`hostile_newcomer` incident, next to `new_device`.
+*Investigate:* who or what this is. If it is not expected, treat it like a new device on a sensitive part of the network.
+
+### `vlan_change`: a device changed VLAN *(needs switches read over SNMP)*
+A registered device whose VLAN had been stable for at least 7 days shows up in another VLAN (confirmed by two polls).
+Base 40, +20 if the new VLAN is watched, +15 for a stationary or critical device, −15 if the port's own access VLAN
+changed in the same poll (the port was reconfigured), −10 if the VLAN number came from the switch's forwarding-table
+numbering rather than a confirmed mapping, −25 for a mobile device. One alert per device every 24 hours; no incident
+pattern. A port's own configuration change is logged and shown in the port drawer, but raises no alert in itself.
+*Typical false positive:* you reconfigured a port on purpose. *Investigate:* the switch configuration; a device moved
+into a more (or less) trusted VLAN without anyone planning it is a misconfiguration or an intrusion.
+
+### `fingerprint_changed`: a device now looks like a different machine *(nothing extra needed)*
+DENIS remembers, per device, what it passively learns about the operating system on three separate bases: the initial
+TTL of its ICMP replies, the initial TTL of its TCP SYNs, and its DHCP vendor class (Windows, Android, Linux, Apple,
+or the first word of anything else). The bases are never compared with each other: ICMP 255 and TCP 64 on one device
+never count as a change. When a basis shows a different family on a device that has been in the register for at least 7
+days, and the family it replaces had been stable for at least 7 days, that is a flip: base 55, +15 if a second basis
+flipped in the same batch, +20 if the address also moved switch port within the hour (the MAC-clone pattern), −20 for
+virtual machines, hypervisors and single-board computers, which get re-imaged often. A younger memory is just replaced,
+silently. One alert per device every 24 hours, and it joins the *arrival* step of the `hostile_newcomer` incident: a
+cloned identity that then probes is the same story as a stranger that probes. JA3 and the DHCP parameter list are
+deliberately not used (too volatile).
+*Typical false positive:* a re-installed machine, a dual-boot, a device behind a different NAT or VPN. *Investigate:*
+what changed on that device, and whether it also moved port.
+
 ### `dhcp_starvation`: DHCP pool exhaustion
 One real sender floods DHCP DISCOVER/REQUEST messages claiming at least 20 distinct, almost certainly made-up
 client hardware addresses within five minutes — the Yersinia/dhcpstarv class of attack, and the textbook first
@@ -197,8 +267,21 @@ device and address per six hours. Traffic is only seen when it crosses the inter
 *Rules* → **Your network watches** (administrators): be told when devices you choose talk to addresses or ports
 you did not allow. A watch is a set of conditions; traffic matches when it passes **all** the conditions that are set:
 
-* **Devices**: for these devices (a device, a device type, a tag or a network; empty means any device), and **never for**
-  the ones you list (a recorder that legitimately talks to everything).
+* **Devices**: for these devices (a device, a device type, a tag, a network, a Purdue level, a register "Zone / cell"
+  value or a site; empty means any device), and **never for** the ones you list (a recorder that legitimately talks to
+  everything). The same choices a zone's members offer, with the same meaning. A *network* here is the address the
+  device has **now** (IPv4 only): if the device is re-addressed, the watch follows the device, not the old address.
+  Exceptions ("mute") offer only a device, a type, a tag or a network.
+  A device list may also name a **zone** (one you created on the Zones tab). That is a different kind of subject from
+  the others: the watch **follows the zone**, so a device that joins the zone (its tag, register field, Purdue level,
+  address or detected type changes) is covered from then on, and one that leaves it is no longer, with no edit to the
+  watch. Devices that are in the zone only by their address or by a detected device type count too; the preview marks
+  how many. Because a network watch only sees a device's traffic to addresses **outside** your networks, a zone here
+  means "these devices' traffic to the outside", never traffic inside the zone (use a zone rule for that). If the
+  zone is deleted (the console refuses to delete one a watch follows, but a restored backup or an edited database can
+  still do it) the watch is **suspended**: it matches nothing, not even the devices it names another way, and its card
+  says so, until you remove the zone from it or restore the zone. A watch is never widened by a missing zone. See
+  [Zones and policies](segmentation.md#a-zone-as-a-watchs-subject).
 * **Protocol**: any, TCP, UDP or ICMP.
 * **Ports**: any, *only these*, or *any except these*.
 * **Addresses**: any, *only these*, or *any except these*. An entry is a network like `10.0.5.0/24`, a single address,
@@ -206,14 +289,27 @@ you did not allow. A watch is a set of conditions; traffic matches when it passe
   and 100.64/10). Multicast and broadcast are neither.
 * **Amount of data**: only when at least this many kB moved in one 10-second window.
 
-*Only* makes a block-list ("alert on RDP or SSH to the internet"), *except* makes an allow-list ("cameras may talk to
-the recorder and DNS, anything else alerts"). Ready-made starting points are in the form (devices talking to the internet,
+*Only* makes a block-list ("alert on RDP or SSH to the internet"), *except* makes an allow-list for traffic to
+addresses **outside** the networks DENIS monitors ("a device may only reach the internet on port 443, anything else
+alerts"). A watch only ever sees a flow — a device talking to an address outside the monitored subnets — so "cameras
+may talk to the recorder, nothing else" is **not** this; when the recorder is also one of DENIS's own devices, that
+traffic is local-to-local and a network watch never sees it at all. For that case use a **zone or policy** instead
+(Zones tab → *allow-list policy*), which is judged over all observed traffic, including between your own devices. The
+Zones tab's **Policies** view lists your watches next to those policies (read-only, with a link back to this page).
+Ready-made starting points are in the form (devices talking to the internet,
 remote access crossing the boundary, anything but DNS/web/time to the internet, mail sent straight from a device,
 large transfers, devices reaching the local network). The alert names the watch, the device, the destination, the port
 and the amount, and carries the score you chose (1–100). One alert per device, address and port per cooldown (1–1440
 minutes). Like OT watches, network watches **also fire during the learning period** (you asked for them), and the
 rule's **weight** scales or, at 0, switches off all of them. Only what leaves or enters through the monitored interface
-is seen, so place the collector where the traffic is. Up to 30 watches.
+is seen, so place the collector where the traffic is. Up to 500 watches.
+
+**Who does this watch cover?** The watch form's **Show who this covers** button, and **Who does this cover?** on each
+saved watch (administrators), list the devices the watch is about *right now*, split into those covered by a zone and
+those covered by the other subjects, with the zones it names and how many devices each holds; nothing is written. It
+uses the same matching as the alert path, so it cannot disagree with what will alert. It is a snapshot: look again
+after changing a zone. The alert of a watch that matched through a zone records how the zone resolved at that moment
+(zone, revision, how the device was placed, the segmentation snapshot), shown in the alert as **Zone at the time**.
 
 #### Five worked examples
 
@@ -241,6 +337,30 @@ Each of these is one watch, added from *Rules* → **Your network watches** → 
 
 The **except**-style watches (1, 2) are the ones worth learning first: instead of listing every bad destination (which
 you cannot know in advance), you list the *few good ones* and let the watch catch everything else.
+
+### `segmentation_violation`: traffic your zones and policies do not allow
+
+Full detail, including how a device is placed into a zone, is in [Zones and policies](segmentation.md); in short:
+
+* Needs **zones and policies** set up on the *Zones* tab, and (for traffic between your own devices)
+  **east-west accounting** on, since that is where most of this rule's traffic comes from. Judges every
+  observed edge: east-west records, flows (local ↔ outside) and decoded industrial conversations alike —
+  unlike `it_watch`, which only ever sees the last of those.
+* Three causes, each its own score: an explicit **deny** zone rule matched (+70); an **allow-list** policy did
+  not allow the traffic (+ the policy's own score, 60 by default); a zone's boundary default of **deny** was
+  crossed with nothing approving it (+55). +15 more when the traffic was a decoded write or control command;
+  +10 when the far side's zone is rated *restricted*; +10 when the near side's zone is rated *untrusted*.
+* A policy or zone boundary in **record mode** produces the same event at `info` severity: stored, visible in
+  Events and in the policy's own violation counts, never notified — how a newly frozen policy is tried out
+  before it can page anyone.
+* Not suppressed by learning (the judgement is about the pair's zones, not its history, the same reasoning as
+  `ot_purdue_skip`). Cooldown six hours per (client, peer, protocol, port, cause); a burst against the same
+  client and cause in one batch becomes one alert ("and N more"); after six in an hour for one client, further
+  ones that hour are stored at `info`.
+* Joins the `ot_intrusion` incident pattern, and starts its own `lateral_movement` pattern together with a
+  network scan (`lan_scan`/`lan_sweep`) on the same device — see [Incidents](incidents.md).
+* `ot_purdue_skip` is left exactly as it is: once Purdue-level zones exist, an out-of-level OT conversation can
+  raise both rules. That is expected, not a duplicate bug.
 
 ## Industrial (OT) rules
 Details and examples are in the [OT guide](ot-guide.md). In short:
@@ -290,6 +410,9 @@ finding, each with why it matters and what to do.
 | `cert_expired` / `cert_expiring` | medium / low | a TLS certificate has expired, or expires within 30 days ([service probe](#certificates-and-web-pages-opt-in), off by default) |
 | `weak_tls` | medium | a TLS port still accepts TLS 1.0/1.1, or RC4, 3DES, NULL, export-grade or anonymous ciphers (service probe) |
 | `cert_self_signed` | info | a TLS port presents a self-signed certificate (service probe) |
+| `critical_unmanaged` | medium | a device rated high or critical is *not managed* or *failing* in your MDM or endpoint-protection tool (control coverage; never from *no match*, *ambiguous*, *unknown* or *off*) |
+| `not_vulnerability_scanned` | low | the vulnerability scanner has no scan of the device, or its last scan is older than the limit (control coverage) |
+| `coverage_unmatched` | info | DENIS cannot look the device up in your tools: no usable name, or a name shared with another device or record. Housekeeping, not a gap |
 
 Only devices seen in the last 7 days are considered, and devices whose status is *spare*, *retired*, *lost*
 or *stolen* are not nagged about exposed services. Exposure findings come from the port scan, so they appear
@@ -409,6 +532,10 @@ Each finding on the **Findings** page has two buttons.
 
 The fresh port list is also written to the register. You can verify one device (the *Verify* button in the accepted
 list) or every device of a finding.
+
+A finding also shows **Seen in incident #12** for each [incident](incidents.md#related-findings) one of its devices
+appeared in (still open, or active in the past 30 days). It is a link, not a state: resolving the incident does not close
+the finding, and fixing the finding does not close the incident.
 
 **Accept risk…** (administrators only, because it is a decision about risk) removes chosen devices from a finding and
 records who accepted it, when, **why** (required: it is what an auditor reads) and for how long (30, 90, 180 days, a

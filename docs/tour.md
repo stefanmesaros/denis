@@ -135,8 +135,10 @@ The icon row shows the current icon with **Change…** right beside it; that ope
 Related alerts grouped into one incident with its own priority (*Act now* / *Investigate today* / *Review* / *Can
 wait*), so a device going through several stages of trouble is one row to work instead of several scattered across
 the Alerts page. An alert that stays on its own just stays on Alerts — incidents never hide or replace anything
-there. Click one for its timeline, the devices involved, and, with an AI provider configured, **Assess consequences
-with AI**. Full details, including what triggers grouping and how incidents reach your notification channels, in
+there. Click one for its timeline, the devices involved, the findings on those devices, and, with an AI provider
+configured, **Assess consequences with AI**. An incident is worked in three steps (*Open*, *Acknowledged*, *Resolved*),
+each recorded with who and when; **Resolve…** needs a reason, and nothing you do to an incident ever closes a finding.
+Full details, including what triggers grouping and how incidents reach your notification channels, in
 [Incidents](incidents.md).
 
 ## Alerts

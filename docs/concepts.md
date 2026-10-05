@@ -49,6 +49,11 @@ A network switch sends each machine only the traffic addressed to it, plus broad
   period); what each limit cut is on the Health page. Nothing alerts on east-west traffic yet. With it
   off, nothing between two of your own devices is recorded beyond the industrial conversations DENIS
   already decodes; see [Relationships](#relationships-and-the-investigate-section) below.
+* **Passive DNS** (also opt-in, off by default) reads the DNS answers that cross the same interface and
+  remembers which name each device looked up — but only the lookups that actually cross it: a mirror of the
+  LAN side (or DENIS running on the resolver itself) sees every device's own lookups, a mirror of the WAN
+  uplink only attributes every name to the router, an ordinary switch port sees nothing, and encrypted DNS
+  (DoH, DoT) is never seen at all. See [Passive DNS](passive-dns.md).
 
 Put **one collector per network segment**. Two collectors on the same segment (for example the master's own
 capture plus an agent on the same LAN) report every device twice, once per site: a device's identity is

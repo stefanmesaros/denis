@@ -381,7 +381,11 @@ denis backup /backups/denis-$(date +%F).db --db /var/lib/denis/denis.db
 Restore by stopping DENIS and copying the backup over the database file. Events, alerts and trend samples are
 pruned after the retention period: `--retention-days` (default 90) until an administrator saves a value under
 *Settings → Data → Data retention* (1 to 1095 days; the console proposes 180), which then wins. The register,
-baselines, accepted risks, saved reports and the audit log are never pruned by retention.
+baselines, accepted risks, saved reports and the audit log are never pruned by retention. The **decision log** (who
+acknowledged, resolved or re-opened which alert or incident, when and why) has its own period under the same heading:
+1095 days (3 years) unless an administrator changes it (90 to 3650 days, or 0 to keep it for ever). It outlives the
+alerts and incidents it is about, and only its own age prunes it: deleting or merging a device and *Erase all data*
+leave it in place, because it holds no personal data beyond the user names and the notes people typed.
 
 The database contains your network inventory and password hashes: protect it like the service itself
 (owner-only permissions).

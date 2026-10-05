@@ -4,6 +4,50 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 3.5.0
+
+* **Control coverage.** A new Coverage view shows, for every device, whether it is managed (MDM),
+  in your directory, scanned for vulnerabilities and protected by endpoint security, with the
+  evidence behind each answer ("no device called reception-pc in Intune, synced 3 hours ago").
+  "DENIS checked and found nothing" is always shown apart from "DENIS could not check", so a gap
+  in what DENIS can see never reads as a gap in your network. Missing controls become findings
+  you can accept as a risk, track and re-check. A daily history lets you set a goal and watch the
+  numbers move, and the Dashboard shows where you stand. Microsoft Defender for Endpoint is a new
+  source. All eight integrations are built and tested against stand-ins, not yet against a live
+  tenant of every vendor, and are marked that way in Settings.
+* **One workflow for alerts, incidents and findings.** Incidents are open, acknowledged or
+  resolved. Resolving needs an outcome (resolved, false positive or expected behavior) and applies
+  to the incident's open alerts, but never overwrites a decision someone made on an alert
+  themselves. Every decision is recorded with who, when and why, and that record is kept for
+  three years by default (Settings, Data retention; you can shorten it or keep it forever).
+  Incidents and findings link both ways: an incident lists its related findings and lets you
+  track a fix, and a finding shows the incident it appeared in.
+* **Watches and policies, closer together.** Your network and command watches are listed with
+  your other policies, and every place that asks "who does this apply to" now uses the same
+  picker, including Purdue level, register zone and site. A watch can now follow a zone, and
+  before you save it you see which devices it covers today. If a zone a watch follows disappears,
+  the watch stops matching instead of matching more, and says so.
+* **A more reliable update window.** The window could stay on "Downloading" although the update
+  had installed and DENIS had restarted. It now follows the update to the end and shows a clear
+  result: updated (and the console reloads), rolled back, or a plain "still not back after N
+  seconds" with a Reload button. This helps from the next update onward. Release notes in the
+  window now keep their headings, lists and links.
+* **Changed:** acknowledging selected alerts in bulk no longer overwrites alerts that already have
+  a decision. Directory and scanner records are matched to devices the same way for every
+  import, and a name shared by two devices is marked ambiguous instead of matching the wrong one.
+
+## 3.4.1
+
+* **The Switches and cables view, redrawn.** Chassis-style switches with real port sockets,
+  cabling weighted by speed, a clickable VLAN legend and a drawer for each port. The VLAN now
+  comes from the switch's own forwarding table, and DENIS remembers which device was on which
+  port, and when.
+* **Four new alerts about changes on your network:** a device moved to another port, a new device
+  on a port or VLAN you chose to watch, a device changed VLAN, and a device that suddenly looks
+  like a different machine. Tested against simulated switches, not yet across many real models.
+* **Fixed:** the Track fix button did nothing, and the Findings page could show an error for a
+  finding about a device that had not loaded yet.
+
 ## 3.4.0
 
 * **Zones and segmentation policies.** Group devices into zones — by subnet, device type, tag, or

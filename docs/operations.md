@@ -58,7 +58,11 @@ live discovery does not.
 *Settings → Data → Data retention* (administrators) sets how long events, alerts and trend samples are kept
 (1 to 1095 days) before DENIS deletes them on its own, within the hour, no restart. Until a value is saved there
 the `--retention-days` flag (default 90) applies. The asset register, baselines, accepted risks, saved reports
-and the audit log are not affected by retention.
+and the audit log are not affected by retention. The same page sets how long the **decision log** is kept (who
+acknowledged, resolved or re-opened which alert or incident, when and why): 1095 days (3 years) by default, 90 to 3650
+days, or 0 to keep it for ever. It is independent of the period above, so a decision can still be read after its alert
+has been deleted. Nothing else removes decision-log rows: not deleting or merging a device, not *Erase all data*
+(the rows hold no personal data beyond the user name and the note a person typed).
 
 ## Monitoring DENIS itself (Prometheus)
 
@@ -112,6 +116,10 @@ finding: rescanning the device, checking that the underlying record is simply go
 that there has been no further contact matching the problem for a set number of hours (default 24,
 an administrator can change it) while the device stays online. A confirmed fix is watched for 30
 days and reopens automatically if the problem comes back.
+
+A work item made from an [incident](incidents.md#related-findings)'s *Related findings* remembers which incident it was
+tracked from ("From incident #12", a link) and keeps that when the incident is later resolved or ages out; a work item
+made from the Findings page or a device panel has none.
 
 ## Upgrading
 

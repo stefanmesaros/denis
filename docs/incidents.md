@@ -21,10 +21,15 @@ Three different things can start one, and DENIS tells you which by what the inci
 
 * **A recognised multi-stage pattern.** Certain sequences of alerts, from the same device (or the same site, for
   network-wide trouble) within a matching time window, are specific enough to name:
-  * *Someone is trying to become the network's gateway or DNS server* — rogue DHCP/RA activity escalating.
+  * *Someone is trying to become the network's gateway or DNS server* — rogue DHCP/RA activity escalating,
+    now also joined by devices actually switching to a new resolver (`dns_resolver_changed` — see
+    [Passive DNS](passive-dns.md)), which is what turns a rogue announcement into a real redirect.
   * *An unauthorised station is talking to, then changing, an industrial controller.*
   * *A device is mapping the network and spraying a worm-signature port outward.*
   * *A device swept the network, then used something new for the first time.*
+  * *A device swept the network, then crossed into a zone it is not allowed in* (`lateral_movement`:
+    a scan or ARP sweep followed by a `segmentation_violation` on the same device — see
+    [Zones and policies](segmentation.md)).
   * *A device contacted known-bad infrastructure and shows other signs of compromise.*
   * *A device that just joined immediately probed or impersonated the network.*
   * *Several reliably-online devices went quiet together.*
@@ -38,9 +43,63 @@ Three different things can start one, and DENIS tells you which by what the inci
   itself worth a look, so DENIS opens a plain "related alerts" incident for it.
 
 An incident keeps absorbing matching alerts (and can escalate from a lower-precedence pattern to a higher one) for as
-long as they keep arriving; it closes out and stops growing once nothing new has joined for a while. Acknowledging the
-alerts inside an incident does not acknowledge the incident itself — **Acknowledge incident** on its detail page does,
-in one action, for every alert it contains.
+long as they keep arriving; it stops growing once nothing new has joined for a while. If a new alert joins an incident
+somebody had already acknowledged or resolved, the incident goes back to **Open** by itself and says why; the new alert
+is open too, and the alerts that were closed stay closed.
+
+## Working an incident: acknowledge, resolve, re-open
+
+An incident has three states, shown as a bar at the top of its detail page with who made each step and when:
+
+| State | Meaning | How it is entered |
+|---|---|---|
+| **Open** | nobody has taken it | DENIS opened it, or a new alert joined it, or a person re-opened it |
+| **Acknowledged** | somebody is on it | **Acknowledge incident** (no reason needed) |
+| **Resolved** | a decision was made | **Resolve…**: you choose *Resolved*, *False positive* or *Expected behavior* (required) and may add a note |
+
+The buttons say exactly what they will do, because the same sentence is what the history records: *Resolve…* opens
+with "12 open alerts will be closed with this decision; 3 already closed keep theirs". The rules:
+
+* **A decision goes down to the incident's alerts and nowhere else.** Acknowledging closes its still-open alerts as
+  seen (no reason); resolving gives them your disposition, including the ones this incident closed when it was only
+  acknowledged. It never changes a finding, a work item or another incident.
+* **A person's own earlier decision is not overwritten.** An alert somebody already closed with their own reason keeps
+  it; the dialog counts these ("3 already closed keep theirs").
+* **Everything is on the record.** Every step is one row in an append-only history — who, when, from what to what, the
+  reason, your note and, for an alert, that it was closed *via incident #12* — shown under **Decisions** in the
+  incident and in each of its alerts, kept in the audit log (`incident.ack`, `incident.resolve`, `incident.reopen`)
+  and, if you turned the Incidents stream on, each incident decision is also sent to your SIEM. A note is free text and
+  is always shown as text.
+* **Wrong is cheap to undo.** **Re-open** puts the incident back to open in one click (a note is optional) and leaves
+  a row; the alerts it had closed stay closed, because that was their decision. Un-acknowledging a single alert works
+  the same way: the earlier decision stays in the history.
+
+The incident list filters *Open*, *Acknowledged*, *Resolved* or *All*; the sidebar badge counts open incidents at
+*Act now* or *Investigate today* only. Acknowledging or resolving an incident does not remove its alerts from the Alerts
+page history: they are simply acknowledged, with the incident named.
+
+## Related findings
+
+An incident is a case somebody works; a [finding](detection-rules.md#findings-standing-problems-with-a-fix) is a
+standing condition that stays true until its cause is gone. They are linked, never merged: **closing an incident never
+closes a finding, and fixing a finding never closes an incident.**
+
+The links are worked out when you look, from the devices the incident is about (the device behind each alert, not the
+device an alert was done to):
+
+* The incident's **Related findings** lists the open findings on those devices (with their accepted-risk status and
+  work item, if any), and the ones that were fixed since the incident began ("no longer present since 2 Oct"): a prompt
+  to look at the incident again, nothing more. A finding that only appeared after the incident's last alert is listed
+  and says so.
+* **Track fix…** next to a finding creates a [work item](operations.md#tracking-a-fix-work-items) that remembers it was
+  tracked from this incident ("From incident #12"), which is the answer to "what did you do about it".
+* When you resolve an incident while some related findings are open with no work item, the dialog says so and offers
+  **Track fix…**; it never stops you.
+* In the other direction, a finding on the **Findings** page or in a device's panel shows **Seen in incident #12** for
+  each incident that device appeared in that is still open or was active in the past 30 days.
+
+You only ever see links between things you may read: an incident from a site you cannot read is never listed next to a
+finding, and a device from such a site never shows up in an incident's findings.
 
 ## Priority: what to do first
 
@@ -91,11 +150,14 @@ absorbed into an incident already reported. PagerDuty and ServiceNow update the 
 instead of opening a new one. See [Alerting](alerting.md) for the channels themselves.
 
 SIEM/log export has the same idea: turn on the **Incidents** stream (Settings → Integrations) to send one record per
-incident opened, escalated or acknowledged, alongside or instead of the individual-alert stream — see
-[Export](export.md).
+incident opened, escalated, acknowledged, resolved or re-opened (with its status and, for a resolved one, how it ended),
+alongside or instead of the individual-alert stream — see [Export](export.md).
 
 ## API
 
 `GET /api/incidents` lists them (site-filtered like everything else); `GET /api/incidents/{id}` returns one with its
-full timeline; `POST /api/incidents/{id}/ack` acknowledges it, with an optional reason. `PUT /api/incidents/settings`
-flips the grouping switch above. See the [API reference](api.md).
+full timeline and its related findings; `POST /api/incidents/{id}/ack`, `/resolve` (with a required `reason`) and
+`/reopen` make the decisions above; `GET /api/incidents/{id}/log` and `GET /api/events/{id}/log` read the history. The history has its own retention (default 3 years, administrators can change it or keep it for ever
+under *Settings → Data → Data retention*) and outlives the alerts and incidents: each alert row records the alert's kind,
+severity, score, device and site, so "who closed alert 123, when and why" can still be answered after it has aged out.
+`PUT /api/incidents/settings` flips the grouping switch above. See the [API reference](api.md).

@@ -12,8 +12,8 @@ It works on office and home networks (IT) and on industrial networks (OT).
 | See what to fix first (exposed services, retired devices online, missing owners…) | [Detection rules › Findings](detection-rules.md#findings-standing-problems-with-a-fix) |
 | Know exactly which detections exist and how to tune them | [Detection rules](detection-rules.md) |
 | Work one grouped incident instead of a dozen separate alerts, with a priority to tell you what to do first | [Incidents](incidents.md) |
-| Define zones and policies for what should talk to what, and get alerted on a violation | [Zones and segmentation](segmentation.md) |
-| See a name instead of a bare address, opt-in | [Passive DNS](passive-dns.md) |
+| Describe how your network is meant to be divided, and be told when traffic crosses a line it should not | [Zones and policies](segmentation.md) |
+| See which devices your management, directory, scanning and endpoint-protection tools do not reach, and whether the numbers are improving | [Control coverage and posture history](coverage.md) |
 | Use it on an industrial (OT/ICS) network | [OT guide](ot-guide.md) |
 | Run it for a client: users, agents, TLS, backups | [Deployment & administration](deployment.md) |
 | Run it for several customers on one installation, with MSP technician accounts | [Multi-tenancy](multi-tenancy.md) |

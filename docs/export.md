@@ -80,7 +80,8 @@ before saving it.
     open ports, …). These have no natural sequence, so each one is sent once, the first time it is seen,
     and again if it clears and later comes back.
   * **Audit log** — who changed what in the console.
-  * **Incidents** — one record per [incident](incidents.md) opened, escalated or acknowledged; never a repeat for
+  * **Incidents** — one record per [incident](incidents.md) opened, escalated, acknowledged, resolved or re-opened,
+    each with its `status` after the change (and, when resolved, its `disposition`); never a repeat for
     every alert already sent above through **Events and alerts**.
 
 A CEF message looks like this (LEEF and JSON carry the same fields, in their own format):
