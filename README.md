@@ -26,6 +26,14 @@ scope — see [License](#license).
 
 **[See DENIS in action →](#demo-try-denis-without-installing-a-sensor)** no capture, no login, a fictional company already loaded.
 
+## What's new in 3.6.0
+
+**Encrypted integration secrets, and service health.** Passwords and API keys for the directory,
+cloud and scanner integrations are encrypted in the database, and backups leave them out by
+default. Keep the key file (`secrets.key`) with your data. Health now checks packet capture,
+database writes, background jobs, threat feeds and backups. Full notes in the
+[changelog](CHANGELOG.md).
+
 ## What's new in 3.5.1
 
 **Fixes and console polish.** An incident you closed opens again from the list, and incidents have

@@ -4,6 +4,29 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 3.6.0: Encrypted integration secrets, service health checks and console fixes
+
+- Passwords and API keys for the directory, cloud, vulnerability scanner and IP enrichment
+  integrations are now encrypted in the database. The key is kept in a file (secrets.key) in the
+  data directory. Keep that file with the data: if it is lost, every integration secret has to be
+  entered again. An existing installation converts its stored secrets once, at the first start.
+- Backups and MSP uploads leave integration secrets out by default. After a restore, DENIS lists
+  the integrations that need their secret entered again.
+- Health shows five service checks: packet capture, database writes, background jobs, threat feeds
+  and backups. A service that is stale or has never run is shown as a warning. The limits are
+  listed in Health and can be changed by the developer.
+- Background jobs that stop unexpectedly are reported and restarted where that is safe.
+- A closed incident opens again when you click it from the list.
+- The device page has one action bar; "Unmerge" appears when a device has merged addresses.
+- Incidents have one AI button. A stored assessment is shown on request; "Ask again" runs a new one.
+- Expanded alert groups can be collapsed from their footer.
+- The sign-in screen appears at once, and the device list shows a loading state until the devices
+  arrive.
+- Switch and cable labels no longer overlap, and Software rows open the device list.
+- The look (Default or Deep Field) is chosen under My account, not in the header.
+- Zones and policies wrap long names instead of running off the page.
+- A connection stability test can only be read and stopped by the user who started it.
+
 ## 3.5.1
 
 * **Fixed:** an incident you closed opens again when you click it from the list.
