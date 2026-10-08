@@ -4,23 +4,6 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
-## 4.0.2: IPv6 detection now matches IPv4, per-site time zones, and the remaining 4.0.1 follow-ups
-
-- IPv6 traffic is now checked against the threat list, zones and segmentation policies, the
-  internal-scan and outbound-fan-out rules, and OT-exposure scoring, the same way IPv4 traffic
-  already was. IPv6 conversations now also show up in the relationship view ("who talks to
-  whom"), and an IPv6 destination no longer inflates or evicts an IPv4 device's own list of
-  known destinations.
-- Each site (remote collector) can now have its own time zone, so "unusual hours" is judged by
-  the site's own clock instead of always the master's.
-- Under a flood, the small buffer DENIS uses before writing security signals to disk now keeps
-  spoofing/rogue-DHCP signals over routine ones instead of dropping either at random, and Health
-  now shows when this buffer has been running full.
-- API tokens are now tied to the account that created them by a permanent reference, not by that
-  account's name, closing the last part of a 4.0.1 fix for a deleted-and-recreated username
-  reviving an old token. The token list also shows plainly when a token's creator account no
-  longer exists.
-
 ## 4.0.1: hardening against denial-of-service and spoofing, and a simpler choice of three console looks
 
 - A security review found and fixed several ways the console or a remote collector could be made

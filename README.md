@@ -352,7 +352,7 @@ Only what is actually implemented is listed above — see [ROADMAP.md](ROADMAP.m
 
 DENIS is security software; its own trustworthiness matters. Here is the honest state, not a marketing gloss.
 
-**Verified today:** 1,790+ unit and integration tests and an end-to-end replay of a simulated industrial network
+**Verified today:** 1,750+ unit and integration tests and an end-to-end replay of a simulated industrial network
 through the whole pipeline; fuzz tests of every parser; `cargo audit` clean; a master and agent talking over HTTP;
 the UI exercised in a browser (sign-in, forced password change, editing, users, OT, topology, trends, reports); a
 real Linux server running DENIS as a permanent `systemd` service, including a real one-click self-update (backup,
