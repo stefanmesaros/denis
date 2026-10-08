@@ -27,6 +27,7 @@ It works on office and home networks (IT) and on industrial networks (OT).
 | Know what the Community edition covers and how a commercial license works | [Licensing](licensing.md) |
 | Automate or integrate | [API reference](api.md) |
 | Something does not work | [Troubleshooting](troubleshooting.md) |
+| Help test DENIS on my own network and report what I find | [Tester guide](community-testing.md) |
 
 ## What DENIS does
 

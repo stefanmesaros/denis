@@ -3,10 +3,18 @@
 Thanks for helping. The source code is maintained privately, so a code pull request against this
 repository is not possible — but there is still plenty of useful ground here.
 
+## Testing DENIS on your network
+
+The most useful contribution right now is running DENIS on a real network and telling us what it
+gets right and wrong. The [tester guide](docs/community-testing.md) explains how to start, what to
+try in the first 30 minutes and what to remove from logs and screenshots before sharing.
+
 ## Bug reports
 
-Open an issue with what you ran, what you expected, and what actually happened (logs or a
-screenshot help). Security vulnerabilities are the one exception — see [Security issues](#security-issues)
+Open an issue from the [issue templates](https://github.com/stefanmesaros/denis/issues/new/choose):
+a bug report, an incorrect device fingerprint, or integration testing feedback. Say what you ran,
+what you expected, and what actually happened (redacted logs or a screenshot help; never post
+credentials, public IP addresses or unredacted packet captures). Security vulnerabilities are the one exception — see [Security issues](#security-issues)
 below, never a public issue for those.
 
 ## Feature requests

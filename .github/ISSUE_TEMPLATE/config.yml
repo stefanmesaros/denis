@@ -1,1 +1,8 @@
 blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/stefanmesaros/denis/security/advisories/new
+    about: Please report vulnerabilities privately, not as a public issue (see SECURITY.md).
+  - name: Tester guide
+    url: https://github.com/stefanmesaros/denis/blob/main/docs/community-testing.md
+    about: How to install DENIS, what to try first and what to remove before sharing logs.

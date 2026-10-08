@@ -26,113 +26,52 @@ scope — see [License](#license).
 
 **[See DENIS in action →](#demo-try-denis-without-installing-a-sensor)** no capture, no login, a fictional company already loaded.
 
-## What's new in 4.0.1
+## Help Test DENIS — We Need Your Network!
 
-**Hardening against denial-of-service and spoofing.** A security review found and fixed several
-ways the console or a remote collector could be made to use unlimited memory or CPU, including
-before anyone signs in; account lockouts (passwords and two-factor codes) can no longer be
-bypassed by concurrent requests or reset by flooding; deleting a user now revokes their API
-tokens; several forged-packet spoofing paths (gateway identification, DNS, IPv6 address
-discovery) are closed; and identity data a remote site reports can no longer affect other sites in
-the same installation. The console now offers three looks — Triage, Scope and Clipboard; the
-original look and Deep Field have been retired, and everyone now sees Triage by default. Full
-notes in the [changelog](CHANGELOG.md).
+DENIS is developed independently, and the best way to make it better is to run it on networks the
+developer does not have. We are looking for **20–30 volunteers** to try it on their own networks and tell
+us what it gets right and what it gets wrong.
 
-## What's new in 4.0.0
+* **Free.** The Community edition is free for personal networks of up to 100 devices. No subscription, no credit card.
+* **Self-hosted.** DENIS runs on your own hardware and your network traffic stays on your network. There is no
+  telemetry. The only routine outgoing request is an update check, which you can turn off
+  ([details](docs/security.md)).
+* **No programming needed.** If you can run a command and copy an error message, you can help.
+* **Small networks count.** A flat home network with 15 devices is a useful test, especially if it has
+  unusual gear.
 
-**PostgreSQL, high availability, and 16 enforcement connectors.** DENIS can now run on PostgreSQL
-instead of SQLite, and two DENIS servers sharing one PostgreSQL database can run as an active and
-standby pair with automatic failover — both off by default, for installations that specifically
-need them. Settings → Enforcement now lists 16 connector kinds (FortiGate, Palo Alto, UniFi,
-Meraki, Check Point, SonicWall, WatchGuard, Juniper, Proxmox, Hyper-V, VMware NSX, OPNsense, RADIUS,
-AWS, Azure, plus the original SNMP), any number per kind, blockable straight from a device's own
-page — still administrator-confirmed every time. Three new console looks (Triage, Scope,
-Clipboard) join the existing ones, chosen under My account; your language choice is now per
-account instead of per browser; and the devices list shows each device's risk number next to its
-priority word. Full notes in the [changelog](CHANGELOG.md).
+**What we most need help testing**
 
-## What's new in 3.6.0
+* Device discovery and fingerprinting accuracy (is the type, vendor and OS right?)
+* Unusual IoT devices and hardware vendors
+* Traffic monitoring through a SPAN/mirror port
+* Network topology discovery
+* VLANs and segmented networks
+* IPv6 networks
+* Firewall and switch integrations (these are built against documentation and test fixtures; none has been
+  validated against a real device or service yet, so your reports are valuable)
+* Installation on each supported platform
+* False positives and missing detections
+* Performance and stability over days, not minutes
 
-**Encrypted integration secrets, and service health.** Passwords and API keys for the directory,
-cloud and scanner integrations are encrypted in the database, and backups leave them out by
-default. Keep the key file (`secrets.key`) with your data. Health now checks packet capture,
-database writes, background jobs, threat feeds and backups. Full notes in the
-[changelog](CHANGELOG.md).
+**Get started**
 
-## What's new in 3.5.1
+1. **[Tester guide](docs/community-testing.md)** — what to do in your first 30 minutes and how to report what you find.
+2. **[Install it](#quick-start)** ([deployment details](docs/deployment.md)), or **[try the demo](#demo-try-denis-without-installing-a-sensor)** first —
+   one command, no sensor, no real traffic.
+3. **[Open an issue](https://github.com/stefanmesaros/denis/issues/new/choose)** — bug, wrong fingerprint,
+   integration feedback or feature request, each with a template.
+4. **Chat with other testers:** Discord invitation link coming soon.
+   <!-- TODO: put the Discord invite URL here once the server exists -->
 
-**Fixes and console polish.** An incident you closed opens again from the list, and incidents have
-one AI button: a saved assessment is shown on request, and "Ask again" runs a fresh one. The device
-page has one action bar, the sign-in screen appears at once, and the look (Default or Deep Field)
-is now chosen under My account rather than in the header. Full notes in the
-[changelog](CHANGELOG.md).
+## What's new in 4.0.2
 
-## What's new in 3.5.0
-
-**Control coverage.** A Coverage view shows which devices are managed, in your directory, scanned
-and protected by endpoint security, with the evidence for each, and keeps "DENIS checked and found
-nothing" apart from "DENIS could not check". Missing controls become findings, a daily history lets
-you set goals and watch the numbers move, and Microsoft Defender for Endpoint is a new source. See
-[Coverage](docs/coverage.md).
-
-**One workflow for alerts, incidents and findings.** Incidents are open, acknowledged or resolved,
-resolving needs an outcome, every decision is recorded with who, when and why (kept three years by
-default), and incidents and findings link both ways. See [Incidents](docs/incidents.md).
-
-**Watches and policies, closer together.** Watches are listed with your policies, share one device
-picker with them, and can follow a zone, with a preview of which devices they cover today. See
-[Segmentation](docs/segmentation.md).
-
-## What's new in 3.4.0
-
-**Zones and segmentation policies.** Group devices into zones, write allow-list and
-zone-boundary policies, and get an alert when traffic crosses a boundary your policies don't
-allow. A zone × zone matrix shows what's actually been verified, honestly separating "nothing
-seen" from "not covered" when traffic recording is off. A new policy starts in a silent
-record-only mode; "freeze this device's behaviour" turns its own observed traffic into a
-reviewable starting policy, never saved until you confirm it.
-
-**Passive DNS, opt-in.** DENIS can remember the name that resolved to each address your own
-devices contacted, so connections show a name instead of a bare IP wherever one already appeared —
-the device panel, alert evidence, Ask DENIS's own destination search (which can now search by
-domain name, not just an IP). Off by default, with its own retention and a one-click "delete
-everything recorded". A new rule flags a device being pointed at an unexpected DNS resolver.
-
-**Deep Field: an optional animated look for the Topology map.** A quiet star-field background, a
-slow pulse on your gateway showing the page is live, and a brighter pulse on a fresh alert — off
-by default, and scoped to the Topology page only.
-
-## What's new in 3.3.0
-
-**Multiple customers on one installation.** Separate databases, detectors and consoles per
-customer, with nothing reachable across them; MSP technician accounts that work across customers
-without a separate login in each one; export or import a customer as a standalone database.
-
-**Optionally disable a switch port, from DENIS.** For a switch DENIS already monitors over SNMP:
-one access port at a time, with a preview of what's behind it, a reason, your password, and
-one-click undo. DENIS never blocks anything on its own — this is an administrator's action, never
-automatic.
-
-**Track a fix until it's actually fixed.** Assign a finding to a person with a due date and a
-linked Jira/ServiceNow ticket; DENIS confirms the fix itself (a rescan, or no further contact while
-the device stays online) and watches for 30 days in case it comes back. Also closes the gap where
-two collectors watching the same network could leave a device listed twice after being joined.
-
-**Is it your connection, or is it DENIS?** A one-click, 10-20 second test of packet loss, jitter
-and latency — not a speed test — rated separately for browsing, a video call, and 1080p/4K
-streaming, with a note on whether DENIS's own network activity was the cause.
-
-**More threat intelligence, and certificate/TLS findings.** ThreatFox, URLhaus, Spamhaus ASN-DROP
-and the Tor exit list join the existing Feodo Tracker and Spamhaus DROP, each opt-in and named on a
-hit. An opt-in probe reads TLS certificates and protocol/cipher strength on your own devices'
-already-open ports, flagging an expired, soon-to-expire, self-signed or weak-TLS certificate.
-
-**Ask DENIS can now draft, not just answer.** A follow-up like "add an exception for that" or
-"this rule is too sensitive" drafts the exact change — a new rule, an exception, or a setting
-change — for an administrator to review and apply with one click. It never changes anything by
-itself.
-
-See [CHANGELOG.md](CHANGELOG.md) for the complete list, including smaller fixes.
+IPv6 traffic is now checked by the same detections as IPv4 (threat lists, zones, scan and fan-out
+rules, OT exposure), each site can have its own time zone with daylight saving, the buffer for
+security signals keeps spoofing and rogue-DHCP signals first under a flood, and API tokens are
+tied to the account that created them. Earlier releases (PostgreSQL and high availability,
+16 enforcement connectors, zones and segmentation, passive DNS, multiple customers and more)
+are described in the [changelog](CHANGELOG.md).
 
 ---
 
@@ -284,7 +223,7 @@ network, or whenever you just want to look around without touching anything real
 [Detection rules](docs/detection-rules.md) · [Alerting](docs/alerting.md) · [OT guide](docs/ot-guide.md) ·
 [Branding](docs/branding.md) · [Export & SIEM](docs/export.md) · [Deployment](docs/deployment.md) ·
 [Docker](docs/docker.md) · [Operations](docs/operations.md) · [Security](docs/security.md) · [API](docs/api.md) ·
-[Troubleshooting](docs/troubleshooting.md)
+[Troubleshooting](docs/troubleshooting.md) · [Tester guide](docs/community-testing.md)
 
 Alerts with the reasoning behind every score, the industrial communications matrix, and compliance mapped against
 your actual register — three of the console's 20-odd pages ([more screenshots in the console tour](docs/tour.md)):
@@ -494,8 +433,8 @@ shipped in 4.0.0.
 
 ## Contributing
 
-Bug reports, feature requests and translation corrections are welcome:
-[CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+Bug reports, wrong-fingerprint reports, integration feedback, feature requests and translation
+corrections are welcome: see the [tester guide](docs/community-testing.md) and [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Security reporting
 
