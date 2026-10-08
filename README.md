@@ -26,6 +26,31 @@ scope — see [License](#license).
 
 **[See DENIS in action →](#demo-try-denis-without-installing-a-sensor)** no capture, no login, a fictional company already loaded.
 
+## What's new in 4.0.1
+
+**Hardening against denial-of-service and spoofing.** A security review found and fixed several
+ways the console or a remote collector could be made to use unlimited memory or CPU, including
+before anyone signs in; account lockouts (passwords and two-factor codes) can no longer be
+bypassed by concurrent requests or reset by flooding; deleting a user now revokes their API
+tokens; several forged-packet spoofing paths (gateway identification, DNS, IPv6 address
+discovery) are closed; and identity data a remote site reports can no longer affect other sites in
+the same installation. The console now offers three looks — Triage, Scope and Clipboard; the
+original look and Deep Field have been retired, and everyone now sees Triage by default. Full
+notes in the [changelog](CHANGELOG.md).
+
+## What's new in 4.0.0
+
+**PostgreSQL, high availability, and 16 enforcement connectors.** DENIS can now run on PostgreSQL
+instead of SQLite, and two DENIS servers sharing one PostgreSQL database can run as an active and
+standby pair with automatic failover — both off by default, for installations that specifically
+need them. Settings → Enforcement now lists 16 connector kinds (FortiGate, Palo Alto, UniFi,
+Meraki, Check Point, SonicWall, WatchGuard, Juniper, Proxmox, Hyper-V, VMware NSX, OPNsense, RADIUS,
+AWS, Azure, plus the original SNMP), any number per kind, blockable straight from a device's own
+page — still administrator-confirmed every time. Three new console looks (Triage, Scope,
+Clipboard) join the existing ones, chosen under My account; your language choice is now per
+account instead of per browser; and the devices list shows each device's risk number next to its
+priority word. Full notes in the [changelog](CHANGELOG.md).
+
 ## What's new in 3.6.0
 
 **Encrypted integration secrets, and service health.** Passwords and API keys for the directory,
@@ -304,6 +329,9 @@ your actual register — three of the console's 20-odd pages ([more screenshots 
 | Multi-site agents | Outbound-only agents report to one master; per-user, per-site access |
 | Multi-tenancy | Separate customers on one installation — own database, detector and console each, nothing reachable across them; MSP operator accounts; export/import a customer as a standalone database |
 | Port control (NAC) | Optional, administrator-confirmed: disable one switch access port at a time on a switch DENIS already monitors over SNMP, with a preview, a reason, a password and one-click undo. DENIS never blocks anything on its own |
+| Enforcement connectors | Settings → Enforcement: 16 connector kinds (SNMP, FortiGate, Palo Alto, UniFi, Meraki, Check Point, SonicWall, WatchGuard, Juniper, Proxmox, Hyper-V, VMware NSX, OPNsense, RADIUS CoA, AWS, Azure), any number of instances per kind, block a device from its own panel — always administrator-confirmed, never automatic |
+| Console looks | Three looks — Triage (the default), Scope and Clipboard — each in light and dark, chosen under My account |
+| PostgreSQL & high availability | PostgreSQL as a complete, selectable backend alongside the default SQLite; two nodes sharing one PostgreSQL database can fail over leadership in under two seconds. Off by default |
 | White-label | Your logo, colour, default theme |
 | Authentication | Roles, per-site access, passkeys (WebAuthn, optionally passkey-only), authenticator apps (TOTP), OIDC single sign-on, Argon2id, lock-outs, audit log, built-in HTTPS |
 | Data retention | Events, alerts and trend samples pruned after a period you set (Settings → Data); the register itself is never pruned |
@@ -324,7 +352,7 @@ Only what is actually implemented is listed above — see [ROADMAP.md](ROADMAP.m
 
 DENIS is security software; its own trustworthiness matters. Here is the honest state, not a marketing gloss.
 
-**Verified today:** 780+ unit and integration tests and an end-to-end replay of a simulated industrial network
+**Verified today:** 1,790+ unit and integration tests and an end-to-end replay of a simulated industrial network
 through the whole pipeline; fuzz tests of every parser; `cargo audit` clean; a master and agent talking over HTTP;
 the UI exercised in a browser (sign-in, forced password change, editing, users, OT, topology, trends, reports); a
 real Linux server running DENIS as a permanent `systemd` service, including a real one-click self-update (backup,
@@ -363,7 +391,14 @@ ChatGPT and Gemini) and a real local Ollama instance.
   Also still IPv4-only: rule parity (rotation-burst suppression, `new_port`, OT decoding, the
   threat list, network watches, `lan_scan`), an NDP-mismatch signal, IPv6 conflict/gateway
   detection, and full active discovery of brand-new addresses.
-* No PostgreSQL backend. No **packaged** Windows build: `denis.exe` compiles and has been verified capturing
+* PostgreSQL and high availability: built and measured, but only across five real `kill -9` runs on
+  one machine against one shared PostgreSQL — not yet measured across two real machines with a
+  real network between node and database. No per-tenant PostgreSQL yet.
+* 14 of the 16 enforcement connectors (everything except FortiGate and UniFi) can be configured
+  and tested against a local simulation of their documented API, but are not yet wired to actually
+  apply a block, and none of the 16 has been verified against real vendor hardware beyond the
+  original SNMP connector.
+* No **packaged** Windows build: `denis.exe` compiles and has been verified capturing
   on a real Windows 11 machine when built from source with the Npcap SDK. A service wrapper and installer
   script exist but are unverified — neither has run on a real Windows machine yet — and there is still no
   signed release for Windows or a CI job that links it.
@@ -450,10 +485,12 @@ commercial license (there is no self-service purchase yet — open a GitHub issu
 ## Roadmap
 
 A single priority-ordered list of what's missing and planned — the rest of IPv6 (most of it shipped,
-opt-in), a packaged Windows collector, Qualys
-import, SAML (OIDC SSO already works), multi-tenancy, PostgreSQL/HA, and policy enforcement / NAC
-(designed, nothing built) — plus verification still owed before a commercial launch: see
-[ROADMAP.md](ROADMAP.md).
+opt-in), a packaged Windows collector, Qualys import, SAML (OIDC SSO already works), wiring the
+remaining enforcement connectors to actually apply a block (13 of 16 are configurable/testable
+today but not yet wired), and policy-triggered automatic enforcement (deliberately deferred past
+4.0.0) — plus verification still owed before a commercial launch: see [ROADMAP.md](ROADMAP.md).
+Multi-tenancy shipped in 3.3.0; PostgreSQL, high availability and 15 new enforcement connectors
+shipped in 4.0.0.
 
 ## Contributing
 

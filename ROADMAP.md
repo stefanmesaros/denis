@@ -5,7 +5,11 @@ behaves, tells you when something changes with every alert explaining itself, an
 it knows about a device (directory, MDM, cloud, scanner findings, incidents) in one place. As of
 v3.4.0 it also lets you define zones and policies for what should be allowed to talk to what, flags
 traffic that breaks those rules, and can show a name instead of a bare address once you switch on
-passive DNS. As of v3.5.0 it also shows which devices lack management, scanning or endpoint protection, tracks that over time against goals you set, and gives incidents a clear lifecycle. Next come a database built for scale and more kinds of equipment to block.
+passive DNS. As of v3.5.0 it also shows which devices lack management, scanning or endpoint protection, tracks that over time against goals you set, and gives incidents a clear lifecycle. As of
+v4.0.0 it can also run on PostgreSQL with an active/standby failover pair, block through sixteen
+kinds of firewall and controller in addition to the original SNMP switch connector, offers three
+new console looks, and remembers your language choice per account. Next comes wiring the rest of
+those connectors to actually apply a block, not just be configured and tested.
 
 The list is in rough order. Plans can change, and nothing here is a delivery promise. Ideas and
 pull requests are welcome.
@@ -33,22 +37,27 @@ The integrations behind coverage (Intune, Entra ID, Active Directory, Jamf, the 
 Nessus and Defender for Endpoint) are built and tested against stand-ins, not yet against live
 tenants of every vendor.
 
-**A database built for scale, and a standing-up partner for it.** An alternative to the built-in
-SQLite file for installations with heavy traffic history or many tenants, plus an active-passive
-failover mode for sites that need it running even through a maintenance restart.
+**A database built for scale, and a standing-up partner for it** — built, in v4.0.0. PostgreSQL is
+now a selectable alternative to the built-in SQLite file, and two servers sharing one PostgreSQL
+database can run as an active/standby pair with automatic failover in under two seconds if the
+active one goes down. Both are off by default, for installations that specifically need them; a
+normal single-server SQLite install is unaffected. Not yet verified across two real machines with
+a real network between them — tested so far on one machine against one shared database.
+
+**Three new console looks, chosen by you** — built, in v4.0.0. An inbox-style view, a dark operator
+console, and a warm paper worksheet style, each in light and dark, alongside the existing looks.
+Every user picks their own under My account; new installs default to the inbox-style one.
 
 ## Later
 
-**A new look, chosen by you.** A cleaner, more modern console theme alongside today's look, each in
-light and dark. Every user picks their own; an administrator sets the default. Validated with
-mock-ups first, since half of a new visual identity can be worse than none.
-
-**Blocking a device — more kinds of equipment.** Beyond the SNMP-managed switches already
-supported: RADIUS-based re-authentication, then specific firewall brands one at a time
-(pfSense/OPNsense, UniFi, FortiGate, Meraki, Palo Alto, Cisco, Check Point, SonicWall, WatchGuard,
-Juniper), adjusted for what a given customer actually runs, now checked against the zones and
-policies above before anything is confirmed. Each is its own release, each needs its own
-real-world testing, and every rule above still applies: nothing blocks anything on its own.
+**Blocking a device — wiring the rest of the connectors.** Fifteen new connector kinds shipped in
+v4.0.0 (RADIUS-based re-authentication, OPNsense, UniFi, FortiGate, Meraki, Palo Alto, Check Point,
+SonicWall, WatchGuard, Juniper, Proxmox, Hyper-V, VMware NSX, and AWS/Azure's own security groups),
+alongside the original SNMP-managed switches, all checked against the zones and policies above
+before anything is confirmed. So far only FortiGate and UniFi are wired to actually apply a block;
+the rest can be configured and tested today, with their enforcement wiring following one at a
+time, each needing its own real-world testing against actual hardware before being relied on. Cisco
+ASA/FTD remains planned but not yet started.
 
 **Ask DENIS keeps growing.** Each new view above also becomes a plain-language question you can
 ask, answered only from data DENIS actually has.

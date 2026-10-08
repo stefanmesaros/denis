@@ -4,6 +4,75 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 4.0.2: IPv6 detection now matches IPv4, per-site time zones, and the remaining 4.0.1 follow-ups
+
+- IPv6 traffic is now checked against the threat list, zones and segmentation policies, the
+  internal-scan and outbound-fan-out rules, and OT-exposure scoring, the same way IPv4 traffic
+  already was. IPv6 conversations now also show up in the relationship view ("who talks to
+  whom"), and an IPv6 destination no longer inflates or evicts an IPv4 device's own list of
+  known destinations.
+- Each site (remote collector) can now have its own time zone, so "unusual hours" is judged by
+  the site's own clock instead of always the master's.
+- Under a flood, the small buffer DENIS uses before writing security signals to disk now keeps
+  spoofing/rogue-DHCP signals over routine ones instead of dropping either at random, and Health
+  now shows when this buffer has been running full.
+- API tokens are now tied to the account that created them by a permanent reference, not by that
+  account's name, closing the last part of a 4.0.1 fix for a deleted-and-recreated username
+  reviving an old token. The token list also shows plainly when a token's creator account no
+  longer exists.
+
+## 4.0.1: hardening against denial-of-service and spoofing, and a simpler choice of three console looks
+
+- A security review found and fixed several ways the console or a remote collector could be made
+  to use unlimited memory or CPU, including before anyone signs in: concurrent sign-in attempts
+  are now limited, and a single malformed report from a remote site can no longer crash the server
+  or be used to exhaust its memory.
+- Account lockouts, for both passwords and two-factor codes, can no longer be bypassed by sending
+  many requests at once, and a flood of failed sign-ins can no longer be used to reset another
+  account's lockout count.
+- Deleting a user now properly revokes any API tokens they created, so a token tied to a deleted
+  account cannot start working again if the same username is used later.
+- Several ways a forged network packet could mislabel a device as the network's gateway, plant
+  false DNS records, or make the console actively contact attacker-chosen addresses are fixed.
+- A compromised or leaked remote-site token could previously affect devices at other sites in the
+  same installation; identity data a remote site reports now only ever applies to that site's own
+  devices.
+- IPv6 traffic now counts toward the same volume-anomaly detection IPv4 traffic already had.
+- The console now offers three looks, Triage, Scope and Clipboard; the original look and Deep
+  Field have been retired, and everyone now sees Triage by default.
+
+## 4.0.0: PostgreSQL and high availability, 16 enforcement connectors, console skins and per-account language
+
+- DENIS can now run on PostgreSQL instead of SQLite, as an alternative, selectable database for
+  installations that need it. Nothing about a normal single-server install changes if you keep
+  using SQLite, which stays the default. Backups on PostgreSQL leave integration secrets out, the
+  same as on SQLite.
+- On PostgreSQL, two DENIS servers can share one database and run as an active and a standby pair.
+  If the active one goes down, the standby takes over within a few seconds, so the console keeps
+  working without someone switching it by hand. This is for installations that need that kind of
+  resilience; a single-server install does not need it and is unaffected.
+- Sixteen enforcement connectors are now available under Settings, Enforcement, including
+  FortiGate, Palo Alto, UniFi, Meraki, Check Point, SonicWall, WatchGuard, Juniper, Proxmox,
+  Hyper-V, VMware NSX, OPNsense, RADIUS, and AWS and Azure. You can configure more than one of the
+  same kind, for separate firewalls or sites, and block a device straight from its own page once a
+  connector is set up. As before, every block is started by an administrator by hand and nothing
+  is ever enforced automatically.
+- The console now offers three looks you can choose from, alongside the existing default: an
+  inbox-style view, a dark operator console, and a warm paper worksheet style. Each comes in a
+  light and a dark variant. Pick one under My account; your choice follows you, and anyone who has
+  not chosen yet sees the new inbox-style look by default.
+- Your preferred language is now a personal account setting instead of a setting tied to one
+  browser, so it follows you when you sign in on a different computer.
+- The devices list now shows the actual risk number next to the priority word, so you can see at a
+  glance how two devices with the same priority compare.
+- A commercial license is now tied to the installation it was first used on, the same way its
+  validity period already was. When an install has more devices than its license (or the
+  Community edition's 100-device limit) allows, the console now shows exactly how many devices are
+  listed out of the real total, with a plain explanation, instead of listing every device
+  regardless of the license.
+- After a backup restore, Settings now lists exactly which integrations (AI providers,
+  notification channels, and others) lost their secret and still need it entered again.
+
 ## 3.6.0: Encrypted integration secrets, service health checks and console fixes
 
 - Passwords and API keys for the directory, cloud, vulnerability scanner and IP enrichment
