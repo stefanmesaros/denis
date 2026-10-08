@@ -6,3 +6,6 @@ contact_links:
   - name: Tester guide
     url: https://github.com/stefanmesaros/denis/blob/main/docs/community-testing.md
     about: How to install DENIS, what to try first and what to remove before sharing logs.
+  - name: Discord community
+    url: https://discord.gg/DzbeV99xv
+    about: Questions, chat and comparing notes with other testers.

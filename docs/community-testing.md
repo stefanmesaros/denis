@@ -1,5 +1,7 @@
 # Tester guide: helping test DENIS
 
+**[Join our Discord Community →](https://discord.gg/DzbeV99xv)** to ask questions, compare notes and share what you find with other testers.
+
 Thank you for testing DENIS. This page tells you how to install it, what to try first, and how to
 report what you find so that it is useful to the developer. You do not need programming experience.
 
@@ -8,7 +10,7 @@ It is self-hosted: it runs on your machine and your network traffic stays on you
 telemetry. The one routine outgoing request is an update check (`api.github.com`, every 6 hours), which
 you can turn off with `--no-update-check`. See [Security](security.md).
 
-**Honest status.** The integrations with firewalls, switches, cloud and directory services were built
+**Honest status.** The [README's integration status table](../README.md#integration-status-what-is-validated-and-what-is-not) says what is validated and what is not. The integrations with firewalls, switches, cloud and directory services were built
 against vendor documentation and test fixtures. None of them has been independently validated against a
 real device or service yet. If you have one, that is exactly what we want to hear about, and a "did not
 work" report is as useful as a "worked".
@@ -139,5 +141,4 @@ Tip: replace values with `<redacted>` rather than deleting the line, so the stru
 
 * Translation corrections: see [CONTRIBUTING.md](../CONTRIBUTING.md).
 * Tell us what confused you. First-install friction is a valid bug.
-* A Discord server for testers is planned; the invitation link will be added to the
-  [README](../README.md) when it exists.
+* Join the [Discord community](https://discord.gg/DzbeV99xv) and tell other testers what worked on your hardware.

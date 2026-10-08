@@ -28,6 +28,8 @@ scope — see [License](#license).
 
 ## Help Test DENIS — We Need Your Network!
 
+**[Join our Discord Community →](https://discord.gg/DzbeV99xv)**   ·   [Community Testing Guide](docs/community-testing.md)   ·   [Latest release](https://github.com/stefanmesaros/denis/releases/latest)
+
 DENIS is developed independently, and the best way to make it better is to run it on networks the
 developer does not have. We are looking for **20–30 volunteers** to try it on their own networks and tell
 us what it gets right and what it gets wrong.
@@ -56,13 +58,17 @@ us what it gets right and what it gets wrong.
 
 **Get started**
 
-1. **[Tester guide](docs/community-testing.md)** — what to do in your first 30 minutes and how to report what you find.
-2. **[Install it](#quick-start)** ([deployment details](docs/deployment.md)), or **[try the demo](#demo-try-denis-without-installing-a-sensor)** first —
-   one command, no sensor, no real traffic.
-3. **[Open an issue](https://github.com/stefanmesaros/denis/issues/new/choose)** — bug, wrong fingerprint,
-   integration feedback or feature request, each with a template.
-4. **Chat with other testers:** Discord invitation link coming soon.
-   <!-- TODO: put the Discord invite URL here once the server exists -->
+* **[Community Testing Guide](docs/community-testing.md)** — what to do in your first 30 minutes and how to report what you find.
+* **[Latest release](https://github.com/stefanmesaros/denis/releases/latest)** and the [install steps](#quick-start)
+  ([deployment details](docs/deployment.md)). Or **[try the demo](#demo-try-denis-without-installing-a-sensor)**
+  first: one command, no sensor, no real traffic.
+* **[GitHub Issues](https://github.com/stefanmesaros/denis/issues/new/choose)** — bug, wrong fingerprint,
+  integration feedback or feature request, each with a template.
+* **[Join our Discord Community](https://discord.gg/DzbeV99xv)** — ask questions, compare notes and share what you find with other testers.
+
+A SPAN/mirror port is recommended for full traffic visibility but not required: basic device discovery works
+without one. What we need most is real-world hardware and integration validation, because we can only test
+against what we own. See [what is validated today](#integration-status-what-is-validated-and-what-is-not).
 
 ## What's new in 4.0.2
 
@@ -324,12 +330,12 @@ ChatGPT and Gemini) and a real local Ollama instance.
   itemised internally.
 * The SNMP switch reader against real switches from any vendor (tested against two stand-in
   switches and hostile input only; see docs/switches.md).
-* IPv6 (opt-in, `--ipv6`/`--ipv6-subnet`: passive discovery, flow accounting, remote-agent
-  reporting, the active liveness check) on a genuine dual-stack network — verified so far only
-  with hand-built frames and integration tests, not real ICMPv6/NDP traffic or a real socket send.
-  Also still IPv4-only: rule parity (rotation-burst suppression, `new_port`, OT decoding, the
-  threat list, network watches, `lan_scan`), an NDP-mismatch signal, IPv6 conflict/gateway
-  detection, and full active discovery of brand-new addresses.
+* IPv6 (opt-in, `--ipv6`/`--ipv6-subnet`: passive discovery, flow accounting, remote-agent reporting,
+  the active liveness check and, since 4.0.2, the same detections as IPv4 such as the threat list, watches,
+  zones, scan and fan-out rules, `new_port`, passive DNS and resolver-change) on a genuine dual-stack network
+  — verified so far only with hand-built frames and integration tests, not real ICMPv6/NDP traffic or a real
+  socket send. Still IPv4-only in this release: decoded OT conversations, IPv6 address-conflict detection and
+  active discovery of brand-new addresses.
 * PostgreSQL and high availability: built and measured, but only across five real `kill -9` runs on
   one machine against one shared PostgreSQL — not yet measured across two real machines with a
   real network between node and database. No per-tenant PostgreSQL yet.
@@ -341,9 +347,8 @@ ChatGPT and Gemini) and a real local Ollama instance.
   on a real Windows 11 machine when built from source with the Npcap SDK. A service wrapper and installer
   script exist but are unverified — neither has run on a real Windows machine yet — and there is still no
   signed release for Windows or a CI job that links it.
-* Two collectors on the same network segment (say the master's own capture plus an agent on the same
-  LAN) list every device twice; the fix is designed but not built. Run one
-  collector per segment until then.
+* Two collectors watching the same network segment list every device twice unless one is joined to the
+  other's site (Sites page, with a preview and a merge of the copies). Run one collector per segment, or join them.
 * **An independent penetration test.** Required, and not yet done, before relying on DENIS in a commercial
   production setting. If you are able to run one, please [get in touch](SECURITY.md).
 
@@ -407,6 +412,20 @@ Only integrations that exist today are listed; see [docs/export.md](docs/export.
 the real service it targets (only against fixtures and, for the cloud ones, a refused wrong credential) — see
 [Security and limitations](#security-and-limitations).
 
+### Integration status: what is validated and what is not
+
+Honest labels, so you know what your testing would be the first real-world check of:
+
+| Status | What it means | Which parts |
+|---|---|---|
+| **Implemented and verified on real systems** | Run against the real thing | Agent ↔ master over a real network; ARP-conflict detection on a live network; one-click self-update on a real Linux server; the AI providers (real ChatGPT and Gemini accounts, a real local Ollama); `denis.exe` built from source on a real Windows 11 machine |
+| **Implemented, tested against fixtures, not validated on real hardware or services** | Works against hand-written fixtures or a local fake server that match the documented API; the real product has not been tried | SIEM export (syslog CEF/LEEF/JSON), Elasticsearch/OpenSearch, OpenObserve; chat, e-mail, PagerDuty, Jira and ServiceNow notifications; Entra ID, Intune, Active Directory, Jamf Pro, Azure, AWS and GCP imports; Nessus / Tenable.io import; OIDC sign-in; passkeys (software authenticators only); the SNMP switch reader and SNMP port control (stand-in switches); **FortiGate and UniFi block/unblock** (the two connectors that can apply a block today); PostgreSQL and high availability (one machine, real `kill -9` runs) |
+| **Simulated only** | Exercised with hand-built frames, replay or a local simulation, never on real traffic | Industrial (OT) detections; IPv6 on a real dual-stack network; the SMB and MSSQL banner readers |
+| **Not yet functional** | Visible or planned, but does not do the thing yet | Applying a block with the other 14 enforcement connectors (they can be configured and tested, but refuse to apply); Qualys import; SAML; a packaged Windows build and installer; an independent penetration test |
+
+If you can try any row other than the first one on real equipment, that is the most useful testing you can do.
+Please report what happened with the [integration feedback template](https://github.com/stefanmesaros/denis/issues/new/choose).
+
 ## License
 
 DENIS Community is distributed as pre-built, signed binaries under the terms of the **DENIS
@@ -423,9 +442,9 @@ commercial license (there is no self-service purchase yet — open a GitHub issu
 
 ## Roadmap
 
-A single priority-ordered list of what's missing and planned — the rest of IPv6 (most of it shipped,
+A single priority-ordered list of what's missing and planned — the last parts of IPv6 (most of it shipped,
 opt-in), a packaged Windows collector, Qualys import, SAML (OIDC SSO already works), wiring the
-remaining enforcement connectors to actually apply a block (13 of 16 are configurable/testable
+remaining enforcement connectors to actually apply a block (14 of 16 are configurable/testable
 today but not yet wired), and policy-triggered automatic enforcement (deliberately deferred past
 4.0.0) — plus verification still owed before a commercial launch: see [ROADMAP.md](ROADMAP.md).
 Multi-tenancy shipped in 3.3.0; PostgreSQL, high availability and 15 new enforcement connectors
