@@ -11,7 +11,7 @@ kinds of firewall and controller in addition to the original SNMP switch connect
 new console looks, and remembers your language choice per account. As of v4.1.0 every one of its
 twenty connector kinds can carry out actions (experimental, simulator-tested only, apart from switching a
 switch port off), and an MSP can manage a customer's installation remotely (experimental). Next comes
-correctness under failure for high availability, and validating the connectors on real equipment.
+a 4.1.1 with Alpine support and fixes, then correctness under failure for high availability, and validating the connectors on real equipment.
 
 The list is in rough order. Plans can change, and nothing here is a delivery promise. Ideas and
 pull requests are welcome.
@@ -51,6 +51,11 @@ customer on one installation, IP fragment reassembly for industrial decoding, an
 upgrade for customers that already relay to an MSP, fleet templates and queued changes for offline customers.
 
 ## Coming next
+
+**4.1.1: Alpine and smaller fixes.** A Linux build that runs on Alpine and other musl systems (x86-64 and ARM64, with
+the capture library built in), OpenRC support in the installer and a way to install without a service. Today the
+installer needs systemd (Ubuntu, Debian, RHEL-family, Raspberry Pi OS); on Alpine, use the Docker image. Also in
+4.1.1: the smaller findings of the 4.1.0 code review that were deferred, and fixes for what testers report.
 
 **Correctness under failure.** Fencing of every database write to the active node of a high-availability pair, an
 enforcement path that survives a failover in the middle of an action, a test suite across two real machines, and

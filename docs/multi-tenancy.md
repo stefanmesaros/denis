@@ -128,6 +128,15 @@ required 2FA) does not apply to them, and they cannot use the tenant's own accou
 is re-checked on every request, so a revoke or disable takes effect immediately, not at next
 sign-in.
 
+**Second factor (4.1).** Every operator can enrol a second factor on the operator page: an
+authenticator app (TOTP) or a passkey, enrolled and removed only with
+the password (and a fresh proof once a factor exists). It is required, not optional, wherever an
+operator reaches a customer remotely: opening an MSP customer and every request after it need an
+enrolled factor and a proof in the current session, and dangerous requests need a proof from the last
+10 minutes. Changing the MSP's customer list needs a factor, a fresh proof and the password.
+`denis operator reset-factors <name>` removes an operator's factors. Proof times are kept in memory
+only, so a restart or a failover asks for a new proof. See [MSP management](msp-management.md).
+
 ## What isolation means in practice
 
 Every route is checked against the signed-in tenant: no response, export, backup, notification
@@ -168,7 +177,9 @@ installation; more works but these limits start to matter.
   tenant's scheduled report emails and automatic enforcement notices carry no console link; the
   notice says where to find the action instead.
 * **No high availability with tenants.** DENIS refuses to start with `--database-url` while tenants
-  besides `default` exist.
+  besides `default` exist: their data lives in SQLite files on one node, so the combination is refused
+  at start rather than left to diverge. Start without `--database-url`, or move the tenants to their
+  own installs.
 * **One data key for all tenants** (planned for 4.4): see "One secrets key" above.
 * **Reverse proxies must pass the host name through** (`proxy_set_header Host $host;`). A proxy that
   rewrites the host to `127.0.0.1` sends every tenant's traffic to the default console, where the
@@ -176,8 +187,7 @@ installation; more works but these limits start to matter.
 
 ## Not yet built
 
-* Single sign-on and passkeys inside a tenant's own console, and a second factor for operator
-  accounts (operators have a password only, today).
+* Single sign-on and passkeys inside a tenant's own console.
 * The license's device cap is not yet counted across every tenant.
 * A tenant's console shows install-wide controls as "managed by the operator of this
   installation" rather than hiding them outright.

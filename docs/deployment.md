@@ -13,8 +13,16 @@ DENIS is one binary. `denis run` is the whole system for one network (collector,
 ## Installing on a Linux server (a permanent service)
 
 You do not need a compiler. The installer downloads the program from the GitHub release, **checks its signature
-and checksum**, sets it up as a systemd service and tells you where to open it. It works on Ubuntu, Debian,
-Raspberry Pi OS and RHEL-family systems, on x86-64 and ARM64.
+and checksum**, sets it up as a systemd service and tells you where to open it.
+
+**Supported systems:** Linux with **systemd** and **glibc**: Ubuntu, Debian, Raspberry Pi OS and RHEL-family systems,
+on x86-64 and ARM64. When libpcap is missing the installer adds it with the system's package manager (`apt-get`,
+`dnf` or `yum`). It stops with "systemd was not found" on a system without systemd.
+
+**Not supported yet: Alpine Linux, OpenRC and other musl-based systems.** The Linux programs are glibc builds that need
+`libpcap.so.0.8`, and the installer only writes systemd services. A musl build with libpcap built in, OpenRC support
+and an install without a service are planned for 4.1.1. Until then, run the Docker image
+`ghcr.io/stefanmesaros/denis` on such a system: see [Docker](docker.md).
 
 ```bash
 curl -fLO https://github.com/stefanmesaros/denis/releases/latest/download/install.sh

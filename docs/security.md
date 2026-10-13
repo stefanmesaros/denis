@@ -147,10 +147,15 @@ does for an agent.
 
 ## Enforcement (mostly experimental)
 
-Enforcement is the part of DENIS that can change your network ([Enforcement](enforcement.md)). It is **off by default** and
-nothing in DENIS does it on its own in this release: every action is a signed-in administrator's click, with the password
-again, after a preview. Every action goes through one path with a **kill switch**, an **hourly limit**, a ledger of what DENIS
-changed, and an undo that removes only what DENIS made. Apart from switching one switch port off over SNMP, which has been
+Enforcement is the part of DENIS that can change your network ([Enforcement](enforcement.md)). It is **off by default**. A
+manual action is a signed-in administrator's click, with the password again, after a preview. Two automatic levels exist,
+both **experimental and off by default**: **automatic enforcement by rules** (a policy you mark for it may block or
+quarantine a device by itself) and, on top of it, **letting Autopilot block**. Neither can act unless an administrator
+switches it on with a typed phrase and the password, and both need the two lab switches below to stay on; switching a lab
+switch off stops them. Automatic actions are always time limited (at most 7 days, 24 hours for Autopilot), capped per hour
+and per device, and announced with an undo link. See [Automation](enforcement.md#automation). Every action, manual or
+automatic, goes through one path with a **kill switch**, an **hourly limit**, a ledger of what DENIS changed, and an undo
+that removes only what DENIS made. Apart from switching one switch port off over SNMP, which has been
 tried on one real switch, every connector is labelled *Experimental* (tested only against a simulation of the vendor's
 interface) and cannot act until an administrator switches on a **lab** setting; the actions new in 4.1 sit behind a second
 lab switch that an upgrade never turns on. Which account may do which action is a separate per-account permission. Treat a
@@ -171,9 +176,14 @@ are offered only if an administrator opts in. See [Updates](updates.md).
 [Autopilot](autopilot.md) is built so that the worst thing it can do is bounded, and so that nothing it
 does is hidden.
 
-* **No enforcement.** The list of things it can propose is closed and has no block, quarantine, port,
+* **No enforcement by default.** The list of things it can propose is closed and has no block, quarantine, port,
   VLAN, firewall or connector action; its executor imports no enforcement code. A block suggestion is
-  forwarded with a link to the console's block review, where a block needs your password or passkey.
+  forwarded with a link to the console's block review, where a block needs your password or passkey. The one
+  exception is the separate, experimental and off-by-default option **Let Autopilot block**: it sits on top of
+  automatic enforcement by rules, needs the typed phrase, your password, both lab switches, Autopilot active after
+  its shadow period and the agreement gates, may only quarantine or block one device for at most 24 hours, and goes
+  through the same orchestrator, limits and audit as any action. Only one file of Autopilot reaches enforcement, and
+  only through that gate (a test pins it).
 * **Approvals from a phone** are a single-use token per question and per answer: an HMAC over the
   question, the answer, the exact action (a hash of its parameters), the key epoch and an expiry, with
   a random nonce of which only a hash is stored. A token cannot be replayed, used for another answer,

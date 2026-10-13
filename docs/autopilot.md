@@ -105,7 +105,7 @@ class that sets how much proof it needs from you.
 | 3a Watch more | turn on passive DNS; pause Autopilot | you | one tap | one click |
 | 3b Accept as normal | allow one provider for one device; a quiet exception for one rule on one device; acknowledge a cluster as expected | you | tap **and** your password or passkey on the phone | 30 days; the exception itself lasts 180 days, then you are asked again |
 | 3c Tune | an existing rule-settings draft; make a device's noise profile quieter | you | passkey (or your password) on the phone | 30 days |
-| 4 Enforce | **none**: Autopilot only links to the console's block review | an administrator in the console | link only, no approve button | the block review's own unblock |
+| 4 Enforce | **none**: Autopilot only links to the console's block review (unless the separate, off-by-default [Autopilot may block](#autopilot-may-block-experimental) is switched on) | an administrator in the console | link only, no approve button | the block review's own unblock |
 
 A **refusal list** is checked when an option is built and again when it is applied. Among other things,
 Autopilot never quiets, files or allows: a kind that is never routine, an alert that hit an escape
@@ -193,9 +193,11 @@ Phones are paired with a one-time code from the console. Paths: ntfy (works behi
 needed), the installed web app with Web Push, and a Telegram bot. Actionable ntfy messages need an
 access-controlled topic.
 
-> In this build the decision loop, the console, and the tokens are in place. Sending messages to
-> ntfy, Web Push and Telegram is still being finished: until then Autopilot decides and records
-> everything and shows it in the console, and sends nothing to a phone.
+Messages are sent to the paired ntfy topics, Web Push subscriptions and Telegram chats, and to every
+channel whose policy is *autopilot*. When one of those channels has not delivered for an hour, an
+interruption also goes to the other channels that take important or Autopilot alerts, so one broken
+channel never means silence. Delivery is tested against local simulations of ntfy, Web Push and the
+Telegram bot API; round trips with real phones are not verified yet (see below).
 
 ## Kill switch, pause and limits
 
@@ -298,8 +300,10 @@ most one interruption a day on quiet days; the database migration on SQLite and 
 
 **Not verified yet**: a shadow week on a real network (the figures above are from a synthetic one);
 real phone round trips on Android and iOS; the prompt-injection corpus against each real AI provider
-and local model; an external review of the approval protocol and the injection defences; delivery to
-ntfy, Web Push and Telegram. This is why the label stays "experimental".
+and local model; an external review of the approval protocol and the injection defences; delivery
+through the real ntfy, Web Push and Telegram services (it is tested against local simulations only);
+[Autopilot may block](#autopilot-may-block-experimental) on real equipment. This is why the label stays
+"experimental".
 
 ## Measuring it yourself: the replay tool
 
