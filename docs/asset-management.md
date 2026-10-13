@@ -81,6 +81,7 @@ with thousands of devices. Smaller networks look and behave exactly the same as 
 
 **Devices CSV** (a button on the Devices tab, next to **Import CSV**) exports every device, discovered and entered
 columns together, regardless of any group-by or filter currently applied.
+The `ipv6` column lists the device's IPv6 addresses (most recent first, separated by semicolons); it is empty unless DENIS runs with `--ipv6`, and the import ignores it.
 
 To **edit in a spreadsheet and import back**:
 
@@ -106,3 +107,10 @@ Rules:
 
 The filter box on the Devices tab searches IP, MAC, name, vendor, type, OS, ports, site **and** owner, serial
 number, asset tag, location, department, zone, status and tags.
+
+## Details from the console
+
+Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+
+* Who has sent and received the most since their traffic baseline started — a live leaderboard, not a chart over time. The gateway and this monitoring host are left out automatically; click × on a device to hide it from these three lists too.
+* Cross-references DENIS's own discovery against inventory pulled from these sources — matched by hostname, shown as extra context, never written back and never used to override a device's own fingerprinted identity.

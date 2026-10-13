@@ -70,14 +70,16 @@ A SPAN/mirror port is recommended for full traffic visibility but not required: 
 without one. What we need most is real-world hardware and integration validation, because we can only test
 against what we own. See [what is validated today](#integration-status-what-is-validated-and-what-is-not).
 
-## What's new in 4.0.2
+## What's new in 4.1.0
 
-IPv6 traffic is now checked by the same detections as IPv4 (threat lists, zones, scan and fan-out
-rules, OT exposure), each site can have its own time zone with daylight saving, the buffer for
-security signals keeps spoofing and rogue-DHCP signals first under a flood, and API tokens are
-tied to the account that created them. Earlier releases (PostgreSQL and high availability,
-16 enforcement connectors, zones and segmentation, passive DNS, multiple customers and more)
-are described in the [changelog](CHANGELOG.md).
+Enforcement actions on all 20 connector kinds (block a device or one connection, quarantine, switch a port off, end
+sessions), with automation levels and Autopilot, all **experimental and off by default**: apart from switching a port
+off over SNMP, none of it has been tried on real equipment yet, so each untried connector needs two lab switches. Also
+new: remote management of customers' installations from an MSP console (experimental), an alert for connections opened
+from the internet to your devices, SNMPv3, one-command agent install and agent updates from the console with
+usedenis.com as a signed fallback download host, IT and OT rules with a new rule dialog, more industrial protocols,
+tunnelled mirrors, and a refreshed console look. Before you update, make a backup: the database is upgraded on the
+first start. Details in the [changelog](CHANGELOG.md).
 
 ---
 
@@ -118,9 +120,12 @@ network itself rather than trusting whatever was last typed into a CMDB.
    number: every point is attributed to a named reason. An alert's **Investigate** section shows it in context:
    the device's other events an hour either side, what was recorded between the device and the other party,
    which other devices contacted that same party, and the incident it belongs to.
-5. **Protect OT.** Passive decoding of Modbus, S7comm, EtherNet/IP-CIP, DNP3, BACnet, OPC UA and IEC 60870-5-104;
-   alerts for control commands (a PLC stop, a program download), traffic crossing the network boundary, Purdue-level
-   skipping, and writes from a device that should only ever read.
+5. **Protect OT.** Passive decoding of Modbus, S7comm and S7comm-plus, EtherNet/IP-CIP, DNP3, BACnet, OPC UA, IEC 60870-5-104,
+   IEC 61850 (MMS, GOOSE, Sampled Values) and PROFINET IO (CODESYS is recognised only);
+   alerts for control commands DENIS can see on the wire (a PLC stop, a program download; not S7comm-plus stop or download,
+   and a command cut by IP fragmentation or sent over an encrypted channel can be missed; messages split across TCP
+   segments are followed: see the OT guide), traffic crossing the network boundary, Purdue-level skipping, and writes from a device that
+   should only ever read.
 6. **Manage the register.** Owner, location, serial number, asset tag, warranty, criticality, tags, custom fields,
    120+ icons, 120+ device types, full change history, a review queue for new devices, CSV import/export.
    Optionally cross-referenced against **Microsoft Entra ID, Intune, on-premises Active Directory, Jamf Pro, and
@@ -247,14 +252,18 @@ your actual register — three of the console's 20-odd pages ([more screenshots 
 | Discovery | Passive (ARP, DHCP, mDNS, SSDP, LLDP/CDP, PROFINET) + active (ARP sweep, ping, port scan) |
 | Asset inventory | Owner, location, serial, tag, warranty, criticality, tags, custom fields, history, CSV import/export |
 | Fingerprinting | Vendor (IEEE OUI), device type & OS with weighted, listed evidence; product/version from 9 service banners; JA3/JA3S TLS client & server fingerprints; a fleet-wide *Software* page (product × version × devices) |
-| Anomaly detection | New device, rogue DHCP, ARP hijack/gateway takeover, new destination/port, unusual volume/hour, silent device, internal host sweep / port scan, known-bad addresses, your own network watches — each with an explainable 0–100 score. IPv6 (new destination, NDP mismatch, rogue router advertisement) is opt-in |
-| OT protocols | Modbus, S7comm, EtherNet/IP-CIP, DNP3, BACnet, OPC UA, IEC 60870-5-104 (passive decode) |
+| Anomaly detection | New device, rogue DHCP, ARP hijack/gateway takeover, new destination/port, unusual volume/hour, silent device, internal host sweep / port scan, known-bad addresses, your own network watches, a device switching to a never-before-used DNS resolver, a connection opened from the internet to one of your devices (a port forward to a solar inverter or a camera) — each with an explainable 0–100 score. IPv6 (new destination, NDP mismatch, rogue router advertisement) is opt-in, see IPV6.md |
+| Quieter alerts | A routine event (a provider a device already uses, random peer-to-peer ports, a phone that is away) is kept in the console and in a **daily digest** instead of being pushed, with the reason it was kept quiet; known providers are learned per device. Threat-list matches, rogue DHCP, industrial control commands and the like are never kept quiet |
+| Autopilot (experimental) | Off by default and **experimental**: it triages alerts, explains each in plain language and asks one specific question at a time, in the console or on a phone through Telegram, ntfy or web push. It starts in shadow mode (it records what it would have done, for at least 7 days). By default it does not block anything and its proposals have no block action (the only exception is a separate, off-by-default, highly experimental option that you must switch on yourself: Autopilot may block); it can file away low-importance alerts only if you allow it, with an undo. It can miss real threats ([Autopilot](docs/autopilot.md)) |
+| OT protocols | Modbus, S7comm, S7comm-plus, EtherNet/IP-CIP, DNP3, BACnet, OPC UA, IEC 60870-5-104, IEC 61850 MMS (and ICCP), GOOSE and Sampled Values, PROFINET IO (passive decode; CODESYS recognised only), over IPv4 and, with `--ipv6`, IPv6. Messages split across TCP segments are followed; messages cut by IP fragmentation are not reassembled |
+| Mirror tunnels | Opt-in, off by default: a mirror delivered inside ERSPAN, GRE, VXLAN (AWS Traffic Mirroring, Azure vTAP) or Geneve is unwrapped and read like a normal one. Verified on hand-built frames and public sample captures only, not yet on real switches or cloud mirrors ([tunnel mirroring](docs/tunnel-mirroring.md)) |
+| VLAN-aware identity | VLAN tags (and the ERSPAN header) are read and shown per device; an address claimed from two VLANs is annotated as such, and the same MAC on several VLANs is one device, flagged and never merged |
 | Communications matrix | Who talks to whom, which protocol, reads/writes/control commands |
 | Zones & segmentation policies | Group devices into zones, write allow-list and zone-boundary policies, and get alerted when traffic crosses a boundary your policies don't allow. A zone × zone matrix shows what's actually covered, honestly separating "nothing seen" from "not covered" when traffic recording is off. A new policy starts in a silent record-only mode; "freeze this device's behaviour" turns its own observed traffic into a reviewable starting policy, never saved until you confirm it |
 | Relationships (lateral movement) | Which device talks to which, per protocol and port, with first/last seen and how DENIS knows it (observed or inferred; client confirmed by a TCP handshake or guessed from ports); "talks to", "talked to by" and "who has contacted this address" in the API. Traffic between your own devices is recorded only once you switch east-west recording on (off by default), bounded per device, with every limit shown on the Health page |
 | Alert investigation | An **Investigate** section on every alert: the device's surrounding timeline, its recorded relationship with the other party, the other devices that contacted the same party, the incident link |
 | Dashboard | 12 clickable KPI tiles, trend charts, risk/severity/type breakdowns, **Top exposures today** (devices ranked by known-exploited and critical vulnerabilities, unsupported software, open incidents and high findings, weighed by what is at stake — every point attributed), recent alerts, most at-risk devices — the home screen |
-| SNMP topology | Switch ports, LLDP neighbours, MAC-to-port physical map |
+| SNMP topology | Switch ports, LLDP neighbours, MAC-to-port physical map, over SNMPv2c or SNMPv3 (a read-only user; Cisco switches are read per VLAN). Tried on one real switch so far, not per vendor ([switches](docs/switches.md)) |
 | IP enrichment | Country (flag), city, ASN, AS organisation, reverse-DNS hostname for any public IP (Alerts, Events, Recent destinations, IP history) — local GeoIP (DB-IP Lite, auto-updated, or your own MMDB), never sent to a third party |
 | Vulnerability & EOL findings | Live CISA/NVD known-exploited feed (+ EPSS score) and end-of-support dates, matched per device — both refreshed weekly by default; your own custom CVEs |
 | Threat intelligence | abuse.ch Feodo Tracker, ThreatFox and URLhaus, Spamhaus DROP and ASN-DROP, the Tor exit-node list — each an opt-in, named source on a match; your own list too |
@@ -271,16 +280,18 @@ your actual register — three of the console's 20-odd pages ([more screenshots 
 | OpenObserve | Cursor-based, at-least-once export |
 | Prometheus | `/metrics` exposition |
 | REST API | Read the register and alerts, manage assets, API tokens |
-| Multi-site agents | Outbound-only agents report to one master; per-user, per-site access |
+| Multi-site agents | Outbound-only agents report to one master; per-user, per-site access. An agent installs with one command (`install.sh --agent`, the *Add agent* dialog on the Sites page, or Docker), and can be updated from the console: by hand (the default), automatically, or through the master for sites without internet |
 | Multi-tenancy | Separate customers on one installation — own database, detector and console each, nothing reachable across them; MSP operator accounts; export/import a customer as a standalone database |
-| Port control (NAC) | Optional, administrator-confirmed: disable one switch access port at a time on a switch DENIS already monitors over SNMP, with a preview, a reason, a password and one-click undo. DENIS never blocks anything on its own |
-| Enforcement connectors | Settings → Enforcement: 16 connector kinds (SNMP, FortiGate, Palo Alto, UniFi, Meraki, Check Point, SonicWall, WatchGuard, Juniper, Proxmox, Hyper-V, VMware NSX, OPNsense, RADIUS CoA, AWS, Azure), any number of instances per kind, block a device from its own panel — always administrator-confirmed, never automatic |
-| Console looks | Three looks — Triage (the default), Scope and Clipboard — each in light and dark, chosen under My account |
+| Port control (NAC) | Optional, administrator-confirmed: disable one switch access port at a time on a switch DENIS already monitors over SNMP (v2c or v3), with a preview, a reason, a password and one-click undo. Trunk, EtherChannel, management and CDP-neighbour ports are refused. DENIS does not act on its own unless you switch on automatic enforcement (experimental, off by default) |
+| Enforcement connectors | Settings → Enforcement: 20 connector kinds in the code, all wired (SNMP, FortiGate, Palo Alto, UniFi, Meraki, Check Point, SonicWall, WatchGuard, Juniper, Proxmox, Hyper-V, VMware NSX, OPNsense, RADIUS CoA, AWS, Azure, MikroTik, Cisco ASA, Cisco FTD through FDM and through FMC). Any number of instances per kind. Block a device, block one flow, quarantine, switch a port off or end sessions, where the device can, through the **Respond…** menu of a device, an incident or a flow: a plan dialog shows the action in full before it runs, with a duration, and every action can be released. Every action goes through one safety path with a kill switch, an hourly limit, a preview, per-action permissions and a ledger of what DENIS changed. **Experimental:** apart from switching a port off over SNMP, no connector has been tried on real equipment (simulator only); each is labelled *Experimental* and cannot act until an administrator switches on the lab setting, and the actions new in 4.1 sit behind a second lab switch. By default a person decides every action; automatic enforcement by marked policies, and on top of it Autopilot blocking, are separate, off-by-default, experimental switches ([enforcement](docs/enforcement.md)) |
+| Console looks | Three selectable looks — Triage (the default), Scope and Clipboard — each in light and dark, chosen under My account; new in 4.1: a refreshed palette, corner radius and fonts, the fonts shipped inside the program |
+| Documentation | Built into the console and served by the program itself, with a search box |
 | PostgreSQL & high availability | PostgreSQL as a complete, selectable backend alongside the default SQLite; two nodes sharing one PostgreSQL database can fail over leadership in under two seconds. Off by default |
 | White-label | Your logo, colour, default theme |
 | Authentication | Roles, per-site access, passkeys (WebAuthn, optionally passkey-only), authenticator apps (TOTP), OIDC single sign-on, Argon2id, lock-outs, audit log, built-in HTTPS |
 | Data retention | Events, alerts and trend samples pruned after a period you set (Settings → Data); the register itself is never pruned |
-| Self-update | One click; signed release, backup first, automatic rollback if the new version fails to start |
+| Self-update | One click; signed release, backup first, automatic rollback if the new version fails to start. Falls back to usedenis.com only if GitHub cannot be reached (same release key, same checks). Remote agents are updated from the console, by default only when you press Update |
+| Update channels | Stable releases only by default. Testers can opt in (Settings → System → Updates) to pre-releases (release candidates), which carry a warning; the same signature and backup checks apply |
 
 Only what is actually implemented is listed above — see [ROADMAP.md](ROADMAP.md) for what is not (yet).
 
@@ -334,15 +345,28 @@ ChatGPT and Gemini) and a real local Ollama instance.
   the active liveness check and, since 4.0.2, the same detections as IPv4 such as the threat list, watches,
   zones, scan and fan-out rules, `new_port`, passive DNS and resolver-change) on a genuine dual-stack network
   — verified so far only with hand-built frames and integration tests, not real ICMPv6/NDP traffic or a real
-  socket send. Still IPv4-only in this release: decoded OT conversations, IPv6 address-conflict detection and
-  active discovery of brand-new addresses.
+  socket send. Since 4.1.0 decoded OT conversations, IPv6 address-conflict detection and active discovery of new
+  addresses cover IPv6 too, verified the same way. IP fragments are not reassembled for OT decoding on either family.
 * PostgreSQL and high availability: built and measured, but only across five real `kill -9` runs on
   one machine against one shared PostgreSQL — not yet measured across two real machines with a
   real network between node and database. No per-tenant PostgreSQL yet.
-* 14 of the 16 enforcement connectors (everything except FortiGate and UniFi) can be configured
-  and tested against a local simulation of their documented API, but are not yet wired to actually
-  apply a block, and none of the 16 has been verified against real vendor hardware beyond the
-  original SNMP connector.
+* The enforcement connectors. All 20 connector kinds are wired and can be configured, tested against
+  a local simulation of their documented API and used for a block, but only SNMP port control has been tried on
+  real equipment (one D-Link switch). The other 19 are labelled Experimental and are off until an administrator
+  switches on the lab setting. The new actions (flow block, quarantine, session ending, port actions) are simulator
+  only and sit behind a second lab switch, and every connector runs on the same action path. By default every action
+  is an administrator's decision; automatic enforcement by policies and Autopilot blocking are experimental, off by
+  default and each switched on separately (see docs/enforcement.md).
+* Autopilot (experimental): not yet run for a shadow week on a real network, not yet through real phone round
+  trips on Android and iOS or real delivery to Telegram, ntfy and web push, not yet reviewed by an external
+  security reviewer (docs/autopilot.md lists what is verified and what is not).
+* Mirrors in ERSPAN, GRE, VXLAN and Geneve tunnels (docs/tunnel-mirroring.md) and SNMPv3 switch access
+  (docs/switches.md) are tested with hand-built frames, public sample captures and stand-in switches, not on
+  real switches or cloud mirrors.
+* Connections from the internet (`inbound_from_public`) are judged from the TCP handshake the capture sees; a
+  capture that misses the handshake cannot confirm the direction and does not alert.
+* Agent installation (`install.sh --agent`, the Add agent dialog, Docker) and agent self-update: tested in
+  containers and against a test master, not yet across a real remote site on every platform.
 * No **packaged** Windows build: `denis.exe` compiles and has been verified capturing
   on a real Windows 11 machine when built from source with the Npcap SDK. A service wrapper and installer
   script exist but are unverified — neither has run on a real Windows machine yet — and there is still no
@@ -377,9 +401,10 @@ how the pieces fit together.
 
 ## Industrial (OT)
 
-Passively decoded: **Modbus, S7comm, EtherNet/IP-CIP, DNP3, BACnet, OPC UA, IEC 60870-5-104**. DENIS builds a
+Passively decoded: **Modbus, S7comm, S7comm-plus, EtherNet/IP-CIP, DNP3, BACnet, OPC UA, IEC 60870-5-104, IEC 61850 (MMS, GOOSE, Sampled Values), PROFINET IO** (CODESYS is recognised only). DENIS builds a
 communications matrix (who talks to whom, which functions, reads vs. writes vs. control) and raises alerts for
-control commands, boundary crossings and Purdue-level violations — all from **listening only**; industrial devices
+control commands it can see on the wire (decoding works on what the capture shows: messages split across TCP segments and several in one segment are followed;
+see the OT guide for what can still be missed: messages cut by IP fragmentation, encrypted ones, and S7comm-plus stop/download), boundary crossings and Purdue-level violations — all from **listening only**; industrial devices
 are never sent probes, port scans or credentials. This is a deliberate safety boundary, not an oversight: a probe
 that a fragile PLC mishandles is a production incident. See the [OT guide](docs/ot-guide.md) for what "safe" means
 here in more detail, and the **Not yet independently verified** section above for what real-traffic testing is
@@ -418,10 +443,10 @@ Honest labels, so you know what your testing would be the first real-world check
 
 | Status | What it means | Which parts |
 |---|---|---|
-| **Implemented and verified on real systems** | Run against the real thing | Agent ↔ master over a real network; ARP-conflict detection on a live network; one-click self-update on a real Linux server; the AI providers (real ChatGPT and Gemini accounts, a real local Ollama); `denis.exe` built from source on a real Windows 11 machine |
-| **Implemented, tested against fixtures, not validated on real hardware or services** | Works against hand-written fixtures or a local fake server that match the documented API; the real product has not been tried | SIEM export (syslog CEF/LEEF/JSON), Elasticsearch/OpenSearch, OpenObserve; chat, e-mail, PagerDuty, Jira and ServiceNow notifications; Entra ID, Intune, Active Directory, Jamf Pro, Azure, AWS and GCP imports; Nessus / Tenable.io import; OIDC sign-in; passkeys (software authenticators only); the SNMP switch reader and SNMP port control (stand-in switches); **FortiGate and UniFi block/unblock** (the two connectors that can apply a block today); PostgreSQL and high availability (one machine, real `kill -9` runs) |
-| **Simulated only** | Exercised with hand-built frames, replay or a local simulation, never on real traffic | Industrial (OT) detections; IPv6 on a real dual-stack network; the SMB and MSSQL banner readers |
-| **Not yet functional** | Visible or planned, but does not do the thing yet | Applying a block with the other 14 enforcement connectors (they can be configured and tested, but refuse to apply); Qualys import; SAML; a packaged Windows build and installer; an independent penetration test |
+| **Implemented and verified on real systems** | Run against the real thing | Agent ↔ master over a real network; ARP-conflict detection on a live network; one-click self-update on a real Linux server; the AI providers (real ChatGPT and Gemini accounts, a real local Ollama); `denis.exe` built from source on a real Windows 11 machine; switching a port off over SNMP (one real D-Link switch) |
+| **Implemented, tested against fixtures, not validated on real hardware or services** | Works against hand-written fixtures or a local fake server that match the documented API; the real product has not been tried | SIEM export (syslog CEF/LEEF/JSON), Elasticsearch/OpenSearch, OpenObserve; chat, e-mail, PagerDuty, Jira and ServiceNow notifications; Entra ID, Intune, Active Directory, Jamf Pro, Azure, AWS and GCP imports; Nessus / Tenable.io import; OIDC sign-in; passkeys (software authenticators only); the SNMP switch reader, SNMPv3 and the other SNMP port actions (stand-in switches); **every enforcement action of the 20 connector kinds** apart from the SNMP port switch-off (block, flow block, quarantine, ending sessions; Experimental, behind the lab switches); MSP remote management; Autopilot's delivery to Telegram, ntfy and web push; agent install and update (containers and a test master); PostgreSQL and high availability (one machine, real `kill -9` runs) |
+| **Simulated only** | Exercised with hand-built frames, replay or a local simulation, never on real traffic | Industrial (OT) detections; mirrors in ERSPAN, GRE, VXLAN and Geneve tunnels; IPv6 on a real dual-stack network; the SMB and MSSQL banner readers |
+| **Not yet functional** | Visible or planned, but does not do the thing yet | Qualys import; SAML; a packaged Windows build and installer; an independent penetration test |
 
 If you can try any row other than the first one on real equipment, that is the most useful testing you can do.
 Please report what happened with the [integration feedback template](https://github.com/stefanmesaros/denis/issues/new/choose).
@@ -442,13 +467,13 @@ commercial license (there is no self-service purchase yet — open a GitHub issu
 
 ## Roadmap
 
-A single priority-ordered list of what's missing and planned — the last parts of IPv6 (most of it shipped,
-opt-in), a packaged Windows collector, Qualys import, SAML (OIDC SSO already works), wiring the
-remaining enforcement connectors to actually apply a block (14 of 16 are configurable/testable
-today but not yet wired), and policy-triggered automatic enforcement (deliberately deferred past
-4.0.0) — plus verification still owed before a commercial launch: see [ROADMAP.md](ROADMAP.md).
-Multi-tenancy shipped in 3.3.0; PostgreSQL, high availability and 15 new enforcement connectors
-shipped in 4.0.0.
+A single priority-ordered list of what's missing and planned: see [ROADMAP.md](ROADMAP.md). 4.1.0 brought the
+enforcement actions on all 20 connector kinds, the automation levels and Autopilot (all experimental), and remote
+management of customers' installations from an MSP console (experimental, off until a customer pairs; see
+docs/msp-management.md). Multi-tenancy shipped in 3.3.0; PostgreSQL and high availability, and the first 16
+enforcement connectors, in 4.0.0. Next (4.2): correctness under failure in HA, and validation of the connectors on real
+equipment. Still owed before a commercial launch: an independent penetration test and verification on real equipment,
+listed in ROADMAP.md. A packaged Windows collector, Qualys import and SAML (OIDC SSO already works) are also open.
 
 ## Contributing
 

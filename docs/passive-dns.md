@@ -13,6 +13,9 @@ Switch it on only where that is acceptable and your users have been told, and ke
 short. Names travel wherever alerts travel (notification channels, SIEM export, OpenObserve), since
 they are attached directly to alert evidence.
 
+Lookups over IPv6 are recorded too, when DENIS runs with `--ipv6` and `--ipv6-subnet` names your prefixes
+([Concepts](concepts.md#ipv6-optional)); `dns_resolver_changed` then also judges a device's IPv6 resolvers.
+
 ## What DENIS can see: placement decides everything
 
 Passive DNS only reads the responses that cross an interface DENIS actually captures on. An empty
@@ -120,6 +123,10 @@ the network's gateway or DNS server" pattern alongside rogue DHCP/RA activity.
 * A device that answers DNS for other devices too (a resolver of its own) has its *own* names
   excluded from recording — only the clients it resolves for are recorded, never the resolver's own
   traffic to upstream servers.
+* An answer is only believed together with its query, and only when the answer is addressed to the hardware address
+  the query came from, so one device on the network cannot plant fake answers for another. A query and its answer seen on
+  different interfaces of one DENIS (a TAP with one interface per direction) are matched. Each client can have at most
+  256 queries waiting for an answer.
 * Retention: 1–90 days, your choice, capped at the console's general retention. Pruned hourly like
   everything else.
 * **"Delete all recorded names…"** (admin, with a confirmation dialog) erases every recorded name

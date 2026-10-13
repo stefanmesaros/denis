@@ -139,3 +139,9 @@ own place for free-form extension data, rather than inventing new top-level fiel
 Elasticsearch's own per-document bulk errors (a malformed or rejected single document inside an otherwise-200
 response) are not inspected — a bad document must not make the whole export retry forever; check
 Elasticsearch's own logs if documents seem to be missing despite the exporter reporting `ok`.
+
+## Details from the console
+
+Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+
+* A report is a snapshot of your network at one moment: devices, findings, accepted risks, alerts, trends and the compliance overview. Reports are kept here on the DENIS server, so you can open, download or print last month's again, for an auditor or a customer.

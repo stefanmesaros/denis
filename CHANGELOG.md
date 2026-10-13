@@ -4,6 +4,19 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 4.1.0: Enforcement actions, automation levels, MSP remote management and connections from the internet
+
+- Enforcement actions (experimental, off by default). DENIS can now block a device or one connection, quarantine a device, switch a port off or end its sessions through 20 kinds of equipment: firewalls, switches, wireless, cloud and hypervisors. Every action is shown in full before it runs and can be released. Except switching a port off over SNMP, none of it has been tried on real equipment yet, so an untried connector acts only after you turn on two lab switches. Validation on real equipment is still to come.
+- Automation levels. By default a person decides every action. You can let policies you mark block by themselves and, as a separate and even more experimental switch, let Autopilot block. Autopilot (experimental, off by default) sorts alerts and asks you questions on your phone through Telegram, ntfy or web push.
+- MSP remote management (experimental). A service provider can view and manage a customer's DENIS from its own console, at a level the customer chooses, with a banner while it is in use and a one-click disconnect. Every operator needs a second factor.
+- New alert for connections from the internet: when an address on the internet opens a connection to one of your devices, for example a solar inverter behind a port forward, DENIS alerts with the source, port, service and attempts.
+- Switches can be read and their ports controlled over SNMPv3.
+- Remote agents install with one command from the Sites page and can be updated from the console. If GitHub cannot be reached, updates come from usedenis.com, signed the same way; this can be switched off.
+- Clearer rules: the detections you write are now called IT rules and OT rules, and a new dialog for writing them starts from common templates and shows what a rule would have done over the last 7 days.
+- Industrial networks: more protocols are decoded, and mirrored traffic inside ERSPAN, GRE, VXLAN or Geneve tunnels can be read.
+- A refreshed console look: a new palette, rounder corners and fonts that ship with the program.
+- Before you update, make a backup: the database is upgraded on the first start of 4.1.0.
+
 ## 4.0.2: IPv6 detection now matches IPv4, per-site time zones, and the remaining 4.0.1 follow-ups
 
 - IPv6 traffic is now checked against the threat list, zones and segmentation policies, the

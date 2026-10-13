@@ -8,13 +8,58 @@ traffic that breaks those rules, and can show a name instead of a bare address o
 passive DNS. As of v3.5.0 it also shows which devices lack management, scanning or endpoint protection, tracks that over time against goals you set, and gives incidents a clear lifecycle. As of
 v4.0.0 it can also run on PostgreSQL with an active/standby failover pair, block through sixteen
 kinds of firewall and controller in addition to the original SNMP switch connector, offers three
-new console looks, and remembers your language choice per account. Next comes wiring the rest of
-those connectors to actually apply a block, not just be configured and tested.
+new console looks, and remembers your language choice per account. As of v4.1.0 every one of its
+twenty connector kinds can carry out actions (experimental, simulator-tested only, apart from switching a
+switch port off), and an MSP can manage a customer's installation remotely (experimental). Next comes
+correctness under failure for high availability, and validating the connectors on real equipment.
 
 The list is in rough order. Plans can change, and nothing here is a delivery promise. Ideas and
 pull requests are welcome.
 
+## 4.1.0: what is in, what is experimental, what is not built
+
+**In 4.1.0:**
+
+* **Connections from the internet.** A new alert when an address on the internet completes a connection to one of
+  your devices (a port forward to a solar inverter, a camera, a NAS), with the source, its country and network when
+  known, the port and whether other devices were reached. A port can be marked as expected per device.
+* **A quieter alert stream** with a daily digest; what is never kept quiet is listed in the alerting guide.
+* **Autopilot (experimental, off by default).** Triage of alerts with questions answered on a phone (Telegram, ntfy,
+  web push), starting in shadow mode. It blocks nothing unless an administrator also switches on *Autopilot may
+  block*, a separate and even more experimental option.
+* **Enforcement actions (experimental, off by default).** All 20 connector kinds can block a device and, where the
+  device can, block one flow, quarantine, switch a port off or end sessions, through one path with a kill switch, an
+  hourly limit, a preview, per-action permissions and a record of every change. MikroTik, Cisco ASA and Cisco FTD
+  (through FDM and through FMC) are new. Automation levels: by default a person decides every action; automatic
+  enforcement by policies you mark, and Autopilot blocking on top of it, are separate experimental switches.
+* **MSP remote management (experimental).** An MSP console opens a customer's own installation at the level the
+  customer chooses, with a banner, an activity list and a one-click disconnect; every operator needs a second factor.
+* **Network identity and industrial networks.** VLAN tags are read and shown; tunnelled mirrors (ERSPAN, GRE, VXLAN,
+  Geneve) can be read; S7comm-plus, IEC 61850 MMS and ICCP, GOOSE, PROFINET and OPC UA are decoded, and messages split
+  across TCP segments are followed.
+* **SNMPv3** for reading switches and controlling ports; Cisco switches are read per VLAN.
+* **Agents** install with one command and are updated from the console; usedenis.com is a signed fallback download
+  host used only when GitHub cannot be reached.
+* **IT rules and OT rules** with a new dialog for writing them, and a refreshed console look.
+
+**Experimental, and not yet verified on real equipment:** every enforcement action apart from switching a switch port
+off over SNMP (tried on one real switch), Autopilot's real-world use, MSP remote management, SNMPv3, Cisco switches and
+tunnelled mirrors. Each untried connector needs two lab switches before it can act.
+
+**Not built in 4.1.0:** fencing of database writes during a failover (planned next), a separate encryption key per
+customer on one installation, IP fragment reassembly for industrial decoding, and, for MSP management, a one-click
+upgrade for customers that already relay to an MSP, fleet templates and queued changes for offline customers.
+
 ## Coming next
+
+**Correctness under failure.** Fencing of every database write to the active node of a high-availability pair, an
+enforcement path that survives a failover in the middle of an action, a test suite across two real machines, and
+validation of the enforcement connectors on real equipment, starting with SNMP switches, FortiGate and UniFi.
+
+**Network identity.** Overlapping address spaces (VRFs), layer-2 domains and a registry of capture sources, so that
+several mirrors and sites can be told apart cleanly.
+
+## Built in earlier releases
 
 **The switches and cables view, redrawn** — built, in v3.4.1. Chassis-style switch nodes with real
 port sockets, speed-weighted cabling and a VLAN legend (the VLAN now comes from the switch's own
@@ -50,14 +95,8 @@ Every user picks their own under My account; new installs default to the inbox-s
 
 ## Later
 
-**Blocking a device — wiring the rest of the connectors.** Fifteen new connector kinds shipped in
-v4.0.0 (RADIUS-based re-authentication, OPNsense, UniFi, FortiGate, Meraki, Palo Alto, Check Point,
-SonicWall, WatchGuard, Juniper, Proxmox, Hyper-V, VMware NSX, and AWS/Azure's own security groups),
-alongside the original SNMP-managed switches, all checked against the zones and policies above
-before anything is confirmed. So far only FortiGate and UniFi are wired to actually apply a block;
-the rest can be configured and tested today, with their enforcement wiring following one at a
-time, each needing its own real-world testing against actual hardware before being relied on. Cisco
-ASA/FTD remains planned but not yet started.
+**Per-customer keys and delivery records.** A separate data key for each customer on one installation, and
+notifications that keep a record of what was delivered, retried at least once and never claimed exactly once.
 
 **Ask DENIS keeps growing.** Each new view above also becomes a plain-language question you can
 ask, answered only from data DENIS actually has.

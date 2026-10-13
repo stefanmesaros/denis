@@ -6,7 +6,8 @@
 |---|---|---|
 | ARP (requests, replies, sweep) | passive + active | the MAC ↔ IP pairing, the backbone of the inventory |
 | DHCP | passive | the device's own hostname, vendor class ("MSFT 5.0", "android-dhcp"), and the list of options its DHCP client asks for, which identifies the client software (Windows, macOS, iOS, Android, Linux) even when the device has a private MAC and no name |
-| mDNS / SSDP | passive | names, services (printer, AirPlay, Chromecast), model strings |
+| mDNS / SSDP | passive | names, services (printer, AirPlay, Chromecast), model strings; also read over IPv6 when IPv6 is switched on |
+| DHCPv6 (IPv6 only, opt-in) | passive | the device's name (client FQDN), vendor class, the options it asks for and its client identifier; DENIS only listens |
 | LLDP / CDP / PROFINET DCP | passive | switches, access points and industrial devices announcing themselves |
 | TCP handshakes, ping replies | passive + active | operating-system family (TTL, window size, option order) |
 | Industrial protocols | passive | which devices are PLCs/HMIs and who talks to whom ([OT guide](ot-guide.md)) |
@@ -57,8 +58,58 @@ A network switch sends each machine only the traffic addressed to it, plus broad
 
 Put **one collector per network segment**. Two collectors on the same segment (for example the master's own
 capture plus an agent on the same LAN) report every device twice, once per site: a device's identity is
-`(site, MAC)` by design, and the console has no way yet to say that two collectors watch one network. The fix is
-designed (`MULTI_AGENT_DEDUP.md` in the repository) but not built.
+`(site, MAC)` by design. If it happens, an administrator can say that an agent watches the same network as the local
+capture (*Sites* → *Same network as…*), and then merge the copies it already reported into the local devices; see
+[Troubleshooting](troubleshooting.md).
+
+## IPv6 (optional)
+
+IPv6 is **off by default**; an IPv4-only install is unchanged by it. Switch it on with `--ipv6` on `denis run` or
+`denis agent` (a command-line flag only: there is no console switch for it), and add `--ipv6-subnet <prefix>`
+(repeatable) to say which IPv6 prefixes are yours. Unlike IPv4, an interface can carry several global prefixes and a
+link-local address at once, so DENIS does not guess "the subnet". See [Deployment](deployment.md#flags-of-denis-run-and-denis-agent).
+
+| You give | DENIS does |
+|---|---|
+| `--ipv6` only | reads IPv6 Neighbor Discovery and Router Advertisements (a device's IPv6 addresses appear on its panel, read-only, and in the Devices CSV `ipv6` column), reads mDNS, SSDP and DHCPv6 announcements for names and identity, and detects address conflicts, a forged neighbour and a new IPv6 router. Unless `--passive-only`, it also looks for IPv6 devices on its own link (below) |
+| plus `--ipv6-subnet` | also accounts IPv6 traffic (needs `--flows` or a mirror interface): traffic leaving the network, traffic between your own devices (with `--east-west`), passive DNS and decoded industrial protocols over IPv6 |
+
+What is covered:
+
+* **Detection.** IPv6 traffic is judged by the same rules as IPv4: [`new_destination_v6`](detection-rules.md#new_destination_v6--ndp_mismatch-the-ipv6-counterparts)
+  (the IPv6 form of `new_destination`), `new_port`, `lan_scan`, `outbound_fanout`, `threat_list_match`,
+  `segmentation_violation`, `dns_resolver_changed`, IT rules, and the industrial rules. IPv6 gets its own
+  learning period: with IPv6 flows newly switched on, nothing is alerted for the first learning period, and an install
+  that already had IPv6 flows from 4.0.2 learns them once more after the update.
+* **Address conflicts.** Two devices claiming one IPv6 address raise `arp_conflict` (the alert says `family: ipv6`).
+  It is deliberately quiet: only a clear contest counts (a challenger to the IPv6 router's address at once; any other
+  address only when two devices swap it back and forth within five minutes). Anycast and proxy advertisements,
+  a handover after silence and an address that changes hands once are not conflicts, because IPv6 privacy addresses
+  rotate constantly.
+* **Finding devices.** Passive discovery learns an address only from Neighbor Discovery, never from a payload.
+  In addition, once per sweep (not with `--passive-only`, and not in the OT profile unless `--active`) DENIS sends one
+  all-nodes echo request (skipped while an industrial device is known: those are never pinged), and at most 1,024
+  paced Neighbor Solicitations to the addresses a *known* device would have if it used its hardware address
+  (link-local, and every /64 the network is known to use, at most four). It never scans an address range, and devices with randomised hardware
+  addresses are not probed. Devices using only privacy addresses answer with their link-local address (so they are
+  found); their global addresses are learned when they speak.
+* **Identity.** IPv6 mDNS, SSDP and DHCPv6 *client* messages feed the same hostname, model and vendor fields as their
+  IPv4 versions. DHCPv6 gives the client's name (FQDN), its vendor class and the options it asks for; relayed messages are
+  read only when the relay is on your network and names the client's hardware address; server replies are never read.
+  The sender's IPv6 address is not recorded from these messages.
+* **NAT64.** A device on an IPv6-only network that contacts a listed IPv4 address through a NAT64 gateway
+  (`64:ff9b::/96` or `64:ff9b:1::/48`) raises `threat_list_match`. A site-specific NAT64 prefix is not recognised.
+* **Remote agents** report their IPv6 data to the master like IPv4 data; an older master ignores IPv6 records it
+  cannot read instead of rejecting the whole report.
+
+What is still IPv4-only: the ARP sweep, port scans and banner reads (so services and software versions are found
+on IPv4 addresses only). LLMNR over IPv6 and duplicate-address-detection traffic are not read.
+
+**Verified vs. not verified.** All of this is tested with hand-built frames and integration tests. It has not been run
+on a real dual-stack network, and the active discovery's raw socket send has only been checked for its message layout and
+its error handling, not on hardware. Alert scores for IPv6 reuse IPv4's and may need tuning on real IPv6 traffic.
+
+A mirror can also reach DENIS in a VLAN (RSPAN) or as ERSPAN, VXLAN or Geneve packets: see [Tunnel mirroring](tunnel-mirroring.md).
 
 ## Learning period
 
@@ -157,7 +208,46 @@ A small network needs one process: `denis run`. For more sites, run `denis agent
 collects locally and pushes summaries to the master (outbound connection only, so it works behind NAT).
 See [Deployment](deployment.md#multiple-sites-agents).
 
+### What a device is: site, VLAN, MAC
+
+A device is its **MAC address at one site** (the local collector, or the agent that reports it). That key
+has not changed in 4.1, and nothing about a VLAN is part of it:
+
+- **Site.** Two sites may use the same private range (both 10.0.0.0/24). Their devices are separate
+  devices, even with the same address or the same MAC. A switch or an enforcement connector can be
+  **bound to a site** (Settings → Switches, Settings → Enforcement; the choice appears once the tenant has
+  two or more sites): DENIS then looks for a device only on the switches of its own site and never acts on a
+  device of one site through the firewall of another (see "Site binding of switches and connectors" in NAC.md).
+  A switch or connector that is **not bound** keeps working as before, and is marked "Not bound to a site"
+  while the tenant has several sites.
+- **VLAN.** The VLAN a frame travelled on is recorded as evidence on the device ("Seen on" in the device
+  panel), when the capture can see the tag. The same MAC on two VLANs is **one device**, flagged (not merged,
+  not split): a router or layer-3 switch legitimately is in many VLANs, and a host that moves VLAN (802.1X, a
+  quarantine VLAN) must keep its baseline. The same address claimed from two VLANs is annotated in the
+  conflict alert ("seen in different VLANs ... usually address reuse, not spoofing"), see
+  [VLANs in 4.1](tunnel-mirroring.md#vlans-in-41-what-is-annotated-and-what-is-not-merged).
+- **Virtual router addresses** (VRRP, HSRP, GLBP) are recognised by their reserved address ranges: they are
+  never flagged as "several VLANs", count as forwarders, a port move of one is annotated as a likely failover,
+  and DENIS never blocks one.
+- **Capture source.** The main interface and each mirror interface are numbered capture sources. Two sources
+  that see the same traffic count it twice; Health says so
+  ([Do not overlap your mirrors](tunnel-mirroring.md#do-not-overlap-your-mirrors)).
+
 ## Timezones
 
-Hour-of-day rules use the *server's local time zone*. Timestamps in the UI use the browser's; exports and the
+Hour-of-day rules use the *server's local time zone*, or, for the devices of a remote site, that site's own
+time zone when an administrator set one (Sites page, "Time zone"; an IANA name such as Europe/Bratislava,
+daylight saving time included: a change of clock is picked up within a minute; a fixed offset such as UTC-05:00 is
+still accepted but does not follow daylight saving; the server's own zone is the default; the zone database
+comes from the operating system when it has one and from a copy inside DENIS otherwise). Timestamps in the UI use the browser's; exports and the
 report use UTC and say so.
+
+## Details from the console
+
+Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+
+* Devices with at least one serious standing fact (a known-exploited or critical vulnerability, unsupported software, an open incident, a high-severity finding), ranked by those facts and by what is at stake on the device. Every point is listed with where it comes from.
+* Every product and version DENIS has read from a device's service banner (SSH, HTTP, FTP, SMTP, MySQL/MariaDB), grouped by software instead of by device — the same data the Findings page already checks against known-exploited vulnerabilities and end-of-support dates, seen fleet-wide.
+* Standing weaknesses and housekeeping problems in your inventory: unlike alerts, these stay until you fix the cause, and disappear by themselves once you have.
+* Findings someone decided to live with, and why. They count again when the time is up or when an administrator withdraws the decision.
+* DENIS keeps watching them: it warns 14 days and 3 days before a decision ends, scans the open-port ones again once a day, and notes in the event log when a problem has gone away.

@@ -26,7 +26,7 @@ Membership is defined by **selectors**, not by a stored member list, so a new ca
 | `purdue` | a device whose register Purdue level equals it |
 | `site` | every device at that site |
 | `type` | the device's effective type |
-| `cidr` | a device whose current IPv4 address falls in the network, or a bare address peer in it |
+| `cidr` | a device whose current IPv4 address falls in the network, or a bare address peer in it; an IPv6 network (`2001:db8:5::/48`) places IPv6 address peers only |
 
 A zone also has an **except** list, in the same selector shapes: "10.0.20.0/24 except the printer".
 
@@ -35,7 +35,8 @@ partition rather than an overlapping mess: a device with an explicit `device` pi
 otherwise the first zone (in display order) with a matching selector and no matching exception
 wins; a device matching nothing lands in the pseudo-zone **Unzoned**. An address that is not a
 known device matches the first zone with a `cidr` selector containing it, else the pseudo-zone
-**Internet** (public) or **Other private networks** (private). DENIS's own host is resolved like
+**Internet** (public) or **Other private networks** (private) — IPv6 peers included, when IPv6 flows
+are on: unique-local (`fc00::/7`) addresses are private, global ones public. DENIS's own host is resolved like
 any device but is never judged (below). The zone editor shows overlaps rather than forbidding them
 ("14 devices match this zone and an earlier one; they are placed in *Servers*"), since forbidding
 them would make a CIDR-based zone and a tag-based zone impossible to use side by side.
@@ -54,7 +55,7 @@ saved until an administrator reviews and saves it. The register's "Zone / cell" 
 and keeps its current label; the device panel shows the *resolved* segmentation zone separately
 ("Segmentation zone: *CCTV*, by tag `cctv`") so the two are never confused.
 
-## Policies: zone rules, allow-lists, and your existing watches
+## Policies: zone policies, allow-lists, and your IT and OT rules
 
 A **policy** is one of four kinds, all stored in the same table with optimistic-concurrency
 revisions and an append-only history (so "policy 17 at revision 3" is a durable citation, and every
@@ -69,69 +70,70 @@ edit, delete or restore is one click to undo):
   pseudo-zone), `public`, `private` or `any`; each entry can also require a **role** (the subject
   opened the connection, the peer did, or either), checked only when the edge's direction is
   confirmed.
-* **`it_watch` / `ot_watch`** — your existing network and command watches, **moved in verbatim**
+* **`it_watch` / `ot_watch`** — your existing IT and OT rules, **moved in verbatim**
   with byte-for-byte the same matching, limits raised from 30 to 500 each. They still judge only
   what they always judged: a flow (local device to an address **outside** the networks DENIS
   monitors) for `it_watch`, a decoded industrial conversation for `ot_watch`. They are edited on the
   *Rules* page exactly as before. The Zones tab's **Policies** view lists them too, read-only, each
-  with a "network watch" or "command watch" chip, what it looks for and who it is about, and an
-  **Edit on Rules** button that opens the Rules page at that watch; the Rules page links back
-  (**Zone policies**), so everything that can alert on traffic is in one list. See [Detection rules › your own watches](detection-rules.md#it_watch-your-own-network-watches-needs---flows)
-  for why a watch is not the fix for "these two devices should only talk to each other" once both
+  with an "IT rule" or "OT rule" chip, what it looks for and who it is about, and an
+  **Edit on Rules** button that opens the Rules page at that rule; the Rules page links back
+  (**Zone policies**), so everything that can alert on traffic is in one list. See [Detection rules › your own IT rules](detection-rules.md#it_watch-your-it-rules-needs---flows)
+  for why an IT rule is not the fix for "these two devices should only talk to each other" once both
   are on networks DENIS monitors — a `zone_rule` or `allow_list` is.
 
-A watch and a zone policy overlap only in a narrow case: "this kind of device must not talk to that
-kind of place". A network watch (cameras to the internet) and a `zone_rule` (CCTV to Internet: deny) can
+An IT or OT rule and a zone policy overlap only in a narrow case: "this kind of device must not talk to that
+kind of place". An IT rule (cameras to the internet) and a `zone_rule` (CCTV to Internet: deny) can
 both exist and both fire; they raise different alerts (`it_watch`, `segmentation_violation`) with their
-own cooldowns. A watch is "tell me when this happens" over one flow or one command; a zone policy is
+own cooldowns. A rule of yours is "tell me when this happens" over one flow or one command; a zone policy is
 "this path is (not) approved" over the paths DENIS has seen, can be tried in `record` mode, and is cited
 by revision. Muting an alert for certain devices is a third thing, an **exception**, on the Rules
 page. The picker for "which devices" is the same on both pages: a device, a type, a tag, a network, and
-(for zones and watches) a Purdue level, the register's "Zone / cell" field or a site.
+(for zones and your rules) a Purdue level, the register's "Zone / cell" field or a site.
 
-### A zone as a watch's subject
+<a id="a-zone-as-a-watchs-subject"></a>
+### A zone as a rule's subject
 
-A network or command watch may name a **zone** in its device lists (an IT watch's *for these devices* and *never for*,
-an OT watch's *targets* and *allowed senders*; never an exception). It is stored as `{"kind": "zone", "value": "z:<id>"}`
+A IT or OT rule may name a **zone** in its device lists (an IT rule's *for these devices* and *never for*,
+an OT rule's *targets* and *allowed senders*; never an exception). It is stored as `{"kind": "zone", "value": "z:<id>"}`
 and means exactly what the zone means: the devices that resolve into it (the first matching zone by position, a device
 pin first). Things worth knowing before using it:
 
-* **The watch follows the zone.** Editing the zone, editing another zone that takes devices from it (the first matching zone
-  wins), or moving a device (tag, register field, Purdue level, address) changes which devices the watch covers, with no
-  edit to the watch. The device's own
-  attributes are read at match time, like every other watch subject; the zone definitions are the ones the segmentation
+* **The rule follows the zone.** Editing the zone, editing another zone that takes devices from it (the first matching zone
+  wins), or moving a device (tag, register field, Purdue level, address) changes which devices the rule covers, with no
+  edit to the rule. The device's own
+  attributes are read at match time, like every other rule subject; the zone definitions are the ones the segmentation
   engine compiled at its last reload (within seconds of a zone edit).
 * **Observed placements count.** A device that is in a zone only by its address (`cidr`) or by a detected type is
   covered like any other; the preview reports how many are in the zone only that way, since a device can change those
   itself.
-* **Network watches see outside traffic only.** A zone in a network watch means these devices' traffic to addresses
+* **IT rules see outside traffic only.** A zone in an IT rule means these devices' traffic to addresses
   outside the networks DENIS monitors. The card, the form and the Policies list are labelled *outside traffic only*.
-  Command watches see decoded industrial conversations between devices, east-west included.
-* **A missing zone suspends the watch.** A watch that names a zone which does not exist (deleted, no zones compiled
+  OT rules see decoded industrial conversations between devices, east-west included.
+* **A missing zone suspends the rule.** A rule that names a zone which does not exist (deleted, no zones compiled
   yet, or not found after an import) matches nothing and is shown as suspended on the Rules page; it is never
-  widened. The console refuses to delete a zone a watch follows (`409`, naming the watches) and a *new* zone subject
+  widened. The console refuses to delete a zone a rule follows (`409`, naming the rules) and a *new* zone subject
   must name an existing zone when saved. Zones cannot be disabled; only built-in places (Unzoned, Internet, Other
   private networks) cannot be named.
-* **The zone side says who follows it.** The zone list, the zone editor and its history name the watches that follow
+* **The zone side says who follows it.** The zone list, the zone editor and its history name the rules that follow
   the zone, and after a zone is edited, deleted or restored the console reports how many devices each followed zone
   gained or lost (also noted in the audit log, `watches_following`), because moving a device out of one zone can move
   it into another.
-* **Why it matched, later.** A watch alert has no policy revision, so one that matched through a zone records the zone
+* **Why it matched, later.** A rule alert has no policy revision, so one that matched through a zone records the zone
   id, name and revision, how the device was placed and the segmentation snapshot in its details (`zone_subject`); the
   revision's contents are in the zone's history.
 * **Export and import.** `GET /api/rules/export` writes each zone subject with the zone's name in `note`. Importing a
   file whose zone id exists here under a different name is refused (zone ids differ between installs), as is one that
   names a zone that does not exist. An older DENIS refuses the new kind on import with "unknown subject kind". If DENIS is downgraded
-  with such a watch saved, the older version treats a zone subject as matching no device: a watch whose *for these devices*
+  with such a rule saved, the older version treats a zone subject as matching no device: a rule whose *for these devices*
   or *targets* list names only zones then matches nothing, but a zone in a *never for* or *allowed senders* list excludes
-  nobody, so that watch would alert on more. Remove zone subjects before downgrading.
+  nobody, so that rule would alert on more. Remove zone subjects before downgrading.
 
 A `zone_rule` or `allow_list` has a **mode**: `alert` (the default once saved by hand) or `record`.
 In `record` mode, the very same violations are stored at `info` severity — visible in Events and in
 the policy's own violation count — and never raised as an alert or sent anywhere. This is how a
 policy is tried before it can page anyone.
 
-Limits (raising the ones watches had before, not removing them): 500 `it_watch`, 500 `ot_watch`,
+Limits (raising the ones your rules had before, not removing them): 500 `it_watch`, 500 `ot_watch`,
 1000 `zone_rule`, 500 `allow_list` (each up to 200 entries), 64 zones.
 
 ## Judging traffic: `segmentation_violation`
@@ -190,9 +192,39 @@ can be switched off on the Rules page if it becomes redundant for a site.
   this changes what DENIS *says*, not the network, the same bar as `PUT /api/rules`.
 * **DENIS never learns a policy by itself.** Nothing promotes observed traffic to "allowed" on its
   own; only a person's save creates or widens a policy.
-* **Nothing here blocks or changes anything on the network.** No zone, policy or violation is read
-  by NAC port control in this release; a future NAC connector's use of this data is designed (not
-  built) and summarised at the end of this document.
+* **By default nothing here blocks or changes anything on the network.** No zone, policy or violation
+  causes a block by itself: blocks are made by an administrator, one at a time, through the enforcement
+  connectors described under [Enforcement connectors](#enforcement-connectors) below. What the
+  zones and policies feed into that is only a *suggestion* (the next bullet). The one exception is
+  automatic enforcement by rules (level (b), experimental, off by default): once an administrator
+  switches it on and marks a policy for it, that policy can block or quarantine a device that keeps
+  breaking it (see [Enforcement, automation](enforcement.md#automation)).
+* **"Offer to block devices that violate this" is groundwork, and nothing is blocked
+  automatically.** A zone policy or an allow-list has an on/off setting for it (off by default,
+  changed through the policy API for now; there is no checkbox in the console yet). It is an
+  ordinary edit of the policy: administrators only, a new revision, in the history and the audit
+  trail. When it is on, DENIS counts how often a device keeps breaking that policy and, once it has
+  done so repeatedly (by default in 3 separate minutes at least 10 minutes apart, within a day) and
+  the policy has stood unchanged for 24 hours, records a *suggestion* to block the device. A suggestion
+  is shown to an administrator who may block devices as a card at the top of the Alerts page and in the device's own
+  panel, with a **Review block...** button. The button only opens the plan dialog (what DENIS would block, for how long,
+  what it would cut off); nothing is blocked until you confirm there with your password, exactly as for every other
+  action, and the card is not shown while enforcement is switched off or when you lack the permission to block a
+  device. A block made from a suggestion closes it. The stored ones are also listed at `GET /api/nac/prompts`. A
+  suggestion itself notifies and blocks nothing. Suggestions
+  are only recorded while Settings → Enforcement is switched on and a connector or a switch could
+  actually act on the device; they are never recorded for DENIS itself, the gateway or a device with
+  an open address conflict, and they close by themselves after a week without a new violation. The
+  design, including how a later release will let an administrator review a suggestion and confirm a
+  block with their password, is in `POLICY_TRIGGERED_ENFORCEMENT.md`.
+  Only a policy that is enabled, in `alert` mode (not `record`) and opted in can produce one. The
+  thresholds (3 separate minutes at least 10 minutes apart, a reminder every 24 hours, expiry after 7
+  days) are stored under the setting `nac_prompts`; there is no way to change them from the console or
+  the API yet, and `GET /api/nac/prompts` shows the values in force.
+
+  *Verified vs. not verified:* the counting, the gates and the storage are covered by tests with
+  hand-built violations and run on SQLite and PostgreSQL; nothing has been seen on a live network. The card
+  is checked in a browser against a stand-in for the API.
 
 ## The zone matrix
 
@@ -214,7 +246,7 @@ shows its ordinary state, since there was never anything to hide.
 Clicking a cell opens a drawer with the device pairs and services behind it (newest first,
 site-scoped the same way a viewer's other relationship queries are), and *Allow…*/*Deny…* buttons
 that open the zone-rule form prefilled with that pair and decision — the same reviewed form every
-other zone rule goes through, never applied automatically. A `segmentation_violation` alert's own
+other zone policy goes through, never applied automatically. A `segmentation_violation` alert's own
 *Segmentation* section (zones, cause, policy, direction confidence) has the same *Allow this…*
 button, prefilled from the alert's own stored evidence.
 
@@ -243,12 +275,61 @@ local-device traffic the moment east-west accounting is switched on.
 matching device — excluding the DENIS host itself and any retired/lost device — and names each one
 explicitly as a `device` subject (today's selector vocabulary has no single "type AND site"
 selector, so an explicit list is how a bounded group of specific devices is expressed). Refused,
-not silently truncated, past 50 matching devices ("freeze a smaller group, or write a zone rule
+not silently truncated, past 50 matching devices ("freeze a smaller group, or write a zone policy
 instead") or past 200 distinct peers/services across the group.
 
-## For a future NAC connector (designed now, not built)
+## Enforcement connectors
 
-Nothing in this item changes `nac.rs`. The design for a later release is: a pure query,
+*Settings → Enforcement* is where an administrator lets DENIS block a device. It is separate from zones and policies:
+no policy ever blocks anything by itself. Everything is off until someone turns it on, and every block is one
+administrator's decision, made for one device at a time.
+
+* **The switch.** *Allow administrators to block devices from DENIS* is off by default. Switching it off stops new blocks
+  at once and does not undo any. The same page sets the most blocks per hour (10 by default, at most 100, all
+  administrators together). The switch and the cap apply to switch ports and to every connector below.
+* **Who and how.** Only a signed-in administrator (never an API token, never `--insecure-no-auth`). A block starts with a
+  **dry run** that shows what would happen and every warning or refusal, then needs a **reason** (3 to 200 characters)
+  and the administrator's **password** again. The password check counts against the account's [sign-in
+  limits](security.md#sign-in-limits-and-lock-out). Each block is audited (`nac.<connector>.block…`), kept in a ledger and
+  announced on the alerting channels.
+* **Unblock** is always possible: it needs a reason and the password too, but it is **not** stopped by the switch or the
+  hourly cap and is never refused by the guards below. Blocks that DENIS made and has not undone are listed under
+  *Currently blocked by DENIS* (same page) with an **Unblock…** button, and on the device's panel. A block of a connector
+  that has since been removed or paused stays listed, without the button.
+* **The connectors.** All twenty kinds in the code are wired: switch ports by SNMP, FortiGate, Palo Alto, Check Point, Juniper SRX, Cisco ASA, Cisco FTD through FDM and through FMC,
+  SonicWall, WatchGuard, OPNsense, MikroTik RouterOS (an address list and two forward drop rules over the REST API; simulator-tested
+  only, see `docs/nac/mikrotik.md`), NSX-T, UniFi, Meraki, AWS, Azure, Hyper-V, Proxmox and RADIUS Disconnect. Each has a
+  setup page in `docs/nac/` (named under the connector's *Setup notes*). Firewalls block an address by changing a group or list that you
+  own; UniFi and Meraki block a MAC; AWS, Azure, Hyper-V and Proxmox move a VM into a quarantine group or firewall; RADIUS ends a
+  session. Apart from SNMP port control, which has been tried on one real switch, each of them is labelled *Experimental* (simulator
+  tested only) and needs the lab switch before it can block; see [Enforcement](enforcement.md).
+* **Protected lists.** Each connector has its own *Never block these ...* list (addresses, MACs, VM names, instance ids,
+  guests or targets). Put DENIS itself, the gateway and your management hosts on it; for Hyper-V and Proxmox it must name
+  the VM or guest that DENIS runs in.
+* **Guards that need no setup.** For every connector that takes an address or MAC, a block is refused before anything is
+  sent for a loopback, unspecified, broadcast or multicast address, for DENIS itself and for the gateway, and when the
+  address list DENIS checks against cannot be read. For an address or MAC named in an **open address-conflict
+  (`arp_conflict`) alert from the last 24 hours** (two devices claim it, so the block may hit the wrong one), the dry run
+  shows a warning and a box, **I understand that two devices claim this address and the block may hit the wrong one**, which the administrator must tick; if
+  DENIS cannot read its alerts or devices, the block is refused with no box. Ticking is recorded in the audit log. VM and
+  instance targets are not addresses, so only their protected list applies.
+
+**Verified vs. not verified.** Every connector except SNMP has been tested only against a local simulation of the vendor's documented
+interface, and the console says so next to each one: *Simulator only: not yet validated on real equipment*. None of those has been tried against real vendor hardware or a real
+cloud account. **Lab switch:** while *Allow connectors that are not validated on real equipment (lab use)* (Settings →
+Enforcement, administrators only, audited) is off, which is the default for a new install, DENIS refuses to block
+through such a connector, in the preview and again in the apply; testing, reading and unblocking still work. An install
+that already had a connector when it was upgraded gets the switch turned on once, with a notice in the console and an
+audit entry (`nac.lab.auto_enabled`), so nothing silently stops working; an administrator can turn it off. The kinds
+validated on real equipment are listed in one table, `VALIDATED_ON_HARDWARE` in `src/nac_registry.rs` (today: SNMP). Treat the first block on each as a trial on a device you can afford to lose, and unblock it to check the
+way back. The SNMP port control has been tried on one real switch ([Switches](switches.md#what-is-verified-and-what-is-not)).
+
+For the safety model, the five actions, quarantine, durations, permissions and the table of what each connector can do,
+see [Enforcement](enforcement.md).
+
+## How a later release may use zones for blocking (designed, not built)
+
+Nothing in zones and policies is read by a connector today. The design for a later release is: a pure query,
 `segmentation::basis_for(asset)`, returning a device's zone placement, its open violations (each
 with a policy id and revision), and which policies depend on it as an approved peer — so a future
 connector's plan can show, and its ledger can cite, *why* a quarantine would be policy-backed, and
@@ -257,4 +338,5 @@ recorder", 15 devices). A basis only counts as policy-backed once the violated p
 in `alert` mode, at least 24 hours old, confirmed in direction, and the device's zone placement is
 asserted rather than merely observed from its address — a device must never be able to earn a block
 just by changing its own IP. Saving a policy never by itself makes it enforceable; that would need
-an explicit, separately password-confirmed administrator action in a later release.
+an explicit, separately password-confirmed administrator action in a later release. See
+`SEGMENTATION_POLICIES.md` §8 in the repository root for the full contract.

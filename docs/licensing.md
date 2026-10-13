@@ -49,7 +49,23 @@ MSP running one DENIS per customer. Agents reporting into a master never need th
 the cap and terms apply to the install as a whole, not per agent.
 
 A license's validity is counted **from the first time it verifies on that install**, not from the
-day it was issued — moving the same file to a different install starts its own count there.
+day it was issued.
+
+**A license is issued for one installation.** Settings → License shows this installation's ID (a
+random identifier it created once; it never changes and is not a secret). Send it with your order,
+and the license you receive works on that installation only — copied to another server it is
+refused there, and that server stays on the Community edition. Nothing is sent online for this:
+you pass the ID on yourself, so it works fully air-gapped. The ID is kept in DENIS's database, so
+restoring a backup onto a replacement server keeps it (and the license with it). Licenses issued
+before installation IDs existed are not tied to one and keep working exactly as before.
+
+Expiry is judged against a licensing clock that never runs backwards: setting the system clock back
+does not extend a license. Small corrections (NTP and the like, up to 10 minutes) are tolerated.
+
+**Devices are counted across the whole installation**: everything this console holds — its own
+devices, every agent's, and every site relayed into it from another DENIS (`denis run
+--report-to`). A site that only relays to an MSP's master needs no license of its own for that; the
+master's license covers the combined total.
 
 ## Expiry, and a 7-day grace period
 

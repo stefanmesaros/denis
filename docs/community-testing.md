@@ -7,10 +7,10 @@ report what you find so that it is useful to the developer. You do not need prog
 
 **What you are signing up for.** DENIS Community is free for personal networks of up to 100 devices.
 It is self-hosted: it runs on your machine and your network traffic stays on your network. It has no
-telemetry. The one routine outgoing request is an update check (`api.github.com`, every 6 hours), which
-you can turn off with `--no-update-check`. See [Security](security.md).
+telemetry. The one routine outgoing request is an update check (`api.github.com`, every 6 hours, and
+`usedenis.com` only if GitHub cannot be reached), which you can turn off with `--no-update-check`. See [Security](security.md).
 
-**Honest status.** The [README's integration status table](../README.md#integration-status-what-is-validated-and-what-is-not) says what is validated and what is not. The integrations with firewalls, switches, cloud and directory services were built
+**Honest status.** The [README's integration status table](https://github.com/stefanmesaros/denis/blob/main/README.md#integration-status-what-is-validated-and-what-is-not) says what is validated and what is not. The integrations with firewalls, switches, cloud and directory services were built
 against vendor documentation and test fixtures. None of them has been independently validated against a
 real device or service yet. If you have one, that is exactly what we want to hear about, and a "did not
 work" report is as useful as a "worked".
@@ -99,7 +99,7 @@ template that fits:
 | A device with the wrong type, vendor, OS or name | **Incorrect device fingerprint** |
 | A firewall, switch, cloud, directory or other integration, working or not | **Integration testing feedback** |
 | Something DENIS should do that it does not | **Feature request** |
-| A security vulnerability | **Do not file an issue.** See [SECURITY.md](../SECURITY.md) |
+| A security vulnerability | **Do not file an issue.** See [SECURITY.md](https://github.com/stefanmesaros/denis/blob/main/SECURITY.md) |
 
 **A false positive** (an alert that should not have fired) is a bug report: say which alert kind, which
 device (type only is fine), what the evidence panel listed, and why the behaviour was normal.
@@ -139,6 +139,6 @@ Tip: replace values with `<redacted>` rather than deleting the line, so the stru
 
 ## Other ways to help
 
-* Translation corrections: see [CONTRIBUTING.md](../CONTRIBUTING.md).
+* Translation corrections: see [CONTRIBUTING.md](https://github.com/stefanmesaros/denis/blob/main/CONTRIBUTING.md).
 * Tell us what confused you. First-install friction is a valid bug.
 * Join the [Discord community](https://discord.gg/DzbeV99xv) and tell other testers what worked on your hardware.

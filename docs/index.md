@@ -4,6 +4,13 @@
 inventory you can edit and export, learns what is normal for each device, and tells you when something is not.
 It works on office and home networks (IT) and on industrial networks (OT).
 
+**Finding things:** the search box at the top of every documentation page searches all pages, including the
+setup pages for each port-control connector (listed in the menu under *Zones and policies*). Type one or more words
+and press Enter; every word must appear in the same section. Capitals and accents do not matter, and a word also
+matches longer words that contain it ("switch" finds "switches"). Each result shows the page, the section and the
+matched words, and links straight to that section. Press `/` anywhere on a documentation page to jump to the
+search box (it also works without JavaScript as an ordinary form: `/docs/search?q=your+words`).
+
 | I want to… | Read |
 |---|---|
 | Install it and see my network in 10 minutes | [Quick start](quickstart.md) |
@@ -18,16 +25,16 @@ It works on office and home networks (IT) and on industrial networks (OT).
 | Run it for a client: users, agents, TLS, backups | [Deployment & administration](deployment.md) |
 | Run it for several customers on one installation, with MSP technician accounts | [Multi-tenancy](multi-tenancy.md) |
 | Send alerts to Slack, Teams, e-mail, PagerDuty, Pushover, ntfy, Jira, ServiceNow or a webhook; maintenance mode | [Alerting](alerting.md) |
+| Let DENIS sort and explain alerts and ask you one question at a time (experimental); shadow mode, phone approval, AI options | [Autopilot](autopilot.md) |
 | Send events, audit log and inventory to OpenObserve, events/findings/audit to a SIEM (syslog: CEF/LEEF/JSON), or ECS documents to Elasticsearch/OpenSearch | [Export](export.md) |
 | See which switch port each device is plugged into (SNMP) | [Switches](switches.md) |
 | Run it in Docker | [Docker](docker.md) |
 | Put the customer's logo, colours and day/night mode on the portal | [Branding](branding.md) |
-| Keep DENIS up to date (changelog, install now or later, automatic backup) | [Updates](updates.md) |
+| Keep DENIS up to date (changelog, install now or later, automatic backup, remote agents, if GitHub is unreachable) | [Updates](updates.md) |
 | Assess or harden its security | [Security](security.md) |
 | Know what the Community edition covers and how a commercial license works | [Licensing](licensing.md) |
 | Automate or integrate | [API reference](api.md) |
 | Something does not work | [Troubleshooting](troubleshooting.md) |
-| Help test DENIS on my own network and report what I find | [Tester guide](community-testing.md) |
 
 ## What DENIS does
 

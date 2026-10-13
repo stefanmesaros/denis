@@ -139,7 +139,7 @@ across every incident, so you see the AI's read the moment you open a serious in
 
 ## Turning it off, and sending incidents out
 
-**Settings → Alerting → Incidents → Group related alerts into incidents** (on by default) is the single switch for
+**Settings → Notifications → Group related alerts into incidents** (on by default) is the single switch for
 all of the above: turning it off stops new correlation immediately — alerts themselves, and their own delivery to
 your notification channels, are completely unaffected either way; existing incidents stay as they are.
 
@@ -161,3 +161,9 @@ full timeline and its related findings; `POST /api/incidents/{id}/ack`, `/resolv
 under *Settings → Data → Data retention*) and outlives the alerts and incidents: each alert row records the alert's kind,
 severity, score, device and site, so "who closed alert 123, when and why" can still be answered after it has aged out.
 `PUT /api/incidents/settings` flips the grouping switch above. See the [API reference](api.md).
+
+## Details from the console
+
+Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+
+* DENIS correlates related alerts into named-pattern incidents in the background (the Incidents page). Turning this off stops correlation immediately; alerts and their own delivery are unaffected either way.

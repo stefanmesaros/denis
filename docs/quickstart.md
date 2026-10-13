@@ -84,7 +84,7 @@ under *Settings* → *Setup guide*. The list below is the same job in more detai
 3. **Describe your important devices.** Open a server, NAS or camera → **Edit asset**: a name, an owner, a
    location, a criticality (*high* for things you cannot lose). Correct a wrong device type; your value wins
    everywhere. Or import a spreadsheet: **Devices CSV** → edit → **Import CSV**.
-4. **Get alerts where you will see them.** *Alerting* tab → add **Slack**, **Teams**, **e-mail**,
+4. **Get alerts where you will see them.** *Settings → Notifications* → add **Slack**, **Teams**, **e-mail**,
    **PagerDuty** or a **webhook**, press **Test** ([details](alerting.md)).
 5. **Let it learn.** For the first 24 hours DENIS *learns*: new devices and destinations are recorded but not
    alerted on (a banner shows the time left). Do not judge the alerts before that is over.
@@ -113,9 +113,22 @@ denis backup /safe/place/denis-backup.db           # verified copy of the databa
 denis --help                        # everything
 ```
 
-Reading data without the console: `denis list`, `denis alerts`, `denis report`.
+Reading data without the console: `denis list`, `denis alerts`, `denis report`. The documentation you are reading is also
+in the console (the *Help* link), with a search box.
+
+**A second site.** In the console open **Sites** and press **Add agent**: DENIS creates the token and shows the commands to
+copy, for Linux (`install.sh --agent`) and for Docker ([Deployment](deployment.md#multiple-sites-agents)).
+
+**Updates.** DENIS offers stable releases only and installs them when an administrator presses the button, after a backup
+([Updates](updates.md)). Testers can opt in to pre-releases there.
 
 ## 6. Stopping and starting again
 
 Press **Ctrl-C**. DENIS saves everything and exits; the next start continues where it stopped.
 To run it as a service, see [Deployment](deployment.md).
+
+## Details from the console
+
+Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+
+* A checklist of what a new installation usually needs: your network, sign-in security, notifications, colleagues, backups and your branding. Each item turns green when it is really done.

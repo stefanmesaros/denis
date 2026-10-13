@@ -17,7 +17,7 @@ Product name and logo (yours, see [Branding](branding.md)), a status pill (a dot
 "sweeping…", with an "export ok" / "export FAILING" chip when an export is configured; hover it for the full
 sentence — mode, network, devices, last sweep, health of exports — also shown on the [Health](#health) page),
 the **language** picker, the **colour theme** button (auto / day / night), your name (click it for [My account](#my-account)),
-**Help** (this documentation), **Sign out** and **Scan now** (an immediate sweep and port scan; disabled in passive-only mode).
+**Help** (this documentation, with a search box on every page: press `/` to reach it, see [Overview](index.md)), **Sign out** and **Scan now** (an immediate sweep and port scan; disabled in passive-only mode).
 **Ask DENIS** appears next to *Scan now* when that AI feature is on ([Settings → AI](#settings-administrators)): a
 floating question box that stays open while you move between pages. It does five things, each answered from DENIS's
 own real data or real documentation — never from what the model already "knows" about networks in general:
@@ -40,8 +40,8 @@ It never changes a setting, acknowledges an alert, or takes any action by itself
 or describes what is really there. A yellow banner appears while **maintenance mode** silences notifications; a blue
 one while demo data is loaded or an update is available.
 
-The menu on the left is grouped into *Monitor* (Devices, Incidents, Alerts, Findings), *Analyze* (Topology, OT,
-Software, Events, Compliance, Reports) and *Manage* (Rules, Alerting, Health, Sites, Users, Settings, Audit log);
+The menu on the left is grouped into *Monitor* (Devices, Incidents, Alerts, Findings), *Analyze* (Topology, Zones, OT,
+Software, Events, Compliance, Reports) and *Manage* (Rules, Health, Sites, Users, Settings, Audit log; alert channels are under *Settings → Notifications*);
 the ☰ button collapses it to an icon rail.
 
 ## Dashboard
@@ -163,8 +163,16 @@ about a change from a device's own baseline — a behavior-change explanation, a
 **Investigate**, a collapsible section in the same dialog, shows the alert in context: the device's other events an
 hour either side, what DENIS recorded between the device and the alert's other party, which other devices contacted
 that same party, and the incident it belongs to. Traffic between two of your own devices only shows up there with
-east-west traffic switched on (Settings → Network interfaces; off by default). See
+east-west traffic switched on (Settings → Network interfaces; off by default). Each relationship row says who opened
+the connection (**Initiated by**: this device, the other side or unknown, confirmed or guessed, with a tooltip), and its
+arrow follows that, or points both ways when it is unknown. See
 [Relationships](concepts.md#relationships-and-the-investigate-section).
+
+An alert for a **connection from the internet** (`inbound_from_public`) has its own section in the dialog with the
+evidence per source: address, name, country, network, threat-list flag, service and port, attempts and completed
+handshakes, first and last seen, bytes each way and the other devices it reached. Administrators can mark the port as
+expected from there with one click; the source network is covered by **Allow this provider**. See
+[Detection rules](detection-rules.md#inbound_from_public-a-public-address-connected-in-needs---flows).
 
 Any public IP address the alert mentions gets its own **Network context** section: the address, its country/ASN/ISP
 (or "private"/"loopback"/etc. for one that is not public), reverse-DNS hostname, and — click it — a full detail
@@ -197,14 +205,17 @@ accepted it and why ([details](detection-rules.md#verifying-a-fix-and-accepting-
 
 Every detection with what it does, what it needs, whether it is on, its weight (`0` = off, `2` = twice as loud)
 its thresholds and a minimum score of its own, plus **exceptions** (devices, device types, tags or networks a rule
-stays quiet about), your own **network watches** (which devices may talk to which addresses and ports) and your own
-**OT command watches**. Everyone can read it; administrators change it. Changes apply
+stays quiet about), your own **IT rules** (which devices may talk to which addresses and ports) and your own
+**OT rules**. The page has two parts: **Built-in rules** and **Your rules**; **New IT rule** and **New OT rule**
+open a dialog that reads as a sentence, with templates, a preview of what the rule would have done and an Undo
+after saving ([details](detection-rules.md#your-own-rules-it-rules-and-ot-rules)). Everyone can read the page;
+administrators change it. Changes apply
 within seconds, survive restarts and are written to the audit log ([details](detection-rules.md)). Administrators
 also find **Continue learning mode** and **Forget all learned baseline data** here, and can export the rule
 settings as a file and import them elsewhere.
 
 The page has a second view, **Exceptions, accepted risks & baseline** (a sub-entry in the menu): every place a
-rule, watch or finding has been told to stay quiet, and every learned baseline destination, grouped by device in
+rule or finding has been told to stay quiet, and every learned baseline destination, grouped by device in
 one searchable list. Removing something here has exactly the same effect as removing it where it was added.
 
 ## Compliance
@@ -242,6 +253,8 @@ protocols they speak (S = answers requests, C = sends them), the **communication
 Modbus, S7, EtherNet/IP, DNP3, BACnet, OPC UA, IEC 104, with counts of reads, writes and control commands), and
 the functions each path uses (**Commands seen**: click one to be told whenever it is sent) and the open OT alerts.
 Filter to *writes / control commands only* to see who can change a process.
+Under the matrix, *Engineering file (IEC 61850 SCL)* imports a station's SCL file (administrators) and shows which observed
+publishers and servers are in it and which engineered IEDs have not been seen ([OT guide](ot-guide.md#scl-import-iec-61850-engineering-file)).
 
 ## Software
 
@@ -262,9 +275,16 @@ that?"*. Click a row for the full story.
 The **Health** page (Manage) answers "is DENIS itself in good shape?". Problems come first, in plain words: the
 capture is not running, packets are being dropped (DENIS too slow for the traffic, or a mirror port carrying more than
 one machine can process), a network sweep is late, the disk holding the database is nearly full, or there is no
-recent backup. The menu shows how many problems there are. Below: version and uptime, database size (and how much
+recent backup, and also the quieter ones where DENIS works but some data is missing: the packet parser crashed on a packet,
+a remote agent's clock is so wrong that its records are dropped, a switch could only be read in part, alert notifications
+were dropped ([Operations](operations.md#health-warnings-that-point-at-data-you-cannot-see)). The menu shows how many problems there are. Below: version and uptime, database size (and how much
 of it is free space), free disk, packets dropped, the last sweep, and how many rows each table holds (what to look at
-when the database is bigger than expected).
+when the database is bigger than expected). **Internet connection watch** counts the packets the capture skipped when a
+burst of internet scanning reached its per-window limits (zero normally).
+
+A device's **Overview** tab has a switch, **Alert on every connection from the internet**, for a device that must never
+be reachable from outside; and **Recent destinations** on the same panel shows, per address, who initiated the traffic
+(**Initiated by**).
 
 Administrators also see **Backups**: a daily automatic backup of the database (keep the newest 7, or change or switch
 it off), *Back up now*, and a list to **download** or delete. See [Operations](operations.md#backup-and-restore).
@@ -275,10 +295,15 @@ it off), *Back up now*, and a list to **download** or delete. See [Operations](o
 
 The local collector and every remote **agent** that reports to this master (outbound connections only). An
 administrator issues and revokes one **token per agent** here, and can **delete a site** together with every
-device it reported (the site id has to be typed back to confirm; the token is revoked separately). See
+device it reported (the site id has to be typed back to confirm; the token is revoked separately). Each agent shows
+its version, **outdated** when it is older than the master, the result of its last update and, for an administrator,
+an **Update** button (and **Update all outdated** above the table); how agents are updated is set under *Settings →
+System → Updates for remote agents* ([Updates](updates.md#updating-remote-agents)). See
 [Deployment](deployment.md#multiple-sites-agents).
 
 ## Alerting (administrators)
+
+*Settings → Notifications.*
 
 ![Alerting](img/alerting.png)
 
@@ -305,15 +330,21 @@ customers, or to keep a sensitive site out of a viewer's sight entirely.
 
 ![Settings](img/settings.png)
 
-Everything about the installation that is not about people, in seven categories shown as a sub-menu under
+Everything about the installation that is not about people, in nine categories shown as a sub-menu under
 *Settings*:
 
-* **System** — license, updates (check, install now or later), restart / shut down, the setup guide (the first-run
-  checklist, which you can open again here).
+* **System** — license, updates (check, install now or later, include pre-releases, and "If GitHub is unreachable, try
+  usedenis.com"), how remote agents are updated (manually by default, automatically, from the internet or from this
+  master), restart / shut down, the setup guide (the first-run checklist, which you can open again here).
+* **Notifications** — the channels alerts are sent to ([Alerting](alerting.md)).
 * **Sign-in & security** — who must use a second step, passkey-only sign-in, single sign-on (OIDC), the HTTPS
   certificate (download the local CA, or use your own).
-* **Network** — the discovery and mirror interfaces and the agent listener, switches (SNMP), Network Intelligence
-  (GeoIP / reverse DNS).
+* **Network** — the discovery and mirror interfaces and the agent listener (under *Advanced*: east-west traffic, passive
+  DNS and IEC 61850 Sampled Values, each off by default), the connection stability test, switches (SNMP), certificates and
+  web pages, Network Intelligence (GeoIP / reverse DNS).
+* **Enforcement** — the switch that lets administrators block a device (off by default) and its hourly limit, the
+  firewall, cloud, hypervisor and RADIUS connectors, and the list *Currently blocked by DENIS* with **Unblock…**
+  ([details](segmentation.md#enforcement-connectors)).
 * **Data** — data retention, the software-version data (end-of-support and known-exploited refreshes, custom
   CVEs), threat list sources (the auto-fetched abuse.ch, Spamhaus and Tor exit blocklists, each independently schedulable), and
   demo data: load a fictional company to explore, remove it, or **erase all data** when you are ready

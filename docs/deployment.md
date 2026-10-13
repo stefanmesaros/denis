@@ -74,7 +74,10 @@ it yourself, or air-gapped: run the installer again (`sudo bash install.sh`, aft
 same backup, same result. An installation from before this existed (the program straight at `/usr/local/bin/denis`,
 owned by root, not writable by the service user) needs `sudo bash install.sh` run **once** to move it into the new
 layout (it also updates the systemd unit's `ExecStart`/`ReadWritePaths`, which only root can do); every update after
-that can be the one-click kind.
+that can be the one-click kind. Only stable releases are offered unless an administrator opts in to pre-releases
+(release candidates, for testers; see [Updates](updates.md#pre-release-versions-for-testers)). If GitHub cannot be reached, the
+same signed files are fetched from `usedenis.com`, which can be switched off. Remote agents are updated from the **Sites**
+page, by hand by default: see [Updating remote agents](updates.md#updating-remote-agents).
 
 **If something is wrong.** `systemctl status denis` and `journalctl -u denis -n 30` say what happened. The usual one:
 
@@ -136,8 +139,8 @@ console's own host names (and their subdomains) and to private, loopback, link-l
 addresses (plus any public address the machine has or is named with). Even someone who later copies `tls/ca.key`
 cannot use it to impersonate another website to a browser that trusts the CA. A new `--tls-name` (or a new public
 address) outside those names makes DENIS create a new authority, which then has to be trusted again (the log says
-so). An authority made by an earlier version has no constraints: it keeps working, and the log warns at every
-start until you replace it (delete `tls/ca.pem` and `tls/ca.key`, restart, trust the new CA, and give agents the
+so). An authority made by an earlier version has no constraints: it keeps working, and the log and the Health page
+warn until you replace it (delete `tls/ca.pem` and `tls/ca.key`, restart, trust the new CA, and give agents the
 new file with `--master-ca`).
 
 Browse to **https://localhost:8080** (or the address and port you set in `DENIS_LISTEN`). Browsers do not know the DENIS authority, so they warn once. Two ways to make the
@@ -204,11 +207,55 @@ denis user disable jana                  # and: denis user enable jana
 | **admin** | + manage users, agent tokens, view the audit log, delete manual assets |
 
 Rules: new and reset passwords are one-time and **must be changed at first sign-in**; passwords need ≥ 12
-characters; five wrong passwords lock that account out for 30 seconds (doubling for repeated failures, up to
-15 minutes); sessions end after 12 h idle or 7 days; changing a password signs out the user's other sessions;
+characters; five wrong passwords from one address lock that account out *for that address* for 30 seconds (doubling for
+repeated failures, up to 15 minutes; the exact limits, and why a stranger cannot lock the owner out, are in
+[Security](security.md#sign-in-limits-and-lock-out)); sessions end after 12 h idle or 7 days; changing a password signs out the user's other sessions;
 **the last enabled administrator cannot be removed or demoted**. Everything security-relevant is in the audit log.
 
 ## Multiple sites (agents)
+
+### The easy way
+
+1. On the master, make sure it accepts agents: *Settings → Network → Network interfaces → Accept remote agents at*
+   (for example `0.0.0.0:8081`), then restart. Or start it with `denis run --ingest-listen 0.0.0.0:8081`.
+2. Open the **Sites** tab and press **Add agent**. Give the agent an id (and, if you like, a name and a site),
+   and DENIS creates its token and shows the exact commands, with this master's address and CA certificate filled
+   in, ready to copy: one for Linux, one for Docker and one for running `denis agent` by hand. The token is shown
+   once.
+3. Run the Linux command on the remote machine. It looks like this (the dialog fills in the values; the CA
+   certificate follows as the text after `<<'PEM'`):
+
+```bash
+curl -fLO https://github.com/stefanmesaros/denis/releases/download/v4.1.0/install.sh
+sudo bash install.sh --version v4.1.0 --agent --master https://MASTER:8081 --token dat_… \
+  --id branch-1 --name "Branch office" --site Branch --flows --master-ca-pem - <<'PEM'
+-----BEGIN CERTIFICATE-----
+…
+-----END CERTIFICATE-----
+PEM
+```
+
+`install.sh --agent` downloads the same signed release as the master install and checks its signature and
+checksum before changing anything. It then installs the program the same way, writes `/etc/denis/agent.env` (mode
+600, because the token is in it), puts the CA at `/etc/denis/ca.pem`, installs the `denis-agent` service and starts
+it. Within a minute or so the agent appears under **Sites** on the master. Details:
+
+* `--dry-run` downloads and verifies and says what it would write, without changing anything or needing root.
+* It refuses to run on a machine that already runs the master (the same network would be watched twice); add
+  `--allow-master-here` if you really mean it.
+* `--master-ca-pem FILE` takes a file instead; leave the option out when the master uses a publicly trusted
+  certificate. `--master-ca-pem -` reads the text from standard input, which is why the installer is downloaded
+  first instead of piped from `curl`.
+* A plain `http://` master address is refused unless you add `--allow-plain-http` (a VPN or tunnel you trust).
+* Agent mode needs release 4.1.0 or newer (a 4.1.0 release candidate counts too). Without `--version` the installer
+  takes the latest stable release; a release candidate must be named with `--version`, because "latest" skips
+  pre-releases.
+* To change settings later, edit `/etc/denis/agent.env` and `sudo systemctl restart denis-agent`, or run the
+  installer again with the new token. Running it with `--agent` alone updates the program and keeps the settings.
+  `--agent --uninstall` removes the service (`--purge` also deletes its data and settings).
+* Docker: see [Docker, Run a remote agent](docker.md#run-a-remote-agent).
+
+### By hand
 
 On the master:
 
@@ -223,6 +270,20 @@ At the remote site:
 DENIS_AGENT_TOKEN=dat_… denis agent --master https://MASTER:8081 --master-ca /etc/denis/ca.pem --id branch-1 --name "Branch office" --site Branch --flows
 ```
 
+The agent's settings can also come from the environment (`DENIS_MASTER`, `DENIS_AGENT_TOKEN`, `DENIS_AGENT_ID`,
+`DENIS_AGENT_NAME`, `DENIS_AGENT_SITE`, `DENIS_FLOWS`, `DENIS_MASTER_CA` or `DENIS_MASTER_CA_PEM`); that is how the
+installed service and the Docker image are configured. `packaging/denis-agent.service` is the service file the
+installer uses; it needs no editing.
+
+### Windows and macOS
+
+There is no agent installer for Windows or macOS yet. `packaging/install.sh` is Linux with systemd only. The
+Windows script `packaging/install.ps1` has not been verified, and there is no signed Windows release, so an agent
+on Windows is not something we can support today. On macOS (or anywhere else) you can download the program and
+run `denis agent ...` by hand as above, but there is no service setup and capture needs administrator rights;
+these paths have not been tested for agents. For a site without a Linux machine, run the agent on a small Linux
+box or in Docker on the site's network.
+
 * Each agent has **its own token, bound to its id**; a token cannot speak for another agent. Revoke it with
   `denis agent-token revoke --id branch-1` (or in the **Sites** tab): the agent is cut off immediately.
 * Agents only make *outbound* connections. They send changes every 15 s and keep unsent data (in memory, up to
@@ -235,6 +296,16 @@ DENIS_AGENT_TOKEN=dat_… denis agent --master https://MASTER:8081 --master-ca /
 * The listener can also be switched on from the console (*Settings → Network → Network interfaces*, "Accept
   remote agents at"); like the interface choice, it needs a restart to take effect.
 * Give each site its own learning period; the master handles it automatically.
+* **Set the agent's clock** (NTP). The master drops records dated more than 1 hour ahead of its own clock or more than 7
+  days old, and the Health page names an agent whose records are dropped for that reason. Give the site its **time
+  zone** on the Sites page so hour-of-day rules (`unusual_hours`) use the site's local time, not the master's.
+* A report is size-checked on arrival (at most 32 MB, and a fixed number of devices, traffic windows and so on); see
+  [Security](security.md#what-a-master-accepts-from-an-agent).
+* **Overlapping private ranges.** Two sites may both use 10.0.0.0/24: a device is `(site, MAC)`, so their
+  devices never mix. Bind each switch and each enforcement connector to its site (Settings → Switches and
+  Settings → Enforcement show **Site** once there are two or more sites), so that DENIS never acts on a
+  device of one site through the firewall of the other. Unbound ones keep working but are marked "Not
+  bound to a site" and need a ticked warning to block. See [Concepts](concepts.md#what-a-device-is-site-vlan-mac).
 * Do not point a second collector at a network the master already captures itself: every device would be
   listed twice ([Concepts](concepts.md#visibility-what-can-be-seen-from-where)).
 
@@ -306,8 +377,43 @@ large, constant stream of traffic:
 * The default cycle is **60 seconds**, deliberately not as frequent as the console's own on-screen
   refresh (that never leaves the browser-to-local-master link anyway). Change it with
   `--report-to-interval` if you want it less frequent still.
+* **`--report-to` must be `https://`.** A plain `http://` address is refused unless it is this machine or you also give
+  `--report-to-allow-plain-http` (for a VPN or tunnel you trust); `--report-to-ca` trusts your MSP's own certificate
+  authority. A refused address is logged and the relay stays off; the customer's DENIS still starts normally.
+* **Each customer machine is a site of its own on your master.** A customer master that relays several of its own
+  agents appears as one sub-site per agent (at most 256 per customer). Access restrictions you set on the customer's
+  site are copied onto its sub-sites and are only ever tightened, never widened and never deleted by a later sync. Devices
+  the customer sent before 4.0.2 are adopted into the new sub-site, not counted twice. See
+  [Security](security.md#what-a-master-accepts-from-an-agent) for what your master accepts from a relay.
 * This does **not** replace `--backup-upstream` above — run both if you want live visibility *and*
   a backup copy; they are independent and one does not require the other.
+
+## MSP: remote management of a customer's own master
+
+The relay above only mirrors. With [MSP management](msp-management.md) (experimental), your technicians can also
+**open the customer's console from yours and work in it**, at the level the customer allows. A summary of what you have to
+provide; the page linked has the steps and the limits.
+
+* **On your master**: `--ingest-listen` reachable by customers over HTTPS (they dial out to it, nothing listens at the
+  customer), `--public-url` for your own console, and one operator per technician with a second factor (an authenticator
+  app, or a passkey with `--public-url`).
+* **A portal domain**, separate from your console's, for the customers' consoles: one address per customer
+  (`acme.portal.example`). Needed: a **wildcard certificate** for `*.portal.example` that the listener (or the reverse proxy
+  in front of it) presents, a **wildcard DNS record** for it, and `denis msp portal --domain portal.example` (or the operator
+  page). DENIS does not request certificates. With a reverse proxy, forward the original `Host` header. With DENIS's own
+  listener, use `--tls-cert`/`--tls-key` (or the console's upload) with a certificate whose names include your console's
+  address and `*.portal.example`; the generated local CA vouches only for the console's own names. Serving customers
+  on your console's own domain is possible after an explicit acknowledgement and is less safe: see the page.
+* **On the customer's master**: nothing but a version with 4.1, an outbound HTTPS connection to your ingest address and an
+  administrator who pairs it (Settings, MSP management, or `denis msp-link connect`). `--no-msp-management` switches
+  the feature off for a process. A customer behind a private CA gives its master the CA with `--report-to-ca`.
+* **High availability**: only the active node of a pair connects (customer side) or serves the channel (MSP side).
+
+```bash
+denis msp portal --domain portal.example
+denis msp customer add acme --name "Acme" --host acme.portal.example --url https://msp.example:8081
+denis operator grant alex default editor && denis msp customer grant alex acme editor
+```
 
 ## One or more mirror-port interfaces for whole-network flow visibility
 
@@ -355,9 +461,18 @@ number of mirror interfaces from a list instead of editing the command line; a G
 takes priority over `--iface`/`--mirror-iface`, but (unlike most console settings) needs a restart
 to take effect, since capture is opened once, at start-up.
 
+A mirror delivered over the network (RSPAN VLAN, ERSPAN, AWS or Azure VXLAN) is covered in [Tunnel mirroring](tunnel-mirroring.md).
+
+**Never mirror the same traffic to two interfaces.** The flow counts of the interfaces are added, so
+overlapping mirrors count every byte twice. Health warns when two sources look identical; see
+[Do not overlap your mirrors](tunnel-mirroring.md#do-not-overlap-your-mirrors). To see the VLAN of a
+mirrored frame (recorded on the device as evidence, and used to annotate address conflicts across VLANs),
+the capture interface must receive the 802.1Q tag in the frame: on a Linux network card that strips it,
+`ethtool -K <iface> rxvlan off`.
+
 ## Alert notifications
 
-Configure **Slack, Teams, Discord, PagerDuty, Pushover, ntfy, e-mail, Jira, ServiceNow and signed webhooks** in the console (*Alerting* tab, see [Alerting](alerting.md)); no restart, per-channel thresholds, a Test button. The simple command-line webhook below is the older way and still works:
+Configure **Slack, Teams, Discord, PagerDuty, Pushover, ntfy, e-mail, Jira, ServiceNow and signed webhooks** in the console (*Settings → Notifications*, see [Alerting](alerting.md)); no restart, per-channel thresholds, a Test button. The simple command-line webhook below is the older way and still works:
 
 ```bash
 denis run --webhook https://hooks.slack.com/services/… --webhook-min-score 60
@@ -398,16 +513,44 @@ a newer database): back it up first.
 ## Resource use
 
 Sized for one /24 up to ~1000 hosts per collector. Flow accounting captures every IPv4 frame on the interface;
-on a busy gigabit link use a fast machine or a dedicated capture interface.
+on a busy gigabit link use a fast machine or a dedicated capture interface. How many devices and console users one database carries is in [Operations](operations.md#how-big-can-one-installation-be).
+
+## PostgreSQL and a second node (optional)
+
+By default DENIS keeps everything in one SQLite file. `--database-url postgres://user@host/denis` (the password only in
+`DENIS_DATABASE_PASSWORD`, never in the URL or on the command line) uses PostgreSQL instead, and lets two DENIS
+nodes share that database with one of them as leader and the other on standby. It needs a DENIS built with the
+`postgres` feature: a build without it refuses the option. A SQLite install is never a pair.
+
+* Only the leader captures, detects and serves the console and agent port; the standby answers `/api/health` with `503`
+  and `role: standby` until it wins leadership. Point agents and browsers at one virtual address that routes to the
+  node whose health check says leader.
+* Both nodes must have the **same `secrets.key`** (copy it once before saving any integration credential), or the
+  second one refuses to start after a failover. Give both the same certificate, ideally your own (`--tls-cert`), because
+  each node otherwise makes its own authority.
+* Backups made while a node was leader exist only on that node's disk: use `--backup-upstream`.
+* Every PostgreSQL connection carries keepalive, connect, statement, lock-wait and idle-in-transaction limits, and the
+  leader proves its leadership once a second, so a database link that fails silently ends the old leader's side effects
+  within about three seconds and the process within about ten. The defaults and the `DENIS_PG_*` variables that change them
+  are in `HA_DEPLOYMENT.md` §5. Delivery of notifications and exports across a failover is **at least once**: after a
+  failover a message can arrive twice; the design does not promise exactly once.
+* **Known limit (until 4.2):** only side effects are tied to the leader's lease. Database writes carry no leader epoch,
+  so in the few seconds after a failover the old leader can still write a row the new one also writes.
+* **Not together with tenants.** An install with tenants besides `default` refuses to start with `--database-url`:
+  tenants keep their data in SQLite files on one node.
+* Speed is not a reason to choose it: for one site SQLite is faster ([Operations](operations.md#how-big-can-one-installation-be)).
+
+The full guide, with a load-balancer example and a failover test, is `HA_DEPLOYMENT.md` in the repository. It has been
+tried with PostgreSQL 16 in a test container, not on managed or clustered PostgreSQL in production.
 
 ## Command reference
 
-`denis run --help`, `denis agent --help`. Other commands:
+`denis run --help` and `denis agent --help` print the same flags with their full explanation. Other commands:
 
 | Command | Purpose |
 |---|---|
 | `denis interfaces` | list usable interfaces (`*` = default) |
-| `denis list` / `denis alerts` | inventory / alerts as a table, straight from the database |
+| `denis list` / `denis alerts` | inventory / alerts as a table, straight from the database (`alerts --all` also shows info-level events) |
 | `denis report --days 7 -o report.html` | printable report (`--format assets-csv|alerts-csv`) |
 | `denis user …`, `denis agent-token …` | access management (see above) |
 | `denis backup FILE` | verified copy of the database, while running |
@@ -415,3 +558,74 @@ on a busy gigabit link use a fast machine or a dedicated capture interface.
 | `denis serve` | console over a database, no capture (backups, demos) |
 | `denis demo load\|remove` | built-in demo data (a fictional company) |
 | `denis erase --yes` | empty the database of devices and history (DENIS stopped; take a backup first) |
+| `denis tenant …`, `denis operator …` | tenants and MSP operator accounts, see [Multi-tenancy](multi-tenancy.md) |
+| `denis msp …`, `denis msp-link …` | experimental: an MSP's remote customers and key, a customer's link to its MSP; see [MSP management](msp-management.md) |
+
+### Flags of `denis run` and `denis agent`
+
+The **Both** column says whether `denis agent` takes the flag too. Where a setting can also be changed in the console,
+the flag only sets the starting value. Flags marked *env* can be given as an environment variable instead (so a secret
+stays out of the process list).
+
+| Flag | Both | Default | What it does |
+|---|---|---|---|
+| `-i`, `--iface` | yes | the default-route interface | interface to monitor |
+| `--mirror-iface` | yes | none | capture-only interface (switch mirror/SPAN port); repeatable; implies `--flows` |
+| `--mirror-subnet` | yes | none | extra subnet to treat as local for a mirror port; repeatable |
+| `--sweep-interval` | yes | 300 | seconds between ARP sweeps |
+| `--rescan-interval` | yes | 1800 | minimum seconds between port scans of one host |
+| `--passive-only` | yes | off | never transmit ARP, ICMP, TCP probes (nor the IPv6 discovery below) |
+| `--flows` | yes | off | account traffic to and from outside the subnet and decode industrial protocols |
+| `--profile it\|ot` | yes | `it` | `ot` listens only and turns on traffic analysis; see the [OT guide](ot-guide.md) |
+| `--active` | yes | off | with `--profile ot`, allow a gentle, slow ARP sweep |
+| `--exclude` | yes | none | never probe this range (repeatable); still observed passively |
+| `--no-extended-banners` | yes | off | do not read Telnet, MySQL/MariaDB, SMB and MSSQL banners |
+| `--ipv6` | yes | off | IPv6 Neighbor Discovery, mDNS, SSDP and DHCPv6 identity, and active IPv6 discovery; see [Concepts](concepts.md#ipv6-optional) |
+| `--ipv6-subnet` | yes | none | IPv6 prefix to treat as local (repeatable); needed for IPv6 flows and industrial decoding |
+| `--east-west` | yes | off | record traffic between two local devices as relationship edges (console setting overrides on `run`) |
+| `--passive-dns` | yes | off | remember the names each device looked up (console setting overrides on `run`) |
+| `--ot-sv` | yes | off | decode IEC 61850 Sampled Values, sampled to one frame per stream per second (console setting overrides on `run`, after a restart) |
+| `-l`, `--listen` | run | `127.0.0.1:8080` | web console address (*env* `DENIS_LISTEN`) |
+| `--db` | yes | `denis.db` / `denis-agent.db` | database file |
+| `--data-dir` | run | the database's folder | backups, uploaded agent backups, GeoIP database (*env* `DENIS_DATA_DIR`) |
+| `--database-url` | run | none (SQLite) | PostgreSQL URL; the password only through `DENIS_DATABASE_PASSWORD`; needs a build with PostgreSQL (*env* `DENIS_DATABASE_URL`) |
+| `--ingest-listen` | run | off | accept remote agents on this address |
+| `--insecure-no-auth` | run | off | no sign-in; development only, refused unless the console is on loopback |
+| `--public-url` | run | none | the address people type; passkeys are bound to it (*env* `DENIS_PUBLIC_URL`) |
+| `--allowed-host` | run | none | public host name a local reverse proxy forwards (repeatable) (*env* `DENIS_ALLOWED_HOSTS`) |
+| `--no-tls` | run | off | plain HTTP, for a TLS-terminating proxy or an SSH tunnel (*env* `DENIS_NO_TLS`) |
+| `--tls-name`, `--tls-dir`, `--tls-cert`, `--tls-key` | run | | names in the generated certificate, its folder, or your own certificate and key (*env* `DENIS_TLS_*`) |
+| `--secure-cookies` | run | off | mark the session cookie `Secure` behind a TLS proxy |
+| `--learning-minutes` | run | 1440 | how long a device or site is observed before new things count as anomalies |
+| `--min-score` | run | 30 | scores below this are logged as info, not raised |
+| `--rule-weight RULE=WEIGHT` | run | none | scale a rule's score (0 disables); repeatable |
+| `--bucket-secs`, `--min-volume-mb`, `--min-samples` | run | 300, 5, 12 | volume rule: bucket length, smallest bucket considered, buckets needed before a baseline is trusted |
+| `--hours-learning-days` | run | 7 | unusual-hours rule: days observed before a daily pattern is judged |
+| `--silent-minutes` | run | 120 | silent-device rule; needs active sweeps |
+| `--retention-days` | run | 90 | delete trend samples older than this |
+| `--threat-list` | run | none | text file of known-bad IPv4 addresses and networks; needs `--flows` (*env* `DENIS_THREAT_LIST`) |
+| `--webhook`, `--webhook-min-score` | run | none, 60 | post alerts as JSON (*env* `DENIS_WEBHOOK`) |
+| `--syslog` | run | none | send alerts as syslog/CEF; only seeds the console setting (*env* `DENIS_SYSLOG`) |
+| `--openobserve-url`, `-org`, `-prefix`, `-interval` | run | none, `default`, `denis`, 15 | export to OpenObserve; credentials from `DENIS_OPENOBSERVE_USER` and `DENIS_OPENOBSERVE_PASSWORD` |
+| `--license-file` | run | none | signed commercial license (*env* `DENIS_LICENSE_FILE`) |
+| `--no-update-check` | run | off | never contact GitHub for a new version (*env* `DENIS_NO_UPDATE_CHECK`) |
+| `--update-channel stable\|prerelease` | run | `stable` | also offer pre-release versions (beta / release candidates) to testers; a choice saved in Settings wins (*env* `DENIS_UPDATE_CHANNEL`); see [Updates](updates.md#pre-release-versions-for-testers) |
+| `--update-repo` | run | the project's | `owner/repo` whose releases DENIS updates from (*env* `DENIS_UPDATE_REPO`) |
+| `--update-mirror` | run | `https://usedenis.com` | the fallback host tried only when GitHub cannot be reached; an empty value removes the fallback (*env* `DENIS_UPDATE_MIRROR`); see [Updates](updates.md#if-github-cannot-be-reached) |
+| `--backup-upstream`, `--backup-upstream-token-env` | run | none, `DENIS_BACKUP_TOKEN` | push this install's backups to an MSP; see above |
+| `--report-to`, `--report-to-token-env`, `--report-to-interval`, `--report-to-ca`, `--report-to-allow-plain-http` | run | none, `DENIS_REPORT_TOKEN`, 60, none, off | relay devices and alerts to an MSP; see above. A refused address is logged and the relay skipped |
+| `--no-msp-management` | run | off (`DENIS_NO_MSP_MANAGEMENT`) | experimental: no remote management by an MSP in this process, whatever the console says; see [MSP management](msp-management.md) |
+| `--master`, `--token`, `--master-ca`, `--master-ca-pem`, `--allow-plain-http`, `--id`, `--name`, `--site`, `--report-interval` | agent | `--report-interval` 15 | where and how an agent reports; see [Multiple sites](#multiple-sites-agents). `--token` can come from `DENIS_AGENT_TOKEN` |
+| `--no-self-update` | agent | off | never take an update from the master's command; the agent still reports its version (*env* `DENIS_AGENT_NO_SELF_UPDATE`); see [Updating remote agents](updates.md#updating-remote-agents) |
+
+One more flag is hidden from `--help`: `--ot-l2=false` stops decoding layer-2 industrial protocols (GOOSE, PROFINET
+DCP Set). It is on by default and only exists as an escape hatch.
+
+## Details from the console
+
+Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+
+* One row per site — the local network and every remote agent you can see. Click a row to open its devices.
+* For more than a couple of agents, this is usually simpler than copying the CA file to every machine: paste it as one value, e.g. DENIS_MASTER_CA_PEM, wherever you already push each agent's token.
+* Lets other DENIS agents on other networks report to this instance over the internet or a VPN. Leave blank for a standalone install (the normal case). Saved with the Save button above.
+* With (auto), DENIS picks the interface on its own: the one that holds the default route. Choose one yourself only when DENIS is watching the wrong network.

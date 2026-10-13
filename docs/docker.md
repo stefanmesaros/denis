@@ -58,6 +58,54 @@ packet capture from inside this container, on a real network, has not been verif
 development machine's own network topology is not a stand-in for that, the same honest gap
 WINDOWS.md states for the Windows build rather than assuming it away.
 
+## Run a remote agent
+
+An agent watches the network of the machine it runs on and reports to a master (see
+[Multiple sites](deployment.md#multiple-sites-agents)). On the master, *Sites → Add agent* creates the
+token and prints this command with everything filled in, including the master's CA certificate. By hand:
+
+```bash
+docker run -d --name denis-agent --restart unless-stopped --no-healthcheck \
+  --network host --user root --cap-add NET_RAW --cap-add NET_ADMIN \
+  -v denis-agent-data:/data \
+  -e DENIS_MASTER=https://MASTER:8081 \
+  -e DENIS_AGENT_TOKEN=dat_... \
+  -e DENIS_AGENT_ID=branch-1 -e DENIS_AGENT_NAME="Branch office" -e DENIS_AGENT_SITE=Branch \
+  -e DENIS_FLOWS=true \
+  -e DENIS_MASTER_CA_PEM="$(cat ca.pem)" \
+  ghcr.io/stefanmesaros/denis:4.1.0 agent
+```
+
+Or with Compose, from a checkout of this repository (it builds the image locally):
+
+```bash
+DENIS_MASTER=https://MASTER:8081 DENIS_AGENT_TOKEN=dat_... DENIS_AGENT_ID=branch-1 \
+DENIS_MASTER_CA_PEM="$(cat ca.pem)" docker compose up -d agent
+```
+
+What it needs, and why:
+
+* **`--network host`**: the same reason as for a collector above. In a bridge network the agent would only see
+  the container's own virtual interface, not the LAN. This removes the network isolation between the container
+  and the host.
+* **`--user root` with `NET_RAW` and `NET_ADMIN`**: packet capture and promiscuous mode, as for the collector
+  (the image runs as an unprivileged user by default, which cannot use them in a container).
+* **`--no-healthcheck`**: the image's health check probes the console port, and an agent serves none.
+* **Outbound HTTPS to the master** on its agent port is the only connection needed; the agent opens no port.
+* **`-v denis-agent-data:/data`** keeps the agent's small database (`/data/agent.db`) across container
+  replacements. Without it an upgraded container starts with an empty one.
+* **`DENIS_MASTER_CA_PEM`** is the CA certificate as text (*Settings → HTTPS certificate → Copy for
+  --master-ca-pem*). Leave it out when the master uses a publicly trusted certificate.
+* The token is in the container's environment, so it shows in `docker inspect` for anyone who may use Docker
+  on that machine. Revoke it on the master (Sites) when the agent is retired.
+* Update an agent in a container by replacing the container with a newer image (`docker pull`, then the
+  command again); do not rely on the master's *Update* button for it.
+
+**Not verified:** this agent mode of the image (entrypoint `agent`, the settings from `DENIS_*` variables, the
+Compose service) has not been built and started against a real master yet, and neither has packet capture or
+reaching a master from inside a container on a real network. Treat it as untested until you have seen the agent
+appear under *Sites* on your own setup, the same honest gap stated for the collector above.
+
 ## Real bugs found by actually building and running this (not by inspection)
 
 * A `.dockerignore` line meant to exclude runtime artifacts (`data/`) also excluded
