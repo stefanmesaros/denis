@@ -51,6 +51,9 @@ Behaviours that are unproven vendor facts (marked **[verify]** in the code):
 * Traffic between two devices in the same subnet does not pass the firewall, and no rule on it stops it.
 * Policy placement is the top of the table only. No other anchor is offered.
 * A deny policy for a flow in both directions is two policies (`denis-<tag>-<id>` and `denis-<tag>-<id>-r`).
+* One change at a time on one FortiGate (4.1.2): a block, a release or an orphan removal holds the firewall for its
+  whole run; another one waits up to two minutes and is then refused with nothing changed. Ending sessions does not
+  hold it.
 
 ## Credentials
 

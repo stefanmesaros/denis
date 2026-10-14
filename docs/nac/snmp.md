@@ -55,7 +55,7 @@ snmp-server user denis-rw DENIS-RW v3 auth sha <auth password> priv aes 128 <pri
 
 IOS 15.2 on the Catalyst 2960-X offers SHA-1 and AES-128: choose those in the switch form (security level `authPriv`).
 The write group can write only `ifAdminStatus`; the SET changes the running configuration only and DENIS never saves it.
-Not yet tried on real hardware: see NAC_HARDWARE_VALIDATION.md (section "SNMPv3").
+Not yet tried on real hardware.
 
 ### SNMPv3 on another switch
 
@@ -162,8 +162,8 @@ configuration only (DENIS never saves it), so a switch restart returns the port 
 
 Everything in this section was exercised against the stand-in switch of the tests, with SNMPv2c and with SNMPv3
 (plan, apply, expiry, release, drift, each refusal, a lost answer, a lost request, the re-read before the write, the one
-action per port rule, tenants). **Nothing in it was tried on a real switch.** The unproven points, to be recorded on the
-Catalyst 2960-X bench (S26 to S40 in NAC_HARDWARE_VALIDATION.md, section 4.3):
+action per port rule, tenants). **Nothing in it was tried on a real switch.** The unproven points, to be checked on a
+real Catalyst 2960-X:
 
 * **[verify]** `vmVlan` is writable with a read-write community or SNMPv3 write user on the 2960-X, the write needs the
   view to include `1.3.6.1.4.1.9.9.68.1.2.2.1.2`, and the new VLAN takes effect in the running configuration.

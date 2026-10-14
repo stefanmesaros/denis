@@ -6,7 +6,7 @@ From nothing to a working, useful DENIS in about an hour. Every step says *why*,
 
 * **macOS or Linux** (Ubuntu 22.04+ recommended for a server). There is no Windows release yet: a `denis.exe`
   can be built from source with the Npcap SDK and has been run on a real Windows 11 machine, but there is no
-  installer or service wrapper (see `WINDOWS.md` in the repository).
+  installer or service wrapper.
 * **Permission to capture packets:**
   * Linux: run as root, or grant it once: `sudo setcap cap_net_raw,cap_net_admin=eip ./denis`
   * macOS: read access to `/dev/bpf*` (Wireshark's *ChmodBPF* does this) or run with `sudo`.

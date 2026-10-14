@@ -192,8 +192,9 @@ installation; more works but these limits start to matter.
 * A tenant's console shows install-wide controls as "managed by the operator of this
   installation" rather than hiding them outright.
 
-See `MULTI_TENANCY_HA.md` in the source repository for the full design and what a later phase
-(PostgreSQL, active-passive failover) will add.
+* Tenants on PostgreSQL. PostgreSQL and an active-passive pair exist since 4.0.0 (see
+  [High availability](high-availability.md)), but only for an installation without tenants: the tenants' data
+  still lives in SQLite files on one node.
 
 ## Details from the console
 

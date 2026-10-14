@@ -49,9 +49,8 @@ Each zone also carries:
 * **notes**, free text.
 
 No zones are created automatically at upgrade — not from the register's existing free-text `zone`
-values, not from Purdue levels. The Zones tab offers starters that build a *reviewed draft* instead
-("Start from the zones already typed into the register", "Start from Purdue levels"); nothing is
-saved until an administrator reviews and saves it. The register's "Zone / cell" field is unaffected
+values, not from Purdue levels; an administrator adds each zone. Starters that would build a
+reviewed draft from those values are not built yet. The register's "Zone / cell" field is unaffected
 and keeps its current label; the device panel shows the *resolved* segmentation zone separately
 ("Segmentation zone: *CCTV*, by tag `cctv`") so the two are never confused.
 
@@ -199,8 +198,8 @@ can be switched off on the Rules page if it becomes redundant for a site.
   automatic enforcement by rules (level (b), experimental, off by default): once an administrator
   switches it on and marks a policy for it, that policy can block or quarantine a device that keeps
   breaking it (see [Enforcement, automation](enforcement.md#automation)).
-* **"Offer to block devices that violate this" is groundwork, and nothing is blocked
-  automatically.** A zone policy or an allow-list has an on/off setting for it (off by default,
+* **"Offer to block devices that violate this" only makes suggestions, unless you also mark the
+  policy for automatic enforcement.** A zone policy or an allow-list has an on/off setting for it (off by default,
   changed through the policy API for now; there is no checkbox in the console yet). It is an
   ordinary edit of the policy: administrators only, a new revision, in the history and the audit
   trail. When it is on, DENIS counts how often a device keeps breaking that policy and, once it has
@@ -214,9 +213,10 @@ can be switched off on the Rules page if it becomes redundant for a site.
   suggestion itself notifies and blocks nothing. Suggestions
   are only recorded while Settings → Enforcement is switched on and a connector or a switch could
   actually act on the device; they are never recorded for DENIS itself, the gateway or a device with
-  an open address conflict, and they close by themselves after a week without a new violation. The
-  design, including how a later release will let an administrator review a suggestion and confirm a
-  block with their password, is in `POLICY_TRIGGERED_ENFORCEMENT.md`.
+  an open address conflict, and they close by themselves after a week without a new violation. A
+  policy that offers to block can also be marked for automatic enforcement (level (b), experimental,
+  off by default); then DENIS acts on the suggestion itself, within the limits described in
+  [Enforcement, automation](enforcement.md#automation).
   Only a policy that is enabled, in `alert` mode (not `record`) and opted in can produce one. The
   thresholds (3 separate minutes at least 10 minutes apart, a reminder every 24 hours, expiry after 7
   days) are stored under the setting `nac_prompts`; there is no way to change them from the console or
@@ -327,16 +327,17 @@ way back. The SNMP port control has been tried on one real switch ([Switches](sw
 For the safety model, the five actions, quarantine, durations, permissions and the table of what each connector can do,
 see [Enforcement](enforcement.md).
 
-## How a later release may use zones for blocking (designed, not built)
+## How zones and policies feed blocking
 
-Nothing in zones and policies is read by a connector today. The design for a later release is: a pure query,
-`segmentation::basis_for(asset)`, returning a device's zone placement, its open violations (each
-with a policy id and revision), and which policies depend on it as an approved peer — so a future
-connector's plan can show, and its ledger can cite, *why* a quarantine would be policy-backed, and
-can warn when blocking a device would also break an approved flow that depends on it ("Cameras →
-recorder", 15 devices). A basis only counts as policy-backed once the violated policy is enabled,
-in `alert` mode, at least 24 hours old, confirmed in direction, and the device's zone placement is
-asserted rather than merely observed from its address — a device must never be able to earn a block
-just by changing its own IP. Saving a policy never by itself makes it enforceable; that would need
-an explicit, separately password-confirmed administrator action in a later release. See
-`SEGMENTATION_POLICIES.md` §8 in the repository root for the full contract.
+Zones and policies do not block anything on their own. They feed blocking in two ways:
+
+* **The reason shown to a person.** The device panel's segmentation section (`GET /api/assets/{id}/segmentation`)
+  shows a device's zone placement, its open violations (each with the policy and its revision) and which policies
+  depend on it as an approved peer, so you can see *why* a block would be policy-backed and whether blocking the
+  device would also break an approved flow that depends on it ("Cameras → recorder", 15 devices).
+* **Automatic enforcement by rules** (level (b), experimental, off by default). A policy takes part only when it is
+  enabled, in `alert` mode, offers to block devices that violate it, and an administrator has marked it for
+  automation with their password; any edit of the policy clears that mark. Saving a policy never by itself makes
+  it enforceable. A device can never earn a block just by changing its own address: DENIS never acts on DENIS
+  itself, the gateway, industrial (OT) devices or network infrastructure, and every automatic action is time
+  limited and audited. See [Enforcement, automation](enforcement.md#automation).

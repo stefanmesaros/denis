@@ -55,8 +55,8 @@ This is the one that needs real trade-offs, spelled out rather than hidden in a 
 **What is verified here, and what is not.** The image builds, starts, binds its port, and serves
 the console with real demo data through a real login — all confirmed by actually doing it. **Real
 packet capture from inside this container, on a real network, has not been verified** — this
-development machine's own network topology is not a stand-in for that, the same honest gap
-WINDOWS.md states for the Windows build rather than assuming it away.
+development machine's own network topology is not a stand-in for that, the same honest gap as
+for the Windows build ([Quick start](quickstart.md)).
 
 ## Run a remote agent
 
@@ -73,7 +73,7 @@ docker run -d --name denis-agent --restart unless-stopped --no-healthcheck \
   -e DENIS_AGENT_ID=branch-1 -e DENIS_AGENT_NAME="Branch office" -e DENIS_AGENT_SITE=Branch \
   -e DENIS_FLOWS=true \
   -e DENIS_MASTER_CA_PEM="$(cat ca.pem)" \
-  ghcr.io/stefanmesaros/denis:4.1.1 agent
+  ghcr.io/stefanmesaros/denis:4.1.2 agent
 ```
 
 Or with Compose, from a checkout of this repository (it builds the image locally):
@@ -94,7 +94,7 @@ What it needs, and why:
 * **Outbound HTTPS to the master** on its agent port is the only connection needed; the agent opens no port.
 * **`-v denis-agent-data:/data`** keeps the agent's small database (`/data/agent.db`) across container
   replacements. Without it an upgraded container starts with an empty one.
-* **`DENIS_MASTER_CA_PEM`** is the CA certificate as text (*Settings → HTTPS certificate → Copy for
+* **`DENIS_MASTER_CA_PEM`** is the CA certificate as text (*Settings → Sign-in & security → HTTPS certificate → Copy for
   --master-ca-pem*). Leave it out when the master uses a publicly trusted certificate.
 * The token is in the container's environment, so it shows in `docker inspect` for anyone who may use Docker
   on that machine. Revoke it on the master (Sites) when the agent is retired.

@@ -108,6 +108,9 @@ SQLite is compiled in through the `rusqlite` crate (public domain). Manufacturer
 | ipnet | 2.12.2 | MIT OR Apache-2.0 | https://github.com/krisprice/ipnet |
 | is_terminal_polyfill | 1.70.2 | MIT OR Apache-2.0 | https://github.com/polyfill-rs/is_terminal_polyfill |
 | itoa | 1.0.18 | MIT OR Apache-2.0 | https://github.com/dtolnay/itoa |
+| jiff | 0.2.37 | Unlicense OR MIT | https://github.com/BurntSushi/jiff |
+| jiff-core | 0.1.1 | Unlicense OR MIT | https://github.com/BurntSushi/jiff |
+| jiff-tzdb | 0.1.8 | Unlicense OR MIT | https://github.com/BurntSushi/jiff (embeds the public-domain IANA Time Zone Database) |
 | js-sys | 0.3.105 | MIT OR Apache-2.0 | https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/js-sys |
 | lazy_static | 1.5.0 | MIT OR Apache-2.0 | https://github.com/rust-lang-nursery/lazy-static.rs |
 | lettre | 0.11.23 | MIT | https://github.com/lettre/lettre |
@@ -278,3 +281,17 @@ SQLite is compiled in through the `rusqlite` crate (public domain). Manufacturer
 | zerovec-derive | 0.11.6 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
 | zlib-rs | 0.6.8 | Zlib | https://github.com/trifectatechfoundation/zlib-rs |
 | zmij | 1.0.23 | MIT | https://github.com/dtolnay/zmij |
+
+## Fonts served by the console
+
+The console serves subset WOFF2 copies of the fonts below from `ui/fonts/` (Latin, Latin Extended-A, the punctuation and symbols used in the product's strings; kerning, ligatures, tabular figures and small capitals kept). Each is licensed under the [SIL Open Font License 1.1](https://openfontlicense.org); the full license text of each family is next to the font files.
+
+| Font | Version | Files | License text | Source |
+|---|---|---|---|---|
+| IBM Plex Sans | 1.1.0 | `plex-sans-400.woff2`, `plex-sans-600.woff2` | `ui/fonts/OFL-IBM-Plex.txt` | https://github.com/IBM/plex |
+| IBM Plex Mono | 2.5.0 | `plex-mono-400.woff2` | `ui/fonts/OFL-IBM-Plex.txt` | https://github.com/IBM/plex |
+| IBM Plex Sans Condensed | 2.0.0 | `plex-sans-condensed-600.woff2` | `ui/fonts/OFL-IBM-Plex.txt` | https://github.com/IBM/plex |
+| Iosevka | 34.9.0 | `iosevka-400.woff2`, `iosevka-600.woff2` | `ui/fonts/OFL-Iosevka.txt` | https://github.com/be5invis/Iosevka |
+| Charis SIL | 7.000 | `charis-400.woff2`, `charis-600.woff2`, `charis-400-italic.woff2` | `ui/fonts/OFL-Charis-SIL.txt` | https://software.sil.org/charis |
+
+Copyright: IBM Corp. (Plex); Renzhi Li (Iosevka); SIL Global (Charis SIL).

@@ -7,34 +7,42 @@ v3.4.0 it also lets you define zones and policies for what should be allowed to 
 traffic that breaks those rules, and can show a name instead of a bare address once you switch on
 passive DNS. As of v3.5.0 it also shows which devices lack management, scanning or endpoint protection, tracks that over time against goals you set, and gives incidents a clear lifecycle. As of
 v4.0.0 it can also run on PostgreSQL with an active/standby failover pair, block through sixteen
-kinds of firewall and controller in addition to the original SNMP switch connector, offers three
+enforcement connectors (fifteen kinds of firewall and controller plus the original SNMP switch connector), offers three
 new console looks, and remembers your language choice per account. As of v4.1.0 every one of its
 twenty connector kinds can carry out actions (experimental, simulator-tested only, apart from switching a
 switch port off), and an MSP can manage a customer's installation remotely (experimental). v4.1.1 added a
-static Linux program for Alpine and any Linux, OpenRC support and fixes. Next comes a 4.1.2 with the remaining review
-items, IP fragment reassembly and internal clean-up, then correctness under failure for high availability, and
+static Linux program for Alpine and any Linux, OpenRC support and fixes. v4.1.2 puts industrial commands split into
+IP fragments back together before reading them and fixes most of the remaining review items. Next comes a 4.1.3 with
+the review items still open and further internal clean-up, then correctness under failure for high availability, and
 validating the connectors on real equipment.
 
 The list is in rough order. Plans can change, and nothing here is a delivery promise. Ideas and
 pull requests are welcome.
 
-## 4.1.2: open items from the 4.1.0 code review, and clean-up
+## 4.1.2: delivered
 
-4.1.1 fixed the quick and safe items of the internal code review of 4.1.0. Planned for 4.1.2, and still open, with the
-reason:
+* Industrial messages split across IP fragments are put back together before they are decoded, within fixed limits.
+* For Proxmox and Hyper-V, addresses a guest reports about itself are hints only, checked against the hypervisor's
+  configuration and DENIS's own view of the network; the RADIUS disconnect messages were checked byte for byte against
+  an independent reference, which showed the signing order was wrong, and it is fixed; SNMPv3 switches have their
+  engine ID pinned; a per-record "would you have blocked it?" judgement on the Autopilot report is the only thing that
+  counts as agreement; for PAN-OS, DENIS undoes its own uncommitted edits after a failed step; FortiGate and PAN-OS take
+  one action at a time per firewall; held MSP co-approval requests are kept encrypted while they wait.
+* Fixes from the internal code review of 4.1.2, unused old code removed, and three large source files split into
+  smaller ones, with no change in behaviour.
 
-* **Planned next:** industrial messages split across IP fragments are put back together before they are decoded;
-  unused old code is removed and the largest source files are split into smaller ones, with no change in behaviour;
-  for Proxmox and Hyper-V, addresses a guest reports about itself become hints only, checked against
-  DENIS's own view of the network; the RADIUS disconnect messages are checked byte for byte against an independent
-  reference; a per-record "would you have blocked this" judgement on the Autopilot report; for PAN-OS, undoing DENIS's
-  own uncommitted edits after a failed step, one commit deadline, and one action at a time per firewall.
+## 4.1.3: open items from the code reviews, and clean-up
+
+* **From the 4.1.2 code review:** checking TCP/UDP checksums before industrial decoding (today a crafted message with a
+  wrong checksum can raise a false alert, never hide one), verifying the signature of RADIUS replies, Autopilot
+  agreement figures per site, refusing Hyper-V and Proxmox connections without TLS that were saved before 4.1.2 (today
+  they work until saved again), and a fragmented command seen twice when a mirror sees both sides of a router.
+* **Clean-up:** the remaining large source files split into smaller ones, with no change in behaviour.
 * **Needs real equipment to do safely:** OPNsense alias and floating-rule behaviour, which FMC deployment warnings may
   be ignored, SSH host keys on first use and unexpected prompts on Cisco ASA, certificate pinning for FortiGate and
   PAN-OS, Check Point waits and paging, UniFi controller sessions.
 * **Larger design changes:** further hardening of the old (pre-4.1) connector routes and of the enforcement ledger's
-  edge cases, held MSP co-approval requests kept encrypted while they wait, and stricter limits on what a remote MSP may
-  change in the backup schedule.
+  edge cases.
 
 ## 4.1.0: what is in, what is experimental, what is not built
 
@@ -67,7 +75,7 @@ off over SNMP (tried on one real switch), Autopilot's real-world use, MSP remote
 tunnelled mirrors. Each untried connector needs two lab switches before it can act.
 
 **Not built in 4.1.0:** fencing of database writes during a failover (planned for 4.2), a separate encryption key
-per customer on one installation (4.2), IP fragment reassembly for industrial decoding (4.1.2), and, for MSP management, a one-click
+per customer on one installation (4.2), IP fragment reassembly for industrial decoding (added in 4.1.2), and, for MSP management, a one-click
 upgrade for customers that already relay to an MSP, fleet templates and queued changes for offline customers.
 
 ## Coming next

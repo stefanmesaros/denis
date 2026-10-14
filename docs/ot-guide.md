@@ -95,6 +95,11 @@ How much of a command stream each decoder follows (TCP; "complete messages" = ev
 | BACnet, FINS, CoAP, KNX (UDP) | first message of the datagram (these protocols carry one message per datagram) | not applicable | not followed |
 | HART-IP, CODESYS | first message only (named, not read) | no | no |
 
+**IP fragments** (since 4.1.2): for every protocol above, over TCP and UDP, IPv4 and IPv6 (Fragment extension
+header), a datagram between two local devices that was split into IP fragments is put back together before it is
+decoded, when it goes to or comes from one of these ports, in any fragment order. Limits and refusals are under
+[Limits to know about](#limits-to-know-about).
+
 Each decoder verifies the protocol's own signature (magic bytes, a length field that has to match, a declared
 version). **No decoder checks a checksum or CRC**, and DENIS does not validate TCP sequence numbers against the
 receiver's state, so a forged frame that looks right is decoded like a real one. So ordinary traffic that merely uses the same port number is not mistaken for industrial traffic,
@@ -170,7 +175,7 @@ and target scores 45 instead of 85 and is held for 10 minutes; if it is routine 
 <a id="command-watches"></a>
 ## OT rules
 
-*Rules → Your rules → Your OT rules.* An OT rule says: **when this command reaches that device, tell me**. **New OT rule** opens the dialog described under [Your own rules](detection-rules.md#your-own-rules-it-rules-and-ot-rules), with a template for each common case and a preview of how often the rule would have fired.
+*Rules → OT · industrial → Your OT rules.* An OT rule says: **when this command reaches that device, tell me**. **+ New OT rule** (or **+ New rule → OT rule** at the top of the page) opens the dialog described under [Your own rules](detection-rules.md#your-own-rules-it-rules-and-ot-rules), with a template for each common case and a preview of how often the rule would have fired.
 
 | Field | Meaning |
 |---|---|
@@ -224,7 +229,10 @@ DENIS sees, between two local devices, without reading any content:
 These paths feed the same rules as decoded ones: `ot_new_conversation` alerts when a path appears that never existed (with the reason
 "the content is encrypted: DENIS sees who talks to whom, not what is said", and without the deduction for "only set-up traffic"),
 and the **OT matrix** lists them. TLS between two ordinary machines (two office PCs) is **not** recorded: only paths that involve an
-industrial device or a known industrial port. A path never marks a device as industrial by itself.
+industrial device or a known industrial port. Plain TLS on a port no industrial protocol uses (8443, say) counts as an industrial
+conversation only when one of the two devices has industrial evidence of its own (a decoded industrial protocol or an industrial
+device type; a vendor name is not enough), and is then shown as *TLS (not identified as industrial)*. A path never marks a device
+as industrial by itself.
 
 ### An allow-list: only these devices may talk to it
 
@@ -277,8 +285,22 @@ This needs the mirror port to carry the traffic between the devices (the same re
     as separate messages. Frames out of transport sequence are read the old way (as "continuation fragment").
   * **Several DNP3 frames in one UDP datagram** are all read (the strongest is reported). The other UDP protocols
     carry exactly one message per datagram, and only that one is read.
-  * **Not covered**: messages cut by IP fragmentation (no IP reassembly; on the roadmap); protocol-internal
-    fragmentation above these layers (S7comm-plus and OPC UA multi-chunk messages are classified from their first
+  * **A message cut by IP fragmentation** (since 4.1.2) is put back together, IPv4 and IPv6 alike, in any fragment
+    order, when the datagram goes to or comes from an industrial port (the ports in the table above); other traffic
+    is never reassembled, and unfragmented packets take the same path as before. Hard limits, per capture thread:
+    at most 64 datagrams being put together at once and 16 per source address (past that, the oldest is dropped),
+    1 MB of buffers in all, 64 fragments and 65,535 bytes per datagram, and 5 seconds from the first fragment to
+    the last. **Fragments that overwrite bytes already received with other bytes** (the overlap and teardrop
+    evasions), or two different ends of one datagram, drop the whole datagram, and its remaining fragments are
+    ignored: DENIS never guesses which copy the device will believe. An exact repeat of a fragment is accepted.
+    **Tiny fragments** are refused: a first fragment without the whole TCP or UDP header, or a fragment other than
+    the last one with fewer than 48 bytes. When room runs out, datagrams whose first fragment has not arrived go
+    before an industrial one, and other traffic never pushes one out. The counters are on `/metrics`
+    (`denis_ot_fragments_reassembled_total`,
+    `denis_ot_fragments_dropped_total{reason="timeout|limit|overlap|oversize|tiny"}`) and count only datagrams whose
+    ports are industrial; Health warns at the first overlapping, tiny, oversized or pushed-out datagram, or after a
+    hundred incomplete ones.
+  * **Not covered**: protocol-internal fragmentation above these layers (S7comm-plus and OPC UA multi-chunk messages are classified from their first
     chunk); HART-IP and CODESYS (named only); anything encrypted. A device on the cell network can use any of these on purpose, and a capture NIC with GRO/LRO
     on merges frames by itself. **Turn GRO/LRO off on the capture interface**
     (`ethtool -K <interface> gro off lro off`), and keep the mirror's snap length at the default.

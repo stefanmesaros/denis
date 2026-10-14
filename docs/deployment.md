@@ -50,7 +50,7 @@ the installer, because the console does not replace a file that carries capabili
 with the release key from `src/update_key.rs` (the same key the installer carries):
 
 ```bash
-V=v4.1.1; B=https://github.com/stefanmesaros/denis/releases/download/$V
+V=v4.1.2; B=https://github.com/stefanmesaros/denis/releases/download/$V
 curl -fLO $B/install.sh -O $B/SHA256SUMS -O $B/SHA256SUMS.sig
 hex2bin() { printf '%b' "$(printf '%s' "$1" | sed 's/../\\x&/g')"; }
 hex2bin 302a300506032b6570032100abe75462c8adfb1d4c5aa39d25e44377d00c77442f423c2f01cd51fec40e938e > denis-release.der
@@ -231,7 +231,7 @@ warning go away:
 * **Trust the DENIS CA once**: *Settings → Sign-in & security → HTTPS certificate → Download the CA certificate* (or copy
   `tls/ca.pem` from beside the database) and add it to your browser or operating system's trust store. From then on
   the generated certificate is trusted, including after every automatic renewal.
-* **Use your own certificate** (Let's Encrypt, your company CA, a purchased one): *Settings → HTTPS certificate → Use my
+* **Use your own certificate** (Let's Encrypt, your company CA, a purchased one): *Settings → Sign-in & security → HTTPS certificate → Use my
   own certificate…*, paste the chain and the private key. DENIS checks that they belong together and are valid, and starts
   using them **immediately, without a restart**. *Go back to the generated certificate* undoes it.
 
@@ -244,7 +244,7 @@ Agents on other machines trust the master's certificate with `--master-ca`: give
 every machine is the tedious part — not renewal: the CA itself is long-lived and does not change
 when the master's own certificate renews, so an agent set up once keeps working across every later
 renewal without touching it again. To skip the file copy itself, use `--master-ca-pem`
-(or `DENIS_MASTER_CA_PEM`) with the certificate's *text* instead of a path — *Settings → HTTPS
+(or `DENIS_MASTER_CA_PEM`) with the certificate's *text* instead of a path — *Settings → Sign-in & security → HTTPS
 certificate → Copy for --master-ca-pem* puts it on the clipboard, ready to push through whatever
 already deploys each agent's token (a secrets manager, Ansible, cloud-init), with nothing extra to
 transfer per machine. Give either `--master-ca` or `--master-ca-pem`, never both.
@@ -311,8 +311,8 @@ repeated failures, up to 15 minutes; the exact limits, and why a stranger cannot
    `--token-file FILE` work too; `--token` still works).
 
 ```bash
-curl -fLO https://github.com/stefanmesaros/denis/releases/download/v4.1.1/install.sh
-sudo bash install.sh --version v4.1.1 --agent --master https://MASTER:8081 \
+curl -fLO https://github.com/stefanmesaros/denis/releases/download/v4.1.2/install.sh
+sudo bash install.sh --version v4.1.2 --agent --master https://MASTER:8081 \
   --id branch-1 --name "Branch office" --site Branch --flows --master-ca-pem - <<'PEM_7Q2K9XWA'
 -----BEGIN CERTIFICATE-----
 …
@@ -391,7 +391,7 @@ box or in Docker on the site's network.
 * A report is size-checked on arrival (at most 32 MB, and a fixed number of devices, traffic windows and so on); see
   [Security](security.md#what-a-master-accepts-from-an-agent).
 * **Overlapping private ranges.** Two sites may both use 10.0.0.0/24: a device is `(site, MAC)`, so their
-  devices never mix. Bind each switch and each enforcement connector to its site (Settings → Switches and
+  devices never mix. Bind each switch and each enforcement connector to its site (Settings → Network → Switches and
   Settings → Enforcement show **Site** once there are two or more sites), so that DENIS never acts on a
   device of one site through the firewall of the other. Unbound ones keep working but are marked "Not
   bound to a site" and need a ticked warning to block. See [Concepts](concepts.md#what-a-device-is-site-vlan-mac).
@@ -621,7 +621,7 @@ nodes share that database with one of them as leader and the other on standby. I
 * Every PostgreSQL connection carries keepalive, connect, statement, lock-wait and idle-in-transaction limits, and the
   leader proves its leadership once a second, so a database link that fails silently ends the old leader's side effects
   within about three seconds and the process within about ten. The defaults and the `DENIS_PG_*` variables that change them
-  are in `HA_DEPLOYMENT.md` §5. Delivery of notifications and exports across a failover is **at least once**: after a
+  are in [High availability](high-availability.md#postgresql-connection-settings). Delivery of notifications and exports across a failover is **at least once**: after a
   failover a message can arrive twice; the design does not promise exactly once.
 * **Known limit (until 4.2):** only side effects are tied to the leader's lease. Database writes carry no leader epoch,
   so in the few seconds after a failover the old leader can still write a row the new one also writes.
@@ -629,8 +629,8 @@ nodes share that database with one of them as leader and the other on standby. I
   tenants keep their data in SQLite files on one node.
 * Speed is not a reason to choose it: for one site SQLite is faster ([Operations](operations.md#how-big-can-one-installation-be)).
 
-The full guide, with a load-balancer example and a failover test, is `HA_DEPLOYMENT.md` in the repository. It has been
-tried with PostgreSQL 16 in a test container, not on managed or clustered PostgreSQL in production.
+The full guide, with a load-balancer example and a failover test, is [High availability](high-availability.md). It has
+been tried with PostgreSQL 16 in a test container, not on managed or clustered PostgreSQL in production.
 
 ## Command reference
 

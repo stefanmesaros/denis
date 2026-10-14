@@ -11,7 +11,7 @@ important, what it does **not** do, so you can assess it honestly.
 | User accounts | password guessing, theft of the database, sign-in floods | Argon2id hashes, lock-out with back-off per account and address, per-address limits, a cap on simultaneous password checks ([details](#sign-in-limits-and-lock-out)), no default credentials, forced first-login change |
 | Sessions | theft, fixation, cross-site request forgery | 256-bit random tokens (only their SHA-256 is stored), HttpOnly + SameSite=Strict cookie, idle/absolute expiry, custom-header CSRF check on state changes, `Host` validation against DNS rebinding |
 | Agent channel | impersonation, injection | one token per agent bound to its id, revocable, hashed at rest, throttled on failures, size limits, input validation, time and count limits per report ([details](#what-a-master-accepts-from-an-agent)) |
-| The collector process | malicious network frames | every parser bounds-checks and is fuzz-tested (the targets are listed in `fuzz/README.md`), protocol decoders verify signatures, strings from the network are sanitised, memory bounds everywhere; a crash inside the packet parser is contained to that packet, counted and shown on the Health page |
+| The collector process | malicious network frames | every parser bounds-checks and is fuzz-tested (the targets are listed under [Verification performed](#verification-performed)), protocol decoders verify signatures, strings from the network are sanitised, memory bounds everywhere; a crash inside the packet parser is contained to that packet, counted and shown on the Health page |
 | Users' browsers | stored XSS via device names | the UI builds DOM with `textContent` only (never HTML strings), strict Content-Security-Policy (`default-src 'self'`), HTML/CSV output escaped, CSV formula injection neutralised |
 | The host | privilege | runs unprivileged with only `CAP_NET_RAW`/`CAP_NET_ADMIN`; never executes anything received from the network |
 
@@ -59,7 +59,9 @@ address being looked up; switch them off or point them at your own resolver unde
 * **Passkeys** (WebAuthn) and **one-time codes from an authenticator app** (TOTP) are supported for sign-in (below).
   **Single sign-on** over OpenID Connect exists (*Settings → Sign-in & security → Single sign-on*) but has not yet
   been exercised against a real identity provider — ID-token signature verification end to end is the specific
-  gap; see `SSO.md` in the repository before relying on it. SAML is not supported.
+  gap. Before relying on it, configure it against one real provider (for example a Keycloak container or a free
+  Google Cloud OAuth client) and confirm a full sign-in end to end. SAML is not
+  supported.
 * Login lock-out is counted **per account and per source address**, with an account-wide limit behind it: see
   [Sign-in limits and lock-out](#sign-in-limits-and-lock-out) for the exact numbers and for what an attacker can and
   cannot do to the real owner. Behind a reverse proxy **on the same machine** the client address is taken from the
@@ -315,10 +317,13 @@ types a correct first code. Ten **recovery codes** are shown once.
 * Unit and integration tests (780+ across the crate) including negative tests: unauthenticated access to every
   route, every role on every kind of route, session/cookie flags, lock-out, CSRF header, rebinding, token binding
   and revocation, API-token rate limits, hostile CSV/HTML, secrets never echoed back by any settings endpoint.
-* Coverage-guided fuzzing (libFuzzer) of 14 untrusted-input parsers: captured frames, DNS answers, the agent report,
-  the industrial-protocol decoders (including the layer-2 and BER readers), uploaded SCL files, IPv6 extension headers
-  and identity messages, SNMP replies, device banners, the enforcement connectors' reply parsers and the asset CSV
-  import. Each ran for about five minutes in 2026 and found two real crashes in the first eight targets (a banner and
+* Coverage-guided fuzzing (libFuzzer) with 18 targets over the untrusted-input parsers: captured frames, mirror tunnels
+  (ERSPAN, GRE, VXLAN, Geneve), DNS answers, the agent report, the SNMP raw dump, the industrial-protocol decoders
+  (including the layer-2 and BER readers and IP fragment reassembly), uploaded SCL files, IPv6 extension headers and
+  identity messages, SNMP and SNMPv3 replies, device banners, the enforcement connectors' reply parsers, the MSP
+  management channel and the asset CSV import. Fourteen of them ran for about five
+  minutes each in 2026 (no such run is recorded for the newer ones, such as mirror tunnels, IP fragment reassembly and
+  the MSP channel) and found two real crashes in the first eight targets (a banner and
   an SNMP hex string cut inside a multibyte character), both fixed; no crash is recorded for the others.
   Five minutes is a smoke test, not assurance: longer runs have not been done. Hostile-frame and recovery tests
   (about 150 malformed frames, 150,000 mutations, damaged or oversized capture and database files) run with the
@@ -353,7 +358,7 @@ Explanations that used to be printed on the console screens. The console shows t
 * Adds an "Assess & Explain with AI" button to alerts (shared with Device behavioral analysis below) and contributes the assessment section: what it means, a triage read (likely benign / suspicious / requires investigation), what could happen if ignored, and concrete next steps — plus the AI's own plain-language risk estimate, shown alongside (never in place of) DENIS's own severity. Advisory only; DENIS never acts on any of it itself. Only called when you click the button, sending the same alert data as the explanation feature above.
 * Adds an "AI Security Summary" card to the dashboard: a short overview of the last day's alert activity. Never generated by opening or refreshing the dashboard — a background job regenerates it on its own, only when there has been meaningful new alert activity since the last one, at most every few minutes.
 * Adds an "Ask DENIS" button next to "Scan now": a panel that stays open while you move between screens, for five kinds of request — ask about recent alert activity ("What changed in the last 24 hours?"), hunt for a destination across every device's own traffic history ("Has anything talked to 1.2.3.4?"), jump straight to a screen or Settings page ("Take me to Topology", "Open the SSO settings"), ask a how-to question answered from the real documentation ("How do I add a switch?"), or ask what it can do. The AI never answers from facts it invented, acts on a setting, or takes any action itself — for a search it only ever chooses how to search, and DENIS runs that search itself; for a how-to question it only ever describes one real documentation page. Only called when you ask a question.
-* Adds an "AI Security Summary" section to your periodic reports (Settings → Reports): devices, new devices, alert activity, standing findings and accepted risks over the report's period, in plain language. Written once, when a report is generated and saved — on its existing schedule, or "Generate now" — never on a separate timer of its own, and never for "Open a live report without saving it" (that link stays instant and free). If the AI call fails, the report is still generated without a summary.
+* Adds an "AI Security Summary" section to your periodic reports (Settings → AI → Security reports): devices, new devices, alert activity, standing findings and accepted risks over the report's period, in plain language. Written once, when a report is generated and saved — on its existing schedule, or "Generate now" — never on a separate timer of its own, and never for "Open a live report without saving it" (that link stays instant and free). If the AI call fails, the report is still generated without a summary.
 * Contributes a "Behavior change" section to the same "Assess & Explain with AI" button, for alerts that describe a change from one device's own established pattern (new destination, new port, unusual hours, unusual traffic volume): what the device normally does, compared with what just changed. Only offered on those alert kinds — DENIS already decided the change was meaningful before this button ever appears. Only called when you click it.
 * Adds an "Assess consequences with AI" button to the incident detail dialog (Incidents page): what could realistically happen if this specific incident is ignored, plus innocent explanations and the one fact that would settle it. On click, per incident. DENIS's own rule-based priority and consequence text stay exactly as they are either way — this is an additional opinion shown alongside them, never a replacement. May consume API credits.
 * Only meaningful with Incident consequences above also on. Writes that same assessment in the background, without anyone clicking the button, for open incidents already at priority Act now or Investigate today. At most once per incident per change, and only after it has stopped absorbing new alerts for 5 minutes; at most 50 calls a day across every incident. May consume API credits.

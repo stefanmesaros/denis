@@ -41,7 +41,7 @@ denis run --license-file /path/to/license.key
 ```
 
 `DENIS_LICENSE_FILE` works the same way as an environment variable. A license pasted into
-Settings → License always takes priority over `--license-file` if both are present.
+Settings → System → License always takes priority over `--license-file` if both are present.
 
 **In an MSP/multi-customer setup**, the license belongs on the top-level installation that has a
 console — your own instance if you are a single business, or each customer's master if you are an
@@ -51,7 +51,7 @@ the cap and terms apply to the install as a whole, not per agent.
 A license's validity is counted **from the first time it verifies on that install**, not from the
 day it was issued.
 
-**A license is issued for one installation.** Settings → License shows this installation's ID (a
+**A license is issued for one installation.** Settings → System → License shows this installation's ID (a
 random identifier it created once; it never changes and is not a secret). Send it with your order,
 and the license you receive works on that installation only — copied to another server it is
 refused there, and that server stays on the Community edition. Nothing is sent online for this:
@@ -69,7 +69,7 @@ master's license covers the combined total.
 
 ## Expiry, and a 7-day grace period
 
-Nothing changes suddenly. Settings → License always shows when the current license expires and,
+Nothing changes suddenly. Settings → System → License always shows when the current license expires and,
 once it is getting close, how many days are left:
 
 * **30 days before expiry**: everything stays exactly as licensed. A banner appears at the top of

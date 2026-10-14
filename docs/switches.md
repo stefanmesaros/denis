@@ -191,8 +191,8 @@ found on a watched port is created at the switch's site.
 A switch that is **not bound** keeps working as before (it is tenant-wide), but it cannot tell which site's
 device a MAC belongs to when devices of two sites share it: nothing is attached to such a MAC (counted in
 `denis_topology_ambiguous_mac_total`) instead of guessing. Once any switch is bound, port control (NAC)
-asks only the switches bound to the device's own site where it is; see
-"Site binding of switches and connectors" in NAC.md. When you save the list, the
+asks only the switches bound to the device's own site where it is, and never acts on a device of one site
+through a switch of another. When you save the list, the
 console keeps each switch's binding (the form sends it back): an API client that saves the list must send
 `site` too, or it unbinds the switches.
 
@@ -243,8 +243,7 @@ The 4.1 response dialog for switches (expiry, one action per port, drift read ba
 by VLAN** were tested **only against the stand-in switch**, with SNMPv2c and SNMPv3. Nothing about moving a port to another
 VLAN was tried on a real switch: whether the Cisco `vmVlan`, `vmVlanType`, `vmVoiceVlanId`, `vtpVlanState` and the IEEE
 802.1X objects answer the way DENIS expects on a Catalyst 2960-X, whether a Q-BRIDGE `dot1qPvid` write alone moves a port on
-your switch, and what the bounce does to a real device are all open. The bench steps S26 to S40 in
-`NAC_HARDWARE_VALIDATION.md` list them. That is why quarantine by VLAN is labelled experimental and needs both lab switches.
+your switch, and what the bounce does to a real device are all open. That is why quarantine by VLAN is labelled experimental and needs both lab switches.
 
 ## SNMPv3
 
@@ -287,6 +286,14 @@ switch's line ("The switch rejected the authentication: the authentication passw
 that does not answer at all says "no answer from the device". A wrong **privacy** password is often silence, because
 many agents simply drop what they cannot decrypt.
 
+**The engine ID is pinned (4.1.2).** Since the first request is unauthenticated, someone on the path could answer it
+for another switch. So the first poll whose answer is authenticated pins the switch's engine ID, and port control is
+sent only to that engine (a switch added before 4.1.2 is pinned at its next poll). If the switch later answers with
+another engine ID (it was replaced or its SNMP configuration reset, or someone answers for it), polls go on, the
+switch's line on *Settings → Network → Switches* shows both IDs, and disabling or enabling a port is refused until an
+administrator presses **Confirm the new engine ID**. Changing the switch's address drops the pin. Give each switch its
+own write user password: a key localised for one switch then never works on another.
+
 **Cisco per-VLAN reading.** With SNMPv2c a Cisco IOS switch gives each VLAN's forwarding table through
 `community@vlan`. With SNMPv3 DENIS reads the SNMP **context** `vlan-<n>` instead, with the same user and keys. The
 group on the switch must be allowed to use these contexts (see the Cisco steps below).
@@ -321,7 +328,7 @@ Notes: the user lines are not shown in `show running-config` (the keys are kept 
 engine ID, so changing `snmp-server engineID` invalidates them: create the users again). `show snmp user` lists them.
 The per-VLAN context lines are the part to check on your IOS version; if the forwarding table of VLANs other than 1 stays
 empty, that is the first thing to look at. DENIS never saves the switch's configuration. **Not yet tried on real
-hardware** (see NAC_HARDWARE_VALIDATION.md).
+hardware.**
 
 ### Setting up SNMPv3 on another switch
 

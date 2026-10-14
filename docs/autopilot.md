@@ -256,10 +256,13 @@ every block:
 3. **At least 7 days** of "would have blocked" records. Every time Autopilot would have blocked something, in shadow mode
    or while this option is off, it writes a record and nothing else (one per device and day). To collect them you need
    a connector set up and both lab switches on while Autopilot is in shadow mode.
-4. **At least 10** of those records **judged by a person**: you blocked or quarantined the device yourself within a day,
-   or acknowledged one of its alerts as *resolved* count as agreeing; you acknowledged one as *false positive* or
-   *expected behaviour*, or undid an Autopilot block, count as disagreeing. An alert Autopilot closed itself says nothing,
-   and neither does a bulk acknowledgement or an alert closed together with its incident.
+4. **At least 10** of those records **judged by a person**. Since 4.1.2 only an explicit answer counts as agreeing: under
+   the shadow report, *Would you have blocked it?* lists the records, and **Yes, block** agrees (`POST
+   /api/autopilot/would-enforce/{id}/judgement`, an administrator in the console, audited; a later answer replaces the
+   earlier one). **No, do not block**, acknowledging one of its alerts as *false positive* or *expected behaviour*, or
+   undoing an Autopilot block count as disagreeing, and a disagreement outweighs a "yes". Closing alerts as *resolved*
+   (one by one, in bulk or with their incident) and blocking the device by hand are housekeeping and count for neither.
+   An alert Autopilot closed itself says nothing.
 5. **At least 95 %** of the judged records agree. The figures are on the Autopilot screen's status line and in
    the automation box.
 6. Your account holds the permission to block and to quarantine, both lab switches and the kill switch are on, and you

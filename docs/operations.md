@@ -100,7 +100,9 @@ Useful alerts: `denis_channel_failing == 1` (a notification channel is broken), 
 Gauges and counters for the conditions in the next section: `denis_capture_parser_panics`, `denis_signal_buffer_saturated`,
 `denis_clock_skewed_agents`, `denis_snmp_incomplete_switches`, `denis_notifications_dropped`, and, for the
 industrial layer-2 decoders, `denis_ot_sv_sampled_out_total` (Sampled Values frames skipped by the one-per-second
-sampling) and `denis_ot_l2_appid_refused_total` (control blocks refused because a device already has the most it keeps).
+sampling) and `denis_ot_l2_appid_refused_total` (control blocks refused because a device already has the most it keeps),
+and for IP fragments of industrial traffic `denis_ot_fragments_reassembled_total` and
+`denis_ot_fragments_dropped_total{reason="timeout|limit|overlap|oversize|tiny"}` (see the OT guide's limits).
 
 ### When the database cannot keep up
 
@@ -190,8 +192,7 @@ made from the Findings page or a device panel has none.
 
 ## How big can one installation be?
 
-Measured on one laptop (8 cores, SQLite, release build, a synthetic site; see `A02_MEASUREMENTS.md` in the repository
-for the method and every number), not on a server and without real browsers, so read it as an order of magnitude:
+Measured on one laptop (8 cores, SQLite, release build, a synthetic site), not on a server and without real browsers, so read it as an order of magnitude:
 
 | Devices in one database | Console users at the same time | Result |
 |---|---|---|

@@ -12,7 +12,10 @@ attributed to a named reason — never a black box.
 [![License: DENIS Community License](https://img.shields.io/badge/license-DENIS%20Community-blue)](LICENSE)
 
 DENIS is **not** a SIEM, an AI security platform, a SOC replacement or a UTM/firewall appliance. It does not sit
-inline and it does not block anything — it is a passive, out-of-band layer underneath those things: an
+inline and, by default, it does not block anything on its own. Enforcement is off by default; when an administrator
+switches it on, DENIS can act through 20 kinds of connectors (SNMP switch ports, firewalls, controllers, cloud and
+hypervisors), each action confirmed by an administrator, and the automatic levels (rules, and letting Autopilot block)
+are experimental and off by default. Otherwise it is a passive, out-of-band layer underneath those things: an
 always-current inventory of what is actually on your network, who each device talks to, and an explainable alert
 the moment that changes. A UTM controls what crosses your perimeter; DENIS shows what is happening *inside* it,
 including the east-west and OT/industrial traffic a perimeter box was never in a position to see.
@@ -123,8 +126,8 @@ network itself rather than trusting whatever was last typed into a CMDB.
 5. **Protect OT.** Passive decoding of Modbus, S7comm and S7comm-plus, EtherNet/IP-CIP, DNP3, BACnet, OPC UA, IEC 60870-5-104,
    IEC 61850 (MMS, GOOSE, Sampled Values) and PROFINET IO (CODESYS is recognised only);
    alerts for control commands DENIS can see on the wire (a PLC stop, a program download; not S7comm-plus stop or download,
-   and a command cut by IP fragmentation or sent over an encrypted channel can be missed; messages split across TCP
-   segments are followed: see the OT guide), traffic crossing the network boundary, Purdue-level skipping, and writes from a device that
+   and a command sent over an encrypted channel can be missed; messages split across TCP
+   segments or IP fragments are followed: see the OT guide), traffic crossing the network boundary, Purdue-level skipping, and writes from a device that
    should only ever read.
 6. **Manage the register.** Owner, location, serial number, asset tag, warranty, criticality, tags, custom fields,
    120+ icons, 120+ device types, full change history, a review queue for new devices, CSV import/export.
@@ -255,7 +258,7 @@ your actual register — three of the console's 20-odd pages ([more screenshots 
 | Anomaly detection | New device, rogue DHCP, ARP hijack/gateway takeover, new destination/port, unusual volume/hour, silent device, internal host sweep / port scan, known-bad addresses, your own network watches, a device switching to a never-before-used DNS resolver, a connection opened from the internet to one of your devices (a port forward to a solar inverter or a camera) — each with an explainable 0–100 score. IPv6 (new destination, NDP mismatch, rogue router advertisement) is opt-in, see IPV6.md |
 | Quieter alerts | A routine event (a provider a device already uses, random peer-to-peer ports, a phone that is away) is kept in the console and in a **daily digest** instead of being pushed, with the reason it was kept quiet; known providers are learned per device. Threat-list matches, rogue DHCP, industrial control commands and the like are never kept quiet |
 | Autopilot (experimental) | Off by default and **experimental**: it triages alerts, explains each in plain language and asks one specific question at a time, in the console or on a phone through Telegram, ntfy or web push. It starts in shadow mode (it records what it would have done, for at least 7 days). By default it does not block anything and its proposals have no block action (the only exception is a separate, off-by-default, highly experimental option that you must switch on yourself: Autopilot may block); it can file away low-importance alerts only if you allow it, with an undo. It can miss real threats ([Autopilot](docs/autopilot.md)) |
-| OT protocols | Modbus, S7comm, S7comm-plus, EtherNet/IP-CIP, DNP3, BACnet, OPC UA, IEC 60870-5-104, IEC 61850 MMS (and ICCP), GOOSE and Sampled Values, PROFINET IO (passive decode; CODESYS recognised only), over IPv4 and, with `--ipv6`, IPv6. Messages split across TCP segments are followed; messages cut by IP fragmentation are not reassembled |
+| OT protocols | Modbus, S7comm, S7comm-plus, EtherNet/IP-CIP, DNP3, BACnet, OPC UA, IEC 60870-5-104, IEC 61850 MMS (and ICCP), GOOSE and Sampled Values, PROFINET IO (passive decode; CODESYS recognised only), over IPv4 and, with `--ipv6`, IPv6. Messages split across TCP segments are followed, and IP fragments are put back together within fixed limits |
 | Mirror tunnels | Opt-in, off by default: a mirror delivered inside ERSPAN, GRE, VXLAN (AWS Traffic Mirroring, Azure vTAP) or Geneve is unwrapped and read like a normal one. Verified on hand-built frames and public sample captures only, not yet on real switches or cloud mirrors ([tunnel mirroring](docs/tunnel-mirroring.md)) |
 | VLAN-aware identity | VLAN tags (and the ERSPAN header) are read and shown per device; an address claimed from two VLANs is annotated as such, and the same MAC on several VLANs is one device, flagged and never merged |
 | Communications matrix | Who talks to whom, which protocol, reads/writes/control commands |
@@ -346,7 +349,7 @@ ChatGPT and Gemini) and a real local Ollama instance.
   zones, scan and fan-out rules, `new_port`, passive DNS and resolver-change) on a genuine dual-stack network
   — verified so far only with hand-built frames and integration tests, not real ICMPv6/NDP traffic or a real
   socket send. Since 4.1.0 decoded OT conversations, IPv6 address-conflict detection and active discovery of new
-  addresses cover IPv6 too, verified the same way. IP fragments are not reassembled for OT decoding on either family.
+  addresses cover IPv6 too, verified the same way. IP fragments are reassembled for OT decoding on both families, within fixed limits.
 * PostgreSQL and high availability: built and measured, but only across five real `kill -9` runs on
   one machine against one shared PostgreSQL — not yet measured across two real machines with a
   real network between node and database. No per-tenant PostgreSQL yet.
@@ -403,8 +406,8 @@ how the pieces fit together.
 
 Passively decoded: **Modbus, S7comm, S7comm-plus, EtherNet/IP-CIP, DNP3, BACnet, OPC UA, IEC 60870-5-104, IEC 61850 (MMS, GOOSE, Sampled Values), PROFINET IO** (CODESYS is recognised only). DENIS builds a
 communications matrix (who talks to whom, which functions, reads vs. writes vs. control) and raises alerts for
-control commands it can see on the wire (decoding works on what the capture shows: messages split across TCP segments and several in one segment are followed;
-see the OT guide for what can still be missed: messages cut by IP fragmentation, encrypted ones, and S7comm-plus stop/download), boundary crossings and Purdue-level violations — all from **listening only**; industrial devices
+control commands it can see on the wire (decoding works on what the capture shows: messages split across TCP segments or IP fragments and several in one segment are followed;
+see the OT guide for what can still be missed: fragments past the reassembly limits, encrypted messages, and S7comm-plus stop/download), boundary crossings and Purdue-level violations — all from **listening only**; industrial devices
 are never sent probes, port scans or credentials. This is a deliberate safety boundary, not an oversight: a probe
 that a fragile PLC mishandles is a production incident. See the [OT guide](docs/ot-guide.md) for what "safe" means
 here in more detail, and the **Not yet independently verified** section above for what real-traffic testing is
@@ -471,9 +474,12 @@ A single priority-ordered list of what's missing and planned: see [ROADMAP.md](R
 enforcement actions on all 20 connector kinds, the automation levels and Autopilot (all experimental), and remote
 management of customers' installations from an MSP console (experimental, off until a customer pairs; see
 docs/msp-management.md). Multi-tenancy shipped in 3.3.0; PostgreSQL and high availability, and the first 16
-enforcement connectors, in 4.0.0. Next (4.2): correctness under failure in HA, and validation of the connectors on real
-equipment. Still owed before a commercial launch: an independent penetration test and verification on real equipment,
-listed in ROADMAP.md. A packaged Windows collector, Qualys import and SAML (OIDC SSO already works) are also open.
+enforcement connectors, in 4.0.0. 4.1.1 added a static Linux program for Alpine and any Linux, OpenRC support and fixes;
+4.1.2 adds IP fragment reassembly for industrial protocols, the remaining review items and internal clean-up. Next
+(4.2): correctness under failure in HA, and validation of the connectors on real equipment. Still owed before a
+commercial launch: an independent penetration test and verification on real equipment, listed in ROADMAP.md. A
+packaged Windows collector, Qualys import and SAML are also open. OIDC single sign-on is built, but its exchange with an
+identity provider has not been verified against a real provider yet.
 
 ## Contributing
 

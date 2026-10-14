@@ -4,6 +4,19 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 4.1.2: Industrial commands in IP fragments, and fixes from the code review of the connectors and Autopilot
+
+- Industrial commands sent in IP fragments are now seen. DENIS puts the fragments of a message to or from an industrial device back together before reading it, over IPv4 and IPv6, within fixed limits. Overlapping or too-small fragments, a known way to hide a command, are refused and shown on the Health page.
+- RADIUS disconnect (experimental): the request is now signed in the order the standard asks for, so a standard-conforming switch or access point accepts it. Before, such a device dropped every request and the action stayed unconfirmed.
+- Proxmox and Hyper-V (experimental): what a virtual machine reports about its own address is only a hint. The owner of an address is decided by the hypervisor's configuration and by what DENIS saw; when two machines claim an address DENIS has not seen, it acts on neither and says why. A machine can no longer make itself unblockable by claiming the gateway's address.
+- Switches over SNMPv3: the first authenticated poll pins the switch's engine ID, and turning a port off or on is sent only to that engine. If the switch later answers with another one, polls go on, the switch's line shows both IDs, and port control waits until an administrator confirms the new ID. Switches added earlier are pinned at their next poll.
+- Palo Alto Networks (experimental): when an action or a release stops halfway, DENIS takes its own unfinished changes out of the firewall's candidate configuration, so nobody's later commit publishes half of it. Waiting for a commit now has one overall time limit.
+- FortiGate and Palo Alto Networks (experimental): DENIS makes one change at a time on each firewall. A second action waits up to two minutes, then is refused with nothing changed.
+- Letting Autopilot block (highly experimental): under the shadow report each record of what Autopilot would have blocked now asks "Would you have blocked it?". Only these answers count as agreement for the gate. Closing alerts as resolved, alone or in bulk, no longer counts.
+- "New open port" is now "New service port in use" ("First time this device uses UDP port 137 towards …"): it shows communication, not an open service. ICMP no longer raises it.
+- TLS on a non-industrial port (8443) is an industrial conversation only next to an industrial device, as "TLS (not identified as industrial)".
+- Rules page: IT, then OT, your rules first, built-in ones in groups with 7-day alert counts; search, filters, one "+ New rule" button. A rule's switch saves at once.
+
 ## 4.1.1: Alpine and any Linux, OpenRC, and installing without a service
 
 - A static Linux program. Besides the usual builds, each release now has a static program for x86-64 and ARM64 with everything built in. It runs on Alpine and on any Linux, also where the usual build stopped for a missing or differently named packet capture library. The installer picks it on Alpine and on systems other than Debian and Ubuntu, and a static installation updates to the static program.

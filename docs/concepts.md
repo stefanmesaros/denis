@@ -215,9 +215,9 @@ has not changed in 4.1, and nothing about a VLAN is part of it:
 
 - **Site.** Two sites may use the same private range (both 10.0.0.0/24). Their devices are separate
   devices, even with the same address or the same MAC. A switch or an enforcement connector can be
-  **bound to a site** (Settings → Switches, Settings → Enforcement; the choice appears once the tenant has
+  **bound to a site** (Settings → Network → Switches, Settings → Enforcement; the choice appears once the tenant has
   two or more sites): DENIS then looks for a device only on the switches of its own site and never acts on a
-  device of one site through the firewall of another (see "Site binding of switches and connectors" in NAC.md).
+  device of one site through the firewall of another ([Switches](switches.md), [Enforcement](enforcement.md)).
   A switch or connector that is **not bound** keeps working as before, and is marked "Not bound to a site"
   while the tenant has several sites.
 - **VLAN.** The VLAN a frame travelled on is recorded as evidence on the device ("Seen on" in the device

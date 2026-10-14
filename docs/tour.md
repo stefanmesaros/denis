@@ -206,8 +206,10 @@ accepted it and why ([details](detection-rules.md#verifying-a-fix-and-accepting-
 Every detection with what it does, what it needs, whether it is on, its weight (`0` = off, `2` = twice as loud)
 its thresholds and a minimum score of its own, plus **exceptions** (devices, device types, tags or networks a rule
 stays quiet about), your own **IT rules** (which devices may talk to which addresses and ports) and your own
-**OT rules**. The page has two parts: **Built-in rules** and **Your rules**; **New IT rule** and **New OT rule**
-open a dialog that reads as a sentence, with templates, a preview of what the rule would have done and an Undo
+**OT rules**. The page shows IT and then OT; in each, your own rules come first and the built-in ones follow in
+themed groups, closed unless they alerted in the last 7 days. A bar at the top searches (`/`), filters and has one
+**+ New rule** menu; a rule's switch saves at once, Quieter / Normal / Louder and thresholds go through a save bar.
+**+ New IT rule** and **+ New OT rule** open a dialog that reads as a sentence, with templates, a preview of what the rule would have done and an Undo
 after saving ([details](detection-rules.md#your-own-rules-it-rules-and-ot-rules)). Everyone can read the page;
 administrators change it. Changes apply
 within seconds, survive restarts and are written to the audit log ([details](detection-rules.md)). Administrators
@@ -243,6 +245,21 @@ without having to scan every number.
 **Switches and cables** is the physical map, read from your switches over SNMP: which port each device is plugged into and
 how the switches are cabled together. A device's panel gets a *Connected to* line. Set it up under *Settings* → *Switches (SNMP)*
 ([details](switches.md)).
+
+## Zones
+
+How your network is meant to be divided, and whether traffic keeps to it ([Zones and policies](segmentation.md)). Anyone
+with console access can look; administrators create and edit. Three views:
+
+* **Matrix** (the default) — every pair of zones with what crossed between them in the chosen window (last day, 7 days or
+  30 days): a violation, unreviewed traffic, allowed, or nothing seen. Click a cell for what is behind it and, as an
+  administrator, to allow or deny that pair.
+* **Zones** — the named groups of devices, with their trust level, inbound and outbound defaults and how many devices
+  each one holds; *Add a zone…* (administrators).
+* **Policies** — the zone policies and allow-lists, and your IT and OT rules that use a zone, each with its history.
+
+Nothing here blocks anything by itself. A policy can only feed blocking when an administrator also marks it for
+automatic enforcement, which is experimental and off by default ([Enforcement, automation](enforcement.md#automation)).
 
 ## OT
 
@@ -330,7 +347,7 @@ customers, or to keep a sensitive site out of a viewer's sight entirely.
 
 ![Settings](img/settings.png)
 
-Everything about the installation that is not about people, in nine categories shown as a sub-menu under
+Everything about the installation that is not about people, in eleven categories shown as a sub-menu under
 *Settings*:
 
 * **System** — license, updates (check, install now or later, include pre-releases, and "If GitHub is unreachable, try
@@ -352,6 +369,11 @@ Everything about the installation that is not about people, in nine categories s
 * **Integrations** — SIEM / log export, CMDB import (Entra ID, Intune, Active Directory, Jamf Pro, Azure, AWS,
   GCP), the vulnerability scanner (Nessus).
 * **AI** — the optional bring-your-own-key AI features, each with its own switch, and their usage counters.
+* **Autopilot** (marked *Experimental*) — the mode (off by default, shadow, active), the shadow report, what it may do on
+  its own, answering from a phone, and the optional AI model ([Autopilot](autopilot.md)).
+* **MSP management** (marked *Experimental*) — pairing this installation with an MSP using a link code, the level the MSP
+  gets, co-approval, *What the MSP did*, *Disconnect* and *Unlink*; on an MSP's own console, its customers
+  ([MSP management](msp-management.md)).
 * **Branding & MSP** — name, logo, colour, default theme and language; the MSP view.
 
 Deep links like `#settings/tls` still open the right category.

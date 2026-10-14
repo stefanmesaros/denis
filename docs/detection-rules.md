@@ -1,11 +1,24 @@
 # Detection rules
 
-**See and change them in the console:** the **Rules** tab lists every rule with what it does, what it needs, whether
-it is on, its weight and its thresholds. Administrators can switch a rule off, turn its weight up or down
-(`0` = off, `0.5` = half as loud, `2` = twice, scores are capped at 100), change the minimum score and tune the
-thresholds (for example how many standard deviations count as an unusual transfer, or how long a device must be
-silent). Changes apply within seconds, survive restarts, are limited to sane ranges on the server and are written to
-the audit log; *Reset everything* returns to the defaults. Command-line options (`--min-score`, `--rule-weight`,
+**See and change them in the console:** the **Rules** tab shows **IT · network** first and **OT · industrial**
+after it. In each, **Your IT rules** (or **Your OT rules**) come first, with their own **+ New** button, then the
+built-in rules in themed groups (*Devices and presence*, *Traffic to the outside*, *Inside the network*, *DHCP and
+DNS*, *Switches*; *Commands to controllers*, *Paths and boundaries*). A group is closed unless one of its rules raised
+an alert in the last 7 days; its heading counts the rules, how many are on, the alerts, the changed ones and those
+that need data. The bar at the top counts the same for the whole page, finds a rule by name, id or words (the `/`
+key), filters (*All*, *On*, *Off*, *Alerted in 7 days*, *Changed*, *Needs data*) and has one **+ New rule** menu
+(IT rule or OT rule). The global settings (minimum score, learning mode, noise profiles) are folded into one line.
+
+Each rule is one row: its switch, name, id, tags (*changed*, *noisy*, *needs traffic analysis*, exceptions), a
+one-line description, **Quieter / Normal / Louder** (half, once and twice its default weight; any other weight shows
+as `×1.5`) and **n alerts / 7 d**, which opens those alerts on the Alerts page. The arrow opens the details: what the
+rule needs, the weight (`0` = off, `0.5` = half as loud, `2` = twice, scores are capped at 100), *Alert only from
+score*, the thresholds (for example how many standard deviations count as an unusual transfer, or how long a device
+must be silent) and the exceptions. **The switch saves at once** (since 4.1.2; one audit log entry each, with Undo
+in the notice; on again goes back to the default weight). Weights and thresholds collect in a bar at the bottom,
+"n unsaved changes · Discard · Save changes". When traffic analysis (`--flows`) is off, one strip at the top says how
+many rules cannot fire. Changes apply within seconds, survive restarts, are limited to sane ranges on the server and
+are written to the audit log; *Reset everything* returns to the defaults. Command-line options (`--min-score`, `--rule-weight`,
 `--silent-minutes`, …) set the starting values; a value saved in the console wins over them. The console tunes the reviewed rules below and adds three things of your own, described in
 [Making the rules fit your network](#making-the-rules-fit-your-network). API: `GET/PUT/DELETE /api/rules`.
 
@@ -46,9 +59,12 @@ burst of new destinations there is the signal itself (SSH/SMB/RDP worm propagati
 A promoted port currently has no expiry (a follow-up, not yet built).
 
 ### `new_port`: a service port never used before *(needs `--flows`)*
-A device with an established set of ports uses a **new service port** (below 32768, not 53/80/123/443) towards a
-known destination. Score 40, +15 for remote-administration/file-sharing/database ports (22, 23, 445, 3389,
-3306, …), +10 for ≥1 MB, −10 for ICMP.
+Shown as **New service port in use**. A device with an established set of ports uses a **new TCP or UDP service
+port** (below 32768, not 53/80/123/443) towards a known destination ("First time this device uses UDP port 137
+towards …"). This is observed communication, not proof that a service is open. Score 40, +15 for
+remote-administration/file-sharing/database ports (22, 23, 445, 3389, 3306, …), +10 for ≥1 MB; a UDP port that got an
+answer says so in the reasons. Protocols without ports (ICMP, ICMPv6, GRE, ESP, …) are never judged here: a first ping
+to a new address is `new_destination`'s.
 
 *Owners, not addresses (what DENIS keeps quiet):* the unit of novelty for `new_destination` and `new_port` is the
 **owner** of the remote address: its network operator (ASN) when the ASN database is installed, otherwise the
@@ -433,13 +449,14 @@ device and address per six hours. Traffic is only seen when it crosses the inter
 
 ### Your own rules: IT rules and OT rules
 
-Besides the built-in rules, administrators write **their own rules** on the Rules page, under **Your rules**. There
+Besides the built-in rules, administrators write **their own rules** on the Rules page, under **Your IT rules** and
+**Your OT rules** (each first in its part of the page; with none yet, the section offers the common templates). There
 are two kinds. An **IT rule** (id `it_watch`) watches when a device talks to an address outside your networks. An
 **OT rule** (id `ot_command_watch`) watches for industrial commands such as stop, start or write. (Before 4.1 they were
 called network watches and OT command watches. Only the words changed: the ids, the settings, the API fields and
 what is sent to other tools are the same, and an alert raised before the update keeps its old wording.)
 
-**New IT rule** and **New OT rule** open one dialog, which also edits a saved rule. It reads as a sentence:
+**+ New IT rule**, **+ New OT rule** and the **+ New rule** menu open one dialog, which also edits a saved rule. It reads as a sentence:
 
 * **Templates first.** A new rule starts on a screen with the five most common templates (a link shows the rest),
   *Start from scratch* and, for IT rules when the AI rule assistant is on, *Describe it, let AI draft it*. A template
