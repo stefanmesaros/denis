@@ -13,21 +13,50 @@ DENIS is one binary. `denis run` is the whole system for one network (collector,
 ## Installing on a Linux server (a permanent service)
 
 You do not need a compiler. The installer downloads the program from the GitHub release, **checks its signature
-and checksum**, sets it up as a systemd service and tells you where to open it.
+and checksum**, sets it up as a service (systemd, or OpenRC on Alpine) and tells you where to open it.
 
-**Supported systems:** Linux with **systemd** and **glibc**: Ubuntu, Debian, Raspberry Pi OS and RHEL-family systems,
-on x86-64 and ARM64. When libpcap is missing the installer adds it with the system's package manager (`apt-get`,
-`dnf` or `yum`). It stops with "systemd was not found" on a system without systemd.
+**Supported systems:** Linux on x86-64 and ARM64, with **systemd** (Ubuntu, Debian, Raspberry Pi OS, RHEL-family,
+Fedora, Arch, ...) or **OpenRC** (Alpine). Two builds of the program exist, and the installer picks one:
 
-**Not supported yet: Alpine Linux, OpenRC and other musl-based systems.** The Linux programs are glibc builds that need
-`libpcap.so.0.8`, and the installer only writes systemd services. A musl build with libpcap built in, OpenRC support
-and an install without a service are planned for 4.1.1. Until then, run the Docker image
-`ghcr.io/stefanmesaros/denis` on such a system: see [Docker](docker.md).
+* Debian, Ubuntu and Raspberry Pi OS get the usual build (`denis-*-unknown-linux-gnu`). It uses the system's libpcap
+  (`libpcap.so.0.8`), which the installer adds with `apt-get` when it is missing.
+* Alpine and every other Linux get the **static build** (`denis-*-unknown-linux-musl`, from 4.1.1): libpcap and the C
+  library are built in, so nothing else is installed and it runs regardless of which libpcap the system has (or none).
+  `--static` takes it on Debian or Ubuntu too.
+
+On a system with neither systemd nor OpenRC the installer stops and suggests `--no-service` (below).
 
 ```bash
 curl -fLO https://github.com/stefanmesaros/denis/releases/latest/download/install.sh
 less install.sh            # it runs as root: read it first (it is short and commented)
 sudo bash install.sh
+```
+
+**Alpine:** the installer is a bash script and downloads with curl, so add those first, then run it as root:
+
+```sh
+apk add bash curl openssl
+bash install.sh            # as root (or: doas bash install.sh)
+```
+
+It writes `/etc/init.d/denis` (supervised by OpenRC's `supervise-daemon`, started at boot in the `default` runlevel),
+logs to `/var/log/denis/denis.log`, and gives the `denis` user's process the two capture capabilities through OpenRC
+(`capabilities=`, OpenRC 0.45 or newer, so the console can still update the program). On an older OpenRC it gives the
+program file the capabilities with `setcap` instead (installing `libcap-setcap` if needed); updates then go through
+the installer, because the console does not replace a file that carries capabilities. Manage it with
+`rc-service denis status|restart|stop`.
+
+**Check the installer before running it** (releases from 4.1.1 on list `install.sh` in the signed `SHA256SUMS`). In bash,
+with the release key from `src/update_key.rs` (the same key the installer carries):
+
+```bash
+V=v4.1.1; B=https://github.com/stefanmesaros/denis/releases/download/$V
+curl -fLO $B/install.sh -O $B/SHA256SUMS -O $B/SHA256SUMS.sig
+hex2bin() { printf '%b' "$(printf '%s' "$1" | sed 's/../\\x&/g')"; }
+hex2bin 302a300506032b6570032100abe75462c8adfb1d4c5aa39d25e44377d00c77442f423c2f01cd51fec40e938e > denis-release.der
+hex2bin "$(tr -d ' \n\r' < SHA256SUMS.sig)" > SHA256SUMS.bin
+openssl pkeyutl -verify -pubin -inkey denis-release.der -keyform DER -rawin -in SHA256SUMS -sigfile SHA256SUMS.bin
+sha256sum -c --ignore-missing SHA256SUMS   # must say: install.sh: OK
 ```
 
 What you see at the end (example):
@@ -65,12 +94,27 @@ command that opens the port; it does not run it.
 | `--local-only` | listen on this machine only |
 | `--name NAME` | another name or address the certificate must cover (repeatable); the machine's address and name are added automatically |
 | `--dry-run` | download and verify, change nothing (no root needed): a safe way to try it |
+| `--no-service` | install the program, the `denis` user, `/etc/denis/env` and the data folder, but no service (see below) |
+| `--static` | take the static build even on Debian or Ubuntu |
 | `--no-signature-check` | check the SHA-256 only, for a system whose `openssl` is too old for Ed25519 |
 | `--uninstall` | stop and remove the program and service, **keep the data** |
 | `--uninstall --purge` | also delete the data, the settings and the `denis` user |
 
+**Without a service (`--no-service`).** For a system with neither systemd nor OpenRC, or to run DENIS under your own
+supervisor (runit, s6, supervisord, a container). The installer verifies and installs the program as usual, creates
+the `denis` user, `/etc/denis/env` (readable by the `denis` group, since the program reads it itself) and
+`/var/lib/denis`, gives the program file the capture capabilities with `setcap`, and prints the command to start it:
+
+```sh
+su -s /bin/sh denis -c 'set -a; . /etc/denis/env; exec /usr/local/lib/denis/denis run --db /var/lib/denis/denis.db'
+```
+
+The first start prints the one-time `admin` password. The console cannot update a program file that carries
+capabilities, so update by running `bash install.sh --no-service` again (stop DENIS first, start it afterwards).
+`--agent --no-service` does the same for a remote agent (`denis agent --db /var/lib/denis-agent/agent.db`).
+
 **Change a setting later** (port, extra certificate names, alert webhook…): edit `/etc/denis/env` and
-`sudo systemctl restart denis`. Any `denis run` option that has an environment name can go there, for example
+`sudo systemctl restart denis` (OpenRC: `rc-service denis restart`). Any `denis run` option that has an environment name can go there, for example
 `DENIS_LISTEN=0.0.0.0:9443`, `DENIS_TLS_NAMES=denis.example.lan`, `DENIS_WEBHOOK=…`, `DENIS_NO_UPDATE_CHECK=1`.
 The file is only readable by root.
 
@@ -87,7 +131,8 @@ that can be the one-click kind. Only stable releases are offered unless an admin
 same signed files are fetched from `usedenis.com`, which can be switched off. Remote agents are updated from the **Sites**
 page, by hand by default: see [Updating remote agents](updates.md#updating-remote-agents).
 
-**If something is wrong.** `systemctl status denis` and `journalctl -u denis -n 30` say what happened. The usual one:
+**If something is wrong.** `systemctl status denis` and `journalctl -u denis -n 30` say what happened (OpenRC:
+`rc-service denis status` and `tail -n 30 /var/log/denis/denis.log`). The usual one:
 
 * *`Address already in use`* means the port in `/etc/denis/env` was taken after the installer chose it (another program
   started, or you moved it). DENIS exits, changes nothing else, and systemd tries five times in two minutes and then
@@ -97,7 +142,8 @@ page, by hand by default: see [Updating remote agents](updates.md#updating-remot
 
 ### Without the installer
 
-The same thing by hand (x86-64 shown; the ARM64 file is `denis-aarch64-unknown-linux-gnu`):
+The same thing by hand (x86-64 shown; the ARM64 file is `denis-aarch64-unknown-linux-gnu`; for the static build
+take `denis-x86_64-unknown-linux-musl` and skip the libpcap package):
 
 ```bash
 sudo apt install libpcap0.8t64            # Ubuntu 22.04 and Debian: libpcap0.8
@@ -124,7 +170,7 @@ sudo journalctl -u denis | grep -A4 "FIRST START"
 To check it yourself: the key is in `src/update_key.rs`, and `openssl pkeyutl -verify -rawin` verifies it.)
 
 Or **build from source** (needs [Rust](https://rustup.rs)): `sudo apt install build-essential libpcap-dev`,
-`cargo build --release`, `sudo install -m755 -o denis -g denis target/release/denis /usr/local/lib/denis/denis`
+`cargo build --release` (the static build: [below](#building-the-static-program-yourself)), `sudo install -m755 -o denis -g denis target/release/denis /usr/local/lib/denis/denis`
 (after the `useradd`/`install -d` steps above), then the service steps above.
 
 The service runs as the unprivileged `denis` user with only the capabilities packet capture needs
@@ -134,6 +180,34 @@ checked with `systemd-analyze verify`; read the comments at the top of `packagin
 The first-start administrator password is printed to the service's standard error: read it with
 `sudo journalctl -u denis | grep -A3 "FIRST START"`, or simply run `sudo -u denis denis user reset admin
 --db /var/lib/denis/denis.db`.
+
+### Building the static program yourself
+
+The release files `denis-x86_64-unknown-linux-musl` and `denis-aarch64-unknown-linux-musl` are built with the musl C
+library and libpcap linked in. They need nothing installed and run on Alpine, Debian, RHEL, Arch, systems with
+`libpcap.so.1` or with no libpcap at all. They are built in an Alpine container, so only Docker is needed:
+
+```bash
+tools/build-musl.sh                              # -> ./denis-<arch>-unknown-linux-musl (this machine's CPU type)
+tools/build-musl.sh --smoke ./denis-aarch64-unknown-linux-musl   # run it in a clean alpine container
+```
+
+What the script does in the `rust:1-alpine` container (the release workflow runs the same script):
+
+```sh
+apk add musl-dev libpcap-dev pkgconf linux-headers file   # libpcap-dev includes the static libpcap.a
+export RUSTFLAGS="-C target-feature=+crt-static"           # link the C library in
+export PKG_CONFIG_ALL_STATIC=1                             # make the pcap crate link libpcap.a, not libpcap.so
+cargo build --release --locked --target "$(uname -m)-unknown-linux-musl"
+file target/.../denis                                      # must say "static-pie linked" (or "statically linked")
+```
+
+`--smoke` starts the result in a plain `alpine:latest` container with no package added: `denis --version`,
+`denis interfaces`, then `denis run --passive-only` until `/api/health` answers.
+
+The build is for the CPU of the machine (or Docker VM) it runs on: an Apple silicon Mac makes the ARM64 file. The
+x86-64 file is made by the release workflow on an x86-64 runner (or locally with `docker run --platform linux/amd64`,
+emulated and slow). The release build of the `denis` crate needs about 3 GB of memory; give Docker that much, or swap.
 
 ## Reaching the UI securely: HTTPS is on by default
 
@@ -231,16 +305,19 @@ repeated failures, up to 15 minutes; the exact limits, and why a stranger cannot
    in, ready to copy: one for Linux, one for Docker and one for running `denis agent` by hand. The token is shown
    once.
 3. Run the Linux command on the remote machine. It looks like this (the dialog fills in the values; the CA
-   certificate follows as the text after `<<'PEM'`):
+   certificate follows as the text after `<<'PEM_…'`, a random delimiter). The installer then asks for the token:
+   paste it from the dialog. Since 4.1.1 the token is not on the command line, where other users of the machine could
+   read it in the process list, and not in the shell history (`DENIS_AGENT_TOKEN` in the environment or
+   `--token-file FILE` work too; `--token` still works).
 
 ```bash
-curl -fLO https://github.com/stefanmesaros/denis/releases/download/v4.1.0/install.sh
-sudo bash install.sh --version v4.1.0 --agent --master https://MASTER:8081 --token dat_… \
-  --id branch-1 --name "Branch office" --site Branch --flows --master-ca-pem - <<'PEM'
+curl -fLO https://github.com/stefanmesaros/denis/releases/download/v4.1.1/install.sh
+sudo bash install.sh --version v4.1.1 --agent --master https://MASTER:8081 \
+  --id branch-1 --name "Branch office" --site Branch --flows --master-ca-pem - <<'PEM_7Q2K9XWA'
 -----BEGIN CERTIFICATE-----
 …
 -----END CERTIFICATE-----
-PEM
+PEM_7Q2K9XWA
 ```
 
 `install.sh --agent` downloads the same signed release as the master install and checks its signature and
@@ -254,11 +331,15 @@ it. Within a minute or so the agent appears under **Sites** on the master. Detai
 * `--master-ca-pem FILE` takes a file instead; leave the option out when the master uses a publicly trusted
   certificate. `--master-ca-pem -` reads the text from standard input, which is why the installer is downloaded
   first instead of piped from `curl`.
-* A plain `http://` master address is refused unless you add `--allow-plain-http` (a VPN or tunnel you trust).
+* A plain `http://` master address is refused unless you add `--allow-plain-http` (a VPN or tunnel you trust). The
+  dialog never adds it for you: it warns, and you add the option yourself.
 * Agent mode needs release 4.1.0 or newer (a 4.1.0 release candidate counts too). Without `--version` the installer
   takes the latest stable release; a release candidate must be named with `--version`, because "latest" skips
   pre-releases.
-* To change settings later, edit `/etc/denis/agent.env` and `sudo systemctl restart denis-agent`, or run the
+* On Alpine the agent is an OpenRC service too (`/etc/init.d/denis-agent`, log `/var/log/denis/denis-agent.log`), and
+  the static build (agent mode on Alpine therefore needs 4.1.1 or newer).
+* To change settings later, edit `/etc/denis/agent.env` and `sudo systemctl restart denis-agent` (OpenRC:
+  `rc-service denis-agent restart`), or run the
   installer again with the new token. Running it with `--agent` alone updates the program and keeps the settings.
   `--agent --uninstall` removes the service (`--purge` also deletes its data and settings).
 * Docker: see [Docker, Run a remote agent](docker.md#run-a-remote-agent).
@@ -285,7 +366,7 @@ installer uses; it needs no editing.
 
 ### Windows and macOS
 
-There is no agent installer for Windows or macOS yet. `packaging/install.sh` is Linux with systemd only. The
+There is no agent installer for Windows or macOS yet. `packaging/install.sh` is Linux only (systemd, OpenRC, or `--no-service`). The
 Windows script `packaging/install.ps1` has not been verified, and there is no signed Windows release, so an agent
 on Windows is not something we can support today. On macOS (or anywhere else) you can download the program and
 run `denis agent ...` by hand as above, but there is no service setup and capture needs administrator rights;

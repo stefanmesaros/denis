@@ -4,6 +4,21 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 4.1.1: Alpine and any Linux, OpenRC, and installing without a service
+
+- A static Linux program. Besides the usual builds, each release now has a static program for x86-64 and ARM64 with everything built in. It runs on Alpine and on any Linux, also where the usual build stopped for a missing or differently named packet capture library. The installer picks it on Alpine and on systems other than Debian and Ubuntu, and a static installation updates to the static program.
+- The installer works on Alpine: it sets DENIS up as an OpenRC service with its log in /var/log/denis, as it does with systemd elsewhere. Remote agents install the same way.
+- Installing without a service: the new --no-service option installs the program, its user, its settings and its data folder, and prints the command to start it, for systems without systemd or OpenRC or for your own supervisor.
+- The installer is now in the signed checksum list of each release, so it can be checked before it is run.
+- Fixed: the Respond menu showed its connection buttons as text instead of buttons.
+- Console: no extra space above the Daily digest and AI summary headings, and on the Software page the ? help sits in the row of the Columns button.
+- Adding an agent: the Linux command no longer contains the agent's token. The installer asks for it, so other users of that machine cannot see it, and the dialog no longer allows plain http for you.
+- A mistyped password in the MSP and Autopilot dialogs no longer signs you out.
+- A tenant's console shows a note instead of MSP pairing controls that had no effect there.
+- Automatic enforcement: its limits hold when rules and Autopilot act at the same moment, an administrator deleted and created again under the same name no longer keeps it switched on, and decisions Autopilot leaves alone are written to the audit log.
+- Enforcement connectors (experimental): stricter checks for FortiGate, Cisco ASA, FTD through FMC, VMware NSX, Azure and Check Point. A rule only named like one of DENIS's is not taken for one, and a state DENIS cannot read stops the action.
+- Connector passwords that cannot be decrypted, for example after a tenant import, are listed with the settings to enter again.
+
 ## 4.1.0: Enforcement actions, automation levels, MSP remote management and connections from the internet
 
 - Enforcement actions (experimental, off by default). DENIS can now block a device or one connection, quarantine a device, switch a port off or end its sessions through 20 kinds of equipment: firewalls, switches, wireless, cloud and hypervisors. Every action is shown in full before it runs and can be released. Except switching a port off over SNMP, none of it has been tried on real equipment yet, so an untried connector acts only after you turn on two lab switches. Validation on real equipment is still to come.

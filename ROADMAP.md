@@ -10,11 +10,31 @@ v4.0.0 it can also run on PostgreSQL with an active/standby failover pair, block
 kinds of firewall and controller in addition to the original SNMP switch connector, offers three
 new console looks, and remembers your language choice per account. As of v4.1.0 every one of its
 twenty connector kinds can carry out actions (experimental, simulator-tested only, apart from switching a
-switch port off), and an MSP can manage a customer's installation remotely (experimental). Next comes
-a 4.1.1 with Alpine support and fixes, then correctness under failure for high availability, and validating the connectors on real equipment.
+switch port off), and an MSP can manage a customer's installation remotely (experimental). v4.1.1 added a
+static Linux program for Alpine and any Linux, OpenRC support and fixes. Next comes a 4.1.2 with the remaining review
+items, IP fragment reassembly and internal clean-up, then correctness under failure for high availability, and
+validating the connectors on real equipment.
 
 The list is in rough order. Plans can change, and nothing here is a delivery promise. Ideas and
 pull requests are welcome.
+
+## 4.1.2: open items from the 4.1.0 code review, and clean-up
+
+4.1.1 fixed the quick and safe items of the internal code review of 4.1.0. Planned for 4.1.2, and still open, with the
+reason:
+
+* **Planned next:** industrial messages split across IP fragments are put back together before they are decoded;
+  unused old code is removed and the largest source files are split into smaller ones, with no change in behaviour;
+  for Proxmox and Hyper-V, addresses a guest reports about itself become hints only, checked against
+  DENIS's own view of the network; the RADIUS disconnect messages are checked byte for byte against an independent
+  reference; a per-record "would you have blocked this" judgement on the Autopilot report; for PAN-OS, undoing DENIS's
+  own uncommitted edits after a failed step, one commit deadline, and one action at a time per firewall.
+* **Needs real equipment to do safely:** OPNsense alias and floating-rule behaviour, which FMC deployment warnings may
+  be ignored, SSH host keys on first use and unexpected prompts on Cisco ASA, certificate pinning for FortiGate and
+  PAN-OS, Check Point waits and paging, UniFi controller sessions.
+* **Larger design changes:** further hardening of the old (pre-4.1) connector routes and of the enforcement ledger's
+  edge cases, held MSP co-approval requests kept encrypted while they wait, and stricter limits on what a remote MSP may
+  change in the backup schedule.
 
 ## 4.1.0: what is in, what is experimental, what is not built
 
@@ -46,25 +66,24 @@ pull requests are welcome.
 off over SNMP (tried on one real switch), Autopilot's real-world use, MSP remote management, SNMPv3, Cisco switches and
 tunnelled mirrors. Each untried connector needs two lab switches before it can act.
 
-**Not built in 4.1.0:** fencing of database writes during a failover (planned next), a separate encryption key per
-customer on one installation, IP fragment reassembly for industrial decoding, and, for MSP management, a one-click
+**Not built in 4.1.0:** fencing of database writes during a failover (planned for 4.2), a separate encryption key
+per customer on one installation (4.2), IP fragment reassembly for industrial decoding (4.1.2), and, for MSP management, a one-click
 upgrade for customers that already relay to an MSP, fleet templates and queued changes for offline customers.
 
 ## Coming next
 
-**4.1.1: Alpine and smaller fixes.** A Linux build that runs on Alpine and other musl systems (x86-64 and ARM64, with
-the capture library built in), OpenRC support in the installer and a way to install without a service. Today the
-installer needs systemd (Ubuntu, Debian, RHEL-family, Raspberry Pi OS); on Alpine, use the Docker image. Also in
-4.1.1: the smaller findings of the 4.1.0 code review that were deferred, and fixes for what testers report.
-
-**Correctness under failure.** Fencing of every database write to the active node of a high-availability pair, an
-enforcement path that survives a failover in the middle of an action, a test suite across two real machines, and
+**Correctness under failure (4.2).** Fencing of every database write to the active node of a high-availability pair,
+a separate data key for each customer on one installation, an enforcement path that survives a failover in the middle of an action, a test suite across two real machines, and
 validation of the enforcement connectors on real equipment, starting with SNMP switches, FortiGate and UniFi.
 
 **Network identity.** Overlapping address spaces (VRFs), layer-2 domains and a registry of capture sources, so that
 several mirrors and sites can be told apart cleanly.
 
 ## Built in earlier releases
+
+**Alpine and any Linux** — built, in v4.1.1. A static Linux program for x86-64 and ARM64 with the capture library
+built in, which runs on Alpine and on any Linux; OpenRC support in the installer, a way to install without a service,
+and the installer in each release's signed checksum list.
 
 **The switches and cables view, redrawn** — built, in v3.4.1. Chassis-style switch nodes with real
 port sockets, speed-weighted cabling and a VLAN legend (the VLAN now comes from the switch's own
@@ -100,8 +119,7 @@ Every user picks their own under My account; new installs default to the inbox-s
 
 ## Later
 
-**Per-customer keys and delivery records.** A separate data key for each customer on one installation, and
-notifications that keep a record of what was delivered, retried at least once and never claimed exactly once.
+**Delivery records.** Notifications that keep a record of what was delivered, retried at least once and never claimed exactly once.
 
 **Ask DENIS keeps growing.** Each new view above also becomes a plain-language question you can
 ask, answered only from data DENIS actually has.
