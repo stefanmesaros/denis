@@ -101,8 +101,10 @@ Gauges and counters for the conditions in the next section: `denis_capture_parse
 `denis_clock_skewed_agents`, `denis_snmp_incomplete_switches`, `denis_notifications_dropped`, and, for the
 industrial layer-2 decoders, `denis_ot_sv_sampled_out_total` (Sampled Values frames skipped by the one-per-second
 sampling) and `denis_ot_l2_appid_refused_total` (control blocks refused because a device already has the most it keeps),
-and for IP fragments of industrial traffic `denis_ot_fragments_reassembled_total` and
-`denis_ot_fragments_dropped_total{reason="timeout|limit|overlap|oversize|tiny"}` (see the OT guide's limits).
+and for IP fragments of industrial traffic `denis_ot_fragments_reassembled_total`,
+`denis_ot_fragments_dropped_total{reason="timeout|limit|overlap|oversize|tiny|malformed"}`,
+`denis_ot_fragments_duplicate_total` and `denis_ot_checksum_mismatch_total{reassembled="false|true"}` (industrial
+messages with a wrong TCP/UDP checksum, still decoded; see the OT guide's limits).
 
 ### When the database cannot keep up
 

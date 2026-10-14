@@ -289,23 +289,37 @@ This needs the mirror port to carry the traffic between the devices (the same re
     order, when the datagram goes to or comes from an industrial port (the ports in the table above); other traffic
     is never reassembled, and unfragmented packets take the same path as before. Hard limits, per capture thread:
     at most 64 datagrams being put together at once and 16 per source address (past that, the oldest is dropped),
-    1 MB of buffers in all, 64 fragments and 65,535 bytes per datagram, and 5 seconds from the first fragment to
+    1 MB of buffers in all and 256 KB per source IP address (since 4.1.3; a source past its share pushes out its own
+    oldest datagrams first), 64 fragments and 65,535 bytes per datagram, and 5 seconds from the first fragment to
     the last. **Fragments that overwrite bytes already received with other bytes** (the overlap and teardrop
     evasions), or two different ends of one datagram, drop the whole datagram, and its remaining fragments are
     ignored: DENIS never guesses which copy the device will believe. An exact repeat of a fragment is accepted.
     **Tiny fragments** are refused: a first fragment without the whole TCP or UDP header, or a fragment other than
     the last one with fewer than 48 bytes. When room runs out, datagrams whose first fragment has not arrived go
-    before an industrial one, and other traffic never pushes one out. The counters are on `/metrics`
+    before an industrial one, and other traffic never pushes one out. Since 4.1.3: a reassembled **UDP** datagram is
+    read only up to its UDP length field, as the receiving device reads it (bytes after it are ignored; a UDP length
+    below 8 or past the datagram drops it, `malformed`). The TCP or UDP **checksum** of a reassembled datagram is
+    checked over the IPv4 or IPv6 pseudo-header; a wrong one does **not** stop the decoding (a device whose stack does
+    not verify checksums executes such a command), it is counted
+    (`denis_ot_checksum_mismatch_total{reassembled="true"}`) and shown in the Health warning. The **same datagram
+    seen twice** (same addresses, protocol, IP identification and bytes within 5 seconds) under another source MAC, as
+    a mirror that sees both sides of a router delivers it, is decoded once (`denis_ot_fragments_duplicate_total`); an
+    exact repeat under the same source MAC is decoded again. The counters are on `/metrics`
     (`denis_ot_fragments_reassembled_total`,
-    `denis_ot_fragments_dropped_total{reason="timeout|limit|overlap|oversize|tiny"}`) and count only datagrams whose
-    ports are industrial; Health warns at the first overlapping, tiny, oversized or pushed-out datagram, or after a
-    hundred incomplete ones.
+    `denis_ot_fragments_dropped_total{reason="timeout|limit|overlap|oversize|tiny|malformed"}`) and count only
+    datagrams whose ports are industrial; Health warns at the first overlapping, tiny, oversized or pushed-out
+    datagram, at the first one with a wrong checksum, or after a hundred incomplete ones. Known limits: the memory
+    share is per source IP address, so a sender that uses many local addresses still gets many shares, and past the
+    1 MB limit the oldest open datagram of any source is pushed out (counted `limit`, and warned about); a copy of a
+    datagram from another MAC is not told apart from a router's copy (it is counted as a duplicate, not decoded).
   * **Not covered**: protocol-internal fragmentation above these layers (S7comm-plus and OPC UA multi-chunk messages are classified from their first
     chunk); HART-IP and CODESYS (named only); anything encrypted. A device on the cell network can use any of these on purpose, and a capture NIC with GRO/LRO
     on merges frames by itself. **Turn GRO/LRO off on the capture interface**
     (`ethtool -K <interface> gro off lro off`), and keep the mirror's snap length at the default.
-  * **No checksum, CRC or TCP-validity check** is done, so a forged or corrupted frame is read like a real one
-    (a forged frame can start the 10-minute repeat gap of `ot_control_command`).
+  * **No checksum, CRC or TCP-validity check stops the decoding**, so a forged or corrupted frame is read like a real
+    one (a forged frame can start the 10-minute repeat gap of `ot_control_command`). TCP/UDP checksums are only
+    counted (`denis_ot_checksum_mismatch_total`, `reassembled="false"` for unfragmented packets, whose checksum
+    offload and receive coalescing on the capturing host can leave unfinished; `"true"` for reassembled ones).
   * Encrypted or opaque channels (TLS, Sign & Encrypt, S7comm-plus with TLS) show only the connection, never the commands.
   * Counts are "messages seen", not totals. S7comm-plus and MMS also accept a segment that starts without the usual
     ISO-on-TCP header (headerless COTP continuation); classic S7comm does **not** get that tolerance (a lone TPKT

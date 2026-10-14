@@ -50,7 +50,7 @@ the installer, because the console does not replace a file that carries capabili
 with the release key from `src/update_key.rs` (the same key the installer carries):
 
 ```bash
-V=v4.1.2; B=https://github.com/stefanmesaros/denis/releases/download/$V
+V=v4.1.3; B=https://github.com/stefanmesaros/denis/releases/download/$V
 curl -fLO $B/install.sh -O $B/SHA256SUMS -O $B/SHA256SUMS.sig
 hex2bin() { printf '%b' "$(printf '%s' "$1" | sed 's/../\\x&/g')"; }
 hex2bin 302a300506032b6570032100abe75462c8adfb1d4c5aa39d25e44377d00c77442f423c2f01cd51fec40e938e > denis-release.der
@@ -311,8 +311,8 @@ repeated failures, up to 15 minutes; the exact limits, and why a stranger cannot
    `--token-file FILE` work too; `--token` still works).
 
 ```bash
-curl -fLO https://github.com/stefanmesaros/denis/releases/download/v4.1.2/install.sh
-sudo bash install.sh --version v4.1.2 --agent --master https://MASTER:8081 \
+curl -fLO https://github.com/stefanmesaros/denis/releases/download/v4.1.3/install.sh
+sudo bash install.sh --version v4.1.3 --agent --master https://MASTER:8081 \
   --id branch-1 --name "Branch office" --site Branch --flows --master-ca-pem - <<'PEM_7Q2K9XWA'
 -----BEGIN CERTIFICATE-----
 …

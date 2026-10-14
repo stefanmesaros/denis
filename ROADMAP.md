@@ -12,9 +12,9 @@ new console looks, and remembers your language choice per account. As of v4.1.0 
 twenty connector kinds can carry out actions (experimental, simulator-tested only, apart from switching a
 switch port off), and an MSP can manage a customer's installation remotely (experimental). v4.1.1 added a
 static Linux program for Alpine and any Linux, OpenRC support and fixes. v4.1.2 puts industrial commands split into
-IP fragments back together before reading them and fixes most of the remaining review items. Next comes a 4.1.3 with
-the review items still open and further internal clean-up, then correctness under failure for high availability, and
-validating the connectors on real equipment.
+IP fragments back together before reading them and fixes most of the remaining review items; v4.1.3 fixes the items
+of the next internal review and splits the remaining large source files. Next comes a 4.1.4 with tests on real
+equipment and the review items still open, then correctness under failure for high availability.
 
 The list is in rough order. Plans can change, and nothing here is a delivery promise. Ideas and
 pull requests are welcome.
@@ -31,13 +31,27 @@ pull requests are welcome.
 * Fixes from the internal code review of 4.1.2, unused old code removed, and three large source files split into
   smaller ones, with no change in behaviour.
 
-## 4.1.3: open items from the code reviews, and clean-up
+## 4.1.3: delivered
 
-* **From the 4.1.2 code review:** checking TCP/UDP checksums before industrial decoding (today a crafted message with a
-  wrong checksum can raise a false alert, never hide one), verifying the signature of RADIUS replies, Autopilot
-  agreement figures per site, refusing Hyper-V and Proxmox connections without TLS that were saved before 4.1.2 (today
-  they work until saved again), and a fragmented command seen twice when a mirror sees both sides of a router.
+* **From the code reviews of 4.1.2 and 4.1.3:** industrial messages put together from IP fragments are read the way
+  the receiving device reads them, and one with a wrong TCP or UDP checksum is still read, counted and shown on the
+  Health page; RADIUS reply signatures are verified, and can be required; Autopilot agreement figures are shown per
+  site and count only answers from current administrators who can see every site; Hyper-V and Proxmox connections
+  saved with settings DENIS no longer accepts are refused when used and named on the Health page; a fragmented command
+  seen on both sides of a router is decoded once; one sender can no longer fill the fragment memory.
 * **Clean-up:** the remaining large source files split into smaller ones, with no change in behaviour.
+
+## 4.1.4: planned
+
+* **Tests on real equipment** (FortiGate, Palo Alto Networks, MikroTik, UniFi, later a Cisco switch) with the lab
+  selftest; they decide what else 4.1.4 holds.
+* **Known limits from the 4.1.3 review:** a copy of a fragmented message from a third device within five seconds is
+  taken for a router's copy; the fragment memory share is per sender address; unsigned RADIUS replies pass unless a
+  signature is required; a Hyper-V or Proxmox connection with a setting DENIS no longer accepts cannot release its
+  blocks until it is corrected.
+
+## 4.1.4: open items from the code reviews
+
 * **Needs real equipment to do safely:** OPNsense alias and floating-rule behaviour, which FMC deployment warnings may
   be ignored, SSH host keys on first use and unexpected prompts on Cisco ASA, certificate pinning for FortiGate and
   PAN-OS, Check Point waits and paging, UniFi controller sessions.

@@ -4,6 +4,15 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 4.1.3: Fixes from the code review of 4.1.2
+
+- Industrial commands put back together from IP fragments are read the way the receiving device reads them. One whose TCP or UDP checksum is wrong is still read, because some devices do not check it and would carry it out, and the Health page shows how many there were.
+- A mirror port that sees both sides of a router no longer reports a fragmented industrial command twice.
+- One sender can no longer fill the memory used for putting fragments together and push out other devices' messages.
+- RADIUS disconnect (experimental): DENIS checks the signature of a signed answer from the switch or access point. An unsigned answer is still accepted unless you tick the new option that requires a signature; with it, a forged answer cannot report a session as ended.
+- Hyper-V and Proxmox (experimental): a connector saved before 4.1.2 that would send its password or API token without encryption, or that has another setting DENIS no longer accepts, is refused when it is used, and the Health page names it with the reason until it is corrected.
+- Letting Autopilot block (highly experimental): a person limited to some sites sees the agreement figures of those sites only, and only answers from people who can see every site can open the gate.
+
 ## 4.1.2: Industrial commands in IP fragments, and fixes from the code review of the connectors and Autopilot
 
 - Industrial commands sent in IP fragments are now seen. DENIS puts the fragments of a message to or from an industrial device back together before reading it, over IPv4 and IPv6, within fixed limits. Overlapping or too-small fragments, a known way to hide a command, are refused and shown on the Health page.
