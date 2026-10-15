@@ -197,11 +197,13 @@ does is hidden.
   administrator for tenant-wide settings, never `--insecure-no-auth`.
 * **The approval key** is a sealed setting (encrypted with the data key), left out of backups and made
   again after a restore, which ends every outstanding approval.
-* **An AI model** sees only what you allowed, names are fenced and cleaned and never part of an
+* **In Autopilot, an AI model** sees only what you allowed, names are fenced and cleaned and never part of an
   instruction, a name that looks like an instruction is kept away from the model, and its answer is
-  checked against bounds it does not control and discarded whole when anything in it is invented. See
-  [Autopilot](autopilot.md) for the data classes (all off for a cloud model by default) and for what is
-  and is not verified.
+  checked against bounds it does not control and discarded whole when anything in it is invented. These
+  guarantees describe the Autopilot decision path. The other AI features (summaries and reports) are off
+  until you set them up and show the model's text as text only; treat what a model writes as advice, never
+  as a fact. See [Autopilot](autopilot.md) for the data classes (all off for a cloud model by default) and for
+  what is and is not verified.
 * **Everything is recorded:** each question and answer is a decision-log row, and the audit log has
   `autopilot.settings`, `autopilot.mode`, `autopilot.experimental_ack`, `autopilot.proposal.*`,
   `autopilot.apply`, `autopilot.pause`, `autopilot.phone.*` and `autopilot.quiet_exception.remove`
