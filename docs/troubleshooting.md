@@ -94,7 +94,7 @@ IPv6 flows and decoded industrial traffic also need `--ipv6-subnet` for your pre
 
 **An industrial protocol shows no GOOSE, Sampled Values or PROFINET devices**
 Layer-2 traffic stays inside its switch or VLAN: mirror the station bus (GOOSE), the process bus (Sampled Values) or the
-cell switch (PROFINET). Sampled Values are off until switched on under *Settings → Network interfaces* (a restart is
+cell switch (PROFINET). Sampled Values are off until switched on under *Settings → Capture → Network interface* (a restart is
 needed). See [OT guide](ot-guide.md#layer-2-traffic-goose-sampled-values-profinet).
 
 **A Siemens S7-1200/1500 stop or program download raised no control-command alert**

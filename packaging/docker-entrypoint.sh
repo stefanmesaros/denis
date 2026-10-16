@@ -12,6 +12,9 @@
 #                                         NET_RAW/NET_ADMIN to actually capture anything -- see the
 #                                         "capture" service in docker-compose.yml. Passes through
 #                                         whatever flags follow (--iface, --flows, --profile ot...).
+#   docker run ... denis agent        -- a remote agent that reports to a master (settings from DENIS_MASTER,
+#                                         DENIS_AGENT_TOKEN, DENIS_AGENT_ID, ... or flags after "agent"). Same
+#                                         capture needs as "run"; keeps its database in /data/agent.db.
 #
 # Anything else (denis --version, denis user reset ..., denis backup ...) is run as given: this is
 # an entrypoint, not a restriction on what the image can do.
@@ -31,6 +34,15 @@ case "$1" in
   run)
     shift
     exec denis run --db "$DB" "$@"
+    ;;
+  agent)
+    shift
+    # compose cannot require these only for the agent service (it interpolates every service), so check here
+    for v in DENIS_MASTER DENIS_AGENT_TOKEN DENIS_AGENT_ID; do
+      eval "val=\${$v:-}"
+      [ -n "$val" ] || { echo "set $v (Sites, Add agent in the console shows the values)" >&2; exit 2; }
+    done
+    exec denis agent --db "${DENIS_AGENT_DB:-/data/agent.db}" "$@"
     ;;
   "")
     exec denis run --db "$DB"

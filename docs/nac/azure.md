@@ -2,7 +2,7 @@
 
 Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from Microsoft's published Azure Resource Manager (ARM) REST reference and checked against a fake ARM in DENIS's own tests. It has never been run against a real subscription. Nothing here is listed as validated on hardware.
 
-Lab use: the quarantine (the swap that was called "block" before 4.1) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Enforcement*. The actions new in 4.1 (host block through the isolation group, flow block) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
+Lab use: the quarantine (the swap that was called "block" before 4.1) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The actions new in 4.1 (host block through the isolation group, flow block) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
 
 Besides the connector's own refusals, every action through it is refused for a loopback, unspecified, broadcast or multicast address, for DENIS itself and for the gateway, for a machine on this connector's protected list, for an address in an open `arp_conflict` alert (unless the administrator ticks a box to accept that), before anything is sent. Releasing is never refused for these reasons.
 

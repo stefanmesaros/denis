@@ -211,7 +211,7 @@ can be switched off on the Rules page if it becomes redundant for a site.
   action, and the card is not shown while enforcement is switched off or when you lack the permission to block a
   device. A block made from a suggestion closes it. The stored ones are also listed at `GET /api/nac/prompts`. A
   suggestion itself notifies and blocks nothing. Suggestions
-  are only recorded while Settings → Enforcement is switched on and a connector or a switch could
+  are only recorded while Settings → Response policy is switched on and a connector or a switch could
   actually act on the device; they are never recorded for DENIS itself, the gateway or a device with
   an open address conflict, and they close by themselves after a week without a new violation. A
   policy that offers to block can also be marked for automatic enforcement (level (b), experimental,
@@ -235,7 +235,7 @@ the compliance-evidence cell: a deny rule or boundary default covers the pair an
 the chosen window), *nothing seen* (empty — no rule, no traffic), or **not covered** (hatched grey).
 
 **Not covered is the one state worth reading carefully.** Local ↔ local traffic other than decoded
-industrial protocols is visible only where east-west accounting is switched on (Settings → Network
+industrial protocols is visible only where east-west accounting is switched on (Settings → Capture
 interfaces; off by default). A same-site zone pair whose only possible evidence is east-west traffic,
 and whose site does not have it on, shows *not covered* — never *nothing seen* and never *denied,
 nothing seen* — because DENIS genuinely has no evidence either way. The matrix header says so in
@@ -280,7 +280,7 @@ instead") or past 200 distinct peers/services across the group.
 
 ## Enforcement connectors
 
-*Settings → Enforcement* is where an administrator lets DENIS block a device. It is separate from zones and policies:
+*Settings → Response policy* is where an administrator lets DENIS block a device. It is separate from zones and policies:
 no policy ever blocks anything by itself. Everything is off until someone turns it on, and every block is one
 administrator's decision, made for one device at a time.
 

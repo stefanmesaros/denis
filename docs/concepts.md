@@ -41,7 +41,7 @@ A network switch sends each machine only the traffic addressed to it, plus broad
   [Deployment](deployment.md#one-or-more-mirror-port-interfaces-for-whole-network-flow-visibility).
 * **East-west traffic** (traffic between two of your own devices: a laptop and the file server, an
   HMI and a PLC) is **not recorded by default**, even with `--flows`: it shows internal behaviour
-  that DENIS otherwise never sees. Switch it on per collector under Settings → Network interfaces
+  that DENIS otherwise never sees. Switch it on per collector under Settings → Capture → Network interface
   (takes effect at once), or with `--east-west` on a remote agent. It is then kept as
   *relationship edges*: who talked to whom, over which protocol and port, first and last seen, and
   whether the client was seen opening the TCP connection (`initiator: syn`) or only guessed from the
@@ -215,7 +215,7 @@ has not changed in 4.1, and nothing about a VLAN is part of it:
 
 - **Site.** Two sites may use the same private range (both 10.0.0.0/24). Their devices are separate
   devices, even with the same address or the same MAC. A switch or an enforcement connector can be
-  **bound to a site** (Settings → Network → Switches, Settings → Enforcement; the choice appears once the tenant has
+  **bound to a site** (Network → Equipment, Settings → Response policy; the choice appears once the tenant has
   two or more sites): DENIS then looks for a device only on the switches of its own site and never acts on a
   device of one site through the firewall of another ([Switches](switches.md), [Enforcement](enforcement.md)).
   A switch or connector that is **not bound** keeps working as before, and is marked "Not bound to a site"

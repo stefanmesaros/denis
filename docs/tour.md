@@ -163,7 +163,7 @@ about a change from a device's own baseline — a behavior-change explanation, a
 **Investigate**, a collapsible section in the same dialog, shows the alert in context: the device's other events an
 hour either side, what DENIS recorded between the device and the alert's other party, which other devices contacted
 that same party, and the incident it belongs to. Traffic between two of your own devices only shows up there with
-east-west traffic switched on (Settings → Network interfaces; off by default). Each relationship row says who opened
+east-west traffic switched on (Settings → Capture → Network interface; off by default). Each relationship row says who opened
 the connection (**Initiated by**: this device, the other side or unknown, confirmed or guessed, with a tooltip), and its
 arrow follows that, or points both ways when it is unknown. See
 [Relationships](concepts.md#relationships-and-the-investigate-section).

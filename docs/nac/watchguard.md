@@ -2,7 +2,7 @@
 
 Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from WatchGuard's published API documentation and checked against a fake WatchGuard Cloud endpoint in DENIS's own tests. It has never been run against a real account or Firebox. Nothing here is listed as validated on hardware. Needs **Fireware v12.5.3 or higher** on the Firebox.
 
-Lab use: the block (the pre-4.1 action, and the only action of this connector) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Enforcement*. Because it is an action of the pre-4.1 kind, the second switch for new actions is not needed. Releasing it always works.
+Lab use: the block (the pre-4.1 action, and the only action of this connector) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. Because it is an action of the pre-4.1 kind, the second switch for new actions is not needed. Releasing it always works.
 
 Besides this connector's own refusals, every action through it goes through DENIS's common guards before anything is sent: loopback, unspecified, broadcast and multicast addresses, DENIS itself, the gateway, and an address in an open `arp_conflict` alert are refused, and a list DENIS cannot read refuses the action.
 
@@ -31,7 +31,7 @@ A Firebox can be managed from **WatchGuard Cloud**, locally with **WatchGuard Sy
 1. Make sure the Firebox is connected and reporting to a **WatchGuard Cloud** account (locally managed Fireboxes can be added for visibility without handing over configuration control).
 2. In WatchGuard Cloud create API credentials: an **AccessID** and **access password** pair and an **API key** (Account → API Access, or as your WatchGuard Cloud plan documents it). Give the credential pair the least role that can manage the Blocked Sites exceptions of that one device **[verify role names]**.
 3. Note the **account id** (shown in the account's own URL, such as `WGC-1-123abc456`) and the **device id or serial** of the one Firebox (such as `FBCL-12345`). A block always names one device: DENIS never creates an account-wide exception.
-4. *Settings → Enforcement* → **WatchGuard** → **Add…**: the **base URL** (the regional cloud endpoint, such as `https://api.us.cloud.watchguard.com`), the Access ID, the access password, the API key, the account id, the device id, and the IP addresses never to block (DENIS itself, the gateway, your management addresses).
+4. *Network → Equipment* → **WatchGuard** → **Add…**: the **base URL** (the regional cloud endpoint, such as `https://api.us.cloud.watchguard.com`), the Access ID, the access password, the API key, the account id, the device id, and the IP addresses never to block (DENIS itself, the gateway, your management addresses).
 
 ## Unblock, release and expiry
 

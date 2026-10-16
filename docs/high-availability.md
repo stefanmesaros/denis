@@ -212,7 +212,7 @@ Notifications and exports are delivered **at least once**:
   stops between the two, the next leader sends that message again.
 * A node can pass the lease check, lose leadership a moment later and still finish the one send it had started, while the
   new leader sends the same alert.
-* **Known limit (until 4.2):** database writes carry no leader mark. In the few seconds after a failover the old leader
+* **Known limit (until 4.1.4):** database writes carry no leader mark. In the few seconds after a failover the old leader
   can still write a row that the new one also writes.
 
 Where a duplicate matters, make the receiver tolerate it: the generic webhook carries the alert's id, and every exported

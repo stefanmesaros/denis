@@ -298,7 +298,7 @@ repeated failures, up to 15 minutes; the exact limits, and why a stranger cannot
 
 ### The easy way
 
-1. On the master, make sure it accepts agents: *Settings → Network → Network interfaces → Accept remote agents at*
+1. On the master, make sure it accepts agents: *Settings → Capture → Network interface → Accept remote agents at*
    (for example `0.0.0.0:8081`), then restart. Or start it with `denis run --ingest-listen 0.0.0.0:8081`.
 2. Open the **Sites** tab and press **Add agent**. Give the agent an id (and, if you like, a name and a site),
    and DENIS creates its token and shows the exact commands, with this master's address and CA certificate filled
@@ -382,7 +382,7 @@ box or in Docker on the site's network.
   `--master-ca` / `--master-ca-pem`. Across the Internet, a firewall rule limiting the port to the agents'
   addresses, or a VPN (WireGuard/Tailscale/SSH tunnel), is still worth adding. Repeated bad tokens from one
   address are throttled.
-* The listener can also be switched on from the console (*Settings → Network → Network interfaces*, "Accept
+* The listener can also be switched on from the console (*Settings → Capture → Network interface*, "Accept
   remote agents at"); like the interface choice, it needs a restart to take effect.
 * Give each site its own learning period; the master handles it automatically.
 * **Set the agent's clock** (NTP). The master drops records dated more than 1 hour ahead of its own clock or more than 7
@@ -391,8 +391,8 @@ box or in Docker on the site's network.
 * A report is size-checked on arrival (at most 32 MB, and a fixed number of devices, traffic windows and so on); see
   [Security](security.md#what-a-master-accepts-from-an-agent).
 * **Overlapping private ranges.** Two sites may both use 10.0.0.0/24: a device is `(site, MAC)`, so their
-  devices never mix. Bind each switch and each enforcement connector to its site (Settings → Network → Switches and
-  Settings → Enforcement show **Site** once there are two or more sites), so that DENIS never acts on a
+  devices never mix. Bind each switch and each enforcement connector to its site (Network → Equipment and
+  Settings → Response policy show **Site** once there are two or more sites), so that DENIS never acts on a
   device of one site through the firewall of the other. Unbound ones keep working but are marked "Not
   bound to a site" and need a ticked warning to block. See [Concepts](concepts.md#what-a-device-is-site-vlan-mac).
 * Do not point a second collector at a network the master already captures itself: every device would be
@@ -545,7 +545,7 @@ denis run --iface eth0 --mirror-iface eth1 --mirror-subnet 10.20.0.0/24
 Typical wiring: the switch's uplink to the router/firewall is mirrored to a spare switch port, fed
 into a second NIC (or a USB-Ethernet adapter) on the same server that already runs DENIS.
 
-**Settings → Network interfaces** lets an administrator pick the discovery interface and any
+**Settings → Capture → Network interface** lets an administrator pick the discovery interface and any
 number of mirror interfaces from a list instead of editing the command line; a GUI-set choice
 takes priority over `--iface`/`--mirror-iface`, but (unlike most console settings) needs a restart
 to take effect, since capture is opened once, at start-up.
@@ -623,7 +623,7 @@ nodes share that database with one of them as leader and the other on standby. I
   within about three seconds and the process within about ten. The defaults and the `DENIS_PG_*` variables that change them
   are in [High availability](high-availability.md#postgresql-connection-settings). Delivery of notifications and exports across a failover is **at least once**: after a
   failover a message can arrive twice; the design does not promise exactly once.
-* **Known limit (until 4.2):** only side effects are tied to the leader's lease. Database writes carry no leader epoch,
+* **Known limit (until 4.1.4):** only side effects are tied to the leader's lease. Database writes carry no leader epoch,
   so in the few seconds after a failover the old leader can still write a row the new one also writes.
 * **Not together with tenants.** An install with tenants besides `default` refuses to start with `--database-url`:
   tenants keep their data in SQLite files on one node.

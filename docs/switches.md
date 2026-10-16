@@ -33,13 +33,13 @@ the switch's line with the reason.
    community**, and allow **only the DENIS server's address** to use it (an access list on the switch). In v2c the
    community travels unencrypted, so give it a long random name and treat it as a password that anybody who can watch
    that link could learn.
-2. *Settings* → *Switches (SNMP)* → **Add a switch**: a name, the switch's address (`192.168.1.2`, or `192.168.1.2:1161`
+2. *Network* → *Equipment* → **+ Add a switch…**: a name, the switch's address (`192.168.1.2`, or `192.168.1.2:1161`
    for another port), the **SNMP version** and the community, or for SNMPv3 the user and its passwords. The community
    and the passwords are stored encrypted, are never shown again (leave them blank when editing to keep them) and never
    appear in the audit log.
 3. Press **Read now**. It says how many ports, neighbours and MAC addresses were read, or why not ("no answer from the
    device": check that SNMP is on, the community, and that UDP 161 is reachable from the DENIS server).
-4. Open **Topology** → *Switches and cables*. A device's own panel also gets a **Connected to** line.
+4. Open **Network** → *Map* (formerly *Topology*) → *Switches and cables*. A device's own panel has a **Place & response** block that says which port it is plugged into. *Network* → *Setup* walks through these steps for several switches and a firewall.
 
 Polling runs from the DENIS collector (not in a `denis serve` viewer). The interval is 5 minutes by default (60 to 3600 seconds).
 
@@ -207,6 +207,60 @@ console keeps each switch's binding (the form sends it back): an API client that
   register by its chassis MAC.
 * MACs on access ports that are **not in the register** are only counted (the map says how many).
 
+### Testing the write credential
+
+A wrong write community or write user is otherwise found out in the middle of an incident. `POST /api/switches/{id}/test-write` (administrators who may act, and only while enforcement is switched on) tests it without changing anything: DENIS picks a physical port that is switched off, or has no link, with no device learned on it, no neighbour and no link to another switch it reads, and that is a plain access port by the same rules as a real action. It reads the port again, sets `ifAdminStatus` to **the value the port already has** and reads it back. If the switch has no such port, DENIS says so and writes nothing; unplug or switch off an unused port, read the switch again and test again. The test is audited (`nac.write_test`), takes the switch's one-at-a-time lock, and follows the same lab-switch rule as a real action for SNMPv3.
+
+### Port roles
+
+Every port in `GET /api/topology` (`switches[].ports[]`) carries `role` and `role_reason`: `uplink` (leads to another switch DENIS reads), `lag`, `trunk`, `management`, `infrastructure` (CDP or LLDP says network equipment is there), `unknown` (a Cisco port whose trunk mode DENIS cannot tell) or `access`. The words come from one function (`topology::port_role`), which reads the same facts port control refuses on, so a port never has one word on the map and another in a refusal. The same answer carries `gateway` (`{asset_id, ip, mac, switch, port, confidence: "likely", evidence[]}`, or `null`): the device DENIS treats as the gateway today (from its own route), and where a switch says it is plugged in.
+
+### The gateway, and how sure DENIS is
+
+DENIS looks for the device that connects your network to the internet from several witnesses, and says how sure it is. It no longer
+trusts only the address its own host routes through (wrong on a management VLAN, behind a second router, or on a collector that is not on
+your network).
+
+* **What clients are told.** The router that DHCP servers hand to devices (option 3), counted over time. Three sightings and a device
+  that holds that address make the gateway **confident**.
+* **Who carries the internet traffic.** The device on the other end of the frames to and from public addresses.
+* **DENIS's own route.** The 4.1 signal, kept as **likely**.
+* **A switch that routes.** A switch DENIS reads that says it routes (`ipForwarding`, `sysServices`) and holds the gateway address is
+  shown as the gateway itself, and as the core.
+* **A virtual address.** A VRRP, HSRP or GLBP address is one gateway, whatever routers stand behind it.
+* **Look-alike.** A device the fingerprint calls a router, when nothing else is known, is **possible**.
+
+When the route and what clients are told point to different devices (a collector on a management VLAN, a provider's box in front of your
+own firewall), the sure one is shown first and the other is marked **not sure**, with the reason in words. Two gateways that each serve
+their own networks are both shown. Each card has **Why DENIS thinks so**.
+
+An administrator can **Confirm** the gateway, **Change…** it, say **There is more than one…**, or **Re-detect** (forget what was
+confirmed by hand). What a person confirmed outranks every inference, is audited, and makes the device hands-off like the gateway the
+route names; it only ever adds a refusal. The core switch (the switch the gateway is plugged into, or a layer-3 switch itself) is the
+top of the map; an administrator can name another one. Switches seen over LLDP that DENIS does not read are shown as grey boxes with
+**Add…** (the form opens with their management address) and **Mark unmanaged** (a hub, a dumb switch).
+
+What DENIS does not do: it does not learn the mask or the VLAN of each DHCP lease (networks are shown as /24 groups), it does not probe
+the number of hops, so a second router in front of yours shows only as a disagreement between the route and what clients are told, and
+it does not read the default route of a layer-3 switch.
+
+Spanning tree helps with uplinks: the port toward the root bridge and the ports held in blocking are treated as uplinks, so they are
+never switched off or moved. A neighbour's management address (LLDP) is kept for the "add it" step.
+
+### Manual port placement (Experimental)
+
+Some switches cannot say which MAC address is on which port. The **D-Link DGS-1100-08V2** (firmware 1.00.015) is one: over SNMP it exposes only the system group and `ifTable`/`ifXTable`. It answers neither BRIDGE-MIB, Q-BRIDGE-MIB (no forwarding table, no VLAN objects) nor LLDP, although writing `ifAdminStatus` works. That is a limit of the model, not of DENIS. DENIS then refuses every port action on it ("no forwarding table"), which is correct and used to leave the administrator stuck.
+
+An administrator can say "this device is on port N" instead:
+
+* **Where.** On the device's panel, in *Place & response*, **Place it manually…** (a switch, a port from the list of plain access ports that have a link, shown with their role, and a note). The panel then shows **placed by hand** with who made it and when it ends, and **Change**, **Confirm again** and **Clear**. *Network → Equipment* shows **Placed by hand…** on a switch without a forwarding table, with the list of its placements (confirm again, clear). The API is `GET/PUT /api/switches/{id}/manual-ports` and `DELETE …/{entry}`; setting one needs an administrator who may act, and every change is audited (`nac.manual_port.set`, `nac.manual_port.clear`).
+* **Only where DENIS has no better word.** A placement is refused when the switch reports a forwarding table (it is never overridden; if one appears later the placement is ignored), when the switch was not read lately, when the port is not a plain access port with a link and nothing announcing itself (not an uplink, trunk, link aggregation, management port, or a port with an LLDP or CDP neighbour), when the device is DENIS itself, the gateway, a DNS or directory server or hands-off, or when a switch that knows better says the device is elsewhere. Two devices on one port need the administrator to say that sharing it is meant.
+* **What it allows.** Only switching the port **off**. A VLAN move is refused for such a port (it needs what the switch says about the port's VLAN). In the plan the refusal "no forwarding table" becomes **one warning that must be ticked** ("{who} placed a device on this port by hand on {date}. DENIS cannot verify what is on this port."), the typed port name stays, and the placed device counts in "what this cuts off", so DENIS itself, the gateway and hands-off devices are refused as for any port.
+* **How long it holds.** 30 days (the end is shown; one click confirms it again), and not past a change of the port's link: DENIS reads `ifLastChange` and refuses a placement made before the link last changed, or when the switch does not say. It is refused when the port has no link, and when DENIS itself is behind the switch (another switch learns DENIS on a port that leads to it), because then any port could be the way to DENIS. It is **Experimental**: it needs the second lab switch like every new action, and the kill switch, the hourly limit and the password as always.
+* **Right before the write.** The switch is read again; the link, the neighbours, the age and the link change are judged again, and `ifAdminStatus` is read and read back as for every port action. There is no forwarding table to compare, so the usual "the same devices are still behind the port" comparison is replaced by those checks.
+
+What DENIS cannot know here: that the device is really on that port. The warning says so, and so does the audit row. "The only known path to DENIS" is judged only from what other switches report.
+
 ## Watching ports and VLANs, and what DENIS notices
 
 DENIS keeps a bounded history of where each MAC has been seen (per switch, port and VLAN) and a change log, and a
@@ -270,7 +324,7 @@ SHA-1 and AES-128 for it; that is still far better than SNMPv2c.
 give it write access to `ifAdminStatus` only, and keep it a different user, so that polling never carries write rights.
 Leave the write user's name empty and DENIS stays read-only on that switch. Port control over SNMPv3 is new and not yet
 tried on real equipment, so a new block on an SNMPv3 switch also needs *Allow experimental actions (lab use)* under
-*Settings → Enforcement*; reading, and enabling a port again, do not. The same rules as for the communities apply
+*Settings → Response policy*; reading, and enabling a port again, do not. The same rules as for the communities apply
 to the passwords: they are stored encrypted with the installation's secret key, never returned by the API or shown
 again, never logged or audited, left out of backups (the restore asks for them again), and a blank password on save
 keeps the stored one **only while the switch's address and the user name stay the same**. After a change of address or
@@ -282,7 +336,8 @@ result is kept in memory so a poll does not repeat it), and then signs and encry
 the message against its own clock: a message more than 150 seconds off, or from before a reboot, is refused with a
 `notInTimeWindows` report, which is signed, so DENIS takes the switch's boot count and time from it and asks again
 (at most twice). A wrong password, an unknown user or a level the user is not allowed shows up as a plain sentence in the
-switch's line ("The switch rejected the authentication: the authentication password or protocol is wrong"). A switch
+switch's line ("The switch rejected the authentication. The authentication protocol is the most likely cause ..."; a plain
+"SHA" on a switch means SHA-1, not SHA-256, so check the protocol first and the password second). A switch
 that does not answer at all says "no answer from the device". A wrong **privacy** password is often silence, because
 many agents simply drop what they cannot decrypt.
 
@@ -290,7 +345,7 @@ many agents simply drop what they cannot decrypt.
 for another switch. So the first poll whose answer is authenticated pins the switch's engine ID, and port control is
 sent only to that engine (a switch added before 4.1.2 is pinned at its next poll). If the switch later answers with
 another engine ID (it was replaced or its SNMP configuration reset, or someone answers for it), polls go on, the
-switch's line on *Settings → Network → Switches* shows both IDs, and disabling or enabling a port is refused until an
+switch's line on *Network → Equipment* shows both IDs, and disabling or enabling a port is refused until an
 administrator presses **Confirm the new engine ID**. Changing the switch's address drops the pin. Give each switch its
 own write user password: a key localised for one switch then never works on another.
 

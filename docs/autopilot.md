@@ -225,7 +225,7 @@ this page is not legal advice, and DENIS does not control a provider's own reten
 
 **Highly experimental. Off by default. It can be wrong, and a wrong block can cut off a device your business needs.**
 This is a separate option from everything above, it is not part of any mode, and it can only be switched on in
-*Settings → Enforcement → Automation*, under "Let Autopilot block". Read the [enforcement page](enforcement.md#automation)
+*Settings → Response policy → Automation*, under "Let Autopilot block". Read the [enforcement page](enforcement.md#automation)
 too: this is level (c) of automation.
 
 **What it does.** When a *rule or detector* reports a `high` severity finding about exactly one ordinary device, and

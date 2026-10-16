@@ -22,7 +22,7 @@ what is available today. The setup of each device type is on its own page, liste
 
 * **Switch ports over SNMP.** Disabling a port is validated on one real switch. See [Switches](switches.md#disabling-a-port).
 * **Blocking, quarantine and ending sessions through the connectors** (firewalls, UniFi, Meraki, AWS, Azure, NSX-T,
-  Hyper-V, Proxmox, RADIUS Disconnect), each with the connector's own **Block** button under *Settings → Enforcement*. All
+  Hyper-V, Proxmox, RADIUS Disconnect), each with the connector's own **Block** button under *Settings → Response policy*. All
   of these are simulator only.
 * **The general path** with plans, durations, expiry, per-action permissions, a ledger and an API
   (`/api/nac/actions/...`) is built on the server, and **all twenty connectors are on it now** (flow blocks, quarantine,
@@ -49,7 +49,7 @@ through that path; for the others, a vendor's existing action is reached through
 
 | Connector | Block device | Block flow | Quarantine | Disable port | End sessions |
 |---|---|---|---|---|---|
-| [SNMP switch ports](nac/snmp.md) | Unsupported | Unsupported | Experimental: `access_vlan` | Built: `if_admin_status` | Unsupported |
+| [SNMP switch ports](nac/snmp.md) | Unsupported | Unsupported | Built: `access_vlan` | Built: `if_admin_status` | Unsupported |
 | [Fortinet FortiGate](nac/fortigate.md) | Experimental: `address_group` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Experimental: `session_clear` |
 | [Palo Alto PAN-OS](nac/paloalto.md) | Experimental: `address_group` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Experimental: `session_clear` |
 | [OPNsense](nac/opnsense.md) | Experimental: `alias` | Experimental: `deny_rule` | Experimental: `quarantine_alias` | Unsupported | Experimental: `state_kill` |
@@ -70,7 +70,7 @@ through that path; for the others, a vendor's existing action is reached through
 | [Proxmox VE](nac/proxmox.md) | Experimental: `vm_firewall_drop` | Experimental: `deny_rule` | Experimental: `quarantine_ipset` | Experimental: `link_down` | Unsupported |
 | [RADIUS CoA](nac/radius_coa.md) | Unsupported | Unsupported | Unsupported | Unsupported | Experimental: `radius_disconnect` |
 
-Of the 100 cells (20 connectors, 5 actions; a cell with two methods counts by its best one): 1 is Built, 62 Experimental, 0 Not built and 37 Unsupported.
+Of the 100 cells (20 connectors, 5 actions; a cell with two methods counts by its best one): 2 are Built, 61 Experimental, 0 Not built and 37 Unsupported.
 20 of the 20 connectors have code for at least one action.
 
 <!-- matrix:end -->
@@ -106,23 +106,26 @@ When DENIS refuses, the plan lists each refusal with a code. The common ones:
 
 | Code | What it means and what to do |
 |---|---|
-| `enforcement_off` | The kill switch is off. An administrator switches it on under *Settings → Enforcement*. |
+| `enforcement_off` | The kill switch is off. An administrator switches it on under *Settings → Response policy*. |
 | `needs_lab` | A lab switch is missing. The text names which one. |
 | `needs_config` | The connector needs a setting first, for example the quarantine group or VLAN. Set it in the connector's settings. |
 | `needs_rule_opt_in` | Flow blocks need *Allow DENIS to create deny rules* on this connector. |
-| `paused`, `not_wired` | The connector is paused (resume it under *Settings → Enforcement*) or cannot act yet in this version. |
+| `paused`, `not_wired` | The connector is paused (resume it under *Settings → Response policy*) or cannot act yet in this version. |
 | `not_built`, `unsupported` | See the matrix. The text of `unsupported` says why. |
 | `not_orchestrated` | The connector is not on the plan and apply path. No connector in this version answers it any more; it stays for a connector added later. |
 | `nac_permission` (HTTP 403) | Your account lacks the permission of this action. An administrator grants it under *Users*. |
 | `unknown_capability` | The connector has no such method for this action. |
 | `reason`, `duration` | The reason must be 3 to 200 characters. The duration must be 5 minutes to 365 days, in whole minutes, or permanent. |
 | `target_kind`, `target` | The action does not fit the target (a device, a flow or a port), or the request names no usable address. |
-| `own_session`, `protected` | The target is your own address, or DENIS, the gateway, a DNS or directory server, a protected address or a virtual router address. This never changes. |
+| `own_session`, `protected_self`, `protected_gateway`, `protected_infra` | The target is your own address, or DENIS itself, the gateway, or a DNS or directory server. This never changes. |
+| `protected_net` | The address is in a network this connector is set never to block (its *protected networks* setting). You can change that setting. |
+| `protected_connector` | The target is on this connector's own never-block list, or is a virtual router address. |
+| `protected_list` | The target is on your hands-off list (*Network → Readiness → Hands-off devices*). Remove it from the list there, with your password, if the action is meant. |
 | `site`, `egress` | The target belongs to another site than the connector, or the tenant is not allowed to reach this address. |
 | `port_class` | DENIS acts only on an access port. It refuses a trunk, an uplink, a port-channel member, a management port, or a port whose kind it cannot tell. |
 | `conflict` | Another DENIS action is already active on this target. Release it or extend it. |
 | `max_rules` | The connector already holds the most DENIS rules allowed (50 by default). |
-| `cap_reached` | The hourly limit is used up. Wait, or raise it under *Settings → Enforcement*. |
+| `cap_reached` | The hourly limit is used up. Wait, or raise it under *Settings → Response policy*. |
 | `same_subnet`, `no_endpoint_here` | Flow refusals, explained under *Block a flow*. |
 | `no_effect`, `effect`, `observe` | The connector could not say what it would change or undo with, so DENIS will not act. |
 
@@ -159,7 +162,7 @@ There are three levels:
 
 ### Switching level (b) on
 
-*Settings → Enforcement → Automation (Experimental)* has one switch. Switching it on needs, all together:
+*Settings → Response policy → Automation (Experimental)* has one switch. Switching it on needs, all together:
 
 * a signed-in administrator who may act on the network (not an API token, not `--insecure-no-auth`, not an account limited to
   some sites) and who holds the permissions to block a device **and** to quarantine;
@@ -225,11 +228,43 @@ Switching on or off, every limit change, every skipped suggestion and every auto
 `nac.automation.rules`, `nac.automation.rules.run` (with the policy id and revision), `nac.automation.rules.skipped`,
 `nac.automation.suspended`, `policies.auto_enforce`, and the action itself as `nac.<connector>.<action>` by `rule:<policy id>`.
 
+## Hands-off devices
+
+DENIS never acts on some devices, whatever you ask: its own address, the gateway, a DNS or directory server, and the switches it reads. Each connector also has its own never-block lists (addresses, networks, hardware addresses, VM names). Those stay exactly as they are.
+
+On top of them there is one list for the whole installation, the **hands-off list**, in the section *Hands-off devices* of **Network → Readiness**: devices DENIS never acts on. A device on it is refused by every connector and by every switch port action ("never touch my safety PLC", said once). An entry is a device of the register, an IP address, a MAC address or a network. The same screen also shows, read only, DENIS's built-in rules and the lists of the connectors, so the answer to "is this device protected, and why?" is in one place.
+
+The list can only add refusals. Adding an entry needs no password, because it makes DENIS more careful. Removing one needs your password, because it makes blocking possible again; the person who added an entry may take it back without the password in the first ten minutes. Both are audited (`nac.hands_off.add`, `nac.hands_off.remove`). The API is under `/api/network/hands-off` (see the API reference).
+
+## The Respond menu
+
+On a device's panel, **Respond…** opens a menu grouped by what you want: **Cut the device off** (block the device, switch off its port, end its sessions), **Contain it** (quarantine through a firewall group, move the port to the quarantine VLAN) and **Block one connection** (one item, *Block a flow…*, which lets you pick the recorded flow in the next step). Nothing is pre-selected and nothing is recommended: you choose at that moment. Each response says which connector or switch it goes through.
+
+What is not available is folded into **Not available here (N)**, with **one row per cause**, not one per response: a chip that says in words what kind of cause it is, a plain sentence, the responses it affects, and a **Fix:** link to the exact control that changes it. The chips:
+
+| Chip | Meaning |
+|---|---|
+| Hardware | The equipment cannot do it (a switch cannot block one device). Never changes. |
+| Version | Not built into this version of DENIS. |
+| Setup | You can change it: a paused connector, a missing setting, a switch without a write credential, enforcement switched off. |
+| Lab only | A lab switch under *Settings → Response policy* is off. |
+| Permission | Your account lacks the permission; another administrator grants it under *Users*. |
+| Safety | DENIS refuses on purpose, for example because the device is hands-off. |
+| Data | DENIS lacks information, for example it has not seen the device on a switch port. |
+
+When nothing is available the list is open, under a headline that says so. A device that is **hands-off** gets one row (Safety) and nothing else. The not-available rows can be reached with the keyboard, and each one points at its reason. The menu is fixed to the screen, so no scrolling panel cuts it off; on a phone it docks to the bottom.
+
+## Switches that cannot say where a device is
+
+A switch that gives no forwarding table (the D-Link DGS-1100-08V2 is one) cannot tell DENIS which port a device is on, so port actions on it are refused. An administrator can place a device on a port by hand (**Experimental**, see the switches guide): the refusal then becomes a warning to tick, only switching the port off is possible, and the placement ends after 30 days or when the port's link changes.
+
 ## The plan dialog
 
 Every action starts as a plan. The dialog says in one sentence what DENIS would do, lets you choose the connector and the
 duration, lists what it would cut off, shows every refusal and warning, and asks for your reason and your password.
 Nothing changes on a device until you press Apply.
+
+Opened from the Respond menu the response and the connector are already chosen, so the dialog is one step: the plan, how long, why, the warnings to tick, and, in the footer that stays in view, your password and **Apply**. The **reason field starts empty**: you write why in your own words (5 to 200 characters), because it goes to the audit log; **Apply** stays off until you have. Each refusal in the plan carries the same chip and **Fix:** link as the menu.
 
 ![The plan dialog for blocking one flow](img/enforcement-plan.png)
 
@@ -255,10 +290,16 @@ confirm there with your password. The card is not shown while enforcement is swi
 
 ## Where to find it in the console
 
-* *Settings → Enforcement*: the kill switch and the hourly limit, the first lab switch, the connectors with their settings
-  and *Never block these* lists, and *Currently blocked by DENIS* with **Unblock…**.
-* *Topology → Switches and cables*, and a device's panel: **Disable…** for a switch port.
-* *Users*: each administrator's enforcement permissions, and the one-time notice after the upgrade.
+**Network** is a group in the left menu, like Settings, with four pages:
+
+* *Network → Map* (formerly *Topology*): the gateway DENIS knows, your switches and the cables between them, and the ports of each switch with a role and the reason for it (uplink, trunk, link aggregation, management, infrastructure, access). **Read now** is on every switch.
+* *Network → Equipment*: every switch DENIS reads and every firewall, controller or cloud platform it acts through, in one table (this used to be *Settings → Switches* and *Settings → Connectors*). Add a switch or a connector, read or test one, and the **write test** of a switch. Where DENIS recognises your gateway as a firewall it offers to set up that connector.
+* *Network → Response*: *Equipment state* (what each piece can do and the one thing to change), *Currently blocked by DENIS* (every response in force with its origin: a person, an automation policy by name, Autopilot; releasing an automatic one can also pause its policy), *Hands-off devices*, and what your account may do.
+* *Network → Setup*: a seven-step guided setup (discover, gateway, equipment, uplinks and hands-off, response methods, write credentials, dry run).
+
+*Settings → Response policy* keeps what DENIS is **allowed** to do: the kill switch and the hourly limit, the lab switches and *Automation*, under a status strip. A device's panel has the **Place & response** block and the **Respond…** menu. *Users* shows each administrator's enforcement permissions.
+
+Old addresses keep working: `#topology` opens *Network → Map*, `#settings/switches` and `#settings/connectors` (and their `/<id>/<field>` forms) open *Network → Equipment*, and `#settings/enforcement`, `#settings/nac` and `#settings/automation` open *Settings → Response policy*.
 
 ## The connector pages
 

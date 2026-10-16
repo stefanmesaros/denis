@@ -42,7 +42,7 @@ Some industrial traffic is not IP at all and stays inside one switch or VLAN, so
 * **PROFINET** real-time traffic and DCP stay inside the cell: mirror the cell switch. Connection management (UDP 34964) crosses a
   router only in unusual setups.
 * GOOSE is decoded by default whenever OT decoding is on (it is a low rate). **Sampled Values are off by default**: every stream
-  sends about 4,000 frames per second, and a process bus carries 10–30 streams. Switch them on under *Settings → Network
+  sends about 4,000 frames per second, and a process bus carries 10–30 streams. Switch them on under *Settings → Capture
   interfaces → Advanced → IEC 61850 Sampled Values* (or start with `--ot-sv`); the change applies after a restart. DENIS then reads at most
   one frame per stream per second, but the capture interface still receives every frame, so size the collector for it.
 * Frames carrying a VLAN tag (common for GOOSE and PROFINET) are accepted. Which frames reach the program on a given network card

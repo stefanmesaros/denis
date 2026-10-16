@@ -4,6 +4,19 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 4.1.4: The Network page, a new Respond menu and gateway detection
+
+- Cisco switches: a laptop, printer or other end device that announces itself over LLDP on an access port no longer makes DENIS refuse to switch that port off or move it to the quarantine VLAN, and DENIS now finds the switch port of such a device. Port names are compared the way Cisco writes them. A switch, router, access point or phone still keeps the port protected.
+- New: Network in the left menu (it replaces Topology) with Map, Equipment, Response and Setup. The switches and connectors moved there from Settings, with Read now and a write test on every switch. Setup is a seven-step guide. Old links still work.
+- Respond menu: grouped by what you want, with one reason per cause and a link to the control that fixes it. You write your own reason before you apply.
+- Hands off: one list of devices DENIS never acts on, one click on a device's panel; removing one needs your password.
+- Settings: Enforcement is now Response policy, Network is Capture (the interfaces are lists you tick), Setup guide is Getting started.
+- Experimental: for a switch that gives no forwarding table (the D-Link DGS-1100-08V2 is one) you can say which device is on which port; DENIS then lets you switch that port off, after a warning you must tick. It ends after 30 days or when the port's link changes.
+- Network: DENIS now finds the gateway from what DHCP tells devices, the internet traffic and its own route, says how sure it is and why, and asks you to confirm it. You can confirm, change it, name a second gateway, or mark a switch DENIS cannot read as unmanaged. A gateway you confirm is hands-off.
+- The Cisco quarantine VLAN move is now validated on real equipment (Catalyst 2960-X, SNMPv2c and SNMPv3).
+- Fixes: a plan with warnings also needs a tick that you read them. A RADIUS device that signed once must keep signing. A Hyper-V or Proxmox connector with an unaccepted setting can still release what it blocked. Fragment handling is stricter. A device on your hands-off list keeps its protection even when DENIS cannot read the list for a moment. The gateway DENIS protects is the one on your route or the one you confirmed, never an address a device merely claims. Confirming a placement by hand again, or changing it, no longer loses its note or shared-port tick; switching off such a port now actually works. The TLS library is updated (security advisories).
+- SNMPv3 failures name the likely cause first, and the form says a plain "SHA" means SHA-1. Refusals are shown once.
+
 ## 4.1.3: Fixes from the code review of 4.1.2
 
 - Industrial commands put back together from IP fragments are read the way the receiving device reads them. One whose TCP or UDP checksum is wrong is still read, because some devices do not check it and would carry it out, and the Health page shows how many there were.

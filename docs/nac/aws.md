@@ -2,7 +2,7 @@
 
 Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from the EC2 API reference and checked against a fake EC2 in DENIS's own tests. It has never been run against a real AWS account. Nothing here is listed as validated on hardware.
 
-Lab use: the quarantine (the swap that was called "block" before 4.1) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Enforcement*. The host block through the isolation group, new in 4.1, additionally needs *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
+Lab use: the quarantine (the swap that was called "block" before 4.1) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The host block through the isolation group, new in 4.1, additionally needs *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
 
 Besides the connector's own refusals, every action through it is refused for a loopback, unspecified, broadcast or multicast address, for DENIS itself and for the gateway, for an instance on this connector's protected list, for an address in an open `arp_conflict` alert (unless the administrator ticks a box to accept that), before anything is sent. Releasing is never refused for these reasons.
 

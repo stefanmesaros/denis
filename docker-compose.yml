@@ -5,13 +5,12 @@
 #   docker compose up -d denis   -- a real collector: needs the host's own network (see the
 #                                    "capture" comment below) and two Linux capabilities.
 #
-# Both pull the published Community image (ghcr.io/stefanmesaros/denis) -- the source this image
-# is built from is maintained privately; see docs/docker.md for what each service actually needs
-# and what has (and has not) been verified.
+# See docs/docker.md for what each actually needs and what has (and has not) been verified.
 
 services:
   demo:
-    image: ghcr.io/stefanmesaros/denis:latest
+    build: .
+    image: denis:local
     command: ["demo"]
     ports:
       - "8080:8080"
@@ -22,7 +21,8 @@ services:
     # both were wrong the moment DENIS_NO_TLS's actual value differed from what each guessed.
 
   denis:
-    image: ghcr.io/stefanmesaros/denis:latest
+    build: .
+    image: denis:local
     command: ["run"]
     # A container's own bridge network is a different network namespace than the host's --
     # capture would only ever see the container's own virtual interface, never the LAN a real
@@ -38,8 +38,8 @@ services:
     # dropping every other default capability too (CAP_DAC_OVERRIDE among them) -- tried that
     # first (`cap_drop: [ALL]` + only NET_RAW/NET_ADMIN added back) and it broke even root's own
     # ability to write to the data volume: the volume is first populated from the image's own
-    # /data directory, owned by the unprivileged `denis` user the image is non-root by default as,
-    # and CAP_DAC_OVERRIDE is exactly the capability that lets root bypass a
+    # /data directory, owned by the unprivileged `denis` user the image is non-root by default as
+    # (see Dockerfile), and CAP_DAC_OVERRIDE is exactly the capability that lets root bypass a
     # file's own permissions -- drop it and root is just another uid facing the same permission
     # check anyone else would. Confirmed by actually hitting "Permission denied" on `touch` as
     # uid 0 with that capability dropped.
@@ -55,6 +55,36 @@ services:
     volumes:
       - denis-data:/data
 
+  # A remote agent: watches the network of the machine it runs on and reports to a master. Not part of
+  # the other two services; start it on the remote machine only:
+  #   DENIS_MASTER=https://MASTER:8081 DENIS_AGENT_TOKEN=dat_... DENIS_AGENT_ID=branch-1 docker compose up -d agent
+  # (see docs/docker.md, "Run a remote agent"). Same host-network and capability trade-offs as "denis".
+  agent:
+    build: .
+    image: denis:local
+    command: ["agent"]
+    network_mode: host
+    user: root
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    restart: unless-stopped
+    # The image's HEALTHCHECK probes the console port; an agent serves none, so it would show as unhealthy.
+    healthcheck:
+      disable: true
+    environment:
+      DENIS_MASTER: ${DENIS_MASTER:-}
+      DENIS_AGENT_TOKEN: ${DENIS_AGENT_TOKEN:-}
+      DENIS_AGENT_ID: ${DENIS_AGENT_ID:-}
+      DENIS_AGENT_NAME: ${DENIS_AGENT_NAME:-}
+      DENIS_AGENT_SITE: ${DENIS_AGENT_SITE:-}
+      DENIS_FLOWS: ${DENIS_FLOWS:-true}
+      # the master's CA certificate as text (Settings, HTTPS certificate, Copy for --master-ca-pem); empty = not set
+      DENIS_MASTER_CA_PEM: ${DENIS_MASTER_CA_PEM:-}
+    volumes:
+      - denis-agent-data:/data
+
 volumes:
   denis-demo-data:
   denis-data:
+  denis-agent-data:

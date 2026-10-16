@@ -1,6 +1,6 @@
 # Passive DNS
 
-**Off by default.** When you switch it on (Settings → Network interfaces), DENIS reads the DNS
+**Off by default.** When you switch it on (Settings → Capture → Network interface), DENIS reads the DNS
 answers devices receive when they look up a name — for example `updates.vendor.example` — and
 remembers which names each device looked up, for a retention period you choose (1–90 days, default
 30, never longer than the general retention). Names then appear next to addresses in alerts, on

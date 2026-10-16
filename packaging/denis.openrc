@@ -1,0 +1,46 @@
+#!/sbin/openrc-run
+# The DENIS service for OpenRC (Alpine Linux). packaging/install.sh writes it to /etc/init.d/denis.
+# Settings: /etc/denis/env (DENIS_LISTEN=..., any `denis run` option's environment name).
+# After editing:  rc-service denis restart      Logs: /var/log/denis/denis.log
+description="denis network asset discovery"
+command=/usr/local/lib/denis/denis
+command_args="run --db /var/lib/denis/denis.db"
+command_user="denis:denis"
+supervisor=supervise-daemon
+# a start that keeps failing (for instance a taken port) is not retried forever
+respawn_delay=5
+respawn_max=5
+respawn_period=120
+output_log=/var/log/denis/denis.log
+error_log=/var/log/denis/denis.log
+# the database holds TOTP secrets and integration credentials: readable by the service user only
+umask=077
+# Only what capture/injection needs, as ambient capabilities of the service user (no capability on
+# the file, so the console's own Settings -> Updates can still replace the program). install.sh
+# removes this line on an OpenRC too old for it and gives the file the capabilities instead.
+capabilities="^cap_net_raw,^cap_net_admin"
+
+depend() {
+	need net
+	after firewall
+}
+
+# KEY=value lines, read the way systemd reads an EnvironmentFile: no shell code in the file runs as root
+denis_env() {
+	[ -r "$1" ] || return 0
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in DENIS_*=*) ;; *) continue ;; esac
+		key=${line%%=*}
+		val=${line#*=}
+		case "$key" in *[!A-Za-z0-9_]*) continue ;; esac
+		case "$val" in \"*\") val=${val#\"}; val=${val%\"} ;; esac
+		export "$key=$val"
+	done < "$1"
+}
+
+start_pre() {
+	checkpath -d -o denis:denis -m 0700 /var/lib/denis
+	checkpath -d -o denis:denis -m 0750 /var/log/denis
+	export DENIS_LISTEN=127.0.0.1:8080
+	denis_env /etc/denis/env
+}

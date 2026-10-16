@@ -2,7 +2,7 @@
 
 Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from the controller's behaviour as publicly known (the UniFi Network API is not officially documented, and it changes between Network versions) and checked against a fake controller in DENIS's own tests. It has never been run against a real controller. Nothing here is listed as validated on hardware.
 
-Lab use: the client block (the pre-4.1 action) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Enforcement*. The actions new in 4.1 (disconnect a wireless client, disable a switch port, quarantine a switch port) additionally need *Allow experimental actions (lab use)*. Releasing an action always works.
+Lab use: the client block (the pre-4.1 action) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The actions new in 4.1 (disconnect a wireless client, disable a switch port, quarantine a switch port) additionally need *Allow experimental actions (lab use)*. Releasing an action always works.
 
 Besides this connector's own refusals, every action through it goes through DENIS's common guards before anything is sent: loopback, unspecified, broadcast and multicast addresses, DENIS itself, the gateway, and an address or MAC in an open `arp_conflict` alert are refused, and a list DENIS cannot read refuses the action.
 
@@ -47,7 +47,7 @@ A device's `port_overrides` are replaced as a whole by one `PUT`. DENIS therefor
 1. Create (or reuse) a controller **local account** for DENIS. A *Site Admin* for the one site is enough to block clients; changing a switch's port settings needs the right to edit devices of the site **[verify]**. Do not use the owner account.
 2. Note whether the controller is a **UniFi OS console** or a **classic** controller, and the **site short name**.
 3. **Quarantine port profile (optional).** In the controller make a *Switch Ports* profile (Settings → Profiles): its **native network** is your quarantine VLAN, with DHCP and the rules you want there, and it carries **no tagged networks**. Enter its **name or id** in *Quarantine port profile*. Leave it empty to switch the port quarantine off.
-4. *Settings → Enforcement* → **Ubiquiti UniFi** → **Add…**: the controller address (`https://host[:port]`, no path), site, user name, password, the console checkbox, the quarantine port profile, and **the MAC addresses never to block**: DENIS's own adapter, the gateway, the controller and any access point or switch you rely on.
+4. *Network → Equipment* → **Ubiquiti UniFi** → **Add…**: the controller address (`https://host[:port]`, no path), site, user name, password, the console checkbox, the quarantine port profile, and **the MAC addresses never to block**: DENIS's own adapter, the gateway, the controller and any access point or switch you rely on.
 5. **For a port action** the target is the switch's **MAC address** and the **port number** as the controller numbers it (1 to 256).
 
 ## Unblock, release and expiry

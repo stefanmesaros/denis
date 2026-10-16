@@ -2,7 +2,7 @@
 
 Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from OPNsense's published REST API documentation and controller sources and checked against a fake OPNsense in DENIS's own tests. It has never been run against a real OPNsense. Nothing here is listed as validated on hardware.
 
-Lab use: the host block (alias) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Enforcement*. The actions new in 4.1 (flow block, quarantine, ending sessions) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
+Lab use: the host block (alias) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The actions new in 4.1 (flow block, quarantine, ending sessions) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
 
 Besides the connector's own refusals, every action through it is refused for a loopback, unspecified, broadcast or multicast address, for DENIS itself and for the gateway, for the addresses on this connector's protected list, for an address in an open `arp_conflict` alert (unless the administrator ticks a box to accept that) and for any address that belongs to the OPNsense itself, before anything is sent. Releasing is never refused for these reasons.
 
@@ -34,7 +34,7 @@ OPNsense applies **every** saved change to its rules at once. A change someone e
 1. **Block alias.** In OPNsense create a firewall alias of type *Host(s)* (*Firewall → Aliases*) dedicated to DENIS's blocks, and a **block rule** that uses it (as source or destination, as you need), high up in the rules. DENIS never creates or edits this rule. The alias may be empty; it has to exist.
 2. **Quarantine alias (optional).** Create a second alias of type *Host(s)* and **your own rules** for it: allow what a quarantined device needs (DHCP, DNS, NTP, the remediation server) and deny the rest. DENIS never creates these. Enter the alias name in *Quarantine alias name*. Leave it empty to switch quarantine off.
 3. **API user.** Create a user for DENIS (*System → Access → Users*) and give it only the privileges it needs, then create its API key and secret. Read and write: *Firewall: Alias: Edit* (alias entries) and, for flow blocks, *Firewall: Rules: Edit* and *Firewall: Automation: Filter*. Read: *Diagnostics: Interfaces* (to read the firewall's own addresses) and *Diagnostics: Firewall* (states). Applying the filter needs the *Firewall: Rules* privilege. Allow the API user only from DENIS's address if your OPNsense can restrict that.
-4. *Settings → Enforcement* → **OPNsense** → **Add…**: base URL, API key, API secret, block alias name, *Never block these IP addresses* (DENIS itself, the gateway, the OPNsense), and optionally the quarantine alias.
+4. *Network → Equipment* → **OPNsense** → **Add…**: base URL, API key, API secret, block alias name, *Never block these IP addresses* (DENIS itself, the gateway, the OPNsense), and optionally the quarantine alias.
 5. **Flow blocks:** tick *Allow DENIS to create deny rules on this firewall* only if you accept that DENIS writes rules on this OPNsense. It is off by default, and DENIS will not create or delete any rule while it is off. Changing it needs your password. A wrong deny rule can cut off traffic.
 
 ## How a flow block is placed

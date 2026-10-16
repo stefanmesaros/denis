@@ -4,7 +4,7 @@ Status: **Experimental. Simulator only: not yet validated on real equipment.** E
 
 **SonicOS Gen7 / SonicOSX 7.x only.** Every working address-object and address-group example SonicWall publishes is marked for 7.X firmware. Gen6 is not implemented and not assumed to work.
 
-Lab use: the old block (*Block device*, the address group) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Enforcement*. The quarantine is new in 4.1 and needs that switch and also *Allow experimental enforcement actions*. Testing, reading and releasing always work.
+Lab use: the old block (*Block device*, the address group) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The quarantine is new in 4.1 and needs that switch and also *Allow experimental enforcement actions*. Testing, reading and releasing always work.
 
 Besides the connector's own refusals, every action through it is refused for a loopback, unspecified, broadcast or multicast address, for DENIS itself and for the gateway, for DNS and directory servers, for anything in *Never block these IP addresses*, and for the address you are using to reach the console. Release is never refused for these reasons.
 
@@ -44,7 +44,7 @@ Check these against SonicWall's documentation for your firmware version before r
 2. **Quarantine (optional).** A second address group (with a placeholder member) and **your own access rules** that use it: allow what a quarantined device needs (DHCP, DNS, NTP, the remediation server) and deny the rest. DENIS never creates, checks or edits these rules. Traffic inside the device's own subnet does not pass the firewall and is not affected.
 3. **An administrator account for DENIS** in the *SonicWall Administrators* group, with the SonicOS API and RFC-2617 HTTP Basic authentication turned on (*Device | Settings | Administration*). It needs to read and change address objects and groups and to commit. Use an account of its own.
 4. **A zone.** SonicOS requires every host address object to carry a zone. Use an existing zone name; it has no effect on which traffic your deny rule matches.
-5. **In DENIS** (*Settings → Enforcement → Add a connector → SonicWall*): **Base URL**, **username**, **password** (stored sealed as `nac.sonicwall.password`), the **block address group name**, the **zone**, the optional **quarantine address group name**, and the addresses never to block.
+5. **In DENIS** (*Network → Equipment → Add a connector → SonicWall*): **Base URL**, **username**, **password** (stored sealed as `nac.sonicwall.password`), the **block address group name**, the **zone**, the optional **quarantine address group name**, and the addresses never to block.
 
 ## What DENIS records
 

@@ -2,7 +2,7 @@
 
 Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from RFC 2865, 2866, 2869 and 5176 and checked against a fake access device on UDP in DENIS's own tests. It has never been run against a real wireless controller, switch, Cisco ISE, Aruba ClearPass or FreeRADIUS. Nothing here is listed as validated on hardware.
 
-Lab use: ending a session (the pre-4.1 action of this connector) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Enforcement*. It is the pre-4.1 "block" under a new name, so the second switch for new actions is not needed. Releasing always works.
+Lab use: ending a session (the pre-4.1 action of this connector) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. It is the pre-4.1 "block" under a new name, so the second switch for new actions is not needed. Releasing always works.
 
 Besides this connector's own refusals, every action through it goes through DENIS's common guards before anything is sent: loopback, unspecified, broadcast and multicast addresses, DENIS itself, the gateway, and an address or MAC in an open `arp_conflict` alert are refused, and a list DENIS cannot read refuses the action.
 
@@ -50,7 +50,7 @@ One UDP send, then at most **5** more tries of the **same** packet (the same Ide
 
 * **Disconnect-ACK**: the session was ended. Completed.
 * **Disconnect-NAK**: the access device refused. Failed, with its Error-Cause in the message. Not retried.
-* **Signed answers** (since 4.1.3): when an answer carries a Message-Authenticator, it must match the shared secret, or the answer counts as not genuine (**unconfirmed**). An answer **without** one is accepted on its Response Authenticator alone, because many access devices do not sign their answers; so the signature check protects only against a forged signed answer. If your access device signs every answer, tick **Require a signed answer (Message-Authenticator)**: an unsigned answer is then treated as not genuine too.
+* **Signed answers** (since 4.1.3): when an answer carries a Message-Authenticator, it must match the shared secret, or the answer counts as not genuine (**unconfirmed**). An answer **without** one is accepted on its Response Authenticator alone, because many access devices do not sign their answers; so the signature check protects only against a forged signed answer. If your access device signs every answer, tick **Require a signed answer (Message-Authenticator)**: an unsigned answer is then treated as not genuine too. Since 4.1.4 DENIS also remembers, per connector, that the device has signed an answer: from then on an unsigned answer counts as not genuine without any tick, so nobody on the path can swap in an unsigned one. A device that never signs keeps working as before. If a device really stopped signing (new firmware, another device at the same address), tick **My access device stopped signing its answers**: unsigned answers are accepted again.
 * **No usable answer after every try**, or an answer whose authenticator does not match the secret: **unconfirmed**. DENIS does not know whether the access device acted. A reply that fails the authenticator check is not read and not retried (it means a wrong secret, or an answer that is not from the configured device).
 * Nothing is sent at all when the plan is refused, when a lab switch is off, or when the session value is missing.
 
@@ -58,7 +58,7 @@ One UDP send, then at most **5** more tries of the **same** packet (the same Ide
 
 1. On the access device enable **RFC 5176 Dynamic Authorization** (CoA / Disconnect) for DENIS's address, and note its listening port (UDP 3799, or 1700 on some) and the **shared secret** DENIS must use. The access device must accept Disconnect-Requests from DENIS **[verify per vendor]**.
 2. Decide which attribute identifies a session on your access device: **User-Name**, **Calling-Station-Id** (a MAC address on most), **Acct-Session-Id** (the most precise, but DENIS does not know it) or **Framed-IP-Address**. Prefer `calling_station_id` or `framed_ip_address`: DENIS can take those from a device.
-3. *Settings → Enforcement* → **RADIUS CoA** → **Add…**: the **NAS address** (a plain IP address, no host name), the **port**, an optional **NAS-IP-Address**, the **shared secret** (a sealed secret), the **session attribute**, the **MAC address format**, targets never to disconnect (DENIS itself, your management devices; MACs are compared whatever separator they use), a **timeout** and a **retry count**, and whether every answer must be signed.
+3. *Network → Equipment* → **RADIUS CoA** → **Add…**: the **NAS address** (a plain IP address, no host name), the **port**, an optional **NAS-IP-Address**, the **shared secret** (a sealed secret), the **session attribute**, the **MAC address format**, targets never to disconnect (DENIS itself, your management devices; MACs are compared whatever separator they use), a **timeout** and a **retry count**, and whether every answer must be signed.
 
 ## Orphans and the secret
 

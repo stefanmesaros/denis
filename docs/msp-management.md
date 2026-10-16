@@ -53,7 +53,7 @@ You choose what the MSP may do. The role the MSP gives a technician on its side 
 
 **Enforcement boxes** (block device, block flow, quarantine, switch off port, end sessions) exist at Full only and are
 off until you tick them. An MSP with a box ticked can cut devices and traffic off your network. Each action also needs a
-connector set up under Settings, Enforcement. **Site limit** (Read only only): tick the sites the MSP may see; the
+connector set up under Settings, Response policy. **Site limit** (Read only only): tick the sites the MSP may see; the
 master's own site is hidden while a limit is on.
 
 Lowering the level, ticking nothing, adding a site limit or blocking a technician takes effect at once and needs no

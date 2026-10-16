@@ -25,7 +25,7 @@ which carries anything about your network, and each of which can be switched off
 | What | Where to | How often | Off with |
 |---|---|---|---|
 | update check | `api.github.com`; `usedenis.com` only if GitHub cannot be reached | every 6 hours | `--no-update-check` / `DENIS_NO_UPDATE_CHECK=1` (the fallback alone: *Settings → System → Updates*) |
-| GeoIP database (DB-IP Lite) | `db-ip.com` | monthly | *Settings → Network → Network Intelligence* (auto-update off, or your own MMDB file) |
+| GeoIP database (DB-IP Lite) | `db-ip.com` | monthly | *Settings → Capture → Network Intelligence* (auto-update off, or your own MMDB file) |
 | end-of-support dates | `endoflife.date` | weekly | *Settings → Data → Software versions* |
 | known-exploited vulnerabilities | CISA, NVD, FIRST.org (EPSS) | weekly | *Settings → Data → Software versions* |
 

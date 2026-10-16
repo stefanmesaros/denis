@@ -1,162 +1,263 @@
-# Roadmap
+# Roadmap and known gaps
 
-DENIS already discovers every device on your network passively, learns how each one normally
-behaves, tells you when something changes with every alert explaining itself, and shows everything
-it knows about a device (directory, MDM, cloud, scanner findings, incidents) in one place. As of
-v3.4.0 it also lets you define zones and policies for what should be allowed to talk to what, flags
-traffic that breaks those rules, and can show a name instead of a bare address once you switch on
-passive DNS. As of v3.5.0 it also shows which devices lack management, scanning or endpoint protection, tracks that over time against goals you set, and gives incidents a clear lifecycle. As of
-v4.0.0 it can also run on PostgreSQL with an active/standby failover pair, block through sixteen
-enforcement connectors (fifteen kinds of firewall and controller plus the original SNMP switch connector), offers three
-new console looks, and remembers your language choice per account. As of v4.1.0 every one of its
-twenty connector kinds can carry out actions (experimental, simulator-tested only, apart from switching a
-switch port off), and an MSP can manage a customer's installation remotely (experimental). v4.1.1 added a
-static Linux program for Alpine and any Linux, OpenRC support and fixes. v4.1.2 puts industrial commands split into
-IP fragments back together before reading them and fixes most of the remaining review items; v4.1.3 fixes the items
-of the next internal review and splits the remaining large source files. Next comes a 4.1.4 with tests on real
-equipment and the review items still open, then correctness under failure for high availability.
+DENIS aims to be an honest, self-hostable alternative to the asset-visibility products that cost six figures a
+year. This is what is still missing, in order. Pull requests welcome.
 
-The list is in rough order. Plans can change, and nothing here is a delivery promise. Ideas and
-pull requests are welcome.
+## 4.1.0: delivered; what is in, what is experimental, what is not built
 
-## 4.1.2: delivered
+4.1.0 was released as stable after three release candidates and a full code review. What is in
+the program, checked against the code, not against plans:
 
-* Industrial messages split across IP fragments are put back together before they are decoded, within fixed limits.
-* For Proxmox and Hyper-V, addresses a guest reports about itself are hints only, checked against the hypervisor's
-  configuration and DENIS's own view of the network; the RADIUS disconnect messages were checked byte for byte against
-  an independent reference, which showed the signing order was wrong, and it is fixed; SNMPv3 switches have their
-  engine ID pinned; a per-record "would you have blocked it?" judgement on the Autopilot report is the only thing that
-  counts as agreement; for PAN-OS, DENIS undoes its own uncommitted edits after a failed step; FortiGate and PAN-OS take
-  one action at a time per firewall; held MSP co-approval requests are kept encrypted while they wait.
-* Fixes from the internal code review of 4.1.2, unused old code removed, and three large source files split into
-  smaller ones, with no change in behaviour.
+* **Connections from the internet.** The `inbound_from_public` rule: a public address that completes a TCP connection to
+  one of your devices (a port forward to a solar inverter, a camera, a NAS) raises one alert with the source, its country
+  and network when known, the port and whether other devices were reached. A port can be marked as expected per device.
+  Needs `--flows`; IPv6 sources count with `--ipv6`.
+* **Quieter alert stream, daily digest.** Routine events are kept quiet with a stored reason and listed in a daily
+  digest; the list of what is never kept quiet is in [docs/alerting.md](docs/alerting.md).
+* **Autopilot (experimental, off by default).** Triage with questions answered on a phone (Telegram, ntfy, web push),
+  starting in shadow mode. It blocks nothing unless an administrator also switches on level (c), *Autopilot may block*
+  (below). Not yet verified: a shadow week on a real network, real phone round trips, delivery to the real services, an
+  external review ([docs/autopilot.md](docs/autopilot.md)).
+* **Network identity.** VLAN tags and the ERSPAN header are read and shown, an address claimed from two VLANs is
+  annotated, the same MAC on several VLANs is one flagged device. Tunnelled mirrors (ERSPAN, GRE, VXLAN, Geneve) can be
+  read (opt-in), verified on hand-built frames and public captures only.
+* **Industrial protocols.** S7comm-plus, IEC 61850 MMS and ICCP, GOOSE, PROFINET, OPC UA and CODESYS (identified only),
+  decoded over IPv4 and, with `--ipv6`, IPv6; messages split across TCP segments are followed. Still not done in 4.1.0: IP
+  fragment reassembly (added in 4.1.2), HSR frames, R-GOOSE/R-SV, TCP reassembly in general (see "Industrial protocol
+  expansion" in [docs/ot-guide.md](docs/ot-guide.md)).
+* **SNMPv3** for reading switches and for port control, Cisco switches read per VLAN, and the refusal of trunk,
+  EtherChannel, management and CDP-neighbour ports. Tried on one real switch (D-Link); SNMPv3 and Cisco only
+  against stand-ins.
+* **Enforcement actions (experimental, off by default).** All 20 connector kinds are on one action path (plan, apply,
+  list, release, extend, retry, orphans, per-action permissions, a ledger, timed actions that end by themselves and a
+  read-back of the device state) with a kill switch, an hourly limit and a preview. The console has the plan dialog
+  (the *Respond…* menu of a device, an incident or a flow), the list of active responses and block suggestions.
+  MikroTik and Cisco ASA, FTD through FDM and through FMC are new connectors. Every connector not tried on real
+  equipment is labelled *Experimental* and needs the lab switch; the actions new in 4.1 need a second lab switch. All of
+  it is simulator-tested only, apart from switching a port off over SNMP on one switch.
+* **Automation levels.** (a) nothing, the default; (b) automatic enforcement by policies an administrator marks
+  (experimental, off by default); (c) *Autopilot may block*, a separate and even more experimental switch on top of (b)
+  with its own gates and limits ([docs/enforcement.md](docs/enforcement.md#automation)).
+* **MSP remote management (experimental).** An MSP console opens a customer's own master at the level the customer
+  chooses, through a paired channel, with a banner, an activity list, co-approval and a one-click disconnect; every
+  operator needs a second factor ([docs/msp-management.md](docs/msp-management.md)).
+* **Agents.** One-command install (`install.sh --agent`, the Add agent dialog, Docker); updates from the console in three
+  ways (by hand, automatic, through the master); a second download host, usedenis.com, used only when GitHub cannot be
+  reached, with the same signature checks and a setting to switch it off.
+* **Rules and console.** IT rules and OT rules (renamed from network watches and OT command watches) with a new dialog
+  for writing them; a search box in the built-in docs, an Enforcement page, and the refreshed console look (palette,
+  corner radius, bundled fonts).
 
-## 4.1.3: delivered
+**Not built in 4.1.0, or known limits** (do not read any of it as promised for a date):
 
-* **From the code reviews of 4.1.2 and 4.1.3:** industrial messages put together from IP fragments are read the way
-  the receiving device reads them, and one with a wrong TCP or UDP checksum is still read, counted and shown on the
-  Health page; RADIUS reply signatures are verified, and can be required; Autopilot agreement figures are shown per
-  site and count only answers from current administrators who can see every site; Hyper-V and Proxmox connections
-  saved with settings DENIS no longer accepts are refused when used and named on the Health page; a fragmented command
-  seen on both sides of a router is decoded once; one sender can no longer fill the fragment memory.
-* **Clean-up:** the remaining large source files split into smaller ones, with no change in behaviour.
+* Verification on real equipment of any enforcement connector beyond switching a port off over SNMP on one switch
+  (see 4.1.4 below).
+* MSP management: the one-click "Allow management" for a customer that already relays with `--report-to`, fleet
+  templates, queued changes for offline customers, several MSPs per customer.
+* High-availability fencing, per-tenant encryption keys and tenants on PostgreSQL are planned (see "After 4.1" below; start-up
+  refuses `--database-url` while tenants exist). IP fragments are reassembled for OT decoding since 4.1.2.
+* Smaller findings of the internal code reviews, fixed in the next releases.
+
+**Next:** 4.1.4 (below: the Network hub, the new Respond menu, hardware results and the remaining review fixes), then 4.2 *Correctness
+under failure* (below).
+
+## 4.1.1: delivered (tag `v4.1.1`)
+
+* **Alpine, OpenRC and musl** (built, in this release). Reported by users: `install.sh` needed systemd and the Linux
+  programs needed Debian's `libpcap.so.0.8`. Now: static musl programs for x86-64 and ARM64 with libpcap built in
+  (`tools/build-musl.sh`, job `build-musl`), OpenRC and `--no-service` in `install.sh`, `install.sh` in the signed
+  `SHA256SUMS`. Verified locally on ARM64 in Alpine containers; the x86-64 static program is first built and started
+  by the release workflow, and OpenRC was exercised in a container, not on a booted Alpine machine.
+* **Deferred review findings** (built: the quick and safe ones, listed in CHANGELOG.md 4.1.1; the rest is under
+  4.1.2 below).
+* **A local CI script** (built: `tools/ci-local.sh`) that runs the CI sequence in a Linux container as an unprivileged
+  user (RELEASING.md, "What we learned from 4.1.0"); the Alpine check is `tools/build-musl.sh --smoke`.
+
+## 4.1.2: delivered (tag `v4.1.2`)
+
+4.1.1 took the quick and safe items of the 4.1.0 code review (A F8, F11, F12; E-8 UI, E-9; D-8, D-10 part, D-12;
+FortiGate #6, #9, #10; ASA F10 to F12; FTD F15; C-8; T6-11). 4.1.2 took the items below; what stays open is tracked for the next releases.
+
+* **Delivered in 4.1.2 (CHANGELOG.md 4.1.2):**
+  * C-7: Proxmox and Hyper-V take what a guest reports as a hint only; the owner is decided by the configuration and
+    DENIS's own IP-MAC pairing, and several claims on an address DENIS never saw are refused with a reason.
+  * C-6: checked byte for byte against an independent Python reference (RFC 5176, RFC 2866, RFC 3579): the order was
+    wrong and is fixed (Message-Authenticator first, over a zero authenticator; then the Request Authenticator).
+  * D-6: the SNMPv3 engine ID is pinned per switch at the first authenticated poll; port control goes only to it, and
+    an administrator confirms a new one.
+  * PAN-OS #4: DENIS's own candidate edits are undone after a refused step or object delete, or a lost answer before
+    any commit (known limit: not after a commit whose outcome is unknown).
+  * FortiGate/PAN-OS #11 (one 600 s deadline per PAN-OS write path, under the 900 s claim age) and #14 (one write path
+    at a time per firewall).
+  * A F2: a "would you have blocked it?" judgement per record under the shadow report; only a "yes" counts as agreement.
+  * OT-4 (audit): IP fragments are reassembled before OT decoding (bounded per flow and in total, with a timeout), so
+    an industrial message split across IP fragments is decoded instead of skipped.
+  * Fourteen of the 25 review items were left as larger design changes and are tracked for the next releases.
+  * Dead code removed: the old enforcement run sequences of 14 vendor modules, `legacy_sync`, the `Legacy` adapter.
+  * Split into modules without a change of behaviour: `src/ingest.rs`, `src/inventory.rs`, `src/detect/tests.rs`.
+  * The 4.1.2 code review R-1, R-2, R-3, R-5, R-7, R-9, R-13, R-14 fixed, R-4 in part,
+    R-12 already safe (test added).
+
+## 4.1.3: delivered (tag `v4.1.3`)
+
+Details in CHANGELOG.md 4.1.3. The hardware tests and the other plans first listed here moved to 4.1.4.
+
+* **From the 4.1.2 code review:**
+  * R-6: TCP/UDP checksum (IPv4 and IPv6 pseudo-header) checked before OT decoding: a reassembled datagram with a wrong
+    one is still decoded and counted (and named in the Health warning), the same as an unfragmented one: a wrong sum never hides a command (checksum offload and GRO on the capturing host leave unfinished sums, and some embedded stacks do not check them).
+  * R-8: a RADIUS reply's Message-Authenticator is verified when present.
+  * R-10: the Autopilot agreement is shown per readable site to a site-limited person, and only a "yes" from a person
+    who reads every site counts for the gate.
+  * R-11: the C-12 checks run at use too (Hyper-V without TLS, Proxmox `http://`), with a Health warning.
+  * R-15: a fragmented industrial command seen on both sides of a router is decoded once.
+  * R-4 (rest): a byte cap per source in the fragment reassembly.
+* **From the 4.1.3 code review:** R3-1 a reassembled UDP datagram is read up to its UDP
+  length; R3-2 a reassembled datagram with a wrong checksum is decoded, counted and warned about
+  instead of dropped; R3-3 an IPv6 UDP zero checksum always fails; R3-4 an exact repeat under the same MAC is decoded
+  again; R3-6 optional `require_message_authenticator` for RADIUS replies, constant-time comparisons; R3-7 an
+  Autopilot "yes" counts only from a current, enabled, unlimited administrator; R3-8 Health names every Hyper-V or
+  Proxmox instance refused at use with its reason, Proxmox https guard at the request; R3-9; R3-10 to R3-16 for the
+  lab selftest and the source scans.
+* **The remaining large files split into modules** without a change of behaviour: `src/parse.rs`,
+  `src/nac_registry.rs`, `src/engine.rs`, `src/web_admin.rs`, `src/web/tests.rs` and the store tests.
 
 ## 4.1.4: planned
 
-* **Tests on real equipment** (FortiGate, Palo Alto Networks, MikroTik, UniFi, later a Cisco switch) with the lab
-  selftest; they decide what else 4.1.4 holds.
-* **Known limits from the 4.1.3 review:** a copy of a fragmented message from a third device within five seconds is
-  taken for a router's copy; the fragment memory share is per sender address; unsigned RADIUS replies pass unless a
-  signature is required; a Hyper-V or Proxmox connection with a setting DENIS no longer accepts cannot release its
-  blocks until it is corrected.
+*First planned for 4.1.3:* hardware tests (FortiGate 40F, Palo Alto PA-220, MikroTik, UniFi, Cisco 2960-X, D-Link) come first and decide what else 4.1.4 holds; the connectors without a device in the lab (Juniper and the rest) stay experimental. Also planned here: fresh screenshots for the docs and the website (`tools/screenshots.py`), the rest of the long-text reduction ("?" tooltips outside `index.html`) and a way to run the full test suite for ARM64 Linux in the release pipeline (build the test binaries on x86-64, run them on the ARM64 runner). Releases may be combined (4.1.4 with parts of 4.2) to keep the number of versions small.
 
-## 4.1.4: open items from the code reviews
+* **From the Cisco 2960-X and D-Link hardware tests (2026-10-15):**
+  * Manual port placement (next version): when a switch cannot say which MAC is on which port (the
+    D-Link DGS-1100-08V2 answers neither BRIDGE-MIB, Q-BRIDGE-MIB nor its own LLDP tree over SNMP, firmware 1.00.015),
+    the administrator confirms "this device is on port 5"; the usual re-read, blast-radius and uplink checks stay.
+  * The refusal text appears twice when two parts of DENIS give the same reason; show each reason once.
+  * "Read now" next to each switch in Topology → Switches, not only in Settings.
+  * SNMPv3 form: name SHA-1 and SHA-256 clearly, say that Cisco IOS 15.x offers only SHA-1 and AES-128, and turn
+    "authentication password or protocol is wrong" into a hint naming the likely mismatch.
+  * Respond menu and the setup of topology, switches and enforcement: the proposals from the UX reviews (reasons with a
+    link to the place where an administrator can change it, one place for the setup, a gateway and switch hierarchy
+    that DENIS suggests and the administrator confirms).
+* **Cisco 2960-X hardware test findings (2026-10-15), fixed and verified on the switch:** LLDP neighbours are matched to ports by normalised name (Gi/GigabitEthernet), and end hosts announcing themselves no longer block port control; the Cisco write view documents `vmVlan`. Verified on a WS-C2960X-48TS-L (IOS 15.2(7)E4) with SNMPv2c and SNMPv3 (SHA-1, AES-128): reading, switching a port off and on, the quarantine VLAN, extending and releasing a block, the uplink refusal.
+* **The remaining findings of the internal code review of 4.1.3** are fixed in this release.
 
-* **Needs real equipment to do safely:** OPNsense alias and floating-rule behaviour, which FMC deployment warnings may
-  be ignored, SSH host keys on first use and unexpected prompts on Cisco ASA, certificate pinning for FortiGate and
-  PAN-OS, Check Point waits and paging, UniFi controller sessions.
-* **Larger design changes:** further hardening of the old (pre-4.1) connector routes and of the enforcement ledger's
-  edge cases.
+## Review findings still open
 
-## 4.1.0: what is in, what is experimental, what is not built
+Smaller findings from the internal code reviews are tracked privately and fixed in the next releases.
 
-**In 4.1.0:**
+## After 4.1: roadmap (from the independent architecture audit)
 
-* **Connections from the internet.** A new alert when an address on the internet completes a connection to one of
-  your devices (a port forward to a solar inverter, a camera, a NAS), with the source, its country and network when
-  known, the port and whether other devices were reached. A port can be marked as expected per device.
-* **A quieter alert stream** with a daily digest; what is never kept quiet is listed in the alerting guide.
-* **Autopilot (experimental, off by default).** Triage of alerts with questions answered on a phone (Telegram, ntfy,
-  web push), starting in shadow mode. It blocks nothing unless an administrator also switches on *Autopilot may
-  block*, a separate and even more experimental option.
-* **Enforcement actions (experimental, off by default).** All 20 connector kinds can block a device and, where the
-  device can, block one flow, quarantine, switch a port off or end sessions, through one path with a kill switch, an
-  hourly limit, a preview, per-action permissions and a record of every change. MikroTik, Cisco ASA and Cisco FTD
-  (through FDM and through FMC) are new. Automation levels: by default a person decides every action; automatic
-  enforcement by policies you mark, and Autopilot blocking on top of it, are separate experimental switches.
-* **MSP remote management (experimental).** An MSP console opens a customer's own installation at the level the
-  customer chooses, with a banner, an activity list and a one-click disconnect; every operator needs a second factor.
-* **Network identity and industrial networks.** VLAN tags are read and shown; tunnelled mirrors (ERSPAN, GRE, VXLAN,
-  Geneve) can be read; S7comm-plus, IEC 61850 MMS and ICCP, GOOSE, PROFINET and OPC UA are decoded, and messages split
-  across TCP segments are followed.
-* **SNMPv3** for reading switches and controlling ports; Cisco switches are read per VLAN.
-* **Agents** install with one command and are updated from the console; usedenis.com is a signed fallback download
-  host used only when GitHub cannot be reached.
-* **IT rules and OT rules** with a new dialog for writing them, and a refreshed console look.
+Added 2026-10-10. Design, reasons, data models, tests and open decisions are kept in the project's design notes
+(section numbers in brackets). Effort in implementer-days, ±40 %; hardware lab time not included. Order inside a
+release is the order listed. No marketing claim of "high availability", "validated with vendor X" or "MSP-ready"
+before the evidence listed in §3.3 exists.
 
-**Experimental, and not yet verified on real equipment:** every enforcement action apart from switching a switch port
-off over SNMP (tried on one real switch), Autopilot's real-world use, MSP remote management, SNMPv3, Cisco switches and
-tunnelled mirrors. Each untried connector needs two lab switches before it can act.
+**Planned for 4.1** (identity pulled in where feasible). Status at the 4.1.0 release: the VLAN part of
+network identity is built (see "4.1.0: delivered" above); the residual audit fixes were re-checked by the full code
+review (fixed, or deferred to the items below); the stretch items remain open.
 
-**Not built in 4.1.0:** fencing of database writes during a failover (planned for 4.2), a separate encryption key
-per customer on one installation (4.2), IP fragment reassembly for industrial decoding (added in 4.1.2), and, for MSP management, a one-click
-upgrade for customers that already relay to an MSP, fleet templates and queued changes for offline customers.
+- Residual audit fixes, about 6 d: per-tenant ingest lock, `BAD_TIME` per tenant, one failing tenant no longer stops
+  start-up, agent batch sequence saved with its events, isolation suite reads multi-line routes, NAC device writes and
+  the switch poll ask the HA lease, standby waits out the lease before acting, `may_act` on enabling enforcement [§1].
+- Network identity, minimal increment, about 12 d, no migration, unchanged default behaviour: VLAN read from tags and
+  the ERSPAN header and carried on address claims; cross-VLAN conflicts annotated (setting, default alert); routed
+  mirror no longer makes the router claim host addresses; per-device VLAN and source evidence; same MAC on several
+  VLANs flagged, never merged; capture source id with an overlap warning; switches and NAC connectors bound to a
+  site, site-aware topology and NAC targeting; stretch: VRRP/HSRP virtual MACs [§4 Part B].
 
-## Coming next
+**4.2 Correctness under failure** (45-60 d)
 
-**Correctness under failure (4.2).** Fencing of every database write to the active node of a high-availability pair,
-a separate data key for each customer on one installation, an enforcement path that survives a failover in the middle of an action, a test suite across two real machines, and
-validation of the enforcement connectors on real equipment, starting with SNMP switches, FortiGate and UniFi.
+- A PostgreSQL-enabled release binary (`--features postgres`) next to the standard one, so high availability does not need a self-built program.
 
-**Network identity.** Overlapping address spaces (VRFs), layer-2 domains and a registry of capture sources, so that
-several mirrors and sites can be told apart cleanly.
+- Leader-epoch fencing of every PostgreSQL write, cursor and NAC intent row; DB-side fencing of the old leader [§5.3]
+  (audit F2-1).
+- Per-tenant data keys under the master key, tenant id in the associated data, tenant stamp, rotation, export with
+  passphrase [§5.5] (audit F6-5 / T6-7).
+- Enforcement orchestrator: snapshot and undo before the write, pending row and audit in one transaction; PAN-OS
+  partial commit, SonicWall without override, Juniper commit confirmed, NSX revisions [§5.4]. (Already in 4.1:
+  server-side plans stored in the database and spent once, device I/O on a thread of its own that a disconnecting
+  client cannot cancel, and one central target guard, see `src/nac_orchestrator.rs`.)
+- Real-equipment validation with a compatibility matrix (data file, API, UI, generated doc), live harness, fault
+  proxy, recorded fixtures: SNMP (Cisco, HPE/Aruba), FortiGate, UniFi first [§5.1].
+- Two-machine HA fault-injection suite, 24 h soak and load, tenant measurement at 10/50/100 [§5.3, §5.9, §6].
+- OT visibility counters (fragments, undecodable segments, IPv6 when `--ipv6` is off), GRO guidance [§5.10].
 
-## Built in earlier releases
+**4.3 Network identity** (30-40 d)
 
-**Alpine and any Linux** — built, in v4.1.1. A static Linux program for x86-64 and ARM64 with the capture library
-built in, which runs on Alpine and on any Linux; OpenRC support in the installer, a way to install without a service,
-and the installer in each release's signed checksum list.
+- Address spaces (VRF), L2 domains, capture source registry, per-device L2 evidence table, admin-confirmed split of
+  one MAC into two devices (the mirror of join) [§4 Part A].
+- Mirror deduplication: aligned windows, max-merge per source role, optional packet digest; OT commands never lost
+  to dedup [§5.6].
+- Site-limited administrators may act on their site's switches and connectors; Palo Alto and Meraki validation;
+  COTP fragment carry; CSV import site column [§5.1, §5.10].
 
-**The switches and cables view, redrawn** — built, in v3.4.1. Chassis-style switch nodes with real
-port sockets, speed-weighted cabling and a VLAN legend (the VLAN now comes from the switch's own
-forwarding table, not guessed) replace the old grid-of-dots drawing — click a port to see what's
-connected to it and its VLAN. History of which device was on which port and when is kept behind
-the scenes; you can now mark ports and VLANs as sensitive, and DENIS alerts when a device moves to another
-port or VLAN, when something new appears on a sensitive port, or when a device suddenly looks like a
-different machine than it has for weeks. Built and tested so far against synthetic switch
-data and a hand-built fixture from a real low-end switch's SNMP replies; a second, more capable
-switch is still needed before the forwarding-table and VLAN side can be called verified on real
-hardware.
+**4.4 Delivery and tenancy hardening** (25-35 d)
 
-**Control coverage, and one workflow for alerts, incidents and findings** — built, in v3.5.0. A Coverage
-view shows which devices are managed, scanned, in your directory and protected by endpoint security,
-with "DENIS checked and found nothing" always shown apart from "DENIS could not check", daily history
-and goals you set. Incidents have a clear lifecycle (open, acknowledged, resolved) with a required
-outcome, every decision is recorded with who, when and why, and incidents and findings link both ways.
-Watches are listed with your policies and can follow a zone, with a preview of which devices they cover.
-The integrations behind coverage (Intune, Entra ID, Active Directory, Jamf, the cloud accounts,
-Nessus and Defender for Endpoint) are built and tested against stand-ins, not yet against live
-tenants of every vendor.
+- Delivery records with idempotency keys where receivers support them, `--webhook` made durable; stated plainly:
+  at least once, never exactly once [§5.7].
+- Suspend that stops ingest and jobs, tenant hot-add and delete, per-tenant quotas, egress policy for
+  tenant-configured targets [§5.9].
 
-**A database built for scale, and a standing-up partner for it** — built, in v4.0.0. PostgreSQL is
-now a selectable alternative to the built-in SQLite file, and two servers sharing one PostgreSQL
-database can run as an active/standby pair with automatic failover in under two seconds if the
-active one goes down. Both are off by default, for installations that specifically need them; a
-normal single-server SQLite install is unaffected. Not yet verified across two real machines with
-a real network between them — tested so far on one machine against one shared database.
+**5.0 MSP scale** (30-45 d, only if an MSP customer needs it)
 
-**Three new console looks, chosen by you** — built, in v4.0.0. An inbox-style view, a dark operator
-console, and a warm paper worksheet style, each in light and dark, alongside the existing looks.
-Every user picks their own under My account; new installs default to the inbox-style one.
+- Tenants in PostgreSQL, one schema per tenant; multi-tenant HA; 100+ tenants with measured limits [§5.8, §5.9].
 
-## Later
-
-**Delivery records.** Notifications that keep a record of what was delivered, retried at least once and never claimed exactly once.
-
-**Ask DENIS keeps growing.** Each new view above also becomes a plain-language question you can
-ask, answered only from data DENIS actually has.
+**Not planned:** general TCP stream reassembly (4.1's bounded framing plus visibility counters instead) [§5.11];
+validating all nineteen simulator-only connectors (on demand; the rest stay "simulator only") [§3.2].
 
 ## On request
 
-These are planned, and we start them when a customer needs them:
+These remain genuinely demand-driven — nothing moves them until the stated trigger happens.
 
-* **Windows as a packaged collector**, installed as a regular Windows service. Capture on Windows
-  already works.
-* **SAML single sign-on**, alongside the OpenID Connect sign-on that already exists.
-* **Qualys import**, alongside Nessus and Tenable, which are already supported.
+* **Windows packaged collector** (carried over from an earlier roadmap item; M,
+  verification-heavy). The service wrapper and installer are written (v2.62.0) but unverified.
+  Still needed: run the wrapper for real, wire the privilege/service-account decision into
+  `install`, a longer capture run, and CI that links the Windows binary. Do it whenever the
+  Windows machine is to hand. See WINDOWS.md.
+* **SAML** (carried over from item 3; L, 6/10). Start when a named customer is blocked in
+  procurement. It must inherit H2's rules: link on IdP entity id/NameID, never email, and fail
+  closed when no allowed domains are configured.
+* **Qualys** (carried over from item 3; M). Start once API access on the target tier is confirmed
+  and a customer is asking. `vulnscan.rs:24-38` has the scoping. Tenable.io already works through
+  the Nessus code.
+* ~~**Policy-triggered enforcement**~~ (deferred from 4.0.0). Built in 4.1.0 another way: a zone policy with
+  `auto_enforce` drives automatic blocking at automation level (b) (`src/nac_auto.rs`), experimental and off by
+  default; see [docs/enforcement.md](docs/enforcement.md). The original request, the 4.0.3 phase A and the design are
+  in the project's design notes.
 
-## Not planned
+## Parked until real data exists
 
-DENIS will stay a passive, agentless network sensor. We do not plan to build a vulnerability
-scanner, a SIEM, endpoint agents, a full CMDB, or a single opaque "security score". DENIS works
-alongside those tools and feeds them.
+* Wireless (monitor-mode) intelligence. If a segment asks, start from controller APIs.
+* See PRODUCT_GAP_ANALYSIS.md "What not to build" for what is deliberately out of scope.
+
+## Verification still owed
+
+*These stay on the list until they are done. An independent penetration test is planned for later, when the architecture, the code and the UX are in a good enough state.*
+* ~~Master/agent across a real network~~ Verified 2026-09-29 over Tailscale with a self-signed
+  CA. Still owed: TLS with a public CA, and running behind a reverse proxy. A `--passive-only`
+  flag is worth adding for future tests against networks that are not entirely your own.
+* Passkeys with a physical security key or phone (verified with software authenticators only).
+* OpenObserve, syslog, Elasticsearch/OpenSearch and the chat/e-mail/PagerDuty/Jira/ServiceNow integrations
+  against the real services (each is tested against a local fake server, not the genuine article).
+* SSO (OIDC) against a real identity provider (SSO.md).
+* The eight CMDB/cloud/EDR sources (Entra ID, Intune, Active Directory, Jamf Pro, Azure, AWS, GCP, Microsoft
+  Defender for Endpoint) and the Nessus import against a real tenant/directory/instance/subscription/account/project (CMDB.md).
+* The SNMP switch reader against real switches from any vendor (docs/switches.md). Item 15 depends
+  on it.
+* Detections on real industrial traffic (verified with hand-built frames and replay, and now also public recordings of
+  S7comm-plus, MMS, GOOSE and PROFINET; see "Industrial protocol expansion" for what is still hand-built only).
+* IPv6 on a genuine dual-stack network (IPV6.md).
+* The Windows service wrapper and installer (see "On request" above).
+* An independent penetration test.
+
+## History and older item numbers
+
+Items 1 to 36 (with 9a, 10a, 16a, 16b), the 4.0.2 follow-ups, the industrial protocol expansion of 4.1.0, the triage of
+the external 3.5.0 review (A-01 to A-03, S-, C-, Q- IDs) and the 3.5.0 UX review are in
+the project's roadmap history, under the same numbers that code comments cite. Items 21 to
+36 (enforcement connectors) are done; the "known bug with a design" (two collectors on one segment) is resolved.
+Still open from there:
+
+* **A-02** (decision pending): a SQLite read pool (one writer, two to four readers) before 50,000 devices per
+  database; measured in the project's design notes. Supported today: up to 10,000
+  devices per database with up to four concurrent console users.
+* **A-03** stays a release gate (`tools/check-pg-release-gate.sh`, run by `tools/pre-release.sh`).
+* The open questions of the 3.5.0 UX review (primary customer, risk score, primary queue) wait for real customers.

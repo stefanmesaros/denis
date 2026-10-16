@@ -60,7 +60,7 @@ the only way DENIS can see traffic between *other* devices. It is **not mandator
 still finds devices through the broadcast and multicast traffic that reaches its own network card (ARP,
 DHCP, mDNS, SSDP, LLDP) plus an active sweep, which is enough for device discovery. With a mirror port
 you additionally get per-device traffic baselines, who talks to whom, and industrial (OT) conversations.
-To use one, set up the mirror on your switch, choose the interface under *Settings → Network
+To use one, set up the mirror on your switch, choose the interface under *Settings → Capture
 interfaces*, and start with `--flows` (or `--profile ot` on an industrial network). Details:
 [Concepts › Visibility](concepts.md#visibility-what-can-be-seen-from-where).
 

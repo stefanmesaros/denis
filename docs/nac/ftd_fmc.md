@@ -2,7 +2,7 @@
 
 Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from Cisco's published FMC REST API reference and checked against a fake FMC in DENIS's own tests. It has never been run against a real Firewall Management Center or a real FTD device. Nothing here is listed as validated on hardware.
 
-Lab use: every action on this connector is new in 4.1, so each one needs both switches under *Settings → Enforcement*: *Allow connectors that are not validated on real equipment (lab use)* and *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
+Lab use: every action on this connector is new in 4.1, so each one needs both switches under *Settings → Response policy*: *Allow connectors that are not validated on real equipment (lab use)* and *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
 
 This page is for an FTD device that is managed by an FMC. An FTD device managed on the box itself (FDM) is a different connector.
 
@@ -55,7 +55,7 @@ Dynamic object changes need none of this and are not held back by other people's
 4. **Quarantine object or group (optional).** The same, for quarantine, and **your own access rules** that allow what a quarantined device needs (DHCP, DNS, NTP, the remediation server) and block the rest. Leave empty to switch quarantine off.
 5. **Devices to deploy to** (network group and flow modes): the FTD devices by name or ID, as FMC shows them.
 6. **Access policy** (flow blocks only): the name of the access policy DENIS writes its deny rules into.
-7. *Settings → Enforcement* → **Cisco Secure Firewall FTD via FMC** → **Add…**: base URL, user name, password, optionally the domain, the objects and groups above, the devices, the policy, *Never block these IP addresses* (DENIS itself, the gateway, the FMC, the FTD management addresses). With a self-signed FMC certificate paste the certificate into *Pinned FMC certificate* instead of switching verification off.
+7. *Network → Equipment* → **Cisco Secure Firewall FTD via FMC** → **Add…**: base URL, user name, password, optionally the domain, the objects and groups above, the devices, the policy, *Never block these IP addresses* (DENIS itself, the gateway, the FMC, the FTD management addresses). With a self-signed FMC certificate paste the certificate into *Pinned FMC certificate* instead of switching verification off.
 8. **Flow blocks:** tick *Allow DENIS to create deny rules on this firewall* only if you accept that DENIS writes access rules on this firewall. It is off by default, and DENIS will not create or delete any rule while it is off. Turning it on needs your password again and is written to the audit log. A wrong deny rule can cut off traffic.
 
 ## How a flow block is shaped

@@ -2,7 +2,7 @@
 
 Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from PAN-OS's published XML API documentation and checked against a fake firewall in DENIS's own tests. It has never been run against a real PAN-OS firewall. Nothing here is listed as validated on hardware.
 
-Lab use: the host block (address group) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Enforcement*. The actions new in 4.1 (flow block, quarantine, ending sessions) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
+Lab use: the host block (address group) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The actions new in 4.1 (flow block, quarantine, ending sessions) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
 
 ## What DENIS can do on PAN-OS
 
@@ -35,7 +35,7 @@ A change made through the XML API lands in the *candidate* configuration and doe
 2. **Quarantine group (optional).** Create a second static address group, again with a placeholder member, and **your own security rules** for it: allow what a quarantined device needs (DHCP, DNS, NTP, the remediation server) and deny the rest. DENIS never creates these. Enter the group's name in *Quarantine address group name*. Leave it empty to switch quarantine off.
 3. **API account.** Create an administrator for DENIS (a role-based or custom admin role) and generate its **API key**. The role needs the XML API for *Configuration* (read and write the objects and, for flow blocks, the security rulebase), *Commit* (and *Commit for other admins* is **not** needed), and *Operational Requests* (job status, clear sessions, `show config list changes`). Restrict the account's management access to the DENIS machine.
 4. **vsys.** Name the vsys that holds the groups (PAN-OS always has at least `vsys1`).
-5. *Settings → Enforcement* → **Palo Alto Networks PAN-OS** → **Add…**: base URL, vsys, block group name, API key, *Never block these IP addresses* (DENIS itself, the gateway, the firewall), *Scope commits to this administrator only* (the account of the API key), and optionally the quarantine group.
+5. *Network → Equipment* → **Palo Alto Networks PAN-OS** → **Add…**: base URL, vsys, block group name, API key, *Never block these IP addresses* (DENIS itself, the gateway, the firewall), *Scope commits to this administrator only* (the account of the API key), and optionally the quarantine group.
 6. **Flow blocks:** tick *Allow DENIS to create deny rules on this firewall* only if you accept that DENIS writes security rules on this firewall. It is off by default, and DENIS will not create or delete any rule while it is off. Turning it on needs your password again and is written to the audit log. A wrong deny rule can cut off traffic.
 
 ## How a flow block is shaped

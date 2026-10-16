@@ -2,7 +2,7 @@
 
 Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from FortiOS's published REST API documentation and checked against a fake FortiGate in DENIS's own tests. It has never been run against a real FortiGate. Nothing here is listed as validated on hardware.
 
-Lab use: the host block (address group) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Enforcement*. The actions new in 4.1 (flow block, quarantine, ending sessions) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
+Lab use: the host block (address group) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The actions new in 4.1 (flow block, quarantine, ending sessions) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
 
 ## What DENIS can do on a FortiGate
 
@@ -22,7 +22,7 @@ Every object DENIS makes carries `DENIS managed; owner <tag>; action <id>; by <l
 2. **Quarantine group (optional).** Create a second address group, again with a placeholder member, and **your own policies** for it: allow what a quarantined device needs (DHCP, DNS, NTP, the remediation server) and deny the rest. DENIS never creates these. Enter the group's name in *Quarantine address group name*. Leave it empty to switch quarantine off.
 3. **API user.** Create a REST API administrator (*System → Administrators → REST API Admin*) and give it an administrator profile with these permissions. Read-write: *Firewall* (address and address group objects, and for flow blocks also policies and custom services). Read: *Network* (routing table lookup) and *System* (interfaces and zones). To end sessions the profile also needs the *Firewall* monitor permission that lets it clear sessions. Restrict the trusted hosts of the API user to the DENIS machine. Generate its token.
 4. **VDOM.** If VDOMs are enabled, name the one that holds the groups; leave empty otherwise.
-5. *Settings → Enforcement* → **Fortinet FortiGate** → **Add…**: base URL, VDOM, block group name, API token, *Never block these IP addresses* (DENIS itself, the gateway, the FortiGate), and optionally the quarantine group.
+5. *Network → Equipment* → **Fortinet FortiGate** → **Add…**: base URL, VDOM, block group name, API token, *Never block these IP addresses* (DENIS itself, the gateway, the FortiGate), and optionally the quarantine group.
 6. **Flow blocks:** tick *Allow DENIS to create deny rules on this firewall* only if you accept that DENIS writes policies on this FortiGate. It is off by default, and DENIS will not create or delete any policy while it is off. A wrong deny rule can cut off traffic.
 
 ## How a flow block finds its interfaces

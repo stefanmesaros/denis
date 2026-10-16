@@ -1,21 +1,31 @@
-# Remote agent (a second site / network segment). UNTESTED under systemd:
-#   systemd-analyze verify denis-agent.service
-# Install (same binary and user as the master unit):
-#   sudo mkdir -p /etc/denis && sudo install -m600 /dev/null /etc/denis/agent.env
-#   echo 'DENIS_AGENT_TOKEN=<the token from: denis agent-token issue --id branch-1>' | sudo tee -a /etc/denis/agent.env
+# DENIS remote agent (a second site or network segment).
+#
+# Normally you do not copy or edit this file: `install.sh --agent ...` (see docs/deployment.md,
+# "Multiple sites (agents)") installs it, together with /etc/denis/agent.env that holds the master's
+# address, the token and this agent's id, name and site. install.sh carries an identical copy of the
+# part below the first blank line after this header; tools/install-agent-test.sh fails when the two
+# differ, so change both together.
+#
+# By hand (same program and user as the master unit):
+#   sudo install -m600 /dev/null /etc/denis/agent.env       # then fill it in, see docs/deployment.md
 #   sudo cp packaging/denis-agent.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now denis-agent
 # The agent only makes OUTBOUND connections to the master, so it works behind NAT.
+
 [Unit]
 Description=denis remote agent
 After=network-online.target
 Wants=network-online.target
+# a start that keeps failing (a wrong token or address) is not retried forever
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 User=denis
+# DENIS_MASTER, DENIS_AGENT_TOKEN, DENIS_AGENT_ID, DENIS_AGENT_NAME, DENIS_AGENT_SITE, DENIS_FLOWS and
+# DENIS_MASTER_CA come from here: nothing to edit in this file.
 EnvironmentFile=/etc/denis/agent.env
-# Edit --master (the master's --ingest-listen address) and the id/name/site.
-ExecStart=/usr/local/lib/denis/denis agent --master http://MASTER-HOST:8081 --id branch-1 --name "Branch office" --site Branch --flows --db /var/lib/denis-agent/agent.db
+ExecStart=/usr/local/lib/denis/denis agent --db /var/lib/denis-agent/agent.db
 Restart=on-failure
 RestartSec=5
 # Readable/writable by no one else (SECURITY_ARCHITECTURE_REVIEW.md M10).
@@ -27,6 +37,8 @@ AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 NoNewPrivileges=true
 ProtectSystem=strict
+# owned by the service user: the one exception, so an update commanded by the master can replace the program
+ReadWritePaths=/usr/local/lib/denis
 ProtectHome=true
 PrivateTmp=true
 ProtectKernelTunables=true
