@@ -140,10 +140,30 @@ Details in CHANGELOG.md 4.1.4.
 
 ## 4.1.5: planned
 
-* The remaining tests on the FortiGate 40F, Palo Alto PA-220, MikroTik and UniFi, and the lab tool for long repeated and
-  day-long tests (`--cycles`, `--soak-hours`).
-* Smaller findings of the internal code reviews, fresh screenshots for the docs and the website, and the rest of the
-  long-text reduction ("?" tooltips outside `index.html`).
+What was left out of 4.1.4 on purpose, or not reached, in the order it is planned.
+
+* **Tests on real equipment** (each one is written down in `NAC_HARDWARE_VALIDATION.md` and decides the label of a connector):
+  * FortiGate 40F: the first lab run passed (block, release, expiry of a host). Still to do: a wrong credential, the preview
+    that no longer matches, the flow block, the kill switch, the hourly limit, the lab switch, twenty block and release
+    cycles in a row, and one block held for a day.
+  * Palo Alto PA-220, MikroTik and UniFi, then the other connectors that still say "simulator only".
+  * The quarantine through a port VLAN setting on switches other than Cisco, and the port bounce, are not tried on a real
+    switch yet.
+* **Lab self-test:** `--cycles N` and `--soak-hours H` for the long runs above, a run on a PostgreSQL database, a sweep of
+  anything an earlier run left behind after a crash, one shared check with the console's own permission check, and secrets
+  hidden in the report by pattern as well as by value.
+* **Network page, what 4.1.4 did not do yet:**
+  * Double NAT is only seen as a disagreement between the route and what clients are told (no hop count yet); the default
+    route of a layer-3 switch is not read; networks are shown as /24 groups.
+  * An optional SNMP read of the firewall or router itself (interfaces, routes, forwarding), and topology read from the
+    connectors (FortiGate interfaces and routes, OPNsense gateways, which UniFi or Meraki access point a client uses).
+  * Manual port placement covers switching a port off only; a device behind a switch that gives no forwarding table gets a
+    port picker on its panel instead of a link to the map; the Response page gets a setting for how long its history is
+    kept; an optional search over the settings.
+* **Smaller findings of the internal code reviews:** the stricter wording rule for the reason you type, texts that come from
+  the server being shown as they are, and the Autopilot figures read in one query.
+* **Fresh screenshots** for the docs and the website, and the rest of the long-text reduction (the "?" tooltips outside
+  `index.html`).
 
 ## Review findings still open
 
