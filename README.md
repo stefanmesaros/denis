@@ -394,8 +394,9 @@ enforcement actions on all 20 connector kinds, the automation levels and Autopil
 management of customers' installations from an MSP console (experimental, off until a customer pairs; see
 docs/msp-management.md). Multi-tenancy shipped in 3.3.0; PostgreSQL and high availability, and the first 16
 enforcement connectors, in 4.0.0. 4.1.1 added a static Linux program for Alpine and any Linux, OpenRC support and fixes;
-4.1.2 added IP fragment reassembly for industrial protocols; 4.1.3 the fixes of the next code review. Next
-(4.1.4): correctness under failure in HA, and validation of the connectors on real equipment. Still owed before a
+4.1.2 added IP fragment reassembly for industrial protocols; 4.1.3 the fixes of the next code review; 4.1.4 the Network
+page, gateway detection, the new Respond menu and the first validation on real equipment (Cisco). Next (4.1.5): more tests
+on real equipment. Still owed before a
 commercial launch: an independent penetration test and verification on real equipment, listed in ROADMAP.md. A
 packaged Windows collector, Qualys import and SAML are also open. OIDC single sign-on is built, but its exchange with an
 identity provider has not been verified against a real provider yet.

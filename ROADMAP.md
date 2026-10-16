@@ -58,8 +58,8 @@ the program, checked against the code, not against plans:
   refuses `--database-url` while tenants exist). IP fragments are reassembled for OT decoding since 4.1.2.
 * Smaller findings of the internal code reviews, fixed in the next releases.
 
-**Next:** 4.1.4 (below: the Network hub, the new Respond menu, hardware results and the remaining review fixes), then 4.2 *Correctness
-under failure* (below).
+**Next:** 4.1.5 (below: more tests on real equipment and the smaller review findings), then 4.2 *Correctness under failure*
+(below).
 
 ## 4.1.1: delivered (tag `v4.1.1`)
 
@@ -121,23 +121,29 @@ Details in CHANGELOG.md 4.1.3. The hardware tests and the other plans first list
 * **The remaining large files split into modules** without a change of behaviour: `src/parse.rs`,
   `src/nac_registry.rs`, `src/engine.rs`, `src/web_admin.rs`, `src/web/tests.rs` and the store tests.
 
-## 4.1.4: planned
+## 4.1.4: delivered (tag `v4.1.4`)
 
-*First planned for 4.1.3:* hardware tests (FortiGate 40F, Palo Alto PA-220, MikroTik, UniFi, Cisco 2960-X, D-Link) come first and decide what else 4.1.4 holds; the connectors without a device in the lab (Juniper and the rest) stay experimental. Also planned here: fresh screenshots for the docs and the website (`tools/screenshots.py`), the rest of the long-text reduction ("?" tooltips outside `index.html`) and a way to run the full test suite for ARM64 Linux in the release pipeline (build the test binaries on x86-64, run them on the ARM64 runner). Releases may be combined (4.1.4 with parts of 4.2) to keep the number of versions small.
+Details in CHANGELOG.md 4.1.4.
 
-* **From the Cisco 2960-X and D-Link hardware tests (2026-10-15):**
-  * Manual port placement (next version): when a switch cannot say which MAC is on which port (the
-    D-Link DGS-1100-08V2 answers neither BRIDGE-MIB, Q-BRIDGE-MIB nor its own LLDP tree over SNMP, firmware 1.00.015),
-    the administrator confirms "this device is on port 5"; the usual re-read, blast-radius and uplink checks stay.
-  * The refusal text appears twice when two parts of DENIS give the same reason; show each reason once.
-  * "Read now" next to each switch in Topology → Switches, not only in Settings.
-  * SNMPv3 form: name SHA-1 and SHA-256 clearly, say that Cisco IOS 15.x offers only SHA-1 and AES-128, and turn
-    "authentication password or protocol is wrong" into a hint naming the likely mismatch.
-  * Respond menu and the setup of topology, switches and enforcement: the proposals from the UX reviews (reasons with a
-    link to the place where an administrator can change it, one place for the setup, a gateway and switch hierarchy
-    that DENIS suggests and the administrator confirms).
-* **Cisco 2960-X hardware test findings (2026-10-15), fixed and verified on the switch:** LLDP neighbours are matched to ports by normalised name (Gi/GigabitEthernet), and end hosts announcing themselves no longer block port control; the Cisco write view documents `vmVlan`. Verified on a WS-C2960X-48TS-L (IOS 15.2(7)E4) with SNMPv2c and SNMPv3 (SHA-1, AES-128): reading, switching a port off and on, the quarantine VLAN, extending and releasing a block, the uplink refusal.
-* **The remaining findings of the internal code review of 4.1.3** are fixed in this release.
+* **Network** replaces Topology: Map, Equipment (switches and connectors, with Read now and a write test), Response (what is
+  blocked now, where it came from, devices DENIS never acts on) and Setup (a guided setup). Settings: Enforcement is now
+  Response policy, Network is Capture, Setup guide is Getting started.
+* **Gateway and hierarchy detection:** DENIS suggests which device is the gateway and which switch holds it, from DHCP,
+  ARP, the internet traffic and its own route, says how sure it is and why, and asks the administrator to confirm.
+* **Respond menu:** grouped by what you want, one reason per cause with a link to the setting that fixes it, your own
+  reason before you apply. **Hands off:** a list of devices DENIS never acts on.
+* **Experimental:** for a switch that gives no forwarding table, the administrator says which device is on which port.
+* **Hardware results:** Cisco Catalyst 2960-X (SNMPv2c and SNMPv3): reading, switching a port off, the quarantine VLAN,
+  release and extension tried on the switch, and the Cisco quarantine move is validated. D-Link DGS-1100-08V2: a model
+  limit (no forwarding table or LLDP over SNMP). FortiGate 40F: first lab run passed; not yet called validated.
+* Fixes from the internal code review of 4.1.3, and the TLS library update for new security advisories.
+
+## 4.1.5: planned
+
+* The remaining tests on the FortiGate 40F, Palo Alto PA-220, MikroTik and UniFi, and the lab tool for long repeated and
+  day-long tests (`--cycles`, `--soak-hours`).
+* Smaller findings of the internal code reviews, fresh screenshots for the docs and the website, and the rest of the
+  long-text reduction ("?" tooltips outside `index.html`).
 
 ## Review findings still open
 
