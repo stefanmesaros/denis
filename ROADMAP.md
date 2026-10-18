@@ -58,7 +58,7 @@ the program, checked against the code, not against plans:
   refuses `--database-url` while tenants exist). IP fragments are reassembled for OT decoding since 4.1.2.
 * Smaller findings of the internal code reviews, fixed in the next releases.
 
-**Next:** 4.1.5 (below: more tests on real equipment and the smaller review findings), then 4.2 *Correctness under failure*
+**Next:** 4.2 (below: connector safety and the exact scope of every action, tests on real equipment, resilient capture, monitored networks, one identity per device, notifications), then 4.3 *Correctness under failure*
 (below).
 
 ## 4.1.1: delivered (tag `v4.1.1`)
@@ -138,10 +138,22 @@ Details in CHANGELOG.md 4.1.4.
   limit (no forwarding table or LLDP over SNMP). FortiGate 40F: first lab run passed; not yet called validated.
 * Fixes from the internal code review of 4.1.3, and the TLS library update for new security advisories.
 
-## 4.1.5: planned
+## 4.2: planned (4.1.5 was folded into it)
 
-What was left out of 4.1.4 on purpose, or not reached, in the order it is planned.
+What was left out of 4.1.4 on purpose or not reached, and what the first lab runs on real equipment showed, in the order it is planned.
 
+* **Safety and exactness of actions** (found in the first lab runs on real firewalls and switches):
+  * The actions offered for a device follow where it really is: a switch-port action only when the device's own access port is
+    known (never an uplink, trunk, infrastructure or mirror port), a firewall action first for the firewall that routes the
+    device's network, others marked "path not verified".
+  * An action says plainly what it covers: an address action names the address (and says that other addresses or interfaces of
+    the device are not covered, IPv4 and IPv6 separately), a flow action names protocol and port or says "any".
+  * A device that moved between networks is judged on its newest address; an older address inside a protected network
+    becomes a warning you confirm, never a silent refusal and never a silent pass; gateways, infrastructure and DENIS itself
+    stay protected.
+  * Extending an action offers "add time" or "end N minutes from now" and shows the resulting end time; every change of a
+    connector's safety options is written to the audit log; every connector option is enforced by the server.
+  * Address-conflict alerts ignore routed traffic that only passes a mirror port.
 * **Tests on real equipment** (each one is written down in `NAC_HARDWARE_VALIDATION.md` and decides the label of a connector):
   * FortiGate 40F: the first lab run passed (block, release, expiry of a host). Still to do: a wrong credential, the preview
     that no longer matches, the flow block, the kill switch, the hourly limit, the lab switch, twenty block and release
@@ -160,6 +172,22 @@ What was left out of 4.1.4 on purpose, or not reached, in the order it is planne
   * Manual port placement covers switching a port off only; a device behind a switch that gives no forwarding table gets a
     port picker on its panel instead of a link to the map; the Response page gets a setting for how long its history is
     kept; an optional search over the settings.
+* **Capture that survives a missing interface:** DENIS starts even when a configured mirror port has no link, reports the
+  interface as degraded (link down, missing, capture error, no traffic), recovers by itself when the switch or adapter
+  returns, tells you once when monitoring is degraded and once when it is restored, and lets you add, disable, remove and
+  re-check capture interfaces from Settings → Capture.
+* **Monitored networks in the console:** the networks seen on mirror ports are listed, added and removed in Settings → Capture
+  (saved, applied without a restart, never learned from traffic, never switching on active scanning); optionally mapped to the
+  capture interface that sees them; Health says when an interface has no network coverage.
+* **One device, several interfaces:** a firewall seen on its WAN and LAN addresses, as an SNMP device and as an enforcement
+  connector is one device in the inventory; a Respond menu that stays open during background updates; the actions offered for
+  a device follow where it really is (which firewall is on its path, which port it is really on).
+* **Notifications:** messages name the device (name, address, hostname), and for an outside address its reverse DNS name and
+  country; a notification centre in the console for things you should know (released, extended, done automatically, failed,
+  degraded).
+* **Connectors:** FortiGate documentation for a customer to set it up alone (API permissions, trusted hosts, verification,
+  troubleshooting) and its hardware results; MikroTik hardware results and follow-ups; every option of a connector is
+  enforced by the server, not only shown in the console.
 * **Smaller findings of the internal code reviews:** the stricter wording rule for the reason you type, texts that come from
   the server being shown as they are, and the Autopilot figures read in one query.
 * **Fresh screenshots** for the docs and the website, and the rest of the long-text reduction (the "?" tooltips outside
@@ -189,7 +217,7 @@ review (fixed, or deferred to the items below); the stretch items remain open.
   VLANs flagged, never merged; capture source id with an overlap warning; switches and NAC connectors bound to a
   site, site-aware topology and NAC targeting; stretch: VRRP/HSRP virtual MACs [§4 Part B].
 
-**4.2 Correctness under failure** (45-60 d)
+**4.3 Correctness under failure** (45-60 d)
 
 - A PostgreSQL-enabled release binary (`--features postgres`) next to the standard one, so high availability does not need a self-built program.
 
@@ -206,7 +234,7 @@ review (fixed, or deferred to the items below); the stretch items remain open.
 - Two-machine HA fault-injection suite, 24 h soak and load, tenant measurement at 10/50/100 [§5.3, §5.9, §6].
 - OT visibility counters (fragments, undecodable segments, IPv6 when `--ipv6` is off), GRO guidance [§5.10].
 
-**4.3 Network identity** (30-40 d)
+**4.4 Network identity** (30-40 d)
 
 - Address spaces (VRF), L2 domains, capture source registry, per-device L2 evidence table, admin-confirmed split of
   one MAC into two devices (the mirror of join) [§4 Part A].
@@ -215,7 +243,7 @@ review (fixed, or deferred to the items below); the stretch items remain open.
 - Site-limited administrators may act on their site's switches and connectors; Palo Alto and Meraki validation;
   COTP fragment carry; CSV import site column [§5.1, §5.10].
 
-**4.4 Delivery and tenancy hardening** (25-35 d)
+**4.5 Delivery and tenancy hardening** (25-35 d)
 
 - Delivery records with idempotency keys where receivers support them, `--webhook` made durable; stated plainly:
   at least once, never exactly once [§5.7].
