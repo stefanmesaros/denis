@@ -1,10 +1,44 @@
 # Enforcement: MikroTik RouterOS
 
-Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from MikroTik's published RouterOS 7 REST API documentation and checked against a fake router in DENIS's own tests. It has never been run against a real MikroTik. Nothing here is listed as validated on hardware.
+Status: **Experimental. Tested on a real MikroTik E50UG (RouterOS 7.21.4): flow block, quarantine by address, release, expiry and extension; the full validation list is still being completed.** Everything below was built from MikroTik's published RouterOS 7 REST API documentation and checked against a fake router in DENIS's own tests. It has never been run against a real MikroTik. Nothing here is listed as validated on hardware.
 
 Lab use: the host block (address list) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The actions new in 4.1 (flow block, quarantine, disabling a port, removing connections) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
 
 Besides the connector's own refusals, every block through it is refused for a loopback, unspecified, broadcast or multicast address, for DENIS itself and for the gateway, for DNS and directory servers, for anything in the connector's *protected networks*, and for an address in an open `arp_conflict` alert unless the administrator ticks a box to accept that, before anything is sent. Unblock is never refused for any of these reasons.
+
+## Quick setup (about 10 minutes)
+
+Tested on a MikroTik E50UG with RouterOS 7.21.4 (flow block, quarantine by address, release, expiry and extension). Other
+RouterOS 7 versions share the same REST API and are expected to work; they have not been tried.
+
+**What you need:** traffic from the devices must **be routed by this MikroTik** (traffic inside one bridge never reaches the
+forward chain). DENIS reaches the router's HTTPS address from the DENIS server.
+
+1. **HTTPS and the API user.** In the RouterOS terminal (replace `<router address>` and `<DENIS address>`):
+   ```
+   /certificate add name=denis-rest common-name=<router address> subject-alt-name=IP:<router address> days-valid=3650 key-usage=key-cert-sign,crl-sign,digital-signature,key-encipherment,tls-server
+   /certificate sign denis-rest
+   /ip service set www-ssl certificate=denis-rest disabled=no address=<DENIS address>/32
+   /user group add name=denis-api policy=read,write,rest-api
+   /user add name=denis group=denis-api password=<a long random password> address=<DENIS address>/32
+   ```
+2. **Quarantine rule (only if you want *Quarantine*; do it once, by hand).** The rule must sit in `forward` **before the
+   fasttrack rule**, otherwise connections that are already open are not cut:
+   ```
+   /ip firewall filter add chain=forward action=drop src-address-list=denis-quarantine place-before=[find where action=fasttrack-connection] comment="DENIS quarantine"
+   ```
+   *Block device* needs no rule of your own (DENIS creates its two drop rules at the top of the filter table).
+3. **In DENIS:** *Network → Equipment → Add → MikroTik*: Base URL `https://<router address>`, REST API user `denis` and its
+   password, block list `denis-blocked`, quarantine list `denis-quarantine`, and under *Never block these IP addresses* the
+   router's own addresses, the gateway and DENIS. For the certificate either paste it (export:
+   `/certificate export-certificate denis-rest type=pem`) or, in a lab, untick *Verify TLS certificate*. Press **Test**.
+4. **Try it on a harmless device:** *Respond → Block device* for 5 minutes on a test client behind the MikroTik. The client must
+   lose its connection and regain it at the end. **Block flow** (one flow) needs *Allow DENIS to create deny rules* ticked; the plan
+   shows the protocol and port, and "any" when none were given.
+
+If something fails: HTTP 403 means the group lacks `rest-api` or the user's *address* does not include the DENIS server;
+"accepted but still reachable" means the traffic does not pass the forward chain, or the quarantine rule is not before
+`fasttrack`.
 
 ## What DENIS can do on a MikroTik
 

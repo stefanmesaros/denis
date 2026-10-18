@@ -1,8 +1,92 @@
 # Enforcement: Fortinet FortiGate
 
-Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from FortiOS's published REST API documentation and checked against a fake FortiGate in DENIS's own tests. It has never been run against a real FortiGate. Nothing here is listed as validated on hardware.
+Status: **Experimental. Tested on a real FortiGate 40F (FortiOS 7.2.3): block, release, expiry, extension, flow block and ending sessions; the full validation list is still being completed.** Everything below was built from FortiOS's published REST API documentation and checked against a fake FortiGate in DENIS's own tests. It has never been run against a real FortiGate. Nothing here is listed as validated on hardware.
 
 Lab use: the host block (address group) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The actions new in 4.1 (flow block, quarantine, ending sessions) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
+
+## Quick setup (about 10 minutes)
+
+Tested on a FortiGate 40F with FortiOS 7.2.3 (block, release, expiry, extension, flow block and ending sessions). Other
+FortiOS 7.x versions use the same REST API and are expected to work; they have not been tried.
+
+**What you need:** the FortiGate must be **in the path of the traffic** you want to stop (the device behind it, routed through
+it). DENIS reaches the FortiGate's HTTPS management address from the DENIS server; the REST API alone cannot stop traffic that
+does not pass the firewall.
+
+1. **Objects and the deny policy** (once; DENIS never creates these). In the FortiGate CLI (*>_* in the web console), adapt the
+   interface names `lan` and `wan`:
+   ```
+   config firewall address
+       edit "denis-placeholder"
+           set subnet 192.0.2.255 255.255.255.255
+       next
+   end
+   config firewall addrgrp
+       edit "DENIS-BLOCK"
+           set member "denis-placeholder"
+       next
+   end
+   config firewall policy
+       edit 0
+           set name "DENIS-BLOCK-deny"
+           set srcintf "lan"
+           set dstintf "wan"
+           set srcaddr "DENIS-BLOCK"
+           set dstaddr "all"
+           set action deny
+           set schedule "always"
+           set service "ALL"
+           set logtraffic all
+       next
+   end
+   ```
+   Move `DENIS-BLOCK-deny` to the **top** of the policy table (*Policy & Objects → Firewall Policy*, drag it, or
+   `config firewall policy` then `move <id> before <first id>`).
+2. **The API user** (least privilege, restricted to the DENIS server). Replace `<DENIS address>`:
+   ```
+   config system accprofile
+       edit "denis-api"
+           set sysgrp read-write
+           set netgrp read
+           set fwgrp custom
+           config fwgrp-permission
+               set policy read-write
+               set address read-write
+               set service read-write
+           end
+       next
+   end
+   config system api-user
+       edit "denis"
+           set accprofile "denis-api"
+           config trusthost
+               edit 1
+                   set ipv4-trusthost <DENIS address> 255.255.255.255
+               next
+           end
+       next
+   end
+   execute api-user generate-key denis
+   ```
+   The last command shows the **token once**: copy it straight into DENIS (step 3), do not paste it anywhere else. If you lose
+   it, run the command again; the old token stops working.
+   * **Why System read-write?** Ending sessions (the *End sessions* part of a block and the action of the same name) needs
+     `System: Read/Write` on FortiOS 7.2.3; with *Read* only, FortiOS answers 401/403 to that call. **System read-write is a
+     strong permission**: restrict the REST API administrator to the DENIS server with *Trusted Hosts* (done above) and keep the
+     token private. All other permissions stay *None*; never use `super_admin`.
+   * *Block device* and *Quarantine* need the *Firewall* address permission (read-write); *Block flow* adds policy and service
+     (read-write); *Network* read is needed for the routing lookup of a flow block.
+3. **In DENIS:** *Network → Equipment → Add → Fortinet FortiGate*: Base URL `https://<FortiGate address>`, VDOM (leave empty if
+   VDOMs are off), block group `DENIS-BLOCK`, the API token, and under *Never block these IP addresses* the FortiGate's own
+   addresses, the gateway and DENIS. Keep *Verify TLS certificate* ticked and paste the FortiGate's certificate if you can; untick
+   it only in a lab. Press **Test**: it must succeed and writes nothing.
+4. **Try it on a harmless device:** *Respond → Block device* for a test client behind the FortiGate for 5 minutes. The client must
+   lose its connection, then regain it at the end (DENIS removes everything it created). Tick *Allow DENIS to create deny rules*
+   only if you want *Block flow*.
+
+If something fails: HTTP 401/403 on ending sessions means *System* is not read-write or the Trusted Host does not include the
+DENIS server; "no effect" with an accepted block means the deny policy is not first or the traffic does not pass this
+FortiGate (check the interfaces, NAT and the policy order).
 
 ## What DENIS can do on a FortiGate
 
@@ -40,7 +124,7 @@ Behaviours that are unproven vendor facts (marked **[verify]** in the code):
 * Zone members are listed in `cmdb/system/zone` as `interface[].interface-name`, and a zone member must be referenced through its zone.
 * The predefined services `ALL`, `ALL_TCP`, `ALL_UDP` and `ALL_ICMP` exist.
 * FortiOS does not keep an address group with no member (so a placeholder is needed). DENIS does not remove its own entry if it is the only member and tells you to add a placeholder.
-* `firewall/session/close-multiple` with `srcaddr` or `dstaddr` closes the sessions of that address. FortiOS may answer with an error when no session matches. DENIS then reports the action as failed (nothing changed) rather than completed.
+* `firewall/session/close-multiple` with the query parameters `saddr` or `daddr` closes the sessions of that address. FortiOS may answer with an error when no session matches. DENIS then reports the action as failed (nothing changed) rather than completed.
 * Whether sessions that are already open are cut by a new deny policy depends on the global setting `firewall-session-dirty` (default `check-all`). DENIS does not change it.
 * FortiOS matches the original source address (before source NAT). A destination behind a virtual IP is matched by the virtual IP.
 * The policy `comments` and address `comment` fields accept the 255 character marker.
