@@ -831,6 +831,6 @@ Rule settings can be **exported as a file and imported** on another install (*Ru
 
 ## Details from the console
 
-Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
 * Off by default. When on, traffic between two of your own devices (a laptop and the file server, an HMI and a PLC) is recorded as relationships: who talks to whom, over which service, and since when. That is internal behaviour DENIS otherwise does not see, so switch it on only where that is acceptable. Takes effect at once, no restart. Needs traffic accounting (--flows) or a mirror interface; remote agents are switched with --east-west. The limits and what they cut are on the Health page.

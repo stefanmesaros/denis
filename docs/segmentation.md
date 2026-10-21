@@ -198,33 +198,24 @@ can be switched off on the Rules page if it becomes redundant for a site.
   automatic enforcement by rules (level (b), experimental, off by default): once an administrator
   switches it on and marks a policy for it, that policy can block or quarantine a device that keeps
   breaking it (see [Enforcement, automation](enforcement.md#automation)).
-* **"Offer to block devices that violate this" only makes suggestions, unless you also mark the
-  policy for automatic enforcement.** A zone policy or an allow-list has an on/off setting for it (off by default,
-  changed through the policy API for now; there is no checkbox in the console yet). It is an
-  ordinary edit of the policy: administrators only, a new revision, in the history and the audit
-  trail. When it is on, DENIS counts how often a device keeps breaking that policy and, once it has
-  done so repeatedly (by default in 3 separate minutes at least 10 minutes apart, within a day) and
-  the policy has stood unchanged for 24 hours, records a *suggestion* to block the device. A suggestion
-  is shown to an administrator who may block devices as a card at the top of the Alerts page and in the device's own
-  panel, with a **Review block...** button. The button only opens the plan dialog (what DENIS would block, for how long,
-  what it would cut off); nothing is blocked until you confirm there with your password, exactly as for every other
-  action, and the card is not shown while enforcement is switched off or when you lack the permission to block a
-  device. A block made from a suggestion closes it. The stored ones are also listed at `GET /api/nac/prompts`. A
-  suggestion itself notifies and blocks nothing. Suggestions
-  are only recorded while Settings → Response policy is switched on and a connector or a switch could
-  actually act on the device; they are never recorded for DENIS itself, the gateway or a device with
-  an open address conflict, and they close by themselves after a week without a new violation. A
-  policy that offers to block can also be marked for automatic enforcement (level (b), experimental,
-  off by default); then DENIS acts on the suggestion itself, within the limits described in
-  [Enforcement, automation](enforcement.md#automation).
-  Only a policy that is enabled, in `alert` mode (not `record`) and opted in can produce one. The
-  thresholds (3 separate minutes at least 10 minutes apart, a reminder every 24 hours, expiry after 7
-  days) are stored under the setting `nac_prompts`; there is no way to change them from the console or
-  the API yet, and `GET /api/nac/prompts` shows the values in force.
+* **When this policy matches** (4.2, [Rule actions](enforcement.md#rule-actions)). A saved zone policy or allow-list
+  has the choice in its form: *Only notify me* (the default), *Prepare a response for me to approve*, or *Respond
+  automatically* (Experimental). With "prepare", DENIS counts how often a device keeps breaking the policy and, once it
+  has done so repeatedly (by default in 3 separate minutes at least 10 minutes apart, within a day), prepares a
+  response: the device, the response (block the device or quarantine it), how long, and the connector on the device's
+  path. It waits for you under "Waiting for your approval" (Network → Response, the Alerts page, the device's panel and
+  the bell). **Review...** only opens the plan dialog, filled in; nothing is blocked until you write your reason and
+  confirm with your password, exactly as for every other action. A block made from it closes it. Responses are only
+  prepared while enforcement is switched on and a connector or a switch could act on the device; never for DENIS
+  itself, the gateway, network equipment and servers, industrial devices, a device with an open address conflict or
+  on the hands-off list, and not while DENIS acts on the device. They close by themselves after 3 days without a new
+  violation. Only a policy that is enabled and in `alert` mode (not `record`) prepares one. The thresholds are stored
+  under the setting `nac_prompts`, and `GET /api/nac/prompts` shows the values in force. The 4.1 setting "Offer to block
+  devices that violate this" (`offer_block`) is read as "prepare".
 
-  *Verified vs. not verified:* the counting, the gates and the storage are covered by tests with
-  hand-built violations and run on SQLite and PostgreSQL; nothing has been seen on a live network. The card
-  is checked in a browser against a stand-in for the API.
+  *Verified vs. not verified:* the counting, the gates, the connector choice and the storage are covered by tests with
+  hand-built violations and simulated connectors and run on SQLite and PostgreSQL; nothing has been seen on a live
+  network yet.
 
 ## The zone matrix
 

@@ -4,6 +4,32 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 4.2.0: A Respond menu that knows the path, UniFi and Palo Alto verified, a fuller map
+
+- Fix: the console could stay empty after signing in when a file failed to load; files are now loaded before sign-in and retried.
+- Every response plan says exactly what it covers (the address, or the flow's protocol and port) and which other addresses of the device it does not.
+- Quarantine of a device that was in a protected network days ago now asks you to confirm instead of refusing.
+- Extend: add time to what is left (the default) or end a set time from now, with the new end time shown before you confirm.
+- Changes of a connector's safety settings are audited with old and new value; the deny-rule switch shows on only when it really is.
+- MikroTik: a device block on a router with default rules is now confirmed instead of reported as not confirmed.
+- FortiGate: End sessions says what FortiOS answered, and blocking a device closes its open sessions again.
+- Fix: a device's Respond menu no longer closes by itself while the page refreshes in the background.
+- The Respond menu shows where a device is, offers a port or firewall only when DENIS is sure, and says why an action is unavailable.
+- A router or firewall seen under several hardware addresses is one device: linked when it lists them itself, or when you confirm.
+- One device: DENIS says why it suggests instead of linking, or why linking is paused.
+- Action notifications name the device; a bell lists what you should know.
+- UniFi: sign in with an API key; block by firewall policy (verified on a Cloud Gateway Ultra).
+- Uplinks and trunks: by hand only, with warnings. SNMPv3 port control is validated.
+- Palo Alto: block a device in seconds, no commit, through a dynamic address group (verified on a PA-220).
+- Map: the cables between switches, firewalls and access points, each marked confirmed, best guess or set by hand; fix one by dragging.
+- Equipment: one row per device (a firewall that is also a switch appears once), no sideways scrolling, ordered by wiring or by hand.
+- Capture: DENIS starts without a mirror link and recovers on its own; interfaces and monitored networks change in Settings without a restart.
+- Your rules can prepare a block for you to approve, or block by themselves after a 7-day trial (experimental).
+- Cisco switches with many VLANs are read in turns; a connector never acts on its own device.
+- Security updates install automatically by default (Settings > System).
+- Port scan and ping can be switched off, for all networks or one.
+- Consistent help buttons across the console.
+
 ## 4.1.4: The Network page, a new Respond menu and gateway detection
 
 - Cisco switches: a laptop, printer or other end device that announces itself over LLDP on an access port no longer makes DENIS refuse to switch that port off or move it to the quarantine VLAN, and DENIS now finds the switch port of such a device. Port names are compared the way Cisco writes them. A switch, router, access point or phone still keeps the port protected.

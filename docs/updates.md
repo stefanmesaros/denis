@@ -1,7 +1,9 @@
 # Updates
 
 DENIS can tell you when a new version is out, show you what changed, and install it for you: **now or at a time you
-choose**, with a backup first and without touching your data.
+choose**, with a backup first and without touching your data. **Security updates install by themselves** (on by
+default for a new installation since 4.2, one switch to turn off): see
+[Automatic security updates](#automatic-security-updates).
 
 ## How it works for you
 
@@ -19,12 +21,114 @@ choose**, with a backup first and without touching your data.
 |---|---|
 | Verify | The release's checksum list must carry a valid **signature** from the project's release key (the public key is built into your DENIS). A file that does not match the signed checksum is refused. A compromised GitHub account alone cannot push code to you. |
 | Test | The new program is asked for its version before anything is replaced; if it cannot run on this machine the update stops with nothing changed. |
-| Back up | A verified copy of your database is written to a `backups` folder beside the database (`denis-before-<version>-<time>.db`, owner-only; the newest five are kept). |
+| Back up | A verified copy of your database is written to a `backups` folder beside the database (`denis-before-<version>-<time>.db`, owner-only; the newest five are kept). An attempt that stops before the switch removes its own copies again, and older copies are pruned only after a switch, so attempts that did not happen never push out the backups of updates that did. |
 | Switch | The old program is kept as `denis.previous`, the new one takes its place, and DENIS restarts **in place** (same process, same arguments). |
 | Confirm | After one minute of healthy running the update counts as done. If the new version fails to start twice, the **previous version comes back automatically**, together with the pre-update database if its format had changed; the console tells you what happened. |
 
 Your data is not changed by updating: the database is migrated forward by the new version exactly as in any manual
 upgrade, after the backup exists. Only newer versions are offered; a downgrade is never installed.
+
+## Automatic security updates
+
+**Automatic security updates are on by default, and you can switch them off:** *Settings → System → Updates →
+Install security updates automatically* (administrators only, one setting for the whole installation, audited as
+`update.auto` with the value before and after).
+
+Security updates are always free of charge.
+
+**What is installed by itself.** A stable release **of the version line that runs**: on 4.2.1, the releases 4.2.2,
+4.2.3 and so on; on 4.1.6, 4.1.7. These are the releases that carry fixes for the line, security fixes included.
+**Never by itself:** a new minor or major version (4.3.0, 5.0.0), a pre-release (even with pre-releases switched on;
+a release counts as one when its tag has a `-` or GitHub marks it as a pre-release), a version you skipped, or a
+version that had to be rolled back after it was installed (automatically or by hand). Those are offered in the update
+bar as before and wait for you.
+
+**Exactly the version it chose.** The automatic install puts in place the release it picked and nothing else. If
+GitHub cannot deliver that release's files, usedenis.com is used only when it offers exactly that version; otherwise
+the attempt fails with nothing changed and is tried again later. It never takes another version from the fallback
+host instead.
+
+**Skipping a patch.** *Skip this version* in the update window applies to the release offered there. When the update
+bar offers a newer line (4.3.0) and a patch of the running line (4.2.4) is the one that would install by itself, that
+patch cannot be skipped on its own: switch automatic security updates off, or choose a daily window, to hold it back.
+
+**How.** Exactly the steps of a manual install, nothing skipped or weakened: the signature on `SHA256SUMS` must
+verify with the release key built into the program, the file must match the signed checksum, the new program must
+report its version, the database is backed up, the old program is kept, and the previous version comes back by
+itself if the new one does not start. DENIS looks for a release with its regular check (every six hours, and at once
+when you switch the setting on); when GitHub's newest release is a new minor version, it reads GitHub's release list
+to find the newest release of the line that runs (from usedenis.com only the newest stable release is available, so
+when GitHub cannot be reached a patch of an older line is found at the next check that reaches GitHub).
+
+**When.** By default an eligible release is installed **as soon as it is found**. Under *When* you can choose
+**Only inside a daily window** instead and give the hours (from, to; this server's local time, for example 2 to 5; a
+window may run over midnight, 22 to 4): a release found outside the window waits for its next opening. The window
+counts for the automatic security updates only. (The *Schedule* button in the update window, which existed before,
+installs one offered version once at a time you pick; it is kept as it is and is the way to time a new minor version.)
+Changing *When* is audited as `update.auto_timing` with the value before and after. A change of the switch and of
+*When* in one save is checked as a whole and saved together, or not at all. On the night summer time starts, a window
+whose hour is skipped by the clock change (2 to 3 in central Europe) opens in the hour after the jump instead; on the
+night it ends, the repeated hour is just one more hour.
+
+**Never in the middle of an enforcement action.** An install does not start while an enforcement action (a block, a
+quarantine, a port change, or its removal, including *Enable port* and the switch write test) is being applied or
+rolled back. At the moment the program is replaced,
+DENIS waits up to a minute for running actions to end and lets no new one start until it has restarted (an action
+asked for in those seconds is refused with "DENIS is installing an update"; try again a minute later). If an action
+is still running after that minute, the update stops with nothing changed and is tried again shortly after.
+
+**What you are told** (the bell, and your notification channels by their minimum level):
+
+| What happened | Notice |
+|---|---|
+| Installed | *Update X was installed* (info), with the version before and "installed automatically" |
+| Failed before anything was replaced (download, signature, test of the new program) | *Automatic update to X failed* (high), with the reason. Nothing changed; tried again after a day |
+| The new version did not start and the previous one came back | *Update X did not start and was rolled back* (high). That version is not tried automatically again; install it by hand once the cause is known |
+| A release marked as a security fix that is not installed by itself (automatic updates off, or it starts a new line) | *Security update X is available* (high). Also for a security release of the running line while the update bar offers a newer line |
+
+**A new installation and an existing one.** A database created by DENIS 4.2 or newer starts with automatic security
+updates **on**. An installation that existed before keeps its behaviour: they stay **off** until an administrator
+chooses, and DENIS asks once (a notice in the bell, a banner, and the question with *Turn on* and *Keep off* in
+*Settings → System → Updates*). Nothing is switched on without that choice. The default is decided at the first start
+that checks for updates: a program started with `--no-update-check` decides and saves nothing (unless
+`--auto-security-updates` is given), shows automatic security updates as off, and does not tell its agents to update
+because of them. If the saved choice cannot be read at a start (a database error), nothing is decided or saved and
+nothing is installed until it can be read; a saved value that cannot be understood counts as off until an
+administrator chooses again.
+
+**While they are off,** the Health page shows an advisory, "Security updates are not applied automatically", with a
+link to the setting; *Dismiss for 30 days* hides it for 30 days. It also says so when they are on but this
+installation cannot replace its own program (see the requirements below). `--no-update-check` still means nothing is
+contacted, and then nothing is installed either; the advisory is not shown for such a build.
+
+**Security releases.** The maintainer marks a release that fixes a security problem (see RELEASING.md): it then
+carries a file `SECURITY-RELEASE`, and the console shows it as a security update. On usedenis.com the mark is part of
+the signed list of what the host holds; on GitHub it is the presence of that file among the release's files, which is
+not checked against a signature. Either way the mark is only a label: it makes the notice louder and never decides
+what is installed; whether a release installs by itself depends on its version line alone, and every install is
+verified with the release key as always.
+
+**Remote agents** follow the master's choice through their own update modes (see
+[Updating remote agents](#updating-remote-agents)): as long as no mode was saved for them, they follow the master
+within its version line while automatic security updates are on, and wait for you while they are off.
+
+**For scripted installations:** `denis run --auto-security-updates on|off` (or `DENIS_AUTO_SECURITY_UPDATES`) sets the
+choice at start-up as long as no administrator has chosen in the console: an existing installation started with it is
+not asked, and a later start with the other value changes it. **Once an administrator saves the choice in the
+console, the saved choice wins**, like the other settings that are kept in the database (`--update-channel` works the
+same way). Without the flag a new installation starts with them on and an existing one is asked.
+
+**A pair of nodes (PostgreSQL).** The leader installs. The standby installs a version only after the leader has run
+it for six hours (the shared record says the leader installed it and started on it), or once it becomes the leader
+itself; until then it keeps running the old version. At most one automatic install starts within six hours on the
+pair, whatever its version, and the start is recorded with a compare-and-set in the shared database, so the two nodes
+can never both start one. If the leader installed a version by hand, the standby is not updated automatically: update
+it by hand too. This order is covered by tests; it has not been tried on a real pair.
+
+**Customers of an MSP.** The setting belongs to the installation, like the other update settings (a customer's
+console cannot change it). A customer's agents follow it the same way as the installation's own agents until the
+customer's administrator saves a mode in their console; their saved mode always wins, and the console shows which
+mode they inherit while none is saved.
 
 ## Requirements and limits
 
@@ -37,9 +141,9 @@ upgrade, after the backup exists. Only newer versions are offered; a downgrade i
   [Deployment](deployment.md#installing-on-a-linux-server-a-permanent-service)); every update after that is one click.
 * A build without a release key (a build you compiled yourself before setting one) can *see* new versions but not
   install them.
-* Agents on remote sites are separate programs. By default nothing happens to them: you update them from the
-  master when you choose to, or by hand ([Updating remote agents](#updating-remote-agents)). The master shows each
-  agent's version under **Sites**.
+* Agents on remote sites are separate programs. They are updated from the master, in the mode you choose (until you
+  choose, they follow the master's automatic security updates), or by hand
+  ([Updating remote agents](#updating-remote-agents)). The master shows each agent's version under **Sites**.
 * Updates come from `https://github.com/<owner>/<repo>/releases`. Only if GitHub cannot be reached, DENIS tries
   `https://usedenis.com` instead ([below](#if-github-cannot-be-reached)); nowhere else.
 
@@ -137,8 +241,17 @@ uses, to the master address it was started with, with the CA and token it alread
 
 | Mode | What happens |
 |---|---|
-| **Manually** (default) | Under **Sites** an agent that is older than the master shows **outdated**, its last update result and, for an administrator, an **Update** button (and **Update all outdated** above the table). The master remembers the request and answers the agent's next report (within about a minute) with "update to version X". |
+| **Manually** | Under **Sites** an agent that is older than the master shows **outdated**, its last update result and, for an administrator, an **Update** button (and **Update all outdated** above the table). The master remembers the request and answers the agent's next report (within about a minute) with "update to version X". |
 | **Automatically** | The master gives the same command to every agent that is older than the master, with no click. Switch back to *Manually* to stop. A failed attempt is left alone for a day before it is tried again. |
+| **Security updates only** (4.2) | The same command, but only to an agent in the master's own version line (an agent on 4.2.1 when the master runs 4.2.3; not one on 4.1.x), and only while the master runs a stable release. A failed attempt waits a day, as above. |
+
+**Until you save a mode,** the installation's own agents follow the master's [automatic security
+updates](#automatic-security-updates): *Security updates only* while those are on, *Manually* while they are off (so an
+installation that existed before 4.2 and has not switched them on behaves exactly as before). Once you save a mode it
+stays as saved, and the console says which mode is inherited while none is saved. This holds for a customer's console
+on an MSP installation too: its agents follow the installation's choice until the customer's administrator saves a
+mode of their own, which always wins. The command
+an agent receives is the same in every mode, so agents of 4.1 understand it.
 
 Agents are always brought to **the version of the master**, never past it: update the master first, then its agents.
 
@@ -180,7 +293,7 @@ Checking sends one anonymous HTTPS request to `api.github.com` every six hours (
 about your network or data. **Only if GitHub cannot be reached** the same check, or the download, goes to
 `usedenis.com`, which then sees your address likewise and nothing else. An agent that is told to update contacts the
 same hosts once for that update (or only its own master, when the source is the master). To never contact GitHub or the
-fallback host (air-gapped, or you prefer to update by hand):
+fallback host (air-gapped, or you prefer to update by hand; nothing is then installed automatically either):
 
 ```bash
 denis run --no-update-check      # or DENIS_NO_UPDATE_CHECK=1
@@ -193,6 +306,6 @@ Download `denis-<platform>` and `SHA256SUMS` from the release, compare `sha256su
 
 ## Details from the console
 
-Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
-* Agents on other networks are separate programs. By default nothing happens to them: you press Update for an agent under Sites. An agent is always brought to the version of this master, never past it, and it checks the signature of every release itself before installing anything.
+* Agents on other networks are separate programs. Until you choose a mode here they follow this master's automatic security updates: on, an agent in this master's version line is brought to its version; off, nothing happens to them until you press Update for an agent under Sites. An agent is always brought to the version of this master, never past it, and it checks the signature of every release itself before installing anything.

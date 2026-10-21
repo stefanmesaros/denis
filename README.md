@@ -2,7 +2,7 @@
 
 **Know every device. Understand every connection.**
 
-Network visibility and security monitoring for **IT, IoT and OT** — passive-first, self-hosted, one Rust binary.
+**NDR and NAC, and still a network visibility and security monitoring platform**; for small businesses, mid-size businesses, MSPs, **OT and IT** — passive-first, self-hosted, one Rust binary. Detection is the main product; response and access control work through equipment you already own, are off by default and, apart from Cisco Catalyst switch control, are experimental or only partly tested.
 
 [![CI](https://github.com/stefanmesaros/denis/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/stefanmesaros/denis/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/stefanmesaros/denis)](https://github.com/stefanmesaros/denis/releases/latest)
@@ -41,7 +41,8 @@ network itself rather than trusting whatever was last typed into a CMDB.
 
 1. **Discover.** Passive listening (ARP, DHCP, mDNS, SSDP, LLDP/CDP, PROFINET, TCP/IP stack fingerprints) plus
    polite active discovery (ARP sweep, ping, port scan). Industrial devices are only ever listened to, never
-   probed.
+   probed. A security tool on the same network may report the sweep as a port scan:
+   [what to do](docs/security-tools.md); the port scan and the ping can each be switched off.
 2. **Identify.** Manufacturer from the IEEE OUI registry; device type and operating system from weighted evidence
    (DHCP option lists, mDNS, SSDP, open ports, names…) — every guess lists the rules behind it, and your correction
    always wins. Where a service reveals it, DENIS reads the product and version from nine banners (SSH, FTP, SMTP,
@@ -164,16 +165,28 @@ network, or whenever you just want to look around without touching anything real
 [Console tour](docs/tour.md) · [Concepts](docs/concepts.md) · [Asset management](docs/asset-management.md) ·
 [Detection rules](docs/detection-rules.md) · [Alerting](docs/alerting.md) · [OT guide](docs/ot-guide.md) ·
 [Branding](docs/branding.md) · [Export & SIEM](docs/export.md) · [Deployment](docs/deployment.md) ·
-[Docker](docs/docker.md) · [Operations](docs/operations.md) · [Security](docs/security.md) · [API](docs/api.md) ·
+[Docker](docs/docker.md) · [Operations](docs/operations.md) · [Security](docs/security.md) ·
+[Security tools that may flag DENIS](docs/security-tools.md) · [API](docs/api.md) ·
 [Troubleshooting](docs/troubleshooting.md)
 
-Alerts with the reasoning behind every score, the industrial communications matrix, and compliance mapped against
-your actual register — three of the console's 20-odd pages ([more screenshots in the console tour](docs/tour.md)):
+**Compliance:** [Software bill of materials (SBOM)](docs/compliance/SBOM.md) ·
+[Cyber Resilience Act readiness](docs/compliance/CRA.md) (a preparation document: DENIS is not certified and makes no
+claim of conformity)
+
+An incident with the alerts behind it, how your equipment is cabled and how DENIS knows each cable, and the
+notifications in the bell; below them the industrial communications matrix, compliance mapped against your actual
+register and the monitored networks under Settings, Capture: six of the console's 20-odd pages
+([more screenshots in the console tour](docs/tour.md)):
 
 <p>
-<img src="docs/img/alerts.png" width="32%" alt="Alerts, each with the reasons behind its score">
+<img src="docs/img/incident.png" width="32%" alt="An incident scored 100: two alerts about the finance file server, its timeline, the device involved and the related findings">
+<img src="docs/img/network-links.png" width="32%" alt="Network map, Equipment links: switches, routers and access points with each cable marked confirmed by LLDP, a best guess from the forwarding tables, or set by hand">
+<img src="docs/img/notifications.png" width="32%" alt="The notification bell open: five notifications, one marked high and two marked warn, each with an Open button">
+</p>
+<p>
 <img src="docs/img/ot.png" width="32%" alt="Industrial (OT) devices and their communications matrix">
 <img src="docs/img/compliance.png" width="32%" alt="Compliance mapped against CIS, NIST, IEC 62443 and more">
+<img src="docs/img/settings-capture.png" width="32%" alt="Settings, Capture: capture interfaces, three monitored networks with their port scan and ping settings, and Active probing">
 </p>
 
 ## Features

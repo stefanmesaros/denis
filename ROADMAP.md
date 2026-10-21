@@ -154,6 +154,10 @@ What was left out of 4.1.4 on purpose or not reached, and what the first lab run
   * Extending an action offers "add time" or "end N minutes from now" and shows the resulting end time; every change of a
     connector's safety options is written to the audit log; every connector option is enforced by the server.
   * Address-conflict alerts ignore routed traffic that only passes a mirror port.
+* **UniFi with an API key:** the UniFi connector also works with a Network API key (no user name and password), reads clients
+  through the official Network API and blocks through an ACL rule or firewall policy; the sign-in with a local account stays
+  for the immediate disconnect of a client. Palo Alto keeps the XML API (it already uses an API key); the REST API of PAN-OS
+  stays an option for objects and rules only, because it cannot commit or clear sessions.
 * **Tests on real equipment** (each one is written down in `NAC_HARDWARE_VALIDATION.md` and decides the label of a connector):
   * FortiGate 40F: the first lab run passed (block, release, expiry of a host). Still to do: a wrong credential, the preview
     that no longer matches, the flow block, the kill switch, the hourly limit, the lab switch, twenty block and release
@@ -182,6 +186,11 @@ What was left out of 4.1.4 on purpose or not reached, and what the first lab run
 * **One device, several interfaces:** a firewall seen on its WAN and LAN addresses, as an SNMP device and as an enforcement
   connector is one device in the inventory; a Respond menu that stays open during background updates; the actions offered for
   a device follow where it really is (which firewall is on its path, which port it is really on).
+* **A fuller network map:** switches, firewalls, routers and access points with the links between them as a best guess from what the devices report, each link marked as confirmed, guessed or set by hand; an administrator can correct a link by dragging a connection from one device to another, and the Equipment list can be ordered by this wiring.
+* **Response from rules:** each detection rule gets an action setting: only notify, prepare the response for an administrator to approve with one click, or carry it out automatically (automatic stays experimental, off by default and behind the same safety checks and limits as every other action).
+* **Palo Alto without waiting for a commit:** blocking and releasing a device through a dynamic address group and a tag registered over the API (seconds instead of a commit that can take minutes); the commit-based method stays as the fallback.
+* **Supply chain and documentation:** a software bill of materials (CycloneDX and SPDX) with every release, a daily check of dependencies for known vulnerabilities, an updated architecture guide, a description at the top of every large module, a complete reference of the API endpoints added since 4.0, and a Cyber Resilience Act readiness document.
+* **Equipment page:** one tidy, aligned list without sideways scrolling, one entry per physical device (a firewall that is both a connector and an SNMP device is shown once), real device names, details on demand, rows in a saved order you choose, and optionally ordered by how the devices are wired.
 * **Notifications:** messages name the device (name, address, hostname), and for an outside address its reverse DNS name and
   country; a notification centre in the console for things you should know (released, extended, done automatically, failed,
   degraded).
@@ -190,6 +199,7 @@ What was left out of 4.1.4 on purpose or not reached, and what the first lab run
   enforced by the server, not only shown in the console.
 * **Smaller findings of the internal code reviews:** the stricter wording rule for the reason you type, texts that come from
   the server being shown as they are, and the Autopilot figures read in one query.
+* **Smaller fixes and answers:** a missing value shown as the word "null" in the block dialog, and a short guide on when a network behind a router needs its own capture cable and when a mirror alone is enough.
 * **Fresh screenshots** for the docs and the website, and the rest of the long-text reduction (the "?" tooltips outside
   `index.html`).
 
@@ -218,6 +228,9 @@ review (fixed, or deferred to the items below); the stretch items remain open.
   site, site-aware topology and NAC targeting; stretch: VRRP/HSRP virtual MACs [§4 Part B].
 
 **4.3 Correctness under failure** (45-60 d)
+
+- An OpenAPI specification of the API and narrower API tokens (limited scopes and expiry).
+- Removing code repeated across the connectors and splitting the largest source files, with no change of behaviour.
 
 - A PostgreSQL-enabled release binary (`--features postgres`) next to the standard one, so high availability does not need a self-built program.
 

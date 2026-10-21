@@ -164,6 +164,6 @@ severity, score, device and site, so "who closed alert 123, when and why" can st
 
 ## Details from the console
 
-Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
 * DENIS correlates related alerts into named-pattern incidents in the background (the Incidents page). Turning this off stops correlation immediately; alerts and their own delivery are unaffected either way.

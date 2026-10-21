@@ -8,8 +8,10 @@ welcome and taken seriously.
 **Please do not open a public issue for a security problem.**
 
 Use GitHub's private vulnerability reporting: open the repository's **Security** tab and choose **Report a
-vulnerability**. Include what you found, how to reproduce it, the version (`denis --version` or the header of the
-console) and, if you can, its impact.
+vulnerability**, or write to **mail@usedenis.com** if you do not have a GitHub account. Include what you found, how
+to reproduce it, the version (`denis --version` or the header of the console) and, if you can, its impact.
+
+The security contact is Štefan Mesároš, the maintainer and manufacturer of DENIS.
 
 You can expect:
 
@@ -32,10 +34,17 @@ permission to test.
 
 ## Supported versions
 
-Only the latest release and the `main` branch receive security fixes while the project is young.
+* Every **major version** (for example 4.x) receives security fixes for **at least five years** from its first
+  release. New features go only to the newest version.
+* The **current and the previous minor line** (for example 4.2 and 4.1) always receive security fixes.
+* Security fixes are **always free of charge**.
+* Security updates are installed automatically by default (new installations; existing installations are asked
+  once) and can be switched off in Settings. See [docs/updates.md](docs/updates.md).
+
+The compliance picture for the EU Cyber Resilience Act is in [docs/compliance/CRA.md](docs/compliance/CRA.md).
 
 ## Known limitations
 
 They are listed honestly in [docs/security.md](docs/security.md) (what DENIS does *not* protect against) and in the
-"Status" section of the [README](README.md). An independent penetration test has not been done yet; if you are able
-to do one, please get in touch.
+"Status" section of the [README](README.md). An independent penetration test is planned for the coming months and a summary will be published
+afterwards; if you are able to do one, please get in touch.

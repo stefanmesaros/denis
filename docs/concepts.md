@@ -11,7 +11,7 @@
 | LLDP / CDP / PROFINET DCP | passive | switches, access points and industrial devices announcing themselves |
 | TCP handshakes, ping replies | passive + active | operating-system family (TTL, window size, option order) |
 | Industrial protocols | passive | which devices are PLCs/HMIs and who talks to whom ([OT guide](ot-guide.md)) |
-| Port scan (33 common ports) | active | open services |
+| Port scan (73 common ports) | active | open services |
 
 The manufacturer comes from the IEEE registry compiled into the program (works offline). Phones and laptops
 that use a **private/randomised MAC address** have no manufacturer; DENIS labels them *(private MAC)*.
@@ -244,7 +244,7 @@ report use UTC and say so.
 
 ## Details from the console
 
-Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
 * Devices with at least one serious standing fact (a known-exploited or critical vulnerability, unsupported software, an open incident, a high-severity finding), ranked by those facts and by what is at stake on the device. Every point is listed with where it comes from.
 * Every product and version DENIS has read from a device's service banner (SSH, HTTP, FTP, SMTP, MySQL/MariaDB), grouped by software instead of by device — the same data the Findings page already checks against known-exploited vulnerabilities and end-of-support dates, seen fleet-wide.

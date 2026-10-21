@@ -1,13 +1,20 @@
 # Enforcement: Fortinet FortiGate
 
-Status: **Experimental. Tested on a real FortiGate 40F (FortiOS 7.2.3): block, release, expiry, extension, flow block and ending sessions; the full validation list is still being completed.** Everything below was built from FortiOS's published REST API documentation and checked against a fake FortiGate in DENIS's own tests. It has never been run against a real FortiGate. Nothing here is listed as validated on hardware.
+Status: **Verified on FortiGate 40F, FortiOS 7.2.3: block device (address group), block a flow, and their release; not tested: quarantine, ending sessions.** Tested on that FortiGate: block device, release, expiry after 5 minutes, extending the time, a flow block with read-back and real traffic stopped, ending sessions (the call is accepted; closing an open session was not shown independently), and cleanup of everything DENIS made. Not yet tested on the device: the quarantine group, a lost answer or a reboot during an action, a concurrent edit by another administrator, a 24 hour hold, repeated block and release cycles, and other FortiOS versions or models. The two verified actions carry no *Experimental* mark and need neither lab setting (4.2); ending sessions stays *Experimental* until closing an open session has been shown, and so does the quarantine group.
 
-Lab use: the host block (address group) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The actions new in 4.1 (flow block, quarantine, ending sessions) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
+Lab use: *Block device* (address group) and *Block a flow* are validated on real equipment and need no lab setting. The quarantine and ending sessions need both *Allow connectors that are not validated on real equipment (lab use)* and *Allow experimental actions (lab use)* under *Settings → Response policy*. Releasing an action and removing what DENIS made always work.
 
 ## Quick setup (about 10 minutes)
 
 Tested on a FortiGate 40F with FortiOS 7.2.3 (block, release, expiry, extension, flow block and ending sessions). Other
 FortiOS 7.x versions use the same REST API and are expected to work; they have not been tried.
+
+**Before you start:**
+
+* The FortiGate must be **in the path of the traffic** (see below), and its HTTPS management address must be reachable from
+  the DENIS server (for example the `wan` or a management interface with `https` in *Administrative access*).
+* You need a FortiOS administrator who can change the firewall configuration, and the DENIS server's IP address.
+* Plan the first test: one harmless client behind the FortiGate and a free 5 minutes.
 
 **What you need:** the FortiGate must be **in the path of the traffic** you want to stop (the device behind it, routed through
 it). DENIS reaches the FortiGate's HTTPS management address from the DENIS server; the REST API alone cannot stop traffic that
@@ -76,17 +83,48 @@ does not pass the firewall.
      token private. All other permissions stay *None*; never use `super_admin`.
    * *Block device* and *Quarantine* need the *Firewall* address permission (read-write); *Block flow* adds policy and service
      (read-write); *Network* read is needed for the routing lookup of a flow block.
-3. **In DENIS:** *Network → Equipment → Add → Fortinet FortiGate*: Base URL `https://<FortiGate address>`, VDOM (leave empty if
-   VDOMs are off), block group `DENIS-BLOCK`, the API token, and under *Never block these IP addresses* the FortiGate's own
-   addresses, the gateway and DENIS. Keep *Verify TLS certificate* ticked and paste the FortiGate's certificate if you can; untick
-   it only in a lab. Press **Test**: it must succeed and writes nothing.
+   * **Trusted hosts are not optional in practice.** Because the profile is broad, the REST API administrator should be
+     usable from the DENIS server's address only (`trusthost` above). If DENIS reports 401 or 403 on every call, the address
+     DENIS connects *from* is probably not the one you entered.
+3. **In DENIS:** *Network → Equipment → + Add a connector…* → *Fortinet FortiGate (address group)*: **Base URL**
+   `https://<FortiGate address>`, **VDOM (leave blank for global mode)** (empty if VDOMs are off), **Block address group name**
+   `DENIS-BLOCK`, **API token**, **Quarantine address group name (optional)** (leave empty unless you built that group), and under
+   **Never block these IP addresses** the FortiGate's own addresses, the gateway and DENIS. Keep **Verify TLS certificate**
+   ticked and make the FortiGate's certificate trusted if you can (the default certificate is self-signed: untick it only in a
+   lab). Press **Test connection**: it must succeed and writes nothing.
+   Then under *Settings → Response policy* tick *Allow administrators to block devices from DENIS*. Block device and flow
+   block are validated and need no lab setting; for quarantine and ending sessions also tick *Allow connectors that are not
+   validated on real equipment (lab use)* and *Allow experimental actions (lab use)*.
 4. **Try it on a harmless device:** *Respond → Block device* for a test client behind the FortiGate for 5 minutes. The client must
    lose its connection, then regain it at the end (DENIS removes everything it created). Tick *Allow DENIS to create deny rules*
    only if you want *Block flow*.
 
 If something fails: HTTP 401/403 on ending sessions means *System* is not read-write or the Trusted Host does not include the
 DENIS server; "no effect" with an accepted block means the deny policy is not first or the traffic does not pass this
-FortiGate (check the interfaces, NAT and the policy order).
+FortiGate (check the interfaces, NAT and the policy order); a block that is refused with "the group has no member" means
+the placeholder is missing from `DENIS-BLOCK` (FortiOS does not keep an empty address group).
+
+### What happens on the FortiGate, in order
+
+* **Block device** for a duration: DENIS creates one address object for the device (`denis-<tag>-<id>`, with the DENIS
+  marker in its comment), adds it to `DENIS-BLOCK`, ends the device's open sessions, and reads the group back. The deny
+  policy you made then drops the traffic. **Release** (or the end of the time) removes the object from the group and deletes
+  it, and reads the group back. Nothing else on the FortiGate is touched.
+* **Extend** sets the new end **from now**, not on top of the old end; it needs your password. The expiry job waits about 30
+  seconds past the end, then releases.
+* **Block flow** (needs *Allow DENIS to create deny rules on this firewall*) creates a deny policy `denis-<tag>-<id>` for one
+  source, destination, protocol and port at the top of the table, reads the table back to check its position, and removes it
+  at the end. A flow entered without protocol and port is blocked for **all** protocols and ports between the two addresses;
+  the plan says so.
+* **Persistence:** REST API changes are written to the FortiGate's configuration immediately; DENIS removes what it made at
+  the end. An object that someone removed in the meantime is recorded as removed elsewhere (use **Check now**).
+
+### Known behaviour to expect
+
+* **Ending sessions** is accepted by the FortiGate with *System: Read/Write*; it is not undone and the device can reconnect at
+  once. A new deny policy or a new group member may not cut sessions that are already open, depending on the global
+  `firewall-session-dirty` setting (default `check-all`, which does); DENIS does not change it.
+* One change at a time on one FortiGate: a second action waits up to two minutes and is then refused with nothing changed.
 
 ## What DENIS can do on a FortiGate
 
@@ -95,7 +133,7 @@ FortiGate (check the interfaces, NAT and the policy order).
 | **Block device** (address group) | One address object for the device, added to the address group you created for blocks. Ends the device's open sessions. | It never creates or edits the deny policy that uses the group. |
 | **Quarantine** (quarantine group) | The same, into a second address group you created for quarantine. | It never creates an allow rule, and never edits your policies. What a quarantined device may reach is decided by your own policies for that group (DHCP, DNS, NTP, a remediation server). DENIS does not check them. |
 | **Block flow** (deny rule) | One deny policy `denis-<tag>-<id>` for exactly one source, destination, protocol and port, placed at the top of the policy table, plus single host address objects (and one custom service when a port is given) named from it. | Only with the per-instance switch *Allow DENIS to create deny rules on this firewall*. Deny only: no code path builds an allow, accept or permit rule. Never `any` for an interface or an address, never a network or a name. |
-| **End sessions** (session clear) | `firewall/session/close-multiple` for the device's address, once as source and once as destination: at most two calls, never a call without a filter. | It cannot be undone. The device can open new sessions at once. |
+| **End sessions** (session clear) | `firewall/session/close-multiple` for the device's address, once as source and once as destination: at most two calls, never a call without a filter. | It cannot be undone. The device can open new sessions at once. IPv4 only. |
 | Disable port | Not available: a firewall has no access port DENIS can switch off. | |
 
 Every object DENIS makes carries `DENIS managed; owner <tag>; action <id>; by <login>; expires <time or never>` in its comment. Text you typed as a reason is never sent to the FortiGate. DENIS deletes only objects that carry its own owner tag. An object with a DENIS-style name that does not carry the tag is never touched, and the action is refused.
@@ -104,9 +142,9 @@ Every object DENIS makes carries `DENIS managed; owner <tag>; action <id>; by <l
 
 1. **Block group.** In FortiOS create an address group for DENIS's blocks (*Policy & Objects → Addresses*) and a **deny policy** that uses it as source, at the top of the policy table. FortiOS does not keep an address group with no member, so put one placeholder address in the group (for example an address object for `192.0.2.255/32`, a documentation address that is never routed). DENIS refuses to use a group that has no member and says so.
 2. **Quarantine group (optional).** Create a second address group, again with a placeholder member, and **your own policies** for it: allow what a quarantined device needs (DHCP, DNS, NTP, the remediation server) and deny the rest. DENIS never creates these. Enter the group's name in *Quarantine address group name*. Leave it empty to switch quarantine off.
-3. **API user.** Create a REST API administrator (*System → Administrators → REST API Admin*) and give it an administrator profile with these permissions. Read-write: *Firewall* (address and address group objects, and for flow blocks also policies and custom services). Read: *Network* (routing table lookup) and *System* (interfaces and zones). To end sessions the profile also needs the *Firewall* monitor permission that lets it clear sessions. Restrict the trusted hosts of the API user to the DENIS machine. Generate its token.
+3. **API user.** Create it as in the quick setup above (*System → Administrators → REST API Admin*, or the CLI commands there): an administrator profile with *System* read-write (needed for ending sessions on FortiOS 7.2.3), *Firewall* policy, address and service read-write, *Network* read, everything else *None*, and trusted hosts limited to the DENIS machine. Generate its token.
 4. **VDOM.** If VDOMs are enabled, name the one that holds the groups; leave empty otherwise.
-5. *Network → Equipment* → **Fortinet FortiGate** → **Add…**: base URL, VDOM, block group name, API token, *Never block these IP addresses* (DENIS itself, the gateway, the FortiGate), and optionally the quarantine group.
+5. *Network → Equipment* → **+ Add a connector…** → **Fortinet FortiGate (address group)**: Base URL, VDOM, Block address group name, API token, *Never block these IP addresses* (DENIS itself, the gateway, the FortiGate), and optionally the Quarantine address group name.
 6. **Flow blocks:** tick *Allow DENIS to create deny rules on this firewall* only if you accept that DENIS writes policies on this FortiGate. It is off by default, and DENIS will not create or delete any policy while it is off. A wrong deny rule can cut off traffic.
 
 ## How a flow block finds its interfaces
@@ -115,7 +153,9 @@ A FortiOS policy needs a source and a destination interface. DENIS never uses `a
 
 ## What is verified
 
-Only against the fake FortiGate server in `src/nac_fortigate/tests.rs`: creating, finding by name, moving and deleting the policy, address objects and service; the quarantine move and restore; ending sessions; lost answers (the action is *unconfirmed* and can still be released); a refused step after earlier steps (compensated, nothing left behind, or *partial* and still releasable); the opt-in and lab-switch refusals; orphans found by owner tag and removed only when they carry it. **Not verified on any real FortiGate.**
+**On a real FortiGate 40F (FortiOS 7.2.3):** block device with read-back, release, expiry after 5 minutes, extending the time, a flow block with read-back and real traffic stopped (a client to a public address on port 443), ending sessions (accepted with *System: Read/Write*), and cleanup that left nothing on the device. The first lab run also passed the protected-target refusals. **Not shown:** that ending sessions closed an open session (independent proof), the quarantine group, lost answers, reboot and concurrent-edit behaviour, a 24 hour hold and repeated cycles. Result: block device and the flow block validated per action (owner decision, 4.2); the quarantine group and ending sessions are not.
+
+**In DENIS's own tests, against a simulated FortiGate:** creating, finding by name, moving and deleting the policy, address objects and service; the quarantine move and restore; ending sessions; lost answers (the action is *unconfirmed* and can still be released); a refused step after earlier steps (compensated, nothing left behind, or *partial* and still releasable); the opt-in and lab-switch refusals; orphans found by owner tag and removed only when they carry it.
 
 Behaviours that are unproven vendor facts (marked **[verify]** in the code):
 
@@ -124,10 +164,29 @@ Behaviours that are unproven vendor facts (marked **[verify]** in the code):
 * Zone members are listed in `cmdb/system/zone` as `interface[].interface-name`, and a zone member must be referenced through its zone.
 * The predefined services `ALL`, `ALL_TCP`, `ALL_UDP` and `ALL_ICMP` exist.
 * FortiOS does not keep an address group with no member (so a placeholder is needed). DENIS does not remove its own entry if it is the only member and tells you to add a placeholder.
-* `firewall/session/close-multiple` with the query parameters `saddr` or `daddr` closes the sessions of that address. FortiOS may answer with an error when no session matches. DENIS then reports the action as failed (nothing changed) rather than completed.
+* `firewall/session/close-multiple` with the query parameters `saddr` or `daddr` closes the sessions of that address.
 * Whether sessions that are already open are cut by a new deny policy depends on the global setting `firewall-session-dirty` (default `check-all`). DENIS does not change it.
 * FortiOS matches the original source address (before source NAT). A destination behind a virtual IP is matched by the virtual IP.
 * The policy `comments` and address `comment` fields accept the 255 character marker.
+
+**What End sessions reports.** DENIS says what FortiOS answered, and only that:
+
+* **Completed** means FortiOS *accepted* the request (`status: success`) for at least one direction and refused
+  neither (the other direction may have had nothing to close). It is not an independent check that every open
+  session ended; DENIS does not read the session table afterwards.
+* **Completed, nothing open**: FortiOS answered for both directions that no session matched (only an answer that says so
+  is read this way). Nothing was closed because nothing was open; the message says so, and since 4.2 it does not count
+  toward the hourly limit (before 4.2 it was reported as failed and counted).
+* **Failed** with "HTTP 401 or 403": the API token is wrong or expired, the Trusted Host does not include the DENIS
+  server, or the administrator profile lacks *System* read-write. "HTTP 424": the session filter was missing or not
+  accepted. Nothing was closed in either case.
+* **Unconfirmed** when FortiOS accepted one direction but not the other (the message names both), or gave no usable
+  answer (no connection, a timeout, an unexplained server error, or a success code without a confirmation): sessions
+  may or may not have been closed. Check on the FortiGate (*Dashboard → FortiView Sessions*, or
+  `diagnose sys session filter src <ip>` and `diagnose sys session list`).
+
+The same request is sent when a *Block device* is applied; there, its answer is recorded as a note in the action's
+steps and never changes the result of the block itself.
 
 ## Limits
 

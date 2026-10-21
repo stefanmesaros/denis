@@ -34,11 +34,13 @@ search box (it also works without JavaScript as an ordinary form: `/docs/search?
 | Send events, audit log and inventory to OpenObserve, events/findings/audit to a SIEM (syslog: CEF/LEEF/JSON), or ECS documents to Elasticsearch/OpenSearch | [Export](export.md) |
 | See which switch port each device is plugged into (SNMP) | [Switches](switches.md) |
 | Feed DENIS a mirror over RSPAN, ERSPAN, VXLAN or another tunnel | [Tunnel mirroring](tunnel-mirroring.md) |
+| Understand why an IDS, IPS or endpoint product flags DENIS as a port scan, and what to do | [Security tools that may flag DENIS](security-tools.md) |
 | Run it in Docker | [Docker](docker.md) |
 | Back up and restore, load demo data, monitor DENIS itself, size an installation | [Operations](operations.md) |
 | Put the customer's logo, colours and day/night mode on the portal | [Branding](branding.md) |
 | Keep DENIS up to date (changelog, install now or later, automatic backup, remote agents, if GitHub is unreachable) | [Updates](updates.md) |
 | Assess or harden its security | [Security](security.md) |
+| Get the software bill of materials, or see how DENIS is being prepared for the EU Cyber Resilience Act (not certified) | [SBOM](https://github.com/stefanmesaros/denis/blob/main/docs/compliance/SBOM.md), [CRA readiness](https://github.com/stefanmesaros/denis/blob/main/docs/compliance/CRA.md) |
 | Help test DENIS and report what I find | [Testing DENIS](community-testing.md) |
 | Know what the Community edition covers and how a commercial license works | [Licensing](licensing.md) |
 | Automate or integrate | [API reference](api.md) |

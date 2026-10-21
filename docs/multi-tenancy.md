@@ -166,7 +166,12 @@ installation; more works but these limits start to matter.
   webhooks) of every tenant are encrypted with the one installation key, so anyone who can read that
   key can read every tenant's sealed secrets. A ciphertext copied from one tenant's database into
   another's would decrypt (the key is shared); the tenant stamp and the import rules above are what
-  keep databases in their own slots.
+  keep databases in their own slots. A tenant imported from **another installation** brings secrets
+  sealed under that installation's key: connector credentials are removed and listed to be entered
+  again, and authenticator apps (which are never removed: that would switch the second step off) do
+  not open here, so those people's codes are refused. The import's audited notice
+  (`tenant.secrets.reentry_required`) lists both; reset each listed authenticator app (*Users*, or
+  `denis user reset-mfa`) so the person sets it up again.
 * **Disk use is only partly bounded.** Agent backups have a per-tenant byte quota; a tenant's own data
   growth is limited by its retention settings, not by a size cap, so one tenant can still fill the
   disk for all.
@@ -198,7 +203,7 @@ installation; more works but these limits start to matter.
 
 ## Details from the console
 
-Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
 * A row per site (device count, open alerts, last report). Useful once you manage more than a couple of sites — an MSP with several customers, or one business with several branches.
 * How many of each customer's uploaded backups this install keeps (older ones are removed automatically). Only relevant once customers push backups here.

@@ -410,6 +410,6 @@ not seen working as unverified, and send a capture (see above) if it does not de
 
 ## Details from the console
 
-Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
 * Mirror interfaces are optional and capture-only: never probed, never used for discovery. Use one on a switch mirror or SPAN port to see traffic between other devices. Saved with the Save button above.

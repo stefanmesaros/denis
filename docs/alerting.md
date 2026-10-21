@@ -13,7 +13,7 @@ watch the console. Add as many channels as you like; each one has its own minimu
 | **ntfy** | the address of your topic, like `https://ntfy.sh/your-topic` (or a topic on your own ntfy server); an access token if the topic is protected | push notifications without an account. Priority follows severity (urgent for a score of 90 and up). On the public server the topic name is the only secret: make it long and random. A token is never sent over plain `http://` |
 | **E-mail** | an SMTP server (STARTTLS or TLS), From and To addresses | plain-text mail with the same content |
 | **Jira** | your Jira site address, account e-mail, an API token and a project key | files one real issue per alert via the Cloud REST API. DENIS never updates or closes it afterwards — that happens in Jira like any other ticket |
-| **ServiceNow** | your instance address, a username and password | files one real incident per alert via the Table API. Severity maps to urgency/impact; repeats about the same device correlate on ServiceNow's own `correlation_id`, the same idea as PagerDuty's dedup key |
+| **ServiceNow** | your instance address, a username and password | files one real incident per message via the Table API. Severity maps to urgency/impact. DENIS does not look up or update an incident it filed earlier: every message is a new incident, and repeats about the same device or action carry the same `correlation_id` (the same key as PagerDuty's), so a business rule or a filter on that field in ServiceNow can group them |
 | **Generic webhook** | any URL that accepts a JSON POST | Mattermost, Zapier, your own code. Optional signing secret |
 
 Press **Test** on a channel to send a test message and see straight away whether it works.
@@ -25,8 +25,9 @@ Each channel also has its own **Delivery** choice:
 * **Every alert, individually** (the default) — one message per alert, as described below.
 * **Group related alerts into incidents** — one message the moment an [incident](incidents.md) opens or escalates,
   plus any alert that never joined one. An alert already absorbed into an incident that was already reported never
-  sends a second message for it. PagerDuty and ServiceNow update the same incident/ticket on escalation instead of
-  opening a new one, the same idea as their own repeat-folding below.
+  sends a second message for it. PagerDuty updates the same incident on escalation instead of opening a new one, the
+  same idea as its own repeat-folding below; a ServiceNow incident filed for an escalation carries the same
+  `correlation_id` as the first one.
 
 Turning incidents off entirely — **Group related alerts into incidents** at the top of *Settings → Notifications* (on by
 default) — does not touch delivery: it just means there is never anything for a channel set to "grouped" to group,
@@ -116,6 +117,62 @@ to a channel.
 Offline, `tools/noise/replay.py` replays this policy layer over an alert CSV export and
 `tools/noise/anonymise.py` makes an export safe to share; neither writes inside the repository.
 
+## Messages about enforcement actions
+
+When DENIS blocks, quarantines, releases or extends something, or a block ends on schedule, every enabled channel
+gets a message, whatever its minimum score and even in maintenance mode. The title says what happened
+(`Blocked: laptop-anna`, `Released: …`, `Block extended: …`, `Block ended on schedule: …`, `Check: …` when the
+change could not be confirmed). The lines name:
+
+* the device: its name, the host name DENIS learned on your network, its IP address and MAC address;
+* for a flow or an address outside your network: the address, its reverse DNS name, its country (a flag and the
+  country code in chat and push messages, the country's name in e-mail and tickets) and the network owner. These
+  come from the IP enrichment DENIS already keeps (Settings → Capture → IP enrichment): sending a message never
+  waits for a lookup, and an internal address is never looked up. A reverse name that is not known yet is asked for
+  in the background (at most 30 addresses a minute, only when reverse DNS is switched on), so it may be missing from
+  the first message;
+* the firewall or switch, the end time, who did it (a person, an automation policy, Autopilot or the schedule) and
+  the reason that person wrote.
+
+Two options per channel (**Edit…**): **Leave out the reason and the person** (for a channel many people read) and
+**Shorter messages** (no MAC address, no network owner). With Pushover the message links to the action when DENIS
+knows its own address (`--public-url`). PagerDuty folds every message about one action into one incident;
+ServiceNow files each message as its own incident with the action's key as `correlation_id`. **Leave out the reason
+and the person** also removes them from the details a generic webhook receives (`by`, `reason` and the like), and
+the switch-port messages name the person only on their own *By* line.
+
+## The notification centre
+
+The bell in the top bar, between the light/dark switch and your account, lists what you should know: actions DENIS
+took or could not confirm, blocks that were released, extended or ended, what automation or Autopilot did, the hourly
+limit of actions being reached, a connector DENIS could not reach, changes to the kill switch, the lab switches and
+the hands-off list, a site whose agent stopped reporting, a backup that failed, an update that is available or was
+installed, the licence, and an MSP opening a remote session. A capture interface that goes down and comes back will
+show here too.
+
+* The number on the bell counts what you have not read (red when something needs action). A notice is read when you
+  open it or choose **Mark all read**; opening the bell does not mark anything.
+* **Show all** opens the full list with filters by category, severity and unread. Under **Show in the bell** you can
+  hide categories from your own bell (the channels still send them). An MSP remote session is always shown.
+* Everyone sees what their role allows on the sites they may read. Messages about enforcement and automation (what
+  was blocked, by whom and why, on which firewall or switch, the hourly limit) are for administrators, like the
+  action pages; editors also see capture interfaces and sites that stopped reporting; administrators see everything,
+  including connector, licence, backup, update and MSP notices. A notice belongs to the site of the device, switch
+  or connector it is about. Each MSP technician has their own read state and bell preferences, and marking read is
+  allowed at the MSP's *Read* level.
+* The same text goes to the channels. Repeats are folded into one entry with a count and are not sent again. An
+  enforcement message is sent to every channel at once; other notices respect a channel's minimum score and
+  maintenance mode, and purely informational ones (an update is available) are shown in the bell only. A channel
+  gets at most 30 ordinary notices in ten minutes, then one message that more are waiting; enforcement and MSP
+  messages (an MSP remote session included) are never held back by that limit and do not count toward it.
+* PagerDuty: a notice that is not about an action or a device (a connector DENIS cannot reach, a site offline) uses
+  its own key, `denis-notice-<key>`, and the notice that ends the condition (the site is back) resolves the incident.
+  A recovery so short that DENIS shows it in the bell only does not resolve it, nor does a connector that answers
+  again (its notice is closed without a message): resolve those in PagerDuty.
+* A backup that fails is one notice a day. A site that was offline when DENIS restarted is still known to be
+  offline; a site that is removed has its notice closed.
+* Notices are kept for 90 days (one still in force, such as a site that is offline, until it ends).
+
 ## The generic webhook
 
 The body is JSON:
@@ -129,6 +186,10 @@ The body is JSON:
   "advice": "What to do about this kind of alert…"
 }
 ```
+
+A message about an enforcement action or another notice (see below) also carries `subject` (`asset_id`, `name`,
+`hostname`, `ip`, `mac`, `external`, `action_id`), `title`, `lines` (`label` and `value`) and, when the console's
+address is known, `link`. The fields above are unchanged.
 
 If you set a **signing secret** (16+ characters) each request carries `X-Denis-Signature: sha256=<hex>`, the
 HMAC-SHA256 of the exact request body. Verify it with a constant-time comparison before trusting the message,
@@ -156,7 +217,7 @@ and use `sent_at` to reject old replays.
 
 ## Details from the console
 
-Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
 * On (recommended): routine things such as a new address of a provider a device already uses are stored as quiet events, counted in the daily digest and never pushed, instead of becoming alerts. Nothing is deleted, and risky events (threat-list matches, rogue DHCP, port scans, industrial writes and the like) are never kept quiet. Off: every event is raised as an alert, as before.
 * Off by default. When on, an unacknowledged low alert that has not happened again (same device, same kind, same provider) for the chosen number of days is acknowledged by the system, noted as closed automatically in its history and can be undone. Medium and high alerts, risky kinds and alerts in an open incident are never closed this way.

@@ -24,7 +24,7 @@ which carries anything about your network, and each of which can be switched off
 
 | What | Where to | How often | Off with |
 |---|---|---|---|
-| update check | `api.github.com`; `usedenis.com` only if GitHub cannot be reached | every 6 hours | `--no-update-check` / `DENIS_NO_UPDATE_CHECK=1` (the fallback alone: *Settings → System → Updates*) |
+| update check | `api.github.com`; `usedenis.com` only if GitHub cannot be reached | every 6 hours (with automatic security updates on, also the release list when the newest release starts a new minor line, and the download of an eligible release) | `--no-update-check` / `DENIS_NO_UPDATE_CHECK=1` (the fallback alone, or the automatic install alone: *Settings → System → Updates*) |
 | GeoIP database (DB-IP Lite) | `db-ip.com` | monthly | *Settings → Capture → Network Intelligence* (auto-update off, or your own MMDB file) |
 | end-of-support dates | `endoflife.date` | weekly | *Settings → Data → Software versions* |
 | known-exploited vulnerabilities | CISA, NVD, FIRST.org (EPSS) | weekly | *Settings → Data → Software versions* |
@@ -67,8 +67,10 @@ address being looked up; switch them off or point them at your own resolver unde
   cannot do to the real owner. Behind a reverse proxy **on the same machine** the client address is taken from the
   last `X-Forwarded-For` entry (make sure your proxy sets/appends it); from any other peer that header is
   ignored. A proxy on a *different* machine makes all users look like one address: keep the proxy local.
-* **No encryption at rest.** The SQLite file holds the inventory and password hashes; protect it with file
-  permissions and disk encryption.
+* **No encryption at rest** of the database as a whole. The SQLite file holds the inventory and password hashes;
+  protect it with file permissions and disk encryption. What is sealed with the data key (`secrets.key`, outside the
+  database): integration credentials, notification-channel and AI provider secrets, SNMP communities and passwords,
+  and authenticator-app secrets (since 4.2).
 * API tokens are long-lived bearer credentials (viewer/editor only, hashed at rest, revocable, audited). Treat
   them like passwords; they are not bound to an address and have no expiry. A token is tied to the account that
   created it, by the account's permanent id (not its name): it works only while that account exists and is enabled,
@@ -169,9 +171,13 @@ An update is installed only if the release's checksum list carries a valid signa
 into the program. That holds for every source: GitHub, the fallback host `usedenis.com` (used only when GitHub cannot be
 reached; it sees your address and nothing else, and can be switched off) and, for an agent, the master that hands it a
 release. A master cannot make an agent run unsigned code: the agent verifies the release itself with its own copy of the key,
-refuses anything not strictly newer than its own version, and refuses everything when started with `--no-self-update`. By
-default nothing is sent to an agent; an administrator presses Update, or chooses the automatic mode. Pre-release versions
-are offered only if an administrator opts in. See [Updates](updates.md).
+refuses anything not strictly newer than its own version, and refuses everything when started with `--no-self-update`.
+**Automatic security updates are on by default** for a new installation (opt-out in *Settings → System → Updates*): a
+signed, stable release of the minor line that runs installs by itself through exactly these checks, never while an
+enforcement action runs; a new minor or major version always waits for an administrator. An installation that existed
+before 4.2 keeps them off until an administrator chooses. Agents follow the master's choice within its version line
+until a mode is saved for them; otherwise an administrator presses Update, or chooses the automatic mode. Pre-release
+versions are offered only if an administrator opts in and are never installed automatically. See [Updates](updates.md).
 
 ## Autopilot (experimental)
 
@@ -297,9 +303,45 @@ types a correct first code. Ten **recovery codes** are shown once.
   only second step off.
 * **Lost phone:** an administrator resets the person's authenticator app (*Users* → *Reset*, or
   `DELETE /api/users/{id}/totp`); the person is signed out, signs in with the password (or a passkey) and sets it up again.
-* **What is stored.** A code cannot be checked against a hash, so the secret is stored in the database, beside the password
-  hashes: a copy or **backup of the database** can produce codes for everyone, so guard backups like the database itself.
-  The secret is shown once, at set-up, and never returned again. Recovery codes are stored only as hashes.
+  When nobody who could do that can sign in any more, the same reset is on the host's command line:
+  `denis user reset-mfa <name>` (SQLite with `--db`, PostgreSQL with the same `--database-url` as `denis run` and the
+  password in `DENIS_DATABASE_PASSWORD`). It is audited like the console's reset.
+* **What is stored.** A code cannot be checked against a hash, so the secret itself has to be kept. Since 4.2 it is
+  stored **sealed**: encrypted (AES-256-GCM) with the same data key as the integration credentials, which lives in
+  `secrets.key` in the data directory and never in the database, and bound to its own account (a sealed secret copied
+  onto another account does not work). A copy or backup of the database alone therefore produces no codes. Keep a copy
+  of `secrets.key` safely and **separately** from the database backups (not in the same place or the same archive):
+  a restore needs it, because a database restored without the matching key cannot open the authenticator secrets
+  (nor the integration credentials). The secret is shown once, at set-up, and never returned again. Recovery codes are
+  stored only as hashes.
+* **Upgrading from an earlier version.** Secrets saved before 4.2 are sealed once at the first start of 4.2 (in one
+  transaction; on a PostgreSQL pair it does not matter which node starts first). Until then, and if sealing fails
+  (it is logged and tried again at the next start), they keep working as they are, so nobody is locked out.
+  `denis serve` and `denis demo` never seal them: they often open a copy, or another installation's database, with a
+  data directory of their own.
+* **Copies made before the upgrade.** Once the live database holds no plain secret any more, DENIS goes once through
+  its own `backups` folder: scheduled and manual backups get the same sealing in place (their date is kept), so they no
+  longer hold the secrets readable. The copies the updater made before the update (`denis-before-…`, also each
+  tenant's under `backups/tenants/`) are left exactly as they are, because they exist to undo that update and the
+  earlier version cannot read sealed secrets; Health names them until the updater's pruning (or you) removes them.
+  Delete them once you no longer need to go back. Not reached by this: copies you made yourself elsewhere, customers'
+  backups uploaded to an MSP (`backups/from-agents/`, never opened), and on PostgreSQL the write-ahead log, its WAL
+  archive, earlier base backups and streaming replicas, which can keep the old values after `VACUUM (FULL)`: rotate
+  those (or protect them like the database) after the upgrade.
+* **If `secrets.key` is lost or replaced.** As with integration credentials, a sealed secret then cannot be read. A
+  single installation still starts (for an authenticator secret the start is never stopped, and the secret is never
+  removed), and the log and the Health page name the accounts affected; their authenticator codes are refused: those
+  people sign in with a recovery code or a passkey, or an administrator resets their authenticator app and they set it
+  up again. `denis user reset-mfa --unreadable` resets every such account at once from the host. The same happens for
+  an account in a database or tenant imported from another installation; a tenant import names those accounts in its
+  audited "enter again" notice.
+* **PostgreSQL pair.** Both nodes must use the **same** `secrets.key`, always. The first node that starts records a
+  check value of its key in the shared database (an HMAC of a fixed text under the key, which reveals nothing about
+  it); a node whose key differs refuses to start, before it seals or opens anything, and the running node's Health
+  page names it. See [High availability](high-availability.md#what-both-nodes-must-share).
+* **MSP operators.** The authenticator secrets of MSP console operators were already stored sealed the same way. Since
+  4.2 the last code step accepted for each operator authenticator is kept in the control store, so an operator's code
+  works once also across a restart and when two requests carry it at the same time.
 
 ## Hardening checklist
 
@@ -350,7 +392,7 @@ types a correct first code. Ten **recovery codes** are shown once.
 
 ## Details from the console
 
-Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
 * Let people sign in through an identity provider (Entra ID, Okta, Google Workspace, Keycloak, anything speaking OpenID Connect) instead of a local password. The first sign-in for an identity creates a viewer account for it automatically, keyed on its email; raise its role afterwards like any other account. If an email already belongs to a different local account, sign-in is refused until an administrator links the two explicitly. Local accounts, including the initial admin password, keep working alongside this.
 * Optional, bring-your-own-key: DENIS can use an AI provider you configure for a growing set of individually-switchable features below. Each call is billed to your own account with the provider you choose — DENIS runs and hosts none of this itself. Only compact, already-processed context (an alert's own summary and reasons, a device's label) is ever sent — never raw traffic, never more than what the feature you enable actually needs.

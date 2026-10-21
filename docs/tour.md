@@ -2,6 +2,9 @@
 
 Everything DENIS shows or does, in the order you will meet it. Tabs an administrator only sees are marked.
 Addresses like `#rules` or `#device/12` can be bookmarked or pasted into a message.
+A small round **i** after a heading, a label or a checkbox opens a short explanation right under it (click, Enter or
+Space); Escape or a second click closes it, and opening another one closes the first. Where there is more to say, the
+explanation ends with *More in the docs*.
 
 ## MSP view (optional)
 
@@ -246,6 +249,16 @@ without having to scan every number.
 how the switches are cabled together. A device's panel gets a *Connected to* line. Set it up under *Settings* → *Switches (SNMP)*
 ([details](switches.md)).
 
+**Equipment links** draws how your switches, routers, firewalls and access points are cabled, internet side on top. Each
+cable says how DENIS knows it: confirmed (the equipment announces it over LLDP or CDP), a best guess from the forwarding
+tables, or set by hand.
+
+![Equipment links](img/network-links.png)
+
+*Network → Equipment* lists the same equipment, one row per switch or connector, in wiring order.
+
+![Equipment](img/equipment.png)
+
 ## Zones
 
 How your network is meant to be divided, and whether traffic keeps to it ([Zones and policies](segmentation.md)). Anyone
@@ -368,7 +381,7 @@ Everything about the installation that is not about people, in eleven categories
   for the real network ([details](operations.md#demo-data-and-starting-clean-erase-all-data)).
 * **Integrations** — SIEM / log export, CMDB import (Entra ID, Intune, Active Directory, Jamf Pro, Azure, AWS,
   GCP), the vulnerability scanner (Nessus).
-* **AI** — the optional bring-your-own-key AI features, each with its own switch, and their usage counters.
+* **AI** — the optional bring-your-own-key AI features, each with its own switch, grouped by when they call the provider (only when you click, or in the background), and their usage counters.
 * **Autopilot** (marked *Experimental*) — the mode (off by default, shadow, active), the shadow report, what it may do on
   its own, answering from a phone, and the optional AI model ([Autopilot](autopilot.md)).
 * **MSP management** (marked *Experimental*) — pairing this installation with an MSP using a link code, the level the MSP

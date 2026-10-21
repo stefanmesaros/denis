@@ -79,8 +79,9 @@ alerts by severity, findings by severity, learning time left, remote sites and h
 failing exports and notification channels, maintenance mode, uptime. It contains **no device names, addresses or
 alert text**.
 
-It needs the same sign-in as the console. For Prometheus, create a **viewer API token** (*Users* → API tokens) and
-give it as a bearer token:
+It needs the same sign-in as the console. The counts are of every site, so only someone who may read every site gets
+them: a person held off a site, or a token made by one, gets `403`. For Prometheus, create a **viewer API token**
+(*Users* → API tokens) as an account that reads every site and give it as a bearer token:
 
 ```yaml
 scrape_configs:
@@ -243,7 +244,7 @@ URLs, keys, passwords, tokens) are never logged.
 
 ## Details from the console
 
-Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
 * Is DENIS itself in good shape? Problems are listed first, in plain words; the rest is what to look at when something seems slow or the disk fills up.
 * How often the newest local backup is also pushed to your configured backup upstream, independent of the schedule above.

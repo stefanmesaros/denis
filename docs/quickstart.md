@@ -101,7 +101,7 @@ under *Settings* → *Setup guide*. The list below is the same job in more detai
 ## 5. Options you will use
 
 ```bash
-denis run --passive-only            # listen only; never send a single packet
+denis run --passive-only            # listen only; never send a single packet (if an IDS or endpoint product flags DENIS as a port scan: security-tools.md)
 denis run --flows                   # also analyse traffic (who talks to what)
 denis run --profile ot              # industrial network: passive and gentle (see OT guide)
 denis run --listen 127.0.0.1:9000   # another port
@@ -129,6 +129,6 @@ To run it as a service, see [Deployment](deployment.md).
 
 ## Details from the console
 
-Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
 * A checklist of what a new installation usually needs: your network, sign-in security, notifications, colleagues, backups and your branding. Each item turns green when it is really done.

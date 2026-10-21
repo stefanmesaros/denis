@@ -70,7 +70,7 @@ Remotely, at any level (the request is refused before it runs, whatever the MSP 
 4. Sign in as one of your users, remove or set up anybody's authenticator or passkeys, or create API tokens. An account the
    MSP creates at Full, or whose temporary password it reset, belongs to the MSP only for as long as the MSP is
    connected at Full: it is **switched off** (not deleted) and its sessions end the moment you press Disconnect, unlink
-   the MSP or lower the level, and it is listed under Settings, MSP management with a one-click "Switch back on".
+   the MSP or lower the level, and it is listed under Settings, MSP management with "Switch back on" (it asks for your password).
 5. Change single sign-on or any rule for signing in.
 6. Change the TLS certificate, the listen addresses, the allowed hosts, the public address or the capture interfaces.
 7. Download, upload or restore backups, export a tenant, erase data or switch demo mode. It may raise how many

@@ -142,6 +142,6 @@ Elasticsearch's own logs if documents seem to be missing despite the exporter re
 
 ## Details from the console
 
-Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
 * A report is a snapshot of your network at one moment: devices, findings, accepted risks, alerts, trends and the compliance overview. Reports are kept here on the DENIS server, so you can open, download or print last month's again, for an auditor or a customer.

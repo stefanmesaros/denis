@@ -116,7 +116,11 @@ capabilities, so update by running `bash install.sh --no-service` again (stop DE
 **Change a setting later** (port, extra certificate names, alert webhook…): edit `/etc/denis/env` and
 `sudo systemctl restart denis` (OpenRC: `rc-service denis restart`). Any `denis run` option that has an environment name can go there, for example
 `DENIS_LISTEN=0.0.0.0:9443`, `DENIS_TLS_NAMES=denis.example.lan`, `DENIS_WEBHOOK=…`, `DENIS_NO_UPDATE_CHECK=1`.
-The file is only readable by root.
+The file is only readable by root. When `DENIS_LISTEN` names the machine's own address (not `0.0.0.0`) and that address
+is not on an interface yet when DENIS starts (a late link or DHCP), Linux binds it anyway (`IP_FREEBIND`) and the log
+says so; the console answers as soon as the address appears. DENIS looks for the address every 30 seconds: when it has not
+appeared after 5 minutes (usually a typo in `DENIS_LISTEN`), the log says so as an error and the Health page warns until it
+appears. On other systems DENIS stops with "address not available".
 
 **Update.** The console tells administrators when a new version exists (Settings → System → Updates, or the banner under the
 header) and **installs it itself** with one click — no root needed, because `/usr/local/lib/denis` is owned by the
@@ -280,7 +284,13 @@ denis user list
 denis user add jana --role editor        # prints a one-time password
 denis user reset jana                    # new one-time password, signs her out everywhere
 denis user disable jana                  # and: denis user enable jana
+denis user reset-mfa jana                # removes her authenticator app and signs her out; she sets it up again
+denis user reset-mfa --unreadable        # every account whose authenticator app secrets.key cannot open
 ```
+
+`denis user` works on the SQLite file (`--db`, `--data-dir` for where `secrets.key` is) or, on a PostgreSQL
+installation, on the database of `--database-url` (the same value as `denis run`, the password in
+`DENIS_DATABASE_PASSWORD`), so a locked-out installation can always be recovered from the host's shell.
 
 | Role | Can |
 |---|---|
@@ -545,10 +555,51 @@ denis run --iface eth0 --mirror-iface eth1 --mirror-subnet 10.20.0.0/24
 Typical wiring: the switch's uplink to the router/firewall is mirrored to a spare switch port, fed
 into a second NIC (or a USB-Ethernet adapter) on the same server that already runs DENIS.
 
-**Settings → Capture → Network interface** lets an administrator pick the discovery interface and any
-number of mirror interfaces from a list instead of editing the command line; a GUI-set choice
-takes priority over `--iface`/`--mirror-iface`, but (unlike most console settings) needs a restart
-to take effect, since capture is opened once, at start-up.
+**DENIS does not stop for a network card.** A mirror port without link while the switch boots, an
+unplugged USB adapter, a typo in `--mirror-iface` or a missing capture permission (`CAP_NET_RAW`)
+never keeps DENIS from starting: the console, the database, alerts and every other interface keep
+working, and DENIS retries the interface on its own (every few seconds, a little longer when it
+keeps failing; every five minutes for a missing permission). Each interface has its own state on
+the Health page: *capturing*, *no traffic* (a quiet mirror is not broken), *no link*, *missing*,
+*capture error* or *switched off*, with its counters, last packet and last error, and a **Re-check**
+button. When the main interface is not ready, network sweeps and port scans wait for it, and so does
+the "device went silent" check (an unplugged mirror does not pause it). A capture thread that waits
+because the database side is behind is not reported as broken. The capture totals on the Health page
+(and `denis_capture_dropped_packets`) count since start, including interfaces removed meanwhile. One
+notification is sent when an interface has not worked for its grace period (60 seconds for the main
+interface, 120 seconds for a mirror, set from 30 seconds to 60 minutes under Settings → Capture) and
+one when it works again.
+
+**Settings → Capture → Network interface** picks the discovery interface (applied after a restart). It
+cannot be one of the mirror interfaces, and DENIS never picks a mirror interface itself when it chooses
+the main interface automatically. Saving it never changes the mirror interfaces.
+Under **Capture interfaces** an administrator adds, switches off, switches on and removes mirror
+interfaces; this applies at once, without a restart, and the own subnet of a mirror that has an address
+follows at once. The first change there saves the list, and from
+then on the saved list replaces `--mirror-iface` (an interface removed there does not come back from
+the service's start command). The main interface cannot be removed there. An interface whose capture
+did not stop when it was removed cannot be added again until that capture has ended.
+
+**Settings → Capture → Monitored networks** lists every subnet DENIS treats as your own: the
+interfaces' own subnets (cannot be removed), the `--mirror-subnet` values ("command line") and the
+ones added there. Adding or removing one needs the administrator password, applies at once and is
+audited. A `--mirror-subnet` value removed there stays off although the start command still names it,
+and can be switched back on (also a command-line value that would not be accepted if typed there). A
+monitored network is never swept (sweeps, pings and port scans reach only hosts inside the main
+interface's own subnet, and for IPv6 its own prefixes; a single known device scanned again on request is the
+exception, as its network's probing switches allow), never widens what an enforcement action may touch,
+and is never learned from traffic: the "seen but not monitored" lines are hints only. Ranges that only
+stand for other addresses (IPv4-mapped, NAT64, discard-only, site-local IPv6) and IPv4 ranges covering
+169.254.0.0/16 are refused. Under Advanced, an IPv4 network can be assigned to the capture interface
+that sees it; address claims for it seen on another interface are then not accepted. A network that is,
+or covers, the own subnet of another capture interface cannot be assigned (that interface would no
+longer accept claims from its own network).
+
+**Do I need a second cable on every segment behind a router?** No for passive visibility: a mirror of
+a VLAN or segment (and that segment's subnet under Monitored networks) is enough to see its devices
+and traffic. Active discovery (ARP sweeps, port scans) only runs on the main interface's own subnet,
+so a routed segment is seen only through its mirror; scanning it actively needs an interface (or an
+agent) in that subnet.
 
 A mirror delivered over the network (RSPAN VLAN, ERSPAN, AWS or Azure VXLAN) is covered in [Tunnel mirroring](tunnel-mirroring.md).
 
@@ -614,8 +665,9 @@ nodes share that database with one of them as leader and the other on standby. I
 * Only the leader captures, detects and serves the console and agent port; the standby answers `/api/health` with `503`
   and `role: standby` until it wins leadership. Point agents and browsers at one virtual address that routes to the
   node whose health check says leader.
-* Both nodes must have the **same `secrets.key`** (copy it once before saving any integration credential), or the
-  second one refuses to start after a failover. Give both the same certificate, ideally your own (`--tls-cert`), because
+* Both nodes must have the **same `secrets.key`**, always: copy it to the second node before its first start. A node
+  whose key differs refuses to start when it becomes leader, and the other node's Health page names it
+  ([High availability](high-availability.md#what-both-nodes-must-share)). Give both the same certificate, ideally your own (`--tls-cert`), because
   each node otherwise makes its own authority.
 * Backups made while a node was leader exist only on that node's disk: use `--backup-upstream`.
 * Every PostgreSQL connection carries keepalive, connect, statement, lock-wait and idle-in-transaction limits, and the
@@ -669,6 +721,8 @@ stays out of the process list).
 | `--active` | yes | off | with `--profile ot`, allow a gentle, slow ARP sweep |
 | `--exclude` | yes | none | never probe this range (repeatable); still observed passively |
 | `--no-extended-banners` | yes | off | do not read Telnet, MySQL/MariaDB, SMB and MSSQL banners |
+| `--no-port-scan` | yes | off | do not port-scan (and so no banner reads); console setting overrides on `run` ([Security tools](security-tools.md#port-scan-and-ping-switches)) |
+| `--no-ping` | yes | off | do not ping the hosts that answered the ARP sweep; console setting overrides on `run` |
 | `--ipv6` | yes | off | IPv6 Neighbor Discovery, mDNS, SSDP and DHCPv6 identity, and active IPv6 discovery; see [Concepts](concepts.md#ipv6-optional) |
 | `--ipv6-subnet` | yes | none | IPv6 prefix to treat as local (repeatable); needed for IPv6 flows and industrial decoding |
 | `--east-west` | yes | off | record traffic between two local devices as relationship edges (console setting overrides on `run`) |
@@ -699,6 +753,7 @@ stays out of the process list).
 | `--license-file` | run | none | signed commercial license (*env* `DENIS_LICENSE_FILE`) |
 | `--no-update-check` | run | off | never contact GitHub for a new version (*env* `DENIS_NO_UPDATE_CHECK`) |
 | `--update-channel stable\|prerelease` | run | `stable` | also offer pre-release versions (beta / release candidates) to testers; a choice saved in Settings wins (*env* `DENIS_UPDATE_CHANNEL`); see [Updates](updates.md#pre-release-versions-for-testers) |
+| `--auto-security-updates on\|off` | run | none | install security updates (stable releases of the running minor line) automatically; used while no administrator has chosen in the console, a choice saved there wins (*env* `DENIS_AUTO_SECURITY_UPDATES`); without it a new installation starts with them on and an existing one is asked; see [Updates](updates.md#automatic-security-updates) |
 | `--update-repo` | run | the project's | `owner/repo` whose releases DENIS updates from (*env* `DENIS_UPDATE_REPO`) |
 | `--update-mirror` | run | `https://usedenis.com` | the fallback host tried only when GitHub cannot be reached; an empty value removes the fallback (*env* `DENIS_UPDATE_MIRROR`); see [Updates](updates.md#if-github-cannot-be-reached) |
 | `--backup-upstream`, `--backup-upstream-token-env` | run | none, `DENIS_BACKUP_TOKEN` | push this install's backups to an MSP; see above |
@@ -712,7 +767,7 @@ DCP Set). It is on by default and only exists as an escape hatch.
 
 ## Details from the console
 
-Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
 * One row per site — the local network and every remote agent you can see. Click a row to open its devices.
 * For more than a couple of agents, this is usually simpler than copying the CA file to every machine: paste it as one value, e.g. DENIS_MASTER_CA_PEM, wherever you already push each agent's token.

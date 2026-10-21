@@ -110,7 +110,7 @@ number, asset tag, location, department, zone, status and tags.
 
 ## Details from the console
 
-Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
 * Who has sent and received the most since their traffic baseline started — a live leaderboard, not a chart over time. The gateway and this monitoring host are left out automatically; click × on a device to hide it from these three lists too.
 * Cross-references DENIS's own discovery against inventory pulled from these sources — matched by hostname, shown as extra context, never written back and never used to override a device's own fingerprinted identity.

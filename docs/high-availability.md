@@ -35,16 +35,32 @@ itself, and there is nothing to fail back by hand.
 
 **The database.** Both `--database-url` values point at the same PostgreSQL database.
 
-**The same `secrets.key`.** Every integration credential (CMDB client secrets, connector passwords, scanner keys and so
-on) is stored in the shared database, encrypted with a key that lives in the file `secrets.key` in each node's data
-directory, never in the database. Each node creates its own key on its first start. If the two keys differ, the standby
-cannot read the credentials the leader saved, and at start-up DENIS refuses to run when any stored credential does not
-decrypt: after a failover the standby would not come up at all, exactly when you need it.
+**The same `secrets.key`, always.** Every integration credential (CMDB client secrets, connector passwords, scanner keys
+and so on) and, since 4.2, every authenticator-app secret is stored in the shared database, encrypted with a key that
+lives in the file `secrets.key` in each node's data directory, never in the database. Each node creates its own key on
+its first start, so the two differ until you copy one.
 
-Copy `secrets.key` from the first node to the second **once**, before either node stores its first integration credential
-(or at the latest before the first failover), and keep it identical from then on. Nothing renews it automatically, so one
-copy is enough, as long as a reinstall or a wiped disk does not make a new one on one node. Back it up together with your
-database backups: a database restored without the matching key asks you to enter every integration credential again.
+Copy `secrets.key` from the first node to the second **before the second node's first start** (stop it, copy the file
+with mode `0600` and the service user as owner, start it), and keep it identical from then on. This is needed whether or
+not any credential is stored. Nothing renews the key automatically, so one copy is enough, as long as a reinstall or a
+wiped disk does not make a new one on one node.
+
+DENIS checks it. The first node that starts as leader records a check value of its key in the shared database (an HMAC
+of a fixed text under the key; it cannot be turned back into the key). A node whose key differs refuses to start when it
+becomes leader, before it seals or opens anything, with an error that says so; the other node keeps or takes the
+leadership, and its Health page names the node that refused until that node starts with the right key. Without this
+check, a node with another key would seal new authenticator secrets under its own key, and after the next failover the
+other node could not read them: those people's codes would be refused.
+
+Before upgrading a pair to 4.2, compare `secrets.key` on both nodes (`sha256sum secrets.key`) and copy it if it differs.
+If the pair's key is lost for good (for example after a restore to new nodes), the start is refused too:
+`denis user reset-mfa --unreadable` with that node's `--database-url` and `--data-dir` removes the authenticator apps the
+new key cannot open (those people set them up again) and records the new key for the pair; integration credentials are
+entered again as after any restore without the key.
+
+Keep a copy of `secrets.key` safely and separately from the database backups (not in the same place or the same
+archive): a restore needs it, and a database restored without the matching key asks you to enter every integration
+credential again and refuses the authenticator codes until those apps are reset.
 
 **The same certificate.** Clients reach the pair through one address, so both nodes must present a certificate that
 clients trust for that address.

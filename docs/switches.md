@@ -1,8 +1,9 @@
 # Switches and the physical topology (SNMP)
 
-The **Topology** tab has two maps. *By gateway* is the logical one every install has. **Switches and cables** is the
-physical one: which **port** each device is plugged into and how the **switches are cabled together**. It needs your
-switches to answer SNMP, so you tell DENIS which ones to read.
+The **Topology** tab has three maps. *By gateway* is the logical one every install has. **Switches and cables** is the
+physical one: which **port** each device is plugged into and how the **switches are cabled together**. **Equipment links**
+shows the cables between switches, firewalls, routers and access points, each marked confirmed, best guess or set by hand
+(see below). They need your switches to answer SNMP, so you tell DENIS which ones to read.
 
 ## What DENIS reads
 
@@ -18,8 +19,8 @@ For every switch you add (*Settings* → **Switches (SNMP)**), DENIS reads, and 
 Where the switch has them, a poll also reads what the port is for: link aggregation (IEEE8023-LAG-MIB
 `dot3adAggPortAttachedAggID`, IF-MIB `ifStackStatus`) and CDP neighbours (CISCO-CDP-MIB `cdpCacheTable`), and on **Cisco
 IOS** the 802.1Q trunk mode of each port (CISCO-VTP-MIB `vlanTrunkPortDynamicStatus`) and the VLAN list (CISCO-VTP-MIB
-`vtpVlanTable`, else the ports' access VLANs). Port control uses these to refuse trunks, aggregation members and
-infrastructure; nothing else draws on them.
+`vtpVlanTable`, else the ports' access VLANs). Port control uses these to warn about trunks, aggregation members and
+infrastructure (by hand only, with warnings to tick); nothing else draws on them.
 
 A poll only ever reads, always with the read community (SNMPv2c) or the read user (SNMPv3). DENIS sends **one kind of
 SET**: `ifAdminStatus` of **one port**, only for a switch you gave a separate **write community** or **write user**, only when an **administrator asks and confirms** with
@@ -28,6 +29,8 @@ A table a switch does not implement is simply left out; only a switch that does 
 the switch's line with the reason.
 
 ## Setting it up
+
+For the two switches tested on real equipment there is a step-by-step quick setup, with the switch commands, the DENIS fields, a first test and the common problems: [Cisco Catalyst 2960-X](nac/snmp.md#quick-setup-cisco-catalyst-2960-x) and [D-Link DGS-1100](nac/snmp.md#quick-setup-d-link-dgs-1100). The general steps follow.
 
 1. On the switch, create a **read-only SNMPv3 user** (recommended, see [SNMPv3](#snmpv3)) or a **read-only SNMP v2c
    community**, and allow **only the DENIS server's address** to use it (an access list on the switch). In v2c the
@@ -77,17 +80,16 @@ reading, but for a credential that can take ports down. SNMPv3 (below) does not 
 
 ### Who can, and how
 
-Only a signed-in **administrator** with access to every site (switches do not belong to a site yet): never a viewer
-or editor, never an API token, never under `--insecure-no-auth`. Two places offer it, when port control is on and the
-switch has a write community:
+Only a signed-in **administrator** with the permission to disable ports: never a viewer or editor, never an API token,
+never under `--insecure-no-auth`. A port is switched off from the **Respond** menu (a device's panel, or a port of a
+switch's port table), through the response dialog and the action API (`POST /api/nac/actions/plan`, then
+`/api/nac/actions/apply`). The routes before 4.2 (`POST /api/nac/plan` and `/api/nac/apply`) are retired: they answer
+HTTP 410 and point to the action API (one tick there acknowledged every warning, and the apply did not judge the port
+again). A port DENIS disabled before 4.2 is still switched on again, and checked, from *Active responses*.
 
-* **Topology** → *Switches and cables* → a switch's **Ports** table: **Disable…** on a port;
-* a device's panel, under *Connected to*: **Disable this device's switch port…**
-
-Either way DENIS first **reads the switch again, right now** (for a device: every switch that last placed it) and shows
-a preview built only from that fresh read: the switch and port, every device it can name behind the port, how many MAC
-addresses it cannot name, and every warning and refusal. The preview is valid for **two minutes** and can be confirmed
-once, only by whoever asked for it. Confirming needs a **reason** (3 to 200 characters) and your **password** (wrong
+DENIS first **reads the switch again, right now** and shows a plan built from that read: the switch and port, every
+device it can name behind the port, how many MAC addresses it cannot name, and every warning and refusal. The plan is
+valid for **two minutes** and can be confirmed once, only by whoever asked for it. Confirming needs a **reason** (3 to 200 characters) and your **password** (wrong
 answers count against the account's lockout, like restarting DENIS). Right before acting, DENIS reads the port once more
 and refuses if that index now carries another port's name (some switches renumber ports after a reboot or a module
 change). Then it sends the SET and **reads the port back**:
@@ -99,17 +101,32 @@ change). Then it sends the SET and **reads the port back**:
 
 ### What DENIS refuses, whatever you confirm
 
-* cutting off **DENIS itself**, the **gateway**, or a **switch DENIS reads**;
+* cutting yourself off (the self-lockout): the port **DENIS itself** is behind (its own connection, and so the way it
+  reaches the switch), the port the **gateway** is behind, the port behind which the **switch being changed** is itself
+  reached (its own management address is learned there), the switch's **management port** (`Fa0`/`FastEthernet0`,
+  `Gi0/0`, `mgmt0`) by name, and a port marked as a **mirror (SPAN) destination**: switching that off blinds DENIS, it
+  would see nothing of the network any more, not even what the action itself does;
+* a port that **leads to another switch DENIS reads** (an LLDP neighbour, or that switch's chassis or management address
+  learned behind it) or is the port **toward the spanning-tree root**, unless DENIS can show that its own way to the switch
+  goes through another port: its own hardware address is learned on another port of this switch, or, when DENIS is in
+  another network and the switch does not learn it at all, the gateway's is (and not on this port). Code `denis_path`
+  (4.2). DENIS does not read the switch's ARP table, so the gateway DENIS knows stands in for the address the switch
+  routes DENIS's traffic through; when DENIS is in the register as itself and is learned on another port, an uplink stays
+  possible by hand with its warnings (the D-Link behind the Catalyst, when DENIS is plugged into the Catalyst);
+* the port of the **device you are using** for this very request (your session's address belongs to a device behind the
+  port: `own_session`);
+* a **forwarding table read only in part** (`snapshot_truncated`): a Q-BRIDGE or BRIDGE walk that stopped at a limit, or
+  a Cisco switch's per-VLAN tables cut off (the row limit, VLAN contexts that did not answer, or a VLAN not reached that
+  no poll has read yet). VLANs not reached that are carried over from the poll that last read them are complete. The
+  read right before a port action pages a Cisco switch's
+  VLANs like the regular poll (its own *VLANs per poll*, continuing where the last poll stopped);
+* a list DENIS cannot read (the register, the address-conflict alerts, the active actions, the confirmed gateways, the
+  port marks and the interfaces of a device: `unreadable`): it is never read as empty;
 * a device whose identity is in doubt: an open **address-conflict** alert, or its MAC learned on **more than one access
   port** right now (MAC cloning, a man in the middle: the port may be the victim's). Find the right port by hand;
-* an **uplink** (an LLDP neighbour that is a switch DENIS reads) or a **trunk** (more than 24 MACs behind it; an
-  administrator can lower that number, 1 to 24, with `trunk_mac_threshold`, never raise it);
+* a device or address on the **hands-off** list, or a protected device behind the port;
 * anything but a **physical Ethernet port** (`ifType` 6): no VLAN interfaces, port-channels (`ifType` 161), loopbacks or
   the CPU;
-* on a **Cisco IOS** switch (see below): a port the switch says is an **802.1Q trunk**, even with one MAC behind it; a
-  port whose trunk mode the switch did not report, unless exactly one device and no neighbour is behind it; a member of
-  an **EtherChannel/LAG** (on any switch that reports it); the **management port** (`Fa0`/`FastEthernet0`, `Gi0/0`,
-  `mgmt0`) by name; and any port with a **CDP neighbour** (Cisco infrastructure; this includes a Cisco IP phone);
 * a device that **changed between the preview and the confirmation**: right before the SET DENIS reads the switch's
   forwarding table once more and stops, with nothing changed and nothing written, if a planned device is no longer on
   the port (unplugged, replaced), is learned somewhere else, or if another device is on the port;
@@ -126,6 +143,31 @@ Allowed, but only after ticking *I understand this also cuts off the devices lis
 port (a desk phone with a PC behind it, a small switch under a desk), an **LLDP neighbour that is not a switch** (an
 access point: every wireless client behind it), or **nothing seen** on the port right now.
 
+### Ports that are not plain access ports: by hand only, with warnings to tick
+
+Until 4.2 these were refused. Now an administrator decides, and DENIS warns strongly (owner decision of 19 October
+2026). Each one is a **warning of its own that must be ticked in the plan and again when you apply it**, next to the
+mandatory reason, your password and the port name typed to confirm. Each warning names the port, says how many MAC
+addresses are learned on it and which switches, access points or other equipment are behind it, and what switching it
+off cuts:
+
+| Warning (code) | When |
+| --- | --- |
+| `uplink` | an LLDP neighbour on the port is another switch DENIS reads (only when DENIS is shown to reach the switch through another port; otherwise `denis_path` refuses) |
+| `switch_behind` | the chassis MAC or the management address of another switch DENIS reads is learned on the port (the same condition) |
+| `trunk` | more MACs behind the port than an access port has (24 by default; an administrator can lower it, 1 to 24, with `trunk_mac_threshold`, never raise it) |
+| `trunk_port` | the switch says the port is an **802.1Q trunk** (Cisco IOS), even with one MAC behind it |
+| `lag_member` | the port is a member of an **EtherChannel/LAG** (on any switch that reports it) |
+| `cdp_neighbour` | a Cisco device announces itself on the port over **CDP** (a switch, an access point, a router, a Cisco IP phone) |
+| `class_unknown` | a Cisco IOS port whose trunk mode the switch did not report, unless exactly one device and no neighbour is behind it |
+| `behind_port` | any port the one port rule does not call a plain access port (an uplink, a trunk, network equipment learned there, spanning tree, a port marked as unmanaged equipment), with the count and the names of what is behind it |
+
+These ports are **never proposed** by DENIS (the Respond menu lists them under *Only by hand*, with the warning, never as
+the recommended choice) and **never acted on by automation or Autopilot**: they never accept a plan that has a warning.
+Right before the write DENIS reads the port once more; if it then finds a kind of port the plan you confirmed did not warn
+about, it changes nothing and asks you to plan again. The VLAN move stays refused on a trunk and on an aggregation member
+(they have no single access VLAN to change), and on any port with more than one device behind it.
+
 LAG membership is read from `dot3adAggPortAttachedAggID` and `ifStackStatus` when the switch has them; a switch that
 has neither cannot show that a port is an aggregation member.
 
@@ -135,11 +177,19 @@ Cisco IOS serves the BRIDGE-MIB per VLAN: the community `public@20` shows the ta
 that of VLAN 1 (and IOS does not serve the Q-BRIDGE tables). When a switch says it is Cisco IOS (`sysObjectID` under
 1.3.6.1.4.1.9 and `sysDescr` naming IOS, not NX-OS or an ASA), DENIS lists the VLANs (CISCO-VTP-MIB, else the access
 VLANs of the ports) and reads the bridge-port map and the forwarding table once for each, with `<community>@<vlan>`.
-It reads at most 64 VLANs and for at most 30 seconds, stops after two VLANs in a row without an answer (the device
-does not index by community), and records what it left out on the switch card as an incomplete read; the plain table
-stays in use whenever the per-VLAN read gives nothing. The per-switch setting in the switch form (`cisco_per_vlan`):
-*Automatic* (default), *Always* or *Never*. Other switches are never read this way. The OIDs used are marked
-"verify on hardware" in the source: they come from the MIBs and were not yet seen on a real Catalyst 2960-X.
+It reads at most 64 VLANs per poll (set per switch under *VLANs read per poll*, 2 to 512) and for at most 30 seconds,
+stops after two VLANs in a row without an answer (the device does not index by community), and records what it left
+out on the switch card as an incomplete read; the plain table stays in use whenever the per-VLAN read gives nothing.
+**A switch with more VLANs is read across polls:** VLAN 1 is read every time (last, after the others: its plain table
+is read anyway, so it never uses up a poll's time before them), and the others in turn, each poll continuing where the
+last one stopped (the limit, or the 30 seconds), so every VLAN is read within a few polls. The VLANs a poll does not
+reach keep the entries of the poll that last read them, except for a device this poll saw elsewhere (it is shown only
+where it is now), and the switch card says which VLANs those are. Once every VLAN has been read by some poll, such a
+switch's table counts as complete (a note on the card, not an incomplete read): port actions and a VLAN quarantine are
+not refused for it. Until then (the first polls after adding the switch or upgrading) it is an incomplete read. The
+per-switch setting in the switch form (`cisco_per_vlan`):
+*Automatic* (default), *Always* or *Never*. Other switches are never read this way. Tested on a
+Catalyst WS-C2960X-48TS-L (IOS 15.2(7)E4) with SNMPv2c and SNMPv3.
 
 ### Undo, drift, and what is announced
 
@@ -173,10 +223,11 @@ as before.
   VLAN you built for quarantine (2 to 4094, not 1002 to 1005) and tick *I tested this VLAN*. Without the tick the switch
   offers no quarantine. DENIS moves **one access port** into it and back (Cisco IOS: `vmVlan`; other switches:
   `dot1qPvid`); it never creates the VLAN, its DHCP, its gateway or any rule. A device with a static address, and any
-  OT device, is simply cut off until the port is restored. Refused, whatever you confirm: a trunk, an EtherChannel
-  member, an uplink, the management port, the port of the gateway or of DENIS itself, a port with more than one device or
-  a neighbour (a phone, an access point), a voice VLAN, 802.1X or MAC authentication, a VLAN that does not exist on the
-  switch, and a port that is already in it. The optional *bounce* switches the port off and on once so that the device
+  OT device, is simply cut off until the port is restored. Refused, whatever you confirm: a trunk or an EtherChannel
+  member (no single access VLAN to change: switch it off by hand instead), the management port, a mirror port, the port of
+  the gateway or of DENIS itself, a port with more than one device or a neighbour (a phone, an access point; this covers
+  an uplink), a voice VLAN, 802.1X or MAC authentication, a VLAN that does not exist on the switch, and a port that is
+  already in it. The optional *bounce* switches the port off and on once so that the device
   asks for an address again; it is off by default. The details, the OIDs and what was not verified are in
   [SNMP port control](nac/snmp.md#the-response-dialog-41-disable-a-port-or-move-it-to-the-quarantine-vlan).
 
@@ -247,13 +298,45 @@ it does not read the default route of a layer-3 switch.
 Spanning tree helps with uplinks: the port toward the root bridge and the ports held in blocking are treated as uplinks, so they are
 never switched off or moved. A neighbour's management address (LLDP) is kept for the "add it" step.
 
+### Equipment links: the cabling between your equipment (4.2)
+
+*Network* → *Map* → **Equipment links** draws your switches, firewalls, routers and access points with the cables between them, the
+internet side on top (the gateway, then what is behind it). It is where you check the cabling: DENIS shows its best estimate first, you
+correct it once at setup, and later it just shows. Every cable says how DENIS knows it, in words and by the line pattern (never by
+colour alone):
+
+* **confirmed** (solid): the equipment announces it itself, over LLDP or CDP, on a port with one neighbour.
+* **best guess** (dashed, with how sure: high, medium, low): from the forwarding tables. A port that carries only one device's own
+  addresses is that device's cable (high). A switch DENIS reads whose own address is learned on a shared port is guessed to be behind it
+  (medium); other equipment seen only there is guessed to be behind that switch, port not known (low). A switch that reads no forwarding
+  table of its own (the D-Link DGS-1100) is placed from the other switches' view. Two or more neighbours announcing on one port are
+  relayed by equipment in between, so they are not called cabled there.
+* **set by hand** (dotted): a cable an administrator drew, or a port marked as leading to unmanaged equipment.
+
+A firewall that DENIS also reads as a switch, or whose interfaces are one device in the register, is one box. Where DENIS is not sure it
+says so under **Where DENIS is not sure** and offers the choices (*Yes, that is right*, *Choose the cable myself…*, *A switch or
+access point DENIS does not read*, *A shared desk switch or hub*); it never presents a guess as fact.
+
+**Correcting a cable** (administrators): drag a thread from the small circle of one box and drop it on the other box (on the map and in
+the setup wizard's *Uplinks* step); a short form then asks for the ports (from the switch's list) and a note, and you confirm. Without a
+mouse: press Enter on one box, then Enter on the other, then confirm; or **Choose a cable…** picks both ends from lists. A cable drawn by
+hand always wins over every guess between the same equipment or on the same port, is saved for every administrator, survives a restart,
+is written to the audit log with the old and the new value, and is undone with **Remove cable**. When the equipment itself announces
+something else, the cable you drew is used and the map shows the conflict. A switch port with a cable drawn by hand is never treated as a
+plain access port for port actions (more warnings, never fewer).
+
+The same links give the order **by wiring** that *Network* → *Equipment* can use (internet side first, firewalls and routers on one
+level), and the setup wizard asks its *Uplinks* questions from them and lists *Networks and firewalls* (which firewall routes which
+network, and whether DENIS also sees it is that network's gateway). The API is `GET /api/topology/relations`, `POST /api/topology/links`
+and `DELETE /api/topology/links/{id}` (see the API reference).
+
 ### Manual port placement (Experimental)
 
 Some switches cannot say which MAC address is on which port. The **D-Link DGS-1100-08V2** (firmware 1.00.015) is one: over SNMP it exposes only the system group and `ifTable`/`ifXTable`. It answers neither BRIDGE-MIB, Q-BRIDGE-MIB (no forwarding table, no VLAN objects) nor LLDP, although writing `ifAdminStatus` works. That is a limit of the model, not of DENIS. DENIS then refuses every port action on it ("no forwarding table"), which is correct and used to leave the administrator stuck.
 
 An administrator can say "this device is on port N" instead:
 
-* **Where.** On the device's panel, in *Place & response*, **Place it manually…** (a switch, a port from the list of plain access ports that have a link, shown with their role, and a note). The panel then shows **placed by hand** with who made it and when it ends, and **Change**, **Confirm again** and **Clear**. *Network → Equipment* shows **Placed by hand…** on a switch without a forwarding table, with the list of its placements (confirm again, clear). The API is `GET/PUT /api/switches/{id}/manual-ports` and `DELETE …/{entry}`; setting one needs an administrator who may act, and every change is audited (`nac.manual_port.set`, `nac.manual_port.clear`).
+* **Where.** On the device's panel, in *Place & response*, **Place it manually…** (a switch, a port from the list of plain access ports that have a link, shown with their role, and a note). The panel then shows **placed by hand** with who made it and when it ends, and **Change**, **Confirm again** and **Clear**. *Network → Equipment* shows **Placed by hand…** (in the row's **⋯** menu and its detail) on a switch without a forwarding table, with the list of its placements (confirm again, clear). The API is `GET/PUT /api/switches/{id}/manual-ports` and `DELETE …/{entry}`; setting one needs an administrator who may act, and every change is audited (`nac.manual_port.set`, `nac.manual_port.clear`).
 * **Only where DENIS has no better word.** A placement is refused when the switch reports a forwarding table (it is never overridden; if one appears later the placement is ignored), when the switch was not read lately, when the port is not a plain access port with a link and nothing announcing itself (not an uplink, trunk, link aggregation, management port, or a port with an LLDP or CDP neighbour), when the device is DENIS itself, the gateway, a DNS or directory server or hands-off, or when a switch that knows better says the device is elsewhere. Two devices on one port need the administrator to say that sharing it is meant.
 * **What it allows.** Only switching the port **off**. A VLAN move is refused for such a port (it needs what the switch says about the port's VLAN). In the plan the refusal "no forwarding table" becomes **one warning that must be ticked** ("{who} placed a device on this port by hand on {date}. DENIS cannot verify what is on this port."), the typed port name stays, and the placed device counts in "what this cuts off", so DENIS itself, the gateway and hands-off devices are refused as for any port.
 * **How long it holds.** 30 days (the end is shown; one click confirms it again), and not past a change of the port's link: DENIS reads `ifLastChange` and refuses a placement made before the link last changed, or when the switch does not say. It is refused when the port has no link, and when DENIS itself is behind the switch (another switch learns DENIS on a port that leads to it), because then any port could be the way to DENIS. It is **Experimental**: it needs the second lab switch like every new action, and the kill switch, the hourly limit and the password as always.
@@ -277,7 +360,7 @@ The history can be browsed: `GET /api/topology/changes` and `GET /api/assets/{id
 The SNMP client (BER encoding and decoding, GET, GETBULK and GETNEXT walks) is tested against byte sequences worked out
 from the specifications, against hostile and corrupted answers (it never panics; every length is bounded), and against
 two independent stand-in switches (one written in Rust for the tests, one in JavaScript for the browser test).
-It has been tried against **one real switch so far, a D-Link DGS-1100-08V2** (2026-10-01): it answers IF-MIB (names only
+It has been tried against **two real switches: a Cisco Catalyst WS-C2960X-48TS-L** (IOS 15.2(7)E4, SNMPv2c and SNMPv3 with SHA-1 and AES-128; reading, port control, the quarantine VLAN move, LLDP placement; see [SNMP port control](nac/snmp.md#quick-setup-cisco-catalyst-2960-x)) **and a D-Link DGS-1100-08V2** (2026-10-01). The D-Link answers IF-MIB (names only
 in `ifDescr`, "port1" to "port8"; `ifType`, `ifAdminStatus`, `ifOperStatus`), but **no forwarding table, no bridge-port
 map and no LLDP**, so DENIS lists its ports and cannot place any device on them. It answers larger GETBULK requests with
 `tooBig` (DENIS now asks for fewer rows per answer), and a GET for several variables, one of which it lacks, with only
@@ -285,19 +368,19 @@ that one (DENIS now matches answers by OID and asks again for the rest). Vendors
 some Cisco models, LLDP local port numbering, bridge-port to interface maps), so read the map critically at first and
 please report a switch that shows something wrong.
 
-Port control on that switch (one empty port, by hand, with DENIS's own connector code): a SET of `ifAdminStatus` with
+Port control on the D-Link (one empty port, by hand, with DENIS's own connector code): a SET of `ifAdminStatus` with
 the write community was accepted and read back as off; the port came back on with a SET back to on; a SET with the
 **read** community got **no answer** (silence, not an error status) and changed nothing; a port switched on from outside
 DENIS (`snmpset`) was noticed by the next poll as drift. A plan through the console is refused on every port of this
-switch ("no forwarding table"), as it should be. **Not verified yet:** whether a block survives a switch restart (with
-and without saving the configuration), and the self-lockout and uplink refusals on real hardware (they need a switch
-that has a forwarding table). Those are tested only against the stand-in switches.
+switch ("no forwarding table"), as it should be. The uplink refusal was seen on the Catalyst 2960-X, which has a forwarding table (since 4.2 an uplink is a warning to tick by hand instead; that was not tried on the switch yet). **Not verified yet:** whether a block
+survives a switch restart (with and without saving the configuration), and the self-lockout refusal on real hardware;
+those are tested only against the stand-in switches.
 
 The 4.1 response dialog for switches (expiry, one action per port, drift read back by the reconcile job) and **quarantine
-by VLAN** were tested **only against the stand-in switch**, with SNMPv2c and SNMPv3. Nothing about moving a port to another
-VLAN was tried on a real switch: whether the Cisco `vmVlan`, `vmVlanType`, `vmVoiceVlanId`, `vtpVlanState` and the IEEE
-802.1X objects answer the way DENIS expects on a Catalyst 2960-X, whether a Q-BRIDGE `dot1qPvid` write alone moves a port on
-your switch, and what the bounce does to a real device are all open. That is why quarantine by VLAN is labelled experimental and needs both lab switches.
+by VLAN** were tested on the **Catalyst 2960-X** (`vmVlan`, the VLAN checks, extend, release, the uplink refusal) with SNMPv2c
+and SNMPv3, and otherwise against the stand-in switch. Not tried on any real switch: a Q-BRIDGE `dot1qPvid` write alone
+moving a port on a switch that is not Cisco, and what the bounce does to a real device. That is why quarantine by VLAN on
+a switch that is not Cisco is labelled experimental.
 
 ## SNMPv3
 
@@ -322,9 +405,9 @@ SHA-1 and AES-128 for it; that is still far better than SNMPv2c.
 **Two users, as with the two communities.** The **read user** is used for every poll and needs read access only. The
 **write user** is used only when an administrator disables or enables a port (see [Disabling a port](#disabling-a-port));
 give it write access to `ifAdminStatus` only, and keep it a different user, so that polling never carries write rights.
-Leave the write user's name empty and DENIS stays read-only on that switch. Port control over SNMPv3 is new and not yet
-tried on real equipment, so a new block on an SNMPv3 switch also needs *Allow experimental actions (lab use)* under
-*Settings → Response policy*; reading, and enabling a port again, do not. The same rules as for the communities apply
+Leave the write user's name empty and DENIS stays read-only on that switch. Port control over SNMPv3 is validated on the
+Catalyst 2960-X (SHA-1, AES-128) and, since 4.2, needs no *Allow experimental actions (lab use)*, like SNMPv2c; other
+switch models stay untested. The same rules as for the communities apply
 to the passwords: they are stored encrypted with the installation's secret key, never returned by the API or shown
 again, never logged or audited, left out of backups (the restore asks for them again), and a blank password on save
 keeps the stored one **only while the switch's address and the user name stay the same**. After a change of address or
@@ -345,7 +428,7 @@ many agents simply drop what they cannot decrypt.
 for another switch. So the first poll whose answer is authenticated pins the switch's engine ID, and port control is
 sent only to that engine (a switch added before 4.1.2 is pinned at its next poll). If the switch later answers with
 another engine ID (it was replaced or its SNMP configuration reset, or someone answers for it), polls go on, the
-switch's line on *Network → Equipment* shows both IDs, and disabling or enabling a port is refused until an
+switch's line on *Network → Equipment* is marked *engine ID changed* and its detail shows both IDs, and disabling or enabling a port is refused until an
 administrator presses **Confirm the new engine ID**. Changing the switch's address drops the pin. Give each switch its
 own write user password: a key localised for one switch then never works on another.
 
@@ -382,8 +465,9 @@ DENIS to disable ports on this switch* and enter `denis-rw` and its passwords.
 Notes: the user lines are not shown in `show running-config` (the keys are kept in a form tied to the switch's SNMP
 engine ID, so changing `snmp-server engineID` invalidates them: create the users again). `show snmp user` lists them.
 The per-VLAN context lines are the part to check on your IOS version; if the forwarding table of VLANs other than 1 stays
-empty, that is the first thing to look at. DENIS never saves the switch's configuration. **Not yet tried on real
-hardware.**
+empty, that is the first thing to look at. DENIS never saves the switch's configuration. This was set up and read on a
+Catalyst WS-C2960X-48TS-L with IOS 15.2(7)E4; the full quick setup, with the write view for the quarantine VLAN, is in
+[SNMP port control](nac/snmp.md#quick-setup-cisco-catalyst-2960-x).
 
 ### Setting up SNMPv3 on another switch
 
@@ -402,13 +486,13 @@ If the switch offers only DES or MD5, DENIS cannot use SNMPv3 with it: use SNMPv
 
 **Verification.** SNMPv3 was checked against RFC test vectors, against a second, independent SNMP implementation
 (net-snmp, with SHA-1 and AES-128) and against stand-in switches (every level and protocol, wrong passwords, a skewed
-clock, a replayed message, a downgrade attempt). It has **not** been tried against a real switch yet; the switch's line
-says nothing about that, so treat the first reads as a test.
+clock, a replayed message, a downgrade attempt), and then on a real **Catalyst 2960-X** (IOS 15.2(7)E4, SHA-1 and
+AES-128, `authPriv`). It has not been tried on another make, so treat the first reads from another switch as a test.
 
 **Not supported yet (SNMPv2c only):** none of this changes for SNMPv2c switches; they work exactly as before.
 
 ## Details from the console
 
-Explanations that used to be printed on the console screens. The console shows them behind a small ? button.
+Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
 * Curved lines show which gateway a device sits behind, not who talks to whom: a single collector cannot see ordinary device-to-device traffic. Dashed arrows are real conversations DENIS decoded for industrial (OT) protocols, shown on sites of up to 60 devices. Dotted arcs group devices of one type. Colour is the risk level; faded nodes were not seen recently; a red dot marks unacknowledged alerts. Drag to pan; Ctrl or ⌘ + scroll (or pinch) to zoom.
