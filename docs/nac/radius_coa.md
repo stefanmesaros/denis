@@ -84,3 +84,11 @@ Behaviours that are unproven vendor facts (marked **[verify]**):
 ## Credentials
 
 A single RADIUS shared secret (`nac.radius_coa.shared_secret`), in the encrypted secret store.
+
+## Details from the console
+
+The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
+
+- **MAC address format in Calling-Station-Id (dash_upper, dash_lower, colon_upper, colon_lower, dot_lower or plain_lower)**: How DENIS writes a device's MAC address into Calling-Station-Id when you end a session from a device. Your access device matches the attribute as it recorded it, so use its format: AA-BB-CC-DD-EE-FF is dash_upper (the default), aabb.ccdd.eeff is dot_lower. A value you type yourself is sent exactly as typed.
+- **Require a signed answer (Message-Authenticator)**: Tick this when your switch or access point signs every answer with a Message-Authenticator. DENIS then treats an unsigned answer as forged, so nobody on the path can report a session as ended. Left off, an unsigned answer is accepted.
+- **My access device stopped signing its answers**: Once your switch or access point has signed an answer, DENIS expects every later answer to be signed and treats an unsigned one as forged. Tick this only if the device really stopped signing (new firmware, another device at the same address): unsigned answers are accepted again until it signs one.

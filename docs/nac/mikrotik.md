@@ -1,14 +1,14 @@
 # Enforcement: MikroTik RouterOS
 
-Status: **Verified on MikroTik E50UG, RouterOS 7.21.4: block a flow, quarantine by address, and their release; not tested: block device (the 4.2 read-back fix), disabling a port, removing connections.** Tested on a real MikroTik E50UG (hEX family, RouterOS 7.21.4) with a laptop behind it: block flow (rule created, traffic stopped, the router's counters confirm the drops, expiry removed the rule), block device (enforced, rules before fasttrack, expiry restored the client and emptied the list, but DENIS reported its read-back as failed; the 4.2 fix has not been tried on the router, so block device stays *Experimental*), quarantine by address (enforced with read-back, manual release, extending the time, a repeated quarantine refused as a conflict, expiry), and the refusal of flow blocks while *Allow DENIS to create deny rules* is off. Not yet tested: disabling a port, removing connections as an independent proof, lost answers, a reboot, a concurrent edit by another administrator, a 24 hour hold, repeated cycles, other RouterOS versions or models. See *Known issues in the tested build* below. The two verified actions carry no *Experimental* mark and need neither lab setting (4.2); the others stay *Experimental* and need the lab switches below.
+Status: **Verified on MikroTik E50UG, RouterOS 7.21.4: block device (address list), block a flow, quarantine by address, End sessions (needs loose TCP tracking off and drop-invalid rules, see the setup notes) and their release; not tested: disabling a port.** Tested on a real MikroTik E50UG (hEX family, RouterOS 7.21.4) with a laptop behind it: block flow (rule created, traffic stopped, the router's counters confirm the drops, expiry removed the rule); block device (pings stopped within 3 s, DENIS read the entry back and confirmed it, manual release within 3 s, and the automatic expiry released it too; the 4.2 read-back fix works); quarantine by address (in force within 3 s, release within 3 s, extending the time, a repeated quarantine refused as a conflict, expiry); End sessions (an established SSH session was cut, but only with loose TCP tracking switched off and a drop-invalid rule in the input and forward chains; the plan warns when they are missing); and the refusal of flow blocks while *Allow DENIS to create deny rules* is off. Not tested: disabling a port, removing connections of an IPv6 address, lost answers, a reboot, a concurrent edit by another administrator, a 24 hour hold, repeated cycles, other RouterOS versions or models. The verified actions carry no *Experimental* mark and need neither lab setting; disabling a port stays *Experimental* and needs the lab switches below.
 
-Lab use: *Block a flow* and the quarantine by address are validated on real equipment and need no lab setting. The host block (address list) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. Disabling a port and removing connections additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
+Lab use: *Block device*, *Block a flow*, the quarantine by address and *End sessions* are validated on real equipment and need no lab setting. Disabling a port is allowed only while an administrator has switched on both *Allow connectors that are not validated on real equipment (lab use)* and *Allow experimental actions (lab use)* under *Settings → Response policy*. Releasing an action and removing what DENIS made always work.
 
 Besides the connector's own refusals, every block through it is refused for a loopback, unspecified, broadcast or multicast address, for DENIS itself and for the gateway, for DNS and directory servers, for anything in the connector's *protected networks*, and for an address in an open `arp_conflict` alert unless the administrator ticks a box to accept that, before anything is sent. Unblock is never refused for any of these reasons.
 
 ## Quick setup (about 10 minutes)
 
-Tested on a MikroTik E50UG with RouterOS 7.21.4 (block device, flow block, quarantine by address, release, expiry and
+Tested on a MikroTik E50UG with RouterOS 7.21.4 (block device, flow block, quarantine by address, End sessions, release, expiry and
 extension). Other RouterOS 7 versions share the same REST API and are expected to work; they have not been tried.
 RouterOS 6 has no REST API and is not supported.
 
@@ -46,10 +46,11 @@ that a mistake reverts itself; know the DENIS server's IP address; make a backup
    router certificate** (export: `/certificate export-certificate denis-rest type=pem`, then open the file
    `cert_export_denis-rest.crt` under *Files* as text) or, in a lab, untick **Verify TLS certificate**. Press **Test
    connection**: it reads the identity, the version and the router's own addresses, and writes nothing.
-   Then under *Settings → Response policy* tick *Allow administrators to block devices from DENIS*. Block flow and the
-   quarantine by address are validated and need no lab setting; block device also needs *Allow connectors that are not
-   validated on real equipment (lab use)*, and disabling a port or removing connections additionally *Allow experimental
-   actions (lab use)*.
+   Then under *Settings → Response policy* tick *Allow administrators to block devices from DENIS*. Block device,
+   block flow, the quarantine by address and End sessions are validated and need no lab setting; disabling a port needs
+   both lab switches (*Allow connectors that are not validated on real equipment (lab use)* and *Allow experimental
+   actions (lab use)*). For End sessions to cut running TCP sessions, set up the router as in *End sessions: what the
+   router must have* below (loose TCP tracking off, drop-invalid rules in input and forward).
 4. **Try it on a harmless device:** *Respond → Block device* for 5 minutes on a test client behind the MikroTik. The client must
    lose its connection and regain it at the end (or at **Release**). **Block flow** (one flow) needs *Allow DENIS to create deny
    rules on this firewall* ticked (it asks for your password again); the plan shows the protocol and port, and "any" when none
@@ -81,12 +82,11 @@ or the quarantine rule is not before `fasttrack`.
 
 ### Known issues in the tested build, and what 4.2 changes
 
-These were seen on the E50UG with a build before 4.2. 4.2 changes the code for each of them; the changes are tested
-against answers built from the RouterOS documentation, **not yet on the router itself**.
+These were seen on the E50UG with a build before 4.2. 4.2 changes the code for each of them; the block device read-back fix was confirmed on the router itself (2026-10-21), the others are tested against answers built from the RouterOS documentation.
 
 * **Block device read-back.** On the E50UG the block device was enforced (traffic stopped, packets counted, expiry restored
   the client) but DENIS reported the read-back of the entry as failed: the read-back counted the default input-chain rules
-  above DENIS's drop rules. 4.2 counts only forward-chain rules that can let the traffic through. If you still see a failed
+  above DENIS's drop rules. 4.2 counts only forward-chain rules that can let the traffic through. The fix was confirmed on the E50UG (RouterOS 7.21.4): DENIS read the entry back and reported the block as confirmed. If you still see a failed
   read-back, check the router (*Address Lists* and the packet counters of the rules) and the action's steps before you
   repeat it.
 * **Quarantine by hardware address** from the Respond menu was refused when an old address of the device lies in a network
@@ -145,6 +145,18 @@ DENIS acts only on a port listed under *Interfaces, Ethernet*, and only after re
 * is already disabled, or does not exist, or whose name has anything but letters, digits, dots, dashes and underscores.
 
 When any of these reads fails, DENIS refuses ("could not tell"); it never assumes a port is a plain access port. The check is made when you ask for the plan and again just before the write. The port name must be typed in the confirmation. The port stays disabled in the router's configuration, after a restart too, until it is enabled again.
+
+## End sessions: what the router must have
+
+*End sessions* removes the address's records from the router's connection table. A running TCP stream is not ended by that alone: while **loose TCP tracking** is on, RouterOS creates a new record when the next packet of the stream arrives, and a stream the router no longer tracks only stops if a **drop invalid** rule drops its packets. On a router set up like this, the removal of the records was confirmed to end an established SSH session (RouterOS 7.21.4, E50UG):
+
+`/ip firewall connection tracking set loose-tcp-tracking=no`
+`/ip firewall filter add chain=input action=drop connection-state=invalid place-before=0`
+`/ip firewall filter add chain=forward action=drop connection-state=invalid place-before=0`
+
+The default RouterOS configuration already has the two drop-invalid rules (*defconf: drop invalid*); a router that was reset or built without it does not. Since 4.2.1 the plan of *End sessions* reads both settings and shows a warning you tick when loose tracking is on or an enabled drop-invalid rule is missing in the input or the forward chain (the warning names which); when the router cannot be read, the warning says so and the plan still works. *Test connection* shows the same warning. Automatic actions never accept a warning.
+
+DENIS reports what it did: "removed N of M connection records" in the steps, and "no connection records for this address" only when there were none. Even with the settings above, **Block device is the reliable way to cut sessions**: it also blocks the address from opening new ones.
 
 ## What it does not do
 
@@ -230,3 +242,10 @@ Behaviours that are unproven vendor facts (marked **[verify]** in the code):
 ## Existing instances
 
 Instances from earlier versions keep working and nothing changes for them: the same block list, the same two drop rules, the same entries (comment `DENIS <ledger id> <timestamp>`), the same ledger rows. The old *Block…* and *Unblock…* buttons act as before. Records the old routes made are released through the old *Unblock…*; records of the new actions are released through the new action list.
+
+## Details from the console
+
+The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
+
+- **Quarantine address list name (optional)**: The address list you created for quarantine. DENIS adds a device to it and takes it out again, and nothing else: what the list may reach is decided by your own firewall rules on the router. DENIS never creates a rule for it. Leave empty to switch quarantine off for this router.
+- **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create one drop rule per flow block in the forward chain of this router, at the top of the filter table, marked denis-... and DENIS managed, and delete it again when the action ends. It never creates an allow rule and never uses any address but the two hosts of the flow. A wrong drop rule can cut off traffic: switch this on only if you accept that.

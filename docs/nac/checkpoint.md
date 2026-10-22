@@ -81,3 +81,12 @@ In SmartConsole, remove the member from your group first, delete the host and se
 * Block device and quarantine do nothing until **your own** rule refers to the group.
 * A block stops new connections; open connections stay open. It does not stop traffic inside one subnet.
 * Layers above DENIS's layer, inherited rules and rules in other policy packages are not visible to DENIS.
+
+## Details from the console
+
+The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
+
+- **Quarantine group name (optional)**: The group you created for quarantine. DENIS moves a device into it and back, and nothing else: what the group may reach is decided by your own rules on the Check Point. DENIS never creates an allow rule. Leave empty to switch quarantine off for this Check Point.
+- **Access layer for deny rules (default Network)**: The access layer of your policy package where DENIS puts a deny rule at the top when you block one flow. Leave empty to use Network.
+- **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create one Drop rule per flow block at the top of the access layer, named denis-... and tagged DENIS managed, and delete it again when the action ends. It never creates an allow rule and never uses any address but the two hosts of the flow. A wrong deny rule can cut off traffic: switch this on only if you accept that.
+- **Do not check for other administrators' unpublished changes**: Off by default. Installing a policy pushes everything already published in the package, and DENIS refuses to publish and install while another administrator has unpublished changes in an open session, or when it cannot read the open sessions. Tick this only if your version cannot give DENIS that list and you accept that DENIS may act while someone else is editing.

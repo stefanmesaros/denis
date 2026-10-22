@@ -82,3 +82,10 @@ The SSH password (`nac.juniper.password`) and the key passphrase (`nac.juniper.k
 ## Existing instances
 
 Instances from earlier versions keep working and nothing changes for them: the same block address-set, the same address objects (`denis-block-<ip>`), the same plain commit, the same ledger rows. The old *Block…* and *Unblock…* buttons act as before. Records the old routes made are released through the old *Unblock…*; records of the new actions are released through the new action list.
+
+## Details from the console
+
+The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
+
+- **Quarantine address-set name (optional)**: The address-set you created for quarantine, in the global address book. DENIS moves one address into it and back, and nothing else: what the set may reach is decided by your own security policies on the SRX. DENIS never creates an allow policy. Leave empty to switch quarantine off.
+- **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create one deny security policy per flow block on this SRX, first in the policy list of the zone pair, named denis-... and tagged DENIS managed, commit it with an automatic rollback that it cancels once the running configuration shows the policy, and delete it again when the action ends. It never creates an allow policy. A wrong deny policy can cut off traffic.

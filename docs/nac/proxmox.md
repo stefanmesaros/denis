@@ -83,3 +83,10 @@ A Proxmox API token: *token user* and *token id* (plain) and the *token secret*,
 ## Existing instances
 
 Instances from earlier versions keep working and nothing changes for them: the same guest address (`node/qemu/ID`), the same API calls in the same order (read the options, write them, read them back), the same ledger row with the options as they were, and the old *Block…* and *Unblock…* buttons act as before. The connection test only checks that the configuration is complete: there is no harmless request that does not name a guest, so the cluster is first contacted when you plan a block. Records the old routes made are released through the old *Unblock…*; records of the new actions are released through the new action list. What changed is only who writes the record: the ledger row is now written by the enforcement orchestrator, which also applies the hourly cap and the kill switch and stamps the row with the connector instance.
+
+## Details from the console
+
+The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
+
+- **Quarantine IP set name (optional)**: The cluster IP set you created for quarantine (Datacenter, Firewall, IPSet). DENIS adds one guest address to it and takes it out again, and nothing else: what the set may reach is decided by your own firewall rules that use it. DENIS never creates the set and never writes an allow rule. Leave empty to switch quarantine off.
+- **Allow DENIS to create deny rules on this Proxmox**: Off by default. When on, DENIS can create one DROP rule per flow block in the firewall of the guest that owns an end of the flow, first in that guest's rules, named denis-... and tagged DENIS managed, and delete it again when the action ends. It never creates an allow rule. It needs the Proxmox firewall on for the datacenter, the node, the guest and its network devices. A wrong deny rule can cut off traffic.

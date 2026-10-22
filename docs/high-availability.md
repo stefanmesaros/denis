@@ -8,8 +8,8 @@ version is in [Deployment › PostgreSQL and a second node](deployment.md#postgr
 **Before you start:**
 
 * High availability needs PostgreSQL. A SQLite install is never a pair.
-* It needs a DENIS built with the `postgres` feature (`cargo build --release --features postgres`). A build without it
-  refuses `--database-url`.
+* It needs the PostgreSQL build of DENIS. A build without it refuses `--database-url`. No self-build is needed: a ready-made PostgreSQL build is attached to every release from 4.2.1 (`denis-pg-x86_64-unknown-linux-musl`, `denis-pg-aarch64-unknown-linux-musl`): static, signed like the others, so nothing needs to be built. `sudo bash install.sh --postgres` installs it, and it updates itself to the PostgreSQL build of each new release. `denis --version` ends with `(postgresql)` when it is that build.
+  Building it yourself (`cargo build --release --features postgres`) still works; a build from 4.2.1 source cannot update itself on a platform that has no PostgreSQL release file. **If you built the PostgreSQL program by hand from 4.2.0 or earlier, do not use the console Update button** (the old program does not know the flavour and would take the standard build, which refuses `--database-url`): run `sudo bash install.sh --postgres` once instead. Running the installer again on a PostgreSQL installation without `--postgres` stops with a message; `--standard` is the explicit way back to the standard build.
 * Both nodes' `--database-url` point at the same database. The password goes only in `DENIS_DATABASE_PASSWORD`, never in
   the URL or on the command line.
 * **Not together with tenants.** An install with tenants besides `default` refuses to start with `--database-url`
@@ -51,6 +51,10 @@ becomes leader, before it seals or opens anything, with an error that says so; t
 leadership, and its Health page names the node that refused until that node starts with the right key. Without this
 check, a node with another key would seal new authenticator secrets under its own key, and after the next failover the
 other node could not read them: those people's codes would be refused.
+
+A node that is still waiting for leadership makes the same comparison once when it starts (it only reads the recorded
+value; it runs no migration): with another key it stops with the same error at once, and leaves a note for the Health
+page of the node that runs, instead of finding out when it takes over.
 
 Before upgrading a pair to 4.2, compare `secrets.key` on both nodes (`sha256sum secrets.key`) and copy it if it differs.
 If the pair's key is lost for good (for example after a restore to new nodes), the start is refused too:

@@ -79,3 +79,10 @@ In SonicOS, *Object | Match Objects | Addresses*: remove the member from your gr
 * Block device and quarantine do nothing until **your own** access rule refers to the group.
 * A block stops new connections; open connections stay open.
 * The commit applies every pending change on the firewall, which is why DENIS refuses to start while it can see any.
+
+## Details from the console
+
+The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
+
+- **Quarantine address group name (optional)**: The address group you created for quarantine. DENIS moves a device into it and back, and nothing else: what the group may reach is decided by your own access rules on the SonicWall. DENIS never creates an allow rule. Leave empty to switch quarantine off for this SonicWall.
+- **Do not check for pending changes before changing the configuration**: Off by default. DENIS takes over the firewall's configuration session and commits, which applies every pending change and signs out an administrator who is editing, so it refuses to start while it can see pending changes, or when it cannot read them. Tick this only if your SonicOS version cannot give DENIS that list and you accept that a commit may apply other people's pending changes.

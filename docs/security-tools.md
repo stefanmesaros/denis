@@ -126,13 +126,17 @@ are then off wherever that setting would decide (a network setting whose network
 network; a global choice or a list that cannot be read at all switches both off everywhere, or, while DENIS runs, keeps
 the values already in force). The log and the Health page say so until the setting is saved again.
 
+### Other probes that follow the switches
+
+The **certificate and web page probe** (own opt-in switch, Settings → Network → Certificates and web pages) obeys the
+port scan switch: it does not connect to a host on a network whose port scan is off. The **connection stability
+test** sends no pings when ping is off for the network of its target (the gateway or the public resolver); the test
+then reports an empty WAN leg.
+
 ### What the switches do not cover
 
-* The **certificate and web page probe** has its own opt-in switch (Settings → Network → Certificates and web pages).
-  When it is on, it connects to ports a scan found open earlier, also on a network whose port scan is now off.
-* The **connection stability test** pings the gateway or a public resolver, only while a test you started runs,
-  also while ping is off.
-* **IPv6 Neighbor Solicitations** of IPv6 discovery (`--ipv6`) are still sent while ping is off; see IPv6 discovery.
+* **IPv6 Neighbor Solicitations** of IPv6 discovery (`--ipv6`) belong to the sweep, like the ARP sweep, and are
+  still sent while ping is off; only the IPv6 all-nodes echo stops. See IPv6 discovery.
 
 ### What cannot be switched off separately
 

@@ -73,7 +73,7 @@ docker run -d --name denis-agent --restart unless-stopped --no-healthcheck \
   -e DENIS_AGENT_ID=branch-1 -e DENIS_AGENT_NAME="Branch office" -e DENIS_AGENT_SITE=Branch \
   -e DENIS_FLOWS=true \
   -e DENIS_MASTER_CA_PEM="$(cat ca.pem)" \
-  ghcr.io/stefanmesaros/denis:4.2.0 agent
+  ghcr.io/stefanmesaros/denis:4.2.1 agent
 ```
 
 Or with Compose, from a checkout of this repository (it builds the image locally):

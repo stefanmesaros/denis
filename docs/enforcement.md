@@ -3,8 +3,8 @@
 <!-- enforcement-experimental -->
 **Most of enforcement is experimental.** Switch port control on a Cisco Catalyst 2960-X (disable a port, move it to a
 quarantine VLAN) and some actions of four connectors are validated on real equipment: UniFi on a Cloud Gateway Ultra
-(block device through a firewall policy, block a flow), FortiGate on a 40F (block device, block a flow), Palo Alto on a
-PA-220 (block device through the dynamic address group, block a flow) and MikroTik on an E50UG (block a flow, quarantine
+(block device through a firewall policy, block a flow), FortiGate on a 40F (block device, block a flow, quarantine, end sessions), Palo Alto on a
+PA-220 (block device and quarantine through the dynamic address group, block a flow, end sessions) and MikroTik on an E50UG (block a flow, quarantine
 by address), each with its release (see the table below). Every other action has been tested only against a local
 simulation of the vendor's documented interface. An action can cut a device off from your network, and a mistake in your own quarantine setup can cut
 off more than you meant. Try each connector first on a device you can afford to lose, and release it to check the way back.
@@ -42,9 +42,9 @@ what is available today. The setup of each device type is on its own page, liste
 |---|---|---|
 | Cisco Catalyst 2960-X (WS-C2960X-48TS-L, IOS 15.2(7)E4), SNMPv2c and SNMPv3 | read, disable port, quarantine VLAN, release, extend, uplink refusal (since 4.2 a warning to tick by hand, not yet tried on the switch), LLDP placement | **Validated** ([setup](nac/snmp.md#quick-setup-cisco-catalyst-2960-x)) |
 | D-Link DGS-1100-08V2 (firmware 1.00.015), SNMPv2c | read, port off and on; no forwarding table, no LLDP, no VLAN over SNMP (a limit of the model, devices are placed by hand) | **Partly tested**: port off and on works; placement by hand is experimental ([setup](nac/snmp.md#quick-setup-d-link-dgs-1100)) |
-| Fortinet FortiGate 40F (FortiOS 7.2.3) | block device (address group), flow block, release, expiry, extend, cleanup; end sessions (the call is accepted, closing an open session not shown) | **Validated** for block device and block a flow; not tested: quarantine, ending sessions ([setup](nac/fortigate.md#quick-setup-about-10-minutes)) |
+| Fortinet FortiGate 40F (FortiOS 7.2.3) | block device (address group, released by hand in 3 s), flow block (effect and release at once), expiry, extend, End sessions (an open SSH session cut in 1-2 s), quarantine through the address group (in at once, web access blocked, released after 5 minutes with traffic back within 1 s), cleanup | **Validated** for these actions; not tested: IPv6, HA, VDOM mode ([setup](nac/fortigate.md#quick-setup-about-10-minutes)) |
 | MikroTik E50UG (RouterOS 7.21.4) | block flow, quarantine by address, release, expiry, extend; block device (enforced, but DENIS reported its read-back as failed before 4.2) | **Validated** for block a flow and quarantine by address; not tested: block device (the 4.2 read-back fix), disabling a port, removing connections ([setup](nac/mikrotik.md#quick-setup-about-10-minutes)) |
-| Palo Alto PA-220 (PAN-OS 10.1.14-h9) | test connection, block device through the dynamic address group (no commit, in effect within 10 s, released in 8 s), block a flow with the static deny rule and a commit (early release about 2.5 minutes) | **Validated** for these actions; not tested: block through the static address group, quarantine, ending sessions, the tags after a firewall restart, HA, IPv6 ([setup](nac/paloalto.md)) |
+| Palo Alto PA-220 (PAN-OS 10.1.14-h9) | test connection, block device through the dynamic address group (no commit, in effect within 10 s, released in 8 s), block a flow with the static deny rule and a commit (early release about 2.5 minutes), automatic expiry, extend, End sessions (an open SSH session dropped, Done in 3 s), quarantine through the dynamic group (in and out in about 10 s), the tag surviving a firewall restart with an active block | **Validated** for these actions; not tested: block through the static address group, quarantine through the static group, re-registering a lost tag, HA, IPv6 ([setup](nac/paloalto.md)) |
 | Ubiquiti UniFi Cloud Gateway Ultra (UniFi OS 5.1.33, Network 10.6.106), API key | block device (firewall policy), block a flow, release by hand, early and at expiry | **Validated** for these actions; not tested: Wi-Fi client disconnect, client block by MAC, port actions ([setup](nac/unifi.md)) |
 
 Every other connector in the matrix below is simulator only.
@@ -52,8 +52,8 @@ Every other connector in the matrix below is simulator only.
 **Validation is per action** (4.2). An action validated on real equipment shows no *Experimental* mark and needs neither
 *Allow connectors that are not validated on real equipment (lab use)* nor *Allow experimental actions (lab use)*, by the
 owner's decision. The other actions of the same connector keep the mark and the lab settings: on UniFi, the client block
-by MAC, the Wi-Fi disconnect and the port actions; on FortiGate, the quarantine and ending sessions; on Palo Alto, the
-block through the static address group, both quarantines and ending sessions; on MikroTik, the block device, disabling a
+by MAC, the Wi-Fi disconnect and the port actions; FortiGate has none left; on Palo Alto, the
+block through the static address group and the static quarantine group; on MikroTik, the block device, disabling a
 port and removing connections. The *Experimental* mark appears once per row in the Respond menu and
 only on the rows it applies to.
 
@@ -77,14 +77,14 @@ through that path; for the others, a vendor's existing action is reached through
 | Connector | Block device | Block flow | Quarantine | Disable port | End sessions |
 |---|---|---|---|---|---|
 | [SNMP switch ports](nac/snmp.md) | Unsupported | Unsupported | Built: `access_vlan` | Built: `if_admin_status` | Unsupported |
-| [Fortinet FortiGate](nac/fortigate.md) | Built: `address_group` | Built: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Experimental: `session_clear` |
-| [Palo Alto PAN-OS](nac/paloalto.md) | Built: `dynamic_group`; Experimental: `address_group` | Built: `deny_rule` | Experimental: `quarantine_dynamic_group`, `quarantine_group` | Unsupported | Experimental: `session_clear` |
+| [Fortinet FortiGate](nac/fortigate.md) | Built: `address_group` | Built: `deny_rule` | Built: `quarantine_group` | Unsupported | Built: `session_clear` |
+| [Palo Alto PAN-OS](nac/paloalto.md) | Built: `dynamic_group`; Experimental: `address_group` | Built: `deny_rule` | Built: `quarantine_dynamic_group`; Experimental: `quarantine_group` | Unsupported | Built: `session_clear` |
 | [OPNsense](nac/opnsense.md) | Experimental: `alias` | Experimental: `deny_rule` | Experimental: `quarantine_alias` | Unsupported | Experimental: `state_kill` |
 | [SonicWall](nac/sonicwall.md) | Experimental: `address_group` | Unsupported | Experimental: `quarantine_group` | Unsupported | Unsupported |
 | [Check Point](nac/checkpoint.md) | Experimental: `group` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Unsupported |
 | [Juniper SRX](nac/juniper.md) | Experimental: `address_set` | Experimental: `deny_rule` | Experimental: `quarantine_set` | Unsupported | Experimental: `session_clear` |
 | [WatchGuard Firebox](nac/watchguard.md) | Experimental: `blocked_sites` | Unsupported | Unsupported | Unsupported | Unsupported |
-| [MikroTik RouterOS](nac/mikrotik.md) | Experimental: `address_list` | Built: `deny_rule` | Built: `quarantine_list`; Not built: `access_vlan` | Experimental: `ethernet_disable` | Experimental: `conntrack_remove` |
+| [MikroTik RouterOS](nac/mikrotik.md) | Built: `address_list` | Built: `deny_rule` | Built: `quarantine_list`; Not built: `access_vlan` | Experimental: `ethernet_disable` | Built: `conntrack_remove` |
 | [Ubiquiti UniFi](nac/unifi.md) | Built: `fw_policy`; Experimental: `block_sta` | Built: `fw_flow` | Experimental: `port_profile` | Experimental: `port_disable` | Experimental: `kick_sta` |
 | [Cisco Meraki](nac/meraki.md) | Experimental: `client_policy_blocked` | Unsupported | Experimental: `group_policy`; Not built: `access_vlan` | Experimental: `port_disable` | Unsupported |
 | [Cisco ASA](nac/asa.md) | Experimental: `object_group` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Experimental: `clear_conn` |
@@ -97,7 +97,7 @@ through that path; for the others, a vendor's existing action is reached through
 | [Proxmox VE](nac/proxmox.md) | Experimental: `vm_firewall_drop` | Experimental: `deny_rule` | Experimental: `quarantine_ipset` | Experimental: `link_down` | Unsupported |
 | [RADIUS CoA](nac/radius_coa.md) | Unsupported | Unsupported | Unsupported | Unsupported | Experimental: `radius_disconnect` |
 
-Of the 100 cells (20 connectors, 5 actions; a cell with two methods counts by its best one): 10 are Built, 54 Experimental, 0 Not built and 36 Unsupported.
+Of the 100 cells (20 connectors, 5 actions; a cell with two methods counts by its best one): 16 are Built, 48 Experimental, 0 Not built and 36 Unsupported.
 20 of the 20 connectors have code for at least one action.
 
 <!-- matrix:end -->
@@ -144,9 +144,11 @@ When DENIS refuses, the plan lists each refusal with a code. The common ones:
 | `unknown_capability` | The connector has no such method for this action. |
 | `reason`, `duration` | The reason must be 3 to 200 characters. The duration must be 5 minutes to 365 days, in whole minutes, or permanent. |
 | `target_kind`, `target` | The action does not fit the target (a device, a flow or a port), or the request names no usable address. |
+| `target_pair` | The address and the hardware address of the target do not belong together. Since 4.2.1 the text says which case it is: the address is not one the device has now (the text names its current address; choose the device from the inventory), another hardware address was seen with the address after this one (the text names it), the device chosen no longer has this hardware address, or DENIS could not read the inventory. An old row of another device, or an address the device held before it moved, no longer refuses. |
 | `own_session`, `protected_self`, `protected_gateway`, `protected_infra` | The target is your own address (for a switch port: the device you are using is behind it), or DENIS itself, the gateway (also one a person confirmed), or a DNS or directory server. This never changes. |
 | `protected_net` | The address is in a network this connector is set never to block (its *protected networks* setting). You can change that setting. When the device is named by its hardware address (a quarantine from the device's page), the text names the address that matched and when it was last seen: its newest address, or one seen within a day of its newest sighting (seven days for IPv6). |
 | `protected_net_earlier` (a warning to tick) | The device, named by its hardware address, was in a protected network earlier and has been seen since at another address, today, inside a network the connector routes (when its *routed networks* are set). The warning names both addresses and their times; tick it only if the device no longer uses the old one. Without that fresh sighting the action is refused instead. |
+| `protected_earlier` (a warning to tick) | DENIS itself, a gateway or a DNS or directory server was seen with the address only more than a day before its own newest sighting, and another device of the same site has been seen with it since (4.2.1). Tick it after checking that the protected device no longer uses the address. Automation never acts on it. |
 | `protected_connector` | The target is on this connector's own never-block list, or is a virtual router address. |
 | `protected_list` | The target is on your hands-off list (*Network → Readiness → Hands-off devices*). Remove it from the list there, with your password, if the action is meant. |
 | `site`, `egress` | The target belongs to another site than the connector, or the tenant is not allowed to reach this address. |
@@ -298,9 +300,44 @@ What is not available is folded into **Not available here (N)**, with **one row 
 | Safety | DENIS refuses on purpose, for example because the device is hands-off. |
 | Data | DENIS lacks information, for example it has not seen the device on a switch port. |
 
+**The addresses a device has now (4.2.1).** One rule is used everywhere DENIS asks where a device is now: which
+firewall is on its path, which address the Respond menu and automation act on, and the check that the address and the
+hardware address of a target belong together. The newest sighting decides. A device's current IPv4 address is its
+newest one; another IPv4 address counts as current only when it was seen within two minutes of it (one interface that
+really holds two addresses is seen at both all the time). Every older address is history: a laptop moved from port to
+port or from network to network is judged by where it is now. For IPv6 its newest address counts when it was seen
+within a day of the device's newest sighting, and every other one seen within 15 minutes of the newest sighting.
+Network equipment (a gateway, router, firewall, switch, access point or controller) keeps every address of the last
+day, because its interface addresses are seen rarely and at different times. When DENIS knows the device through
+several sensors of one site, all of their sightings count as one device; a sensor of another site never adds an address
+(two sites can use the same private addresses). An address seen with two hardware addresses belongs to the one seen
+with it last; two devices seen with it at the same time are a contradiction, and the plan refuses. A device with a
+wired and a Wi-Fi interface has two hardware addresses, so two current addresses: the plan lists the other interface
+under what the action does not cover. When you choose a device in the Respond menu, the action takes its newest current
+address in a network the firewall routes, otherwise its newest current IPv4 address; the plan shows the address it acts
+on. The plan judges the path on every current address of the device, not only on that one: a firewall that routes only
+an older one is not on the path, and the plan asks you to tick its warning. When the device list cannot be read, DENIS
+does not fall back to one row: the path is not known.
+
+The refusals for DENIS itself, the gateway and DNS or directory servers still look at every address such a device
+ever had. An address it was seen with only more than a day before its own newest sighting, and that another device of
+the same site has been seen with since, no longer refuses: the plan carries the warning `protected_earlier` instead,
+which a person ticks after checking that the protected device no longer uses it; automation never acts on it. A
+link-local IPv6 address (`fe80::`) never loses its protection this way. A gateway's address DENIS found (manual,
+confident or likely) and every router address a DHCP server told its clients in the last two weeks always refuse,
+whoever was seen with them last.
+
+**The connector's own device (4.2.1).** A connector never acts on the device it manages: the address it is set up to
+reach, every address its device lists itself over an authenticated connection, every hardware address of the device,
+and every address any row of one of those hardware addresses (each sensor's) held within a day of that row's newest
+sighting, link-local ones included. Such an address stops being the device's own only when another device of the
+connector's site holds it now and was seen with it more than an hour (the largest clock difference DENIS accepts
+between sensors) after the connector's device was; anything less refuses. An address the device held only briefly long
+ago is not its own.
+
 **Which connector is on the device's path (4.2).** The main groups hold only what DENIS knows acts on the device: a
-firewall whose *routed networks* hold one of the device's current addresses (its newest IPv4 and IPv6 address and those
-seen within 15 minutes of it), and the switch port DENIS knows for certain. Where the device is **now** decides: when a
+firewall whose *routed networks* hold one of the device's current addresses, and the switch port DENIS knows for
+certain. Where the device is **now** decides: when a
 device moved from one firewall's network to another's, the firewall that routes only its older address is listed under
 *Other firewalls* (an address of the other family loses only when it was last seen an hour or more before). Checks that
 must not miss an address the device held lately (an open ARP conflict, a protected network the device was in earlier)
@@ -516,6 +553,13 @@ or by `rule:<policy id>` (automatic), as for every other action.
 *Settings → Response policy* keeps what DENIS is **allowed** to do: the kill switch and the hourly limit, the lab switches and *Automation*, under a status strip. A device's panel has the **Place & response** block and the **Respond…** menu. *Users* shows each administrator's enforcement permissions.
 
 Old addresses keep working: `#topology` opens *Network → Map*, `#settings/switches` and `#settings/connectors` (and their `/<id>/<field>` forms) open *Network → Equipment*, and `#settings/enforcement`, `#settings/nac` and `#settings/automation` open *Settings → Response policy*.
+
+## Details from the console
+
+Fields every firewall connector shares. The console shows a short line under each field and a short note behind its (i); the full explanation is here. The fields that belong to one connector are explained in that connector's page.
+
+- **At most this many DENIS deny rules**: DENIS refuses a new flow block when it already manages this many deny rules on this connector (default 50, from 1 to 1000). Releasing a block frees a place.
+- **Networks this firewall routes between (CIDR, e.g. 10.0.0.0/24)**: Optional. When set, DENIS warns before blocking a flow where a device is in none of these networks, because the traffic may never pass this firewall. Leave empty if you are not sure: DENIS then says nothing about the path.
 
 ## The connector pages
 

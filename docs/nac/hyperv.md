@@ -85,3 +85,11 @@ The WinRM password is stored only in the encrypted secret store (`nac.hyperv.pas
 ## Existing instances
 
 Instances from earlier versions keep working and nothing changes for them: the same VM name as the target, the same cmdlets in the same order (read the ACL list, add both entries in one script, read it back), the same ledger row with the ACL list as found, and the old *Block…* and *Unblock…* buttons act as before. The connection test only checks that the configuration is complete: there is no harmless WinRM request that does not name a VM, so the host is first contacted when you plan a block. Records the old routes made are released through the old *Unblock…*; records of the new actions are released through the new action list. What changed is only who writes the record: the ledger row is now written by the enforcement orchestrator, which also applies the hourly cap and the kill switch and stamps the row with the connector instance.
+
+## Details from the console
+
+The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
+
+- **Never quarantine these VM names**: VM names as Hyper-V shows them, or VM ids. Put the VM DENIS itself runs in, and any router or firewall VM, on this list.
+- **Quarantine VLAN id (optional)**: The VLAN you built for quarantine (1 to 4094), with its own DHCP, gateway and ACLs. DENIS moves one virtual network adapter into it and back, and nothing else: what the VLAN may reach is decided by your own network. DENIS never creates an allow ACL. Leave empty to switch quarantine off.
+- **Allow DENIS to create deny rules on this Hyper-V host**: Off by default. When on, DENIS can create one deny ACL per flow block on the VM that owns an end of the flow, with a weight from 60000 to 64999 that DENIS reserves, and delete it again when the action ends. It never creates an allow ACL. A wrong deny ACL can cut off traffic.

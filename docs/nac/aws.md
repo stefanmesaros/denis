@@ -91,3 +91,9 @@ A long-lived IAM access key id (plain configuration) and secret access key (`nac
 ## Existing instances
 
 Instances from earlier versions keep working and nothing changes for them: the same swap of every interface by instance id, the same calls (no tags, no address search), the same restore of each interface's original groups. One difference in the record: the original groups of an interface are now written to the record's undo data, before the first change, and no longer into its target; a record made by an earlier version keeps them in its target and is still released. The old *Block…* and *Unblock…* buttons act as before. Records the old routes made are released through the old *Unblock…*; records of the new actions are released through the new action list.
+
+## Details from the console
+
+The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
+
+- **Isolation security group id (optional)**: The security group you made for the host block: no rules at all, inbound and outbound (remove the default allow-all outbound rule too), so an instance whose interfaces carry only this group can neither send nor receive new connections. DENIS only swaps the interfaces' groups and puts the old ones back, and never creates or edits a rule in it. Leave empty to switch the host block off.

@@ -97,3 +97,14 @@ Objects and lines that carry your DENIS install's marker but belong to no active
 * A flow rule stops new connections that enter the interface the list is bound to. It does not stop traffic inside one subnet, and does not cut open connections.
 * Block device and quarantine do nothing until **your own** access rule refers to the group.
 * One ASA at a time per connector; a failover pair is one connector pointed at the active unit.
+
+## Details from the console
+
+The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
+
+- **Security context (multiple context mode only)**: Leave empty on an ASA in single mode. On an ASA in multiple context mode, name the context DENIS works in. DENIS checks that it reached it and never writes in the system context.
+- **Block object group name**: The object group (network) you created for blocks. DENIS adds a network object for the device to it and takes it out again, and nothing else: whether the group blocks anything is decided by your own access rule that refers to it. Open connections stay open until they end or you end the sessions too.
+- **Quarantine object group name (optional)**: The object group (network) you created for quarantine. DENIS moves a device into it and back, and nothing else: what the group may reach is decided by your own access rules on the ASA. DENIS never creates an allow rule. Leave empty to switch quarantine off for this ASA.
+- **Access list for flow blocks (optional)**: The access list DENIS puts deny lines at the top of when you block one flow. It must be bound to an interface (in) or global. The rule only stops traffic that enters the interface the list is bound to. Leave empty to switch flow blocks off for this ASA.
+- **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can put one deny line per flow block at the top of the access list named above, preceded by a remark that says DENIS managed it, and delete it again when the action ends. It never creates a permit line and never uses any address but the two hosts of the flow. A wrong deny line can cut off traffic: switch this on only if you accept that.
+- **Save the configuration after each change (write memory)**: Off by default: DENIS changes the running configuration only, so a reload removes its changes. When on, DENIS runs write memory after a change and after its removal. Write memory saves every unsaved change on the ASA, including changes other administrators have not finished.

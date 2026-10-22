@@ -40,7 +40,8 @@
 # --allow-master-here overrides that. No port is opened: the agent only connects out to the master.
 #
 # Run it again to update (your data in /var/lib/denis is backed up first and never touched) or with
-# --uninstall to remove the program. Nothing else on the machine is changed: no firewall rules, no other
+# --uninstall to remove the program. On a PostgreSQL installation add --postgres when you run it again: without
+# it the installer stops (--standard is the explicit way to switch back to the standard build). Nothing else on the machine is changed: no firewall rules, no other
 # services, nothing takes over a port that is already in use.
 #
 # Options:
@@ -52,6 +53,9 @@
 #   --no-service        install the program, user, settings and data folder only; no service is set up or
 #                       started (for systems without systemd or OpenRC, or to run it under your own supervisor)
 #   --static            take the static build (*-unknown-linux-musl) even on Debian or Ubuntu
+#   --postgres          take the PostgreSQL build (denis-pg-*, static, for high availability with a shared PostgreSQL
+#                       database; release 4.2.1 or newer, master only). It updates itself to the PostgreSQL build.
+#   --standard          take the standard build even though a PostgreSQL build is installed (it refuses --database-url)
 #   --no-signature-check  verify the SHA-256 only (for systems whose openssl cannot check Ed25519)
 #   --uninstall         stop and remove the program and service, keep the data
 #   --purge             with --uninstall: also delete the data (/var/lib/denis), /etc/denis and the user
@@ -101,7 +105,8 @@ LOGDIR=/var/log/denis
 STATIC_MIN_VERSION="4.1.1"  # the first release with the static builds (denis-*-unknown-linux-musl)
 INIT=systemd                # systemd, openrc or none; decided by detect_init below (the tests keep systemd)
 
-VERSION="" PORT="" LOCAL_ONLY=0 DRY=0 NOSIG=0 UNINSTALL=0 PURGE=0 NOSERVICE=0 STATIC=0
+VERSION="" PORT="" LOCAL_ONLY=0 DRY=0 NOSIG=0 UNINSTALL=0 PURGE=0 NOSERVICE=0 STATIC=0 POSTGRES=0 STANDARD=0 FLAVOUR=""
+POSTGRES_MIN_VERSION="4.2.1"  # the first release with the PostgreSQL build (denis-pg-*)
 AGENT=0 MASTER_URL="" AGENT_TOKEN="" AGENT_ID="" AGENT_NAME="" AGENT_SITE="" AGENT_FLOWS=0 CA_SRC="" ALLOW_MASTER=0
 CA_PEM="" ALLOW_HTTP=0 AGENT_KEEP_ENV=0 TOKEN_FILE="" TOKEN_PROMPT=1
 NAMES=()
@@ -294,11 +299,15 @@ ver_lt() {  # is version $1 older than $2? (numbers only: 4.1.1-rc.1 counts as 4
 
 choose_libc() {  # sets LIBC (gnu or musl) and LIBC_WHY; $1 = the release, for the fallback of older ones
   LIBC=gnu LIBC_WHY=""
-  if [ "$STATIC" = 1 ]; then LIBC=musl LIBC_WHY="--static was given"
+  if [ "$POSTGRES" = 1 ]; then
+    # the PostgreSQL build exists only as the static program
+    ver_lt "$1" "$POSTGRES_MIN_VERSION" && die "$1 has no PostgreSQL build: the first is v$POSTGRES_MIN_VERSION. Leave out --version, or name a newer one."
+    LIBC=musl LIBC_WHY="--postgres was given; the PostgreSQL build is static" FLAVOUR="pg-"
+  elif [ "$STATIC" = 1 ]; then LIBC=musl LIBC_WHY="--static was given"
   elif is_musl_system; then LIBC=musl LIBC_WHY="this system uses the musl C library (Alpine)"
   elif ! has_pcap08 && ! command -v apt-get >/dev/null; then LIBC=musl LIBC_WHY="no Debian-style libpcap here"
   fi
-  if [ "$LIBC" = musl ] && ver_lt "$1" "$STATIC_MIN_VERSION"; then
+  if [ "$LIBC" = musl ] && [ "$POSTGRES" = 0 ] && ver_lt "$1" "$STATIC_MIN_VERSION"; then
     case "$LIBC_WHY" in
       "no Debian-style libpcap here")
         warn "$1 has no static build (the first is v$STATIC_MIN_VERSION): taking the usual one, which needs libpcap.so.0.8"
@@ -306,6 +315,15 @@ choose_libc() {  # sets LIBC (gnu or musl) and LIBC_WHY; $1 = the release, for t
       *) die "$1 has no static build, which this system needs ($LIBC_WHY): the first is v$STATIC_MIN_VERSION. Leave out --version, or name a newer one." ;;
     esac
   fi
+}
+
+installed_is_postgres() {  # is the DENIS already here the PostgreSQL build (or set up for a database URL)?
+  local b
+  for b in "${ROOT:-}$BIN" "${ROOT:-}$LINK"; do
+    [ -x "$b" ] && "$b" --version 2>/dev/null | grep -qF "(postgresql)" && return 0
+  done
+  [ -f "${ROOT:-}$ENVFILE" ] && grep -Eq '^[[:space:]]*(export[[:space:]]+)?DENIS_DATABASE_URL=' "${ROOT:-}$ENVFILE" && return 0
+  return 1
 }
 
 restart_hint() {  # how to restart service $1 after editing its settings
@@ -442,6 +460,8 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1; shift ;;
     --no-service) NOSERVICE=1; shift ;;
     --static) STATIC=1; shift ;;
+    --postgres) POSTGRES=1; shift ;;
+    --standard) STANDARD=1; shift ;;
     --no-signature-check) NOSIG=1; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
     --purge) PURGE=1; shift ;;
@@ -463,6 +483,13 @@ if [ -n "$VERSION" ]; then
   printf '%s' "$VERSION" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$' || die "--version must look like v4.1.1"
 fi
 
+if [ "$POSTGRES" = 1 ] && [ "$AGENT" = 1 ]; then
+  die "--postgres is for the master: an agent does not use PostgreSQL"
+fi
+[ "$POSTGRES" = 1 ] && [ "$STANDARD" = 1 ] && die "--postgres and --standard exclude each other"
+if [ "$AGENT" = 0 ] && [ "$UNINSTALL" = 0 ] && [ "$POSTGRES" = 0 ] && [ "$STANDARD" = 0 ] && installed_is_postgres; then
+  die "this machine runs the PostgreSQL build of DENIS (for high availability). Run the installer again with --postgres to update it, or with --standard to really switch to the standard build (it refuses --database-url, so a node on PostgreSQL would not start)."
+fi
 if [ "$AGENT" = 1 ]; then
   [ -z "$PORT" ] && [ "$LOCAL_ONLY" = 0 ] || die "--port and --local-only belong to the master: an agent opens no port"
   if [ "$UNINSTALL" = 0 ]; then
@@ -620,7 +647,7 @@ elif [ "$(printf '%s\n%s\n' "${VERSION#v}" "$MIN_VERSION" | sort -V | head -1)" 
   else die "$VERSION is older than $MIN_VERSION, the first release this installer supports"; fi
 fi
 choose_libc "$VERSION"
-TARGET="$ARCH-unknown-linux-$LIBC"
+TARGET="$FLAVOUR$ARCH-unknown-linux-$LIBC"
 say "Release $VERSION for $TARGET${LIBC_WHY:+ (the static build: $LIBC_WHY)}"
 
 if [ -t 2 ]; then PROGRESS="--progress-bar"; else PROGRESS="-s"; fi

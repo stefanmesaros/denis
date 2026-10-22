@@ -23,6 +23,7 @@ Fedora, Arch, ...) or **OpenRC** (Alpine). Two builds of the program exist, and 
 * Alpine and every other Linux get the **static build** (`denis-*-unknown-linux-musl`, from 4.1.1): libpcap and the C
   library are built in, so nothing else is installed and it runs regardless of which libpcap the system has (or none).
   `--static` takes it on Debian or Ubuntu too.
+* **High availability** (a second node on a shared PostgreSQL database) needs the PostgreSQL build: a ready-made PostgreSQL build is attached to every release from 4.2.1 (`denis-pg-x86_64-unknown-linux-musl`, `denis-pg-aarch64-unknown-linux-musl`): static, signed like the others, so nothing needs to be built. `sudo bash install.sh --postgres` installs it, and it updates itself to the PostgreSQL build of each new release. `denis --version` ends with `(postgresql)` when it is that build. See [High availability](high-availability.md).
 
 On a system with neither systemd nor OpenRC the installer stops and suggests `--no-service` (below).
 
@@ -96,6 +97,8 @@ command that opens the port; it does not run it.
 | `--dry-run` | download and verify, change nothing (no root needed): a safe way to try it |
 | `--no-service` | install the program, the `denis` user, `/etc/denis/env` and the data folder, but no service (see below) |
 | `--static` | take the static build even on Debian or Ubuntu |
+| `--postgres` | take the PostgreSQL build (`denis-pg-*`, static; release 4.2.1 or newer; master only), for [high availability](high-availability.md). Required when running the installer again on a PostgreSQL installation (also to move one built by hand from 4.2.0 or earlier: do not use the console Update button for that) |
+| `--standard` | take the standard build although a PostgreSQL build is installed (it refuses `--database-url`) |
 | `--no-signature-check` | check the SHA-256 only, for a system whose `openssl` is too old for Ed25519 |
 | `--uninstall` | stop and remove the program and service, **keep the data** |
 | `--uninstall --purge` | also delete the data, the settings and the `denis` user |
@@ -126,7 +129,7 @@ appears. On other systems DENIS stops with "address not available".
 header) and **installs it itself** with one click — no root needed, because `/usr/local/lib/denis` is owned by the
 `denis` user (`ReadWritePaths` is the one exception `ProtectSystem=strict` allows). It backs the database up to
 `/var/lib/denis/backups/` first and keeps the old program as `/usr/local/lib/denis/denis.previous`. Prefer to control
-it yourself, or air-gapped: run the installer again (`sudo bash install.sh`, after downloading the newest one) instead —
+it yourself, or air-gapped: run the installer again (`sudo bash install.sh`, after downloading the newest one; on a PostgreSQL installation add `--postgres`, without it the installer stops instead of replacing the build) instead —
 same backup, same result. An installation from before this existed (the program straight at `/usr/local/bin/denis`,
 owned by root, not writable by the service user) needs `sudo bash install.sh` run **once** to move it into the new
 layout (it also updates the systemd unit's `ExecStart`/`ReadWritePaths`, which only root can do); every update after
@@ -194,6 +197,7 @@ library and libpcap linked in. They need nothing installed and run on Alpine, De
 ```bash
 tools/build-musl.sh                              # -> ./denis-<arch>-unknown-linux-musl (this machine's CPU type)
 tools/build-musl.sh --smoke ./denis-aarch64-unknown-linux-musl   # run it in a clean alpine container
+FEATURES=postgres tools/build-musl.sh            # the PostgreSQL flavour -> ./denis-pg-<arch>-unknown-linux-musl
 ```
 
 What the script does in the `rust:1-alpine` container (the release workflow runs the same script):
@@ -286,6 +290,7 @@ denis user reset jana                    # new one-time password, signs her out 
 denis user disable jana                  # and: denis user enable jana
 denis user reset-mfa jana                # removes her authenticator app and signs her out; she sets it up again
 denis user reset-mfa --unreadable        # every account whose authenticator app secrets.key cannot open
+denis user scrub-backups               # seals authenticator secrets left readable in scheduled and manual backups
 ```
 
 `denis user` works on the SQLite file (`--db`, `--data-dir` for where `secrets.key` is) or, on a PostgreSQL
@@ -660,7 +665,7 @@ on a busy gigabit link use a fast machine or a dedicated capture interface. How 
 By default DENIS keeps everything in one SQLite file. `--database-url postgres://user@host/denis` (the password only in
 `DENIS_DATABASE_PASSWORD`, never in the URL or on the command line) uses PostgreSQL instead, and lets two DENIS
 nodes share that database with one of them as leader and the other on standby. It needs a DENIS built with the
-`postgres` feature: a build without it refuses the option. A SQLite install is never a pair.
+`postgres` feature: a build without it refuses the option. A ready-made PostgreSQL build is attached to every release (from 4.2.1, `denis-pg-<arch>-unknown-linux-musl`; `install.sh --postgres` installs it). A SQLite install is never a pair.
 
 * Only the leader captures, detects and serves the console and agent port; the standby answers `/api/health` with `503`
   and `role: standby` until it wins leadership. Point agents and browsers at one virtual address that routes to the

@@ -4,6 +4,23 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 4.2.1: More equipment verified on real hardware, an OpenAPI description and a ready-made PostgreSQL build
+
+- New: an OpenAPI description of the API, served by the console to signed-in users and attached as a file to every release.
+- Fix: the certificate and web page check no longer connects to devices on a network whose port scan is switched off, and the connection stability test sends no pings when ping is switched off for its target's network.
+- Fix: DENIS now finds all of its own objects on a Check Point management server, not only the first 500 of a kind.
+- A standby node of a PostgreSQL pair now checks its secrets.key against the pair's when it starts, not only when it takes over.
+- New: denis user scrub-backups seals authenticator-app secrets left readable in scheduled and manual backups; the pre-update copies are included only with --include-update-copies.
+- Connector forms: the explanation under each field is now one short line, with the longer note behind an (i) next to the label. The Active responses table has its explanations on the column headers instead of inside the rows.
+- Palo Alto: a block is shown as in force only when the firewall's group really contains the address.
+- FortiGate: ending sessions and quarantine are now verified on real equipment; a device is no longer refused as the connector's own device because of a brief old sighting of its address.
+- The Active response strip is clearer: plain headline, equal buttons, Extend within reach.
+- New: a ready-made PostgreSQL build for high availability is attached to every release (denis-pg-...), no self-build needed. PostgreSQL installations built by hand: update with install.sh --postgres, not the Update button.
+- Buttons that take a moment now show Please wait and cannot be clicked twice; waiting areas such as the response plan show a spinner and "Working, please wait".
+- UniFi: DENIS reuses its sign-in and waits when the controller limits sign-ins. MikroTik: ending sessions reports what it removed or that the router refused, and warns when the router would keep TCP sessions alive.
+- MikroTik: block, quarantine and ending sessions are verified on real equipment; UniFi: block by firewall policy is verified, block by hardware address is not recommended for wired devices.
+- A device that moves between ports or networks is now judged by where it is now: old addresses no longer block or mislead Respond.
+
 ## 4.2.0: A Respond menu that knows the path, UniFi and Palo Alto verified, a fuller map
 
 - Fix: the console could stay empty after signing in when a file failed to load; files are now loaded before sign-in and retried.

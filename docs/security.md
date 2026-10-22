@@ -324,7 +324,11 @@ types a correct first code. Ten **recovery codes** are shown once.
   longer hold the secrets readable. The copies the updater made before the update (`denis-before-…`, also each
   tenant's under `backups/tenants/`) are left exactly as they are, because they exist to undo that update and the
   earlier version cannot read sealed secrets; Health names them until the updater's pruning (or you) removes them.
-  Delete them once you no longer need to go back. Not reached by this: copies you made yourself elsewhere, customers'
+  Delete them once you no longer need to go back. To seal the secrets in the scheduled and manual backups yourself, at
+  any time, run `denis user scrub-backups` (with the installation's `--data-dir`); it prints what it changed and can be
+  run again. `denis user scrub-backups --include-update-copies` seals the pre-update copies too: do that only when you
+  no longer need to go back to an older version, because after it a rollback to such a copy cannot read the
+  authenticator apps and every person sets theirs up again. Not reached by this: copies you made yourself elsewhere, customers'
   backups uploaded to an MSP (`backups/from-agents/`, never opened), and on PostgreSQL the write-ahead log, its WAL
   archive, earlier base backups and streaming replicas, which can keep the old values after `VACUUM (FULL)`: rotate
   those (or protect them like the database) after the upgrade.

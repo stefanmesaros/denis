@@ -81,3 +81,13 @@ In FDM, *Objects → Networks* (filter on `denis-`), remove the member from your
 * A change is in force only after the deployment, minutes later. The time limit of an action starts when the deployment has finished, so a short limit is still a real one, but choose at least several minutes.
 * Block device and quarantine do nothing until **your own** access rule refers to the group.
 * A flow rule stops new connections; open connections stay open. It does not stop traffic inside one subnet.
+
+## Details from the console
+
+The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
+
+- **Block network group name**: The network group you created for blocks. DENIS adds a network object for the device to it and takes it out again, and nothing else: whether the group blocks anything is decided by your own access rule that refers to it. A change is in force only after the deployment, which takes minutes.
+- **Quarantine network group name (optional)**: The network group you created for quarantine. DENIS moves a device into it and back, and nothing else: what the group may reach is decided by your own access rules on the FTD. DENIS never creates an allow rule. Leave empty to switch quarantine off for this FTD.
+- **Access policy name (optional)**: The access policy DENIS puts deny rules at the top of when you block one flow. Leave empty to use the device's one access policy.
+- **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create one deny rule per flow block at the top of the access policy, named denis-... , and delete it again when the action ends. It never creates an allow rule and never uses any address but the two hosts of the flow. A wrong deny rule can cut off traffic: switch this on only if you accept that.
+- **Deploy without checking for other administrators' pending changes**: Off by default. A deployment publishes every pending change on the FTD, including changes another administrator has not finished, so DENIS refuses to deploy while it can see changes that are not its own, or when it cannot read the list. Tick this only if your FDM version cannot give DENIS that list and you accept that a deployment may publish other people's pending changes.

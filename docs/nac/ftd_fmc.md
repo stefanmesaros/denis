@@ -99,3 +99,16 @@ Behaviours that are unproven vendor facts (marked **[verify]** in the code):
 * Traffic between two devices in the same subnet does not pass the firewall, and no rule on it stops it.
 * A dynamic object mapping has no marker, so DENIS can neither list nor clean up mappings it lost track of.
 * No Multi-Domain child-domain inheritance logic: objects are read and written in the one domain you name.
+
+## Details from the console
+
+The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
+
+- **Multi-Domain domain name (optional)**: The FMC domain DENIS works in, by name or UUID. Leave empty to use the default domain of this account. The account must be allowed to read and write objects in this domain.
+- **Block dynamic object name**: The dynamic object you created for blocks. DENIS adds a blocked address to its mappings and takes it out again. FMC pushes the change to the devices without a deployment (needs FMC 7.0 or later). You write the access rule that blocks traffic from or to this object; DENIS never creates or edits it. Leave empty to switch this way of blocking off.
+- **Quarantine dynamic object name (optional)**: The dynamic object you created for quarantine. DENIS moves a device into it and back, and nothing else: what it may reach is decided by your own access rules. DENIS never creates an allow rule. Leave empty to switch this way of quarantine off.
+- **Block network group name (optional)**: A network group you created for blocks, used with a deployment instead of a dynamic object. DENIS adds one host object to it, then deploys to the devices listed below. The group must have at least one member already. A deployment carries every pending change on those devices, so DENIS refuses to write while another administrator has pending changes there.
+- **Quarantine network group name (optional)**: A network group you created for quarantine, used with a deployment. DENIS adds one host object to it and takes it out again, and deploys each time. What the group may reach is decided by your own access rules. The group must have at least one member already.
+- **Devices to deploy to (names or IDs)**: The FTD devices that receive a deployment after a change in network group or access rule mode. A deployment changes every pending item on these devices, not only DENIS's, and can take about ten minutes. Not used with dynamic objects.
+- **Access policy for deny rules (optional)**: The access policy DENIS writes its flow deny rules into, at the top. Needed only for flow blocks. It must be assigned to the devices listed above, or those devices keep a pending change that nobody deploys.
+- **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create one deny access rule per flow block (two for both directions) at the top of the access policy named above, marked denis-... and DENIS managed, deploy it, and delete it again when the action ends. It never creates an allow rule and never uses any address but the two hosts of the flow. A deployment affects every device in it and can take about ten minutes. A wrong deny rule can cut off traffic: switch this on only if you accept that.

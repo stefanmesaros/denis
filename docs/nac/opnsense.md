@@ -74,3 +74,10 @@ The API secret is stored only in the encrypted secret store (`nac.opnsense.api_s
 ## Existing instances
 
 Instances from earlier versions keep working and nothing changes for them: the same block alias, the same raw address entry, the same apply and the same loose `kill_states` call, the same ledger rows. The old *Block…* and *Unblock…* buttons act as before. Records the old routes made are released through the old *Unblock…*; records of the new actions are released through the new action list.
+
+## Details from the console
+
+The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
+
+- **Quarantine alias name (optional)**: The alias you created for quarantine. DENIS moves one address into it and back, and nothing else: what the alias may reach is decided by your own rules on the OPNsense. DENIS never creates an allow rule. Leave empty to switch quarantine off.
+- **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create one floating deny rule per flow block on this OPNsense, first in the rule order, named denis-... and tagged DENIS managed, apply the rules, and delete the rule again when the action ends. It never creates an allow rule. A wrong deny rule can cut off traffic.

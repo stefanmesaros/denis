@@ -96,3 +96,12 @@ Azure AD app-only OAuth2, client-credentials grant: `tenant_id` and `client_id` 
 ## Existing instances
 
 Instances from earlier versions keep working and nothing changes for them: the same swap of every interface by VM name, the same calls (no tags, no `If-Match`), the same restore of each interface's original group. One difference in the record: the original groups of an interface are now written to the record's undo data, before the first change, and no longer into its target; a record made by an earlier version keeps them in its target and is still released. The old *Block…* and *Unblock…* buttons act as before. Records the old routes made are released through the old *Unblock…*; records of the new actions are released through the new action list.
+
+## Details from the console
+
+The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
+
+- **Isolation NSG resource id (optional)**: The network security group you made for the host block: no allow rules at all, so a machine whose network interfaces carry it can neither send nor receive. DENIS only swaps the interface's group and puts the old one back, and never creates or edits a rule in it. Leave empty to switch the host block off.
+- **NSG for DENIS deny rules (optional)**: The network security group you named for DENIS's deny rules, as its full resource id. Attach it to the network interface or the subnet of the machines it should protect. DENIS adds and deletes only its own rules in it and never edits the group. Needed only for "Allow DENIS to create deny rules".
+- **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create deny rules for a flow block in the group named above (an inbound and an outbound rule for each direction), named denis-... and marked DENIS managed in the description, and delete them again when the action ends. It never creates an allow rule. A wrong deny rule can cut off traffic.
+- **First priority number for DENIS rules (optional)**: DENIS uses the 100 priority numbers from this one (100 to 3997, default 100) for its deny rules in the group above, taking the lowest free ones. It refuses when a rule of yours that allows traffic has a lower number, so keep your own allow rules at higher numbers.

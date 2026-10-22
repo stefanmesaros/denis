@@ -73,3 +73,9 @@ Behaviours that are unproven vendor facts (marked **[verify]** in the code):
 ## Credentials
 
 A single Dashboard API key (`nac.meraki.api_key`), sent as the `X-Cisco-Meraki-API-Key` header on every call: there is no session and nothing is kept between calls. It is never written to the ledger, the audit log or a notification.
+
+## Details from the console
+
+The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
+
+- **Quarantine group policy (name or id, optional)**: The group policy you made in the Dashboard for quarantine. DENIS sets a client's policy to it and puts the old policy back, and nothing else: what the group policy allows is your own definition, and DENIS never creates or edits a group policy. Leave empty to switch quarantine off for this network.
