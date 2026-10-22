@@ -112,7 +112,7 @@ third-party research papers and have only been tested against hand-written byte 
 UDP check (1740–1743) is weaker than the TCP one. If port 1200 shows false CODESYS paths on your network, tell us:
 it is shared with unrelated software and V2 on that port can be dropped. The other decoders (including HART-IP and
 KNXnet/IP) have been checked against a real capture of that protocol, listed in `tools/ot-samples.sh`; OPC UA is checked
-against traffic from an independent implementation (`tools/make-opcua-sample.py`).
+against traffic from an independent open-source implementation (`tools/make-opcua-sample.py`).
 
 What the 2026 decoders have been checked against, honestly. **Real recordings**: S7comm-plus reads, writes and explore requests (S7-1200
 and S7-1511 with TIA Portal and HMIs), MMS read, write, name list, identify and a first write, GOOSE publishers, PROFINET DCP Set IP
@@ -253,9 +253,9 @@ This needs the mirror port to carry the traffic between the devices (the same re
 * **`tools/ot-samples.sh`** downloads real captures from the public [ICS-pcap](https://github.com/automayt/ICS-pcap) and ITI ICS-Security-Tools collections
   (Modbus, Siemens S7 and S7comm-plus, IEC 61850 MMS and GOOSE, PROFINET, IEC 104, BACnet, EtherNet/IP firmware change…) and checks that DENIS finds what each is known to contain, and
   makes a capture of encrypted traffic from real OpenSSL handshakes (`tools/make-encrypted-sample.py`). It also checks OPC UA
-  against traffic from the `asyncua` stack (`tools/make-opcua-sample.py`: one session each in modes None, Sign and Sign & Encrypt,
+  against traffic from the open-source `asyncua` stack (`tools/make-opcua-sample.py`: one session each in modes None, Sign and Sign & Encrypt,
   with a read, a write and a method call; skipped with a notice when `asyncua` is not installed). It runs before every release.
-* For a *live* test bench there are free simulators (for example Conpot, an ICS honeypot that speaks Modbus, S7 and BACnet,
+* For a *live* test bench there are open-source simulators (for example Conpot, an ICS honeypot that speaks Modbus, S7 and BACnet,
   and OpenPLC, a soft PLC with Modbus, DNP3 and EtherNet/IP servers); run one in a VM, put DENIS on its virtual switch's mirror and
   point a client at it. DENIS has not been run against them here; the captures above are what it has been checked with.
 

@@ -99,7 +99,7 @@ traffic only to the one whose `/api/health` says `"role":"leader"`. Never point 
   configuration change;
 * the standby does not open the agent port at all, so an agent sent to it gets "connection refused", not a slow answer.
 
-Example with HAProxy (it can check the body of the health answer; the free build of nginx has no active
+Example with HAProxy (its open-source version can check the body of the health answer; open-source nginx has no active
 health check):
 
 ```
