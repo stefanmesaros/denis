@@ -138,6 +138,17 @@ Details in CHANGELOG.md 4.1.4.
   limit (no forwarding table or LLDP over SNMP). FortiGate 40F: first lab run passed; not yet called validated.
 * Fixes from the internal code review of 4.1.3, and the TLS library update for new security advisories.
 
+## Next: what customers asked for (planned, in this order)
+
+From what people running network detection and access control say about their own deployments. These come before new connectors.
+
+* **Seeing what DENIS cannot see.** Removing duplicate copies of the same packet when several mirror ports feed one sensor, and a coverage view that says which networks and links are seen, which are not, and what is missing (no mirror feed, drops, a link seen from one side only). Planned for 4.3.
+* **Unknown devices without an agent.** Onboarding puts the unknown-device question first: what is on the network that nothing manages, with the evidence for each device and an owner to assign. Planned for 4.3.
+* **One history per device.** A single timeline of a device: addresses, ports, alerts, connections and responses, to answer an incident question without opening five pages. Planned after 4.3.
+* **Alerts people can trust.** Feedback on false alarms (this was normal, do not tell me again) and measurement of how many alerts are acted on, kept on the installation. Planned after 4.3.
+* **More real-equipment checks of enforcement.** Kill switch, hourly limit, wrong credential, a connector that loses its connection, and release after a restart, on each verified device.
+* **Simple, affordable use for small teams.** Quick first result, safe defaults, and licensing that does not price small organisations out; to be settled before the first commercial sale.
+
 ## 4.2: planned (4.1.5 was folded into it)
 
 What was left out of 4.1.4 on purpose or not reached, and what the first lab runs on real equipment showed, in the order it is planned.
