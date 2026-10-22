@@ -87,6 +87,7 @@ BIN="$LIBDIR/denis"
 LINK=/usr/local/bin/denis    # a symlink to $BIN, for convenience (denis backup, denis user reset, ...)
 UNIT=/etc/systemd/system/denis.service
 ENVFILE=/etc/denis/env
+FLAVOUR_FILE=/etc/denis/flavour  # root-owned: which build the master runs (postgresql or standard), written here
 DATA=/var/lib/denis
 SERVICE_USER=denis
 
@@ -317,12 +318,53 @@ choose_libc() {  # sets LIBC (gnu or musl) and LIBC_WHY; $1 = the release, for t
   fi
 }
 
-installed_is_postgres() {  # is the DENIS already here the PostgreSQL build (or set up for a database URL)?
-  local b
-  for b in "${ROOT:-}$BIN" "${ROOT:-}$LINK"; do
-    [ -x "$b" ] && "$b" --version 2>/dev/null | grep -qF "(postgresql)" && return 0
+svc_files() {  # the master's service files: unit and drop-ins (systemd), init script and its conf.d (OpenRC)
+  local f
+  for f in "${ROOT:-}$UNIT" "${ROOT:-}/etc/systemd/system/denis.service.d/"*.conf \
+           "${ROOT:-}/run/systemd/system/denis.service.d/"*.conf "${ROOT:-}$OPENRC_INIT" "${ROOT:-}/etc/conf.d/denis"; do
+    [ -f "$f" ] && printf '%s\n' "$f"
   done
+  return 0
+}
+
+names_database_url() {  # does file $1 (or standard input with -) set a PostgreSQL address for DENIS?
+  grep -Eq -- '--database-url|DENIS_DATABASE_URL=' "$1"
+}
+
+as_user() {  # run a command as the service user (runuser is missing on Alpine)
+  if command -v runuser >/dev/null; then runuser -u "$SERVICE_USER" -- "$@"
+  else su -s /bin/sh "$SERVICE_USER" -c "$(printf '%q ' "$@")"; fi
+}
+
+installed_is_postgres() {  # is the DENIS already here the PostgreSQL build (or set up for a database URL)?
+  local b f
+  # what this installer wrote with --postgres (root-owned)
+  [ -f "${ROOT:-}$FLAVOUR_FILE" ] && grep -qx 'postgresql' "${ROOT:-}$FLAVOUR_FILE" && return 0
+  # a database address in the settings file or in the service (unit, drop-ins, init script, conf.d)
   [ -f "${ROOT:-}$ENVFILE" ] && grep -Eq '^[[:space:]]*(export[[:space:]]+)?DENIS_DATABASE_URL=' "${ROOT:-}$ENVFILE" && return 0
+  while IFS= read -r f; do
+    [ -n "$f" ] && names_database_url "$f" && return 0
+  done <<< "$(svc_files)"
+  if [ -z "${ROOT:-}" ] && command -v systemctl >/dev/null; then
+    systemctl cat denis 2>/dev/null | names_database_url - && return 0
+  fi
+  # the program's own answer. The program folder belongs to the service user, so as root it is run only as that user
+  # (never as root); without that user nothing is run.
+  for b in "${ROOT:-}$BIN" "${ROOT:-}$LINK"; do
+    [ -x "$b" ] || continue
+    if [ "$(id -u)" = 0 ]; then
+      id "$SERVICE_USER" >/dev/null 2>&1 || continue
+      as_user "$b" --version 2>/dev/null | grep -qF "(postgresql)" && return 0
+    else
+      "$b" --version 2>/dev/null | grep -qF "(postgresql)" && return 0
+    fi
+  done
+  return 1
+}
+
+unit_has_database_url() {  # the files this installer rewrites (the unit, the OpenRC script) name a database address
+  [ -f "${ROOT:-}$UNIT" ] && names_database_url "${ROOT:-}$UNIT" && return 0
+  [ -f "${ROOT:-}$OPENRC_INIT" ] && names_database_url "${ROOT:-}$OPENRC_INIT" && return 0
   return 1
 }
 
@@ -490,6 +532,12 @@ fi
 if [ "$AGENT" = 0 ] && [ "$UNINSTALL" = 0 ] && [ "$POSTGRES" = 0 ] && [ "$STANDARD" = 0 ] && installed_is_postgres; then
   die "this machine runs the PostgreSQL build of DENIS (for high availability). Run the installer again with --postgres to update it, or with --standard to really switch to the standard build (it refuses --database-url, so a node on PostgreSQL would not start)."
 fi
+if [ "$AGENT" = 0 ] && [ "$UNINSTALL" = 0 ] && unit_has_database_url; then
+  die "the service file ($UNIT or $OPENRC_INIT) names the PostgreSQL database itself. This installer rewrites that file, so DENIS would start without its database. Move the address into $ENVFILE as DENIS_DATABASE_URL=... (the password as DENIS_DATABASE_PASSWORD=...), take --database-url out of the service file, then run the installer again. See docs/high-availability.md."
+fi
+if [ "$AGENT" = 1 ] && [ "$UNINSTALL" = 0 ] && master_present && installed_is_postgres; then
+  die "this machine runs the PostgreSQL build of the DENIS master. The agent shares its program, and installing it would replace that program with the standard build, which cannot use the database. Install the agent on a different machine."
+fi
 if [ "$AGENT" = 1 ]; then
   [ -z "$PORT" ] && [ "$LOCAL_ONLY" = 0 ] || die "--port and --local-only belong to the master: an agent opens no port"
   if [ "$UNINSTALL" = 0 ]; then
@@ -560,10 +608,6 @@ svc_status_line() {  # the "Service / Logs" hint for service $1
     openrc) echo "Service:  rc-service $1 status     Logs:  tail -f $LOGDIR/$1.log" ;;
     *) echo "No service was set up (--no-service)" ;;
   esac
-}
-as_user() {  # run a command as the service user (runuser is missing on Alpine)
-  if command -v runuser >/dev/null; then runuser -u "$SERVICE_USER" -- "$@"
-  else su -s /bin/sh "$SERVICE_USER" -c "$(printf '%q ' "$@")"; fi
 }
 create_user() {
   if command -v useradd >/dev/null; then
@@ -772,6 +816,16 @@ mkdir -p "$LIBDIR"  # a fresh install: $UPGRADE is 0, so the block above never r
 install -m 755 "$TMP/denis-$TARGET" "$BIN"
 chown -R "$SERVICE_USER":"$SERVICE_USER" "$LIBDIR"
 ln -sf "$BIN" "$LINK"
+if [ "$AGENT" = 0 ]; then
+  # which build the master runs, root-owned (the next run of this installer reads it instead of running the program)
+  mkdir -p "$(dirname "$FLAVOUR_FILE")"
+  if [ "$POSTGRES" = 1 ]; then echo postgresql; else echo standard; fi > "$FLAVOUR_FILE"
+  chown root:root "$FLAVOUR_FILE" 2>/dev/null || true
+  chmod 644 "$FLAVOUR_FILE"
+fi
+if [ "$POSTGRES" = 1 ] && ! command -v pg_dump >/dev/null; then
+  warn "pg_dump is not installed: the PostgreSQL build backs the database up with it before every update, so an update from the console stops at the backup without it. Install the PostgreSQL client of your server's version (Alpine: apk add postgresql-client; Debian/Ubuntu: apt install postgresql-client)."
+fi
 
 # Capture needs CAP_NET_RAW and CAP_NET_ADMIN. systemd and OpenRC 0.45+ give them to the service user's
 # process (ambient), which leaves the file plain so the console can still update it. Without a service, or

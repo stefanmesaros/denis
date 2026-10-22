@@ -9,7 +9,7 @@ version is in [Deployment › PostgreSQL and a second node](deployment.md#postgr
 
 * High availability needs PostgreSQL. A SQLite install is never a pair.
 * It needs the PostgreSQL build of DENIS. A build without it refuses `--database-url`. No self-build is needed: a ready-made PostgreSQL build is attached to every release from 4.2.1 (`denis-pg-x86_64-unknown-linux-musl`, `denis-pg-aarch64-unknown-linux-musl`): static, signed like the others, so nothing needs to be built. `sudo bash install.sh --postgres` installs it, and it updates itself to the PostgreSQL build of each new release. `denis --version` ends with `(postgresql)` when it is that build.
-  Building it yourself (`cargo build --release --features postgres`) still works; a build from 4.2.1 source cannot update itself on a platform that has no PostgreSQL release file. **If you built the PostgreSQL program by hand from 4.2.0 or earlier, do not use the console Update button** (the old program does not know the flavour and would take the standard build, which refuses `--database-url`): run `sudo bash install.sh --postgres` once instead. Running the installer again on a PostgreSQL installation without `--postgres` stops with a message; `--standard` is the explicit way back to the standard build.
+  Building it yourself (`cargo build --release --features postgres`) still works; a build from 4.2.1 source cannot update itself on a platform that has no PostgreSQL release file. **If you built the PostgreSQL program by hand from 4.2.0 or earlier, do not use the console Update button** (the old program does not know the flavour and would take the standard build, which refuses `--database-url`): run `sudo bash install.sh --postgres` once instead. Running the installer again without `--postgres` stops with a message when it finds a PostgreSQL installation: one it installed with `--postgres`, a program that says `(postgresql)`, or a database address in `/etc/denis/env` or in the service (unit, drop-in, OpenRC script or `/etc/conf.d/denis`). `--standard` is the explicit way back to the standard build. Keep the database address in `/etc/denis/env` (`DENIS_DATABASE_URL`, the password in `DENIS_DATABASE_PASSWORD`): the installer rewrites the service file, and stops while that file names the database itself. The PostgreSQL build backs the database up with `pg_dump` before every update: install the PostgreSQL client of your server's version (Alpine: `apk add postgresql-client`; Debian/Ubuntu: `apt install postgresql-client`).
 * Both nodes' `--database-url` point at the same database. The password goes only in `DENIS_DATABASE_PASSWORD`, never in
   the URL or on the command line.
 * **Not together with tenants.** An install with tenants besides `default` refuses to start with `--database-url`
@@ -180,10 +180,16 @@ Run this once after you set the pair up, and again after any change to either no
 4. **Check through the shared address**, not the node directly: open the console through the virtual address. This tests
    your load balancer, not only the election.
 5. **Check that the stopped node comes back as standby.** DENIS does not restart itself: a node that loses leadership
-   exits, and your service manager must start it again. With systemd:
+   exits, and your service manager must start it again. Put the database address in `/etc/denis/env`, the settings
+   file the service reads (this is the supported place: the installer rewrites the service file on every run and refuses
+   to run while that file names the database itself):
+   ```
+   DENIS_DATABASE_URL=postgres://denis@db.example/denis
+   DENIS_DATABASE_PASSWORD=...
+   ```
+   and let systemd restart the node (`sudo systemctl edit denis`):
    ```ini
    [Service]
-   ExecStart=/usr/local/bin/denis run --database-url postgres://... --listen 0.0.0.0:8443 ...
    Restart=always
    RestartSec=2
    ```

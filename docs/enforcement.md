@@ -324,8 +324,11 @@ ever had. An address it was seen with only more than a day before its own newest
 the same site has been seen with since, no longer refuses: the plan carries the warning `protected_earlier` instead,
 which a person ticks after checking that the protected device no longer uses it; automation never acts on it. A
 link-local IPv6 address (`fe80::`) never loses its protection this way. A gateway's address DENIS found (manual,
-confident or likely) and every router address a DHCP server told its clients in the last two weeks always refuse,
-whoever was seen with them last.
+confident or likely) always refuses, whoever was seen with it last, when something besides DHCP replies shows it (a
+person confirmed it, the capturing host routes through it, it carries internet traffic, or a polled switch routes
+there). An address that only DHCP replies name as the router (in the last two weeks) carries the warning
+`protected_dhcp_router` instead: a person ticks it after checking that it is not the gateway; automation never acts
+on it. When the gateway data cannot be read, the action is refused (4.2.2).
 
 **The connector's own device (4.2.1).** A connector never acts on the device it manages: the address it is set up to
 reach, every address its device lists itself over an authenticated connection, every hardware address of the device,

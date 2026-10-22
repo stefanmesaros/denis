@@ -4,6 +4,19 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 4.2.2: Fixes from the final review of 4.2.1
+
+- Palo Alto: a record is closed as resolved by hand, or as not applied after an interrupted start, only when DENIS's tag is really gone from the firewall. When the group lists a device later than expected, its open sessions are ended once more before the block counts as in force.
+- Respond and automation act on a device's IPv4 address when it has one; its IPv6 address is used only for a device without a current IPv4 address.
+- MikroTik: End sessions reports a refusal from the router instead of saying the sessions were already gone.
+- Block guard: an address that only DHCP replies name as the router now asks a person to confirm (automation does not act on it), and gateway data that cannot be read refuses the action.
+- Installer: a PostgreSQL installation is recognised more reliably, including one whose database address is in the service settings. The installer stops when the service file itself names the database (keep it in /etc/denis/env), and it warns when pg_dump is missing. An agent is no longer installed over the program of a PostgreSQL master on the same machine.
+- Updates on PostgreSQL: the console says when pg_dump is missing instead of failing at the backup.
+- denis user scrub-backups no longer names PostgreSQL backups made after the secrets were sealed as holding readable secrets.
+- Connection stability test: with ping switched off, with --passive-only or on a console that does not capture itself, nothing is sent and the result covers the browser leg only, never a false 100% loss.
+- The API description now names the MSP operator sign-in, lets an API token read its own identity and says when a request can raise its MSP class.
+- Devices: the search and the IP column of the device list now include the addresses of interfaces merged into a device, so a firewall seen under two addresses is found by either.
+
 ## 4.2.1: More equipment verified on real hardware, an OpenAPI description and a ready-made PostgreSQL build
 
 - New: an OpenAPI description of the API, served by the console to signed-in users and attached as a file to every release.

@@ -97,7 +97,7 @@ command that opens the port; it does not run it.
 | `--dry-run` | download and verify, change nothing (no root needed): a safe way to try it |
 | `--no-service` | install the program, the `denis` user, `/etc/denis/env` and the data folder, but no service (see below) |
 | `--static` | take the static build even on Debian or Ubuntu |
-| `--postgres` | take the PostgreSQL build (`denis-pg-*`, static; release 4.2.1 or newer; master only), for [high availability](high-availability.md). Required when running the installer again on a PostgreSQL installation (also to move one built by hand from 4.2.0 or earlier: do not use the console Update button for that) |
+| `--postgres` | take the PostgreSQL build (`denis-pg-*`, static; release 4.2.1 or newer; master only), for [high availability](high-availability.md). Required when running the installer again on a PostgreSQL installation (also to move one built by hand from 4.2.0 or earlier: do not use the console Update button for that). Keep the database address in `/etc/denis/env` (`DENIS_DATABASE_URL`), not in the service file, which the installer rewrites. Updates need `pg_dump` (the PostgreSQL client of your server's version) |
 | `--standard` | take the standard build although a PostgreSQL build is installed (it refuses `--database-url`) |
 | `--no-signature-check` | check the SHA-256 only, for a system whose `openssl` is too old for Ed25519 |
 | `--uninstall` | stop and remove the program and service, **keep the data** |
@@ -129,7 +129,7 @@ appears. On other systems DENIS stops with "address not available".
 header) and **installs it itself** with one click — no root needed, because `/usr/local/lib/denis` is owned by the
 `denis` user (`ReadWritePaths` is the one exception `ProtectSystem=strict` allows). It backs the database up to
 `/var/lib/denis/backups/` first and keeps the old program as `/usr/local/lib/denis/denis.previous`. Prefer to control
-it yourself, or air-gapped: run the installer again (`sudo bash install.sh`, after downloading the newest one; on a PostgreSQL installation add `--postgres`, without it the installer stops instead of replacing the build) instead —
+it yourself, or air-gapped: run the installer again (`sudo bash install.sh`, after downloading the newest one; on a PostgreSQL installation add `--postgres`; without it the installer stops instead of replacing the build when it recognises the installation, see [High availability](high-availability.md)) instead —
 same backup, same result. An installation from before this existed (the program straight at `/usr/local/bin/denis`,
 owned by root, not writable by the service user) needs `sudo bash install.sh` run **once** to move it into the new
 layout (it also updates the systemd unit's `ExecStart`/`ReadWritePaths`, which only root can do); every update after

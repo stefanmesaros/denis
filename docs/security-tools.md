@@ -130,8 +130,9 @@ the values already in force). The log and the Health page say so until the setti
 
 The **certificate and web page probe** (own opt-in switch, Settings → Network → Certificates and web pages) obeys the
 port scan switch: it does not connect to a host on a network whose port scan is off. The **connection stability
-test** sends no pings when ping is off for the network of its target (the gateway or the public resolver); the test
-then reports an empty WAN leg.
+test** sends no pings when ping is off for the network of its target (the gateway or the public resolver), with
+`--passive-only`, or on a console that does not capture itself (a viewer, or a tenant's console fed by agents); the
+test then reports an empty WAN leg and rates the browser leg alone.
 
 ### What the switches do not cover
 

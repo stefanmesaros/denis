@@ -119,11 +119,17 @@
         "in": "cookie",
         "name": "denis_session",
         "type": "apiKey"
+      },
+      "operator": {
+        "description": "An MSP operator's own sign-in (POST /api/operator/login), for the /api/operator/ routes only. A request that changes anything with it also needs the header `X-Denis: 1`.",
+        "in": "cookie",
+        "name": "denis_operator",
+        "type": "apiKey"
       }
     }
   },
   "info": {
-    "description": "Generated from the tables that enforce access. The x-denis-* fields on each operation state the lowest role, whether an API token may call it, the MSP remote class and whether it is refused on a customer console of a multi-customer install. Request and response bodies are generic in this version; docs/api.md is the prose reference.",
+    "description": "Generated from the tables that enforce access. The x-denis-* fields on each operation state the lowest role, whether an API token may call it, the MSP remote class (and the class its body can raise it to) and whether it is refused on a customer console of a multi-customer install. Request and response bodies are generic in this version; docs/api.md is the prose reference.",
     "title": "DENIS API",
     "version": "VERSION"
   },
@@ -3944,6 +3950,7 @@
           "assets"
         ],
         "x-denis-msp-class": "configure",
+        "x-denis-msp-class-max": "admin",
         "x-denis-role": "editor",
         "x-denis-token": true
       }
@@ -4471,6 +4478,9 @@
         },
         "security": [
           {
+            "bearer": []
+          },
+          {
             "cookie": []
           }
         ],
@@ -4480,7 +4490,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "any",
-        "x-denis-token": false
+        "x-denis-token": true
       }
     },
     "/api/auth/methods": {
@@ -11112,6 +11122,7 @@
           "identity"
         ],
         "x-denis-msp-class": "configure",
+        "x-denis-msp-class-max": "admin",
         "x-denis-role": "admin",
         "x-denis-token": false
       }
@@ -18896,14 +18907,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "POST /api/operator/logout",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -18941,14 +18956,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "GET /api/operator/me",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -18986,14 +19005,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "GET /api/operator/mfa",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19046,14 +19069,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "POST /api/operator/mfa/passkey/begin",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19106,14 +19133,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "POST /api/operator/mfa/passkey/finish",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19166,14 +19197,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "POST /api/operator/mfa/totp/begin",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19226,14 +19261,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "POST /api/operator/mfa/totp/finish",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19284,14 +19323,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "DELETE /api/operator/mfa/{id}",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19329,14 +19372,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "GET /api/operator/msp",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19389,14 +19436,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "POST /api/operator/msp/customers",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19447,14 +19498,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "DELETE /api/operator/msp/customers/{id}",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       },
       "put": {
@@ -19513,14 +19568,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "PUT /api/operator/msp/customers/{id}",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19581,14 +19640,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "PUT /api/operator/msp/customers/{id}/members",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19641,14 +19704,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "POST /api/operator/msp/key/rotate",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19701,14 +19768,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "PUT /api/operator/msp/portal",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19746,14 +19817,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "GET /api/operator/overview",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19791,14 +19866,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "GET /api/operator/remote",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19851,14 +19930,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "POST /api/operator/remote/open",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19911,14 +19994,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "POST /api/operator/stepup",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -19971,14 +20058,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "POST /api/operator/stepup/begin",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -20031,14 +20122,18 @@
             "$ref": "#/components/responses/E429"
           }
         },
-        "security": [],
+        "security": [
+          {
+            "operator": []
+          }
+        ],
         "summary": "PUT /api/operator/tenant",
         "tags": [
           "operator"
         ],
         "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
-        "x-denis-role": "public",
+        "x-denis-role": "operator",
         "x-denis-token": false
       }
     },
@@ -20642,6 +20737,7 @@
           "policies"
         ],
         "x-denis-msp-class": "configure",
+        "x-denis-msp-class-max": "enforce",
         "x-denis-role": "admin",
         "x-denis-token": false
       }
@@ -20774,6 +20870,7 @@
           "policies"
         ],
         "x-denis-msp-class": "configure",
+        "x-denis-msp-class-max": "enforce",
         "x-denis-role": "admin",
         "x-denis-token": false
       }

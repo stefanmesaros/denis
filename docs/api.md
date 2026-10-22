@@ -20,7 +20,7 @@ routes are for a signed-in person only (below).
   (`AUTOMATIC ENFORCEMENT`), letting Autopilot block (`LET AUTOPILOT BLOCK`) and making a rule act by itself
   (`go-live`, `AUTOMATIC ENFORCEMENT`) need a signed-in administrator who may act, the password and the phrase.
   Switching them off never needs a password.
-* **New in 4.3**: an [OpenAPI description](#openapi) of this API. **Planned**: narrower tokens (limited to chosen
+* **New in 4.2.1**: an [OpenAPI description](#openapi) of this API. **Planned**: narrower tokens (limited to chosen
   route groups). This page stays the prose reference; the [Access matrix](#access-matrix) says who may call what.
 
 ## Stability
@@ -134,7 +134,6 @@ are additive (see [Stability](#stability)).
   `POST /api/update/auto/advisory`; `GET /api/update` adds `auto` and, on `latest`, `security`;
   `GET /api/agent-updates` adds `mode_saved` and the mode `security`). An apply or release of an enforcement action
   answers `409` with the code `updating` in the seconds an update replaces the program.
-* New: `GET /api/openapi.json`, the OpenAPI description of the API.
 * **Retired**: `POST /api/nac/plan` and `POST /api/nac/apply` answer `410 {"code": "retired"}` (after the usual
   checks of who may act). Switch off or move a port through `POST /api/nac/actions/plan` and `/apply` with
   `action: disable_port` or `quarantine`. `POST /api/nac/actions/{id}/restore` and `/check` still work for ports
@@ -153,6 +152,10 @@ are additive (see [Stability](#stability)).
   firewall policies; the PAN-OS connector blocks and quarantines through dynamic address groups and tags; several
   firewall kinds take `routed_networks` (see [Connector configuration](#connector-configuration)).
 
+**4.2.1**: new `GET /api/openapi.json`, the [OpenAPI description](#openapi) of the API (a 4.2.0 console answers
+`404`). **4.2.2**: the description names the operator routes' own sign-in (`operator`), lets a token read
+`GET /api/auth/me` and adds `x-denis-msp-class-max`.
+
 ## OpenAPI
 
 `GET /api/openapi.json` returns an OpenAPI 3.1 description of every route of the console. It needs a signed-in
@@ -160,15 +163,20 @@ user (a session or a viewer API token), like `/docs`; it is not public. The same
 as `openapi.json`, with `info.version` set to the release version. It is not listed in `SHA256SUMS` (that list
 holds the programs and the installer); the release also carries `openapi.json.sha256`.
 
-The description is generated from the tables that enforce access, so it cannot disagree with them. Each operation
+The description is generated from the tables that enforce access, and tests hold it to them. Each operation
 carries these extensions:
 
-* `x-denis-role`: the lowest role (`viewer`, `editor` or `admin`; `public` for routes that need no sign-in).
-* `x-denis-token`: `true` when an API token may call the operation.
+* `x-denis-role`: the lowest role (`viewer`, `editor` or `admin`; `any` for the account pages under `/api/auth/`,
+  which every signed-in user has; `operator` for the `/api/operator/` routes, which need an MSP operator's own
+  sign-in, the `denis_operator` cookie of the `operator` security scheme; `public` for routes that need no sign-in).
+* `x-denis-token`: `true` when an API token may call the operation (of the account pages only `GET /api/auth/me`).
 * `x-denis-msp-class`: the class when an MSP calls it over the management channel (Read, Configure, Admin, Enforce
-  or Never).
+  or Never). `x-denis-msp-class-max`: the class the request body can raise it to (a policy update that switches on
+  automatic enforcement is Enforce; a device-link edit or an unbinding is Admin). Creating an administrator is
+  checked separately.
 * `x-denis-install-wide`: the operation is refused on a customer console of a multi-customer install.
-* `x-denis-person`: only a person's own sign-in may call it (an MSP over the management channel may not).
+* `x-denis-person`: a person must call it, never an API token: a signed-in administrator, or an MSP operator over the
+  management channel with the Full level, the ticked box and a fresh second factor.
 
 Request and response bodies are generic objects in this version; the tables below stay the reference for fields.
 
