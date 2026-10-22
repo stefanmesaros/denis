@@ -4,6 +4,12 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 4.2.3: A computer is no longer taken for the gateway, and refusals name the device
+
+- Fix: a computer that only exchanges internet traffic is no longer taken for the network's gateway. Traffic alone now supports a gateway only when DHCP, a route or a person already names it, and traffic to another private network is no longer read as a next hop.
+- A gateway that DENIS only guessed (named by DHCP replies, never confirmed) now gives a warning a person ticks, and automation does not act on it. A confirmed gateway, or one with firm evidence (a route, a polled routing switch), is still refused with no way around it.
+- The refusal and the warning now say which device and which address caused them.
+
 ## 4.2.2: Fixes from the final review of 4.2.1
 
 - Palo Alto: a record is closed as resolved by hand, or as not applied after an interrupted start, only when DENIS's tag is really gone from the firewall. When the group lists a device later than expected, its open sessions are ended once more before the block counts as in force.
