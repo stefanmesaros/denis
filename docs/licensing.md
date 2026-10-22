@@ -1,9 +1,8 @@
 # Licensing
 
-DENIS is no longer open source under the MIT/Apache-2.0 terms it used before v1.0.0. The Community
-edition is distributed as pre-built, signed binaries — the source code itself is maintained
-privately, so this is neither open source nor source-available. The full terms are in `LICENSE`, in
-the root of the repository; this page is a summary, not a substitute for reading it.
+The Community edition is distributed as pre-built, signed binaries under the DENIS Community License.
+The full terms are in `LICENSE`, in the root of the repository; this page is a summary, not a substitute for
+reading it.
 
 ## Community edition
 

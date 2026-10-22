@@ -2,7 +2,7 @@
 
 **Know every device. Understand every connection.**
 
-**NDR and NAC, and still a network visibility and security monitoring platform**; for small businesses, mid-size businesses, MSPs, **OT and IT** — passive-first, self-hosted, one Rust binary. Detection is the main product; response and access control work through equipment you already own, are off by default and, apart from Cisco Catalyst switch control, are experimental or only partly tested.
+**Self-hosted network visibility and detection (NDR) for IT, IoT and OT**, with optional, administrator-approved response (NAC-style containment) through the switches and firewalls you already own. Passive-first, no endpoint agents, one Rust binary, every score explained.
 
 [![CI](https://github.com/stefanmesaros/denis/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/stefanmesaros/denis/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/stefanmesaros/denis)](https://github.com/stefanmesaros/denis/releases/latest)
@@ -17,6 +17,15 @@ Autopilot block (level (c)) are experimental and off by default. Otherwise it is
 those things: an always-current inventory of what is actually on your network, who each device talks to, and an
 explainable alert the moment that changes. A UTM controls what crosses your perimeter; DENIS shows what is happening *inside* it,
 including the east-west and OT/industrial traffic a perimeter box was never in a position to see.
+
+> **What DENIS can and cannot see.** DENIS only sees the traffic its sensor receives. Device-to-device (east-west) and OT
+> traffic need a mirror/SPAN port or a tap and `--flows` (or `--profile ot`). Active discovery (ARP sweep, ping, light
+> port scan) is on by default and can be switched off per network or with `--passive-only`; industrial devices are never
+> probed. Response is off by default and a person approves every action. Verified on lab equipment: Cisco Catalyst
+> 2960-X, FortiGate 40F, Palo Alto PA-220, MikroTik E50UG and UniFi Cloud Gateway Ultra, for the actions listed in
+> [Enforcement](docs/enforcement.md); all other connectors and actions are experimental. DENIS is not a replacement for
+> 802.1X NAC, EDR, a firewall or a SIEM. Free signed binaries for personal, non-commercial use up to 100 devices;
+> organisations need a licence ([License](#license)).
 
 ![The DENIS console: the Dashboard](docs/img/dashboard.png)
 
@@ -389,8 +398,7 @@ the real service it targets (only against fixtures and, for the cloud ones, a re
 
 ## License
 
-DENIS is **not** OSI-approved open source. The Community edition is distributed as pre-built, signed binaries —
-the source code itself is maintained privately — under the terms of the **DENIS Community License**.
+The Community edition is distributed as pre-built, signed binaries under the terms of the **DENIS Community License**.
 
 * **Free** for personal, non-commercial use, on a single installation monitoring up to **100 devices**.
 * **Any organisational use** (a business, non-profit, government body or other organisation, regardless of size)
@@ -408,16 +416,17 @@ management of customers' installations from an MSP console (experimental, off un
 docs/msp-management.md). Multi-tenancy shipped in 3.3.0; PostgreSQL and high availability, and the first 16
 enforcement connectors, in 4.0.0. 4.1.1 added a static Linux program for Alpine and any Linux, OpenRC support and fixes;
 4.1.2 added IP fragment reassembly for industrial protocols; 4.1.3 the fixes of the next code review; 4.1.4 the Network
-page, gateway detection, the new Respond menu and the first validation on real equipment (Cisco). Next (4.1.5): more tests
-on real equipment. Still owed before a
+page, gateway detection, the new Respond menu and the first validation on real equipment (Cisco). 4.2 added the Respond menu
+that knows the path, verified actions on FortiGate, Palo Alto, MikroTik and UniFi (see Enforcement) and a fuller network map;
+4.2.1 an OpenAPI description and a ready-made PostgreSQL build. Still owed before a
 commercial launch: an independent penetration test and verification on real equipment, listed in ROADMAP.md. A
 packaged Windows collector, Qualys import and SAML are also open. OIDC single sign-on is built, but its exchange with an
 identity provider has not been verified against a real provider yet.
 
-## Contributing
+## Feedback and testing
 
-Contributions are welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). See
-[Development](#development) below for the module map.
+Bug reports, questions and test results are welcome: see [docs/community-testing.md](docs/community-testing.md) and
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Security reporting
 
@@ -430,99 +439,3 @@ issue: [SECURITY.md](SECURITY.md).
 * **[Install it](#quick-start)** — one script for a permanent Linux service, or a single binary anywhere else.
 * **[Read the docs](docs/quickstart.md)** — a guided tour of every page, with screenshots.
 * **[Open an issue](https://github.com/stefanmesaros/denis/issues)** — bugs, questions, or "how would I use this for…".
-
----
-
-## Development
-
-```
-src/parse.rs        Ethernet frame -> observations (pure, fuzzed)
-                    (module root; the decoders are in src/parse/: dns, industrial, flows, discovery)
-src/ipv6.rs         IPv6 header + Neighbor Discovery/echo-reply parser; opt-in (--ipv6/--ipv6-subnet, see IPV6.md)
-src/ot.rs           industrial protocol + LLDP/CDP/PROFINET decoders (pure, tested from the specs)
-src/flow.rs         per-window aggregation of flows and conversations (capture thread)
-src/capture.rs      libpcap thread, kernel filter, throttling
-src/active.rs       ARP sweep, ICMP, TCP scan (polite; never used on industrial devices)
-src/inventory.rs    observations -> assets, ARP-conflict signals, deltas for agents
-                    (module root; the code is in src/inventory/: table, evidence, claims, persistence, merge)
-src/fingerprint.rs  vendor lookup and the explainable device-type/OS guesser
-src/detect.rs       baselines, all rules, scoring, learning periods, communications matrix
-src/risk.rs         per-device risk score
-src/rules.rs        the rules as the console shows and tunes them
-src/demo.rs         built-in demo data (a fictional company)
-src/compliance.rs   coverage and standards mapping (CIS / NIST CSF / IEC 62443 / NIST 800-82 / ISO 27001 / NIS2 / DORA / PCI DSS / HIPAA / SOC 2 / CMMC)
-src/reports.rs      saved reports and their schedule
-src/snmp.rs         SNMP v2c client (BER, GET/GETBULK walks)
-src/topology.rs     switches over SNMP: ports, LLDP neighbours, MAC-to-port; the physical map
-src/banners.rs      service banners (SSH/FTP/SMTP/HTTP, Telnet/MySQL/MariaDB/SMB/MSSQL) and the product and version in them
-src/vulndata.rs     end-of-support dates and known-exploited ranges (bundled, live CISA/NVD/EPSS refresh, custom CVEs)
-src/trends.rs       historical trend samples and the Top talkers leaderboard (pure functions)
-src/docs.rs         the documentation served inside the console
-ui/i18n.js          language handling; texts in tools/i18n/*.tsv -> ui/i18n/*.json (python3 tools/i18n/build.py)
-src/metrics.rs      Prometheus exposition
-src/threat.rs       blocklist for the threat_list_match rule
-src/findings.rs     standing weaknesses and housekeeping problems, with fixes
-src/tracking.rs     validated asset edits, CSV import, warranty arithmetic, icons
-src/passkey.rs      WebAuthn/passkey verification (ES256, strict)
-src/auth.rs         users, sessions, per-agent tokens (Argon2id, hashed tokens, lock-out)
-src/web/            API + embedded UI, auth middleware, security headers (mod.rs routes/reads, common.rs shared with web_*)
-src/web_admin.rs    state-changing handlers (session, users, tokens, asset edits, import)
-                    (module root; the code is in src/web_admin/: session, users, system, rules, tokens, assets, risk)
-src/web_*.rs        one handler module per settings area (health, reports, retention, setup, topology, vuln, …)
-src/web_siem.rs     SIEM / log export settings (GET/PUT, a test-send endpoint)
-src/cmdb.rs         CMDB import: Entra ID device objects and Intune managed devices via Microsoft Graph, matched to the register by hostname (see CMDB.md)
-src/web_cmdb.rs     CMDB import settings, on-demand sync, imported device list (GET/PUT/POST)
-src/ad.rs           CMDB import, third source: on-premises Active Directory computer objects over LDAP/LDAPS (see CMDB.md)
-src/web_ad.rs       Active Directory import settings, on-demand sync (GET/PUT/POST)
-src/jamf.rs         CMDB import, fourth source: Jamf Pro computer inventory (see CMDB.md)
-src/web_jamf.rs     Jamf Pro import settings, on-demand sync (GET/PUT/POST)
-src/azure_cloud.rs  CMDB import, cloud: Azure VMs via Resource Graph (see CMDB.md); web_azure_cloud.rs its settings/sync
-src/aws_cloud.rs    CMDB import, cloud: EC2 instances, hand-rolled SigV4 signing; web_aws_cloud.rs
-src/gcp_cloud.rs    CMDB import, cloud: Compute Engine instances, RFC 7523 JWT-bearer auth; web_gcp_cloud.rs
-src/vulnscan.rs     Nessus / Tenable.io scan-finding import (its own table, matched by IP then hostname); web_vulnscan.rs
-src/sso.rs          single sign-on: OIDC authorization-code flow with PKCE (see SSO.md)
-src/web_sso.rs      SSO settings, the redirect/callback endpoints
-src/totp.rs         authenticator-app (TOTP) second step and recovery codes; web_totp.rs
-src/access.rs       per-user, per-site read/write/none grants
-src/ai.rs           the optional AI layer: providers, prompts, strict response parsing (see AI.md); web_ai.rs its endpoints
-src/ai_summary.rs   the dashboard AI summary's background job (never triggered by a page load)
-src/ai_usage.rs     per-provider call/token counters for Settings → AI → Usage
-src/rule_suggest.rs the Rules page's proactive "a rule would suit your traffic" nudge (no AI call)
-src/ipenrich/       GeoIP / ASN / reverse-DNS enrichment: cache, DB-IP auto-update, classification (see IP_ENRICHMENT.md)
-src/retention.rs    the Settings → Data retention pruning period
-src/license.rs      Community-edition cap and commercial license verification (license_key.rs, license_alerts.rs)
-src/msp_relay.rs    `denis run --report-to`: a customer master relaying devices and alerts to an MSP master
-src/msp_*.rs        experimental remote management: channel protocol, hub, proxy, customer gate and client (docs/msp-management.md)
-src/backups.rs      scheduled database backups, MSP upload of backups
-src/health.rs       the Health page's own checks (capture drops, disk, sweep lag, backup age)
-src/ingest.rs       master side of the agent protocol (per-agent tokens, idempotent batches)
-                    (module root; the code is in src/ingest/: apply, validate, msp, backup, http)
-src/agent.rs        agent reporter
-src/tls.rs          built-in HTTPS (rustls) for the console and the agent port; certs.rs the local CA
-src/update.rs       one-click self-update: signed release check, download, verify, backup, atomic swap, rollback
-                    (module root; the code is in src/update/: verify, download, install, guard, ...)
-src/update_mirror.rs the fallback download host: signed manifest, restricted fetch
-src/agent_update.rs updating remote agents: modes, requests, the agent's side
-src/agent_builds.rs the master hands a verified build to its own agents (per tenant)
-src/engine.rs       collector + detector + web wiring (`run`, `run_agent`)
-                    (module root; the code is in src/engine/: shared, collector, tenants, run, agent_run)
-src/store/          `Store` trait (split into focused sub-traits) + SQLite (schema v19, transactional migrations)
-src/branding.rs     white-label settings and safe logo handling
-src/channels.rs     notification channels (Slack/Teams/Discord/PagerDuty/Pushover/ntfy/e-mail/Jira/ServiceNow/webhook)
-src/syslog.rs       log export: syslog (CEF/LEEF/JSON) or Elasticsearch/OpenSearch (ECS over the Bulk API)
-src/ja3.rs          JA3/JA3S TLS client & server fingerprinting
-src/sink.rs         OpenObserve exporter (cursor-based, at-least-once)
-src/report.rs       CSV / printable HTML (escaping, formula-injection guard)
-ui/                 the web UI (plain JS, no build step, strict CSP)
-docs/               user documentation
-tests/              end-to-end replay tests
-```
-
-```bash
-cargo test && cargo clippy --all-targets && cargo audit
-```
-
-Code is commented for maintainers: module headers state each module's purpose and invariants (what is trusted,
-what is bounded), and non-obvious decisions say *why*.
-
-aa
