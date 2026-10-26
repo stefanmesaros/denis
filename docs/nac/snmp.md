@@ -24,6 +24,9 @@ off too: the dialog lists what DENIS knows about it before you confirm.
 
 ## Quick setup: Cisco Catalyst 2960-X
 
+**Verified with:** Cisco Catalyst 2960-X, IOS 15.2, SNMPv3 `authPriv` (SHA-1, AES-128) and SNMPv2c with a write
+community; switching a port off and moving it to the quarantine VLAN were verified in the owner's lab.
+
 Tested on a Catalyst WS-C2960X-48TS-L with IOS 15.2(7)E4, SNMPv2c and SNMPv3 (SHA-1, AES-128, `authPriv`). Other
 Catalyst models and IOS 15.x releases use the same MIBs and are expected to work; they have not been tried.
 
@@ -106,12 +109,22 @@ through another switch needs that switch added too. Traffic does not have to pas
 **If something fails**
 
 * *The quarantine move is refused by the switch, or a Read now error says the write was refused:* the write view must
-  include `1.3.6.1.4.1.9.9.68.1.2.2.1.2` (`vmVlan`) as well as `ifAdminStatus`; check `show snmp group` and the view lines.
+  include `1.3.6.1.4.1.9.9.68.1.2.2.1.2` (`vmVlan`, `vmMembershipEntry.2`) as well as `ifAdminStatus`
+  (`1.3.6.1.2.1.2.2.1.7`). A write view with only `ifAdminStatus` switches ports off but fails every quarantine move.
+  Check `show snmp group` (which view the write group uses) and `show snmp view | include DENIS`.
+* *Disable port and the quarantine move are missing from the Respond menu:* the switch has no write credential in DENIS.
+  With SNMPv2c the port actions need the **SNMP write community**; without it they simply do not appear, with no error.
 * *"The switch rejected the authentication":* the authentication protocol on the switch and in DENIS must be the same. IOS
   15.x: SHA-1 and AES-128 only. A wrong **privacy** password usually gives no answer at all rather than an error.
 * *"No answer from the device":* UDP 161 from the DENIS server, the access list, the user name or community.
-* *Devices in VLAN 20 are not placed:* with SNMPv3 the group needs the `context vlan- match prefix` line above; with v2c
-  the per-VLAN read uses `<community>@<vlan>`. Press **Read now** and look at the switch card.
+* *Devices in VLAN 20 are not placed:* with SNMPv3 the read group needs the
+  `snmp-server group DENIS-RO v3 priv context vlan- match prefix read DENIS-READ ...` line above; with v2c the per-VLAN
+  read uses `<community>@<vlan>`. Press **Read now** and look at the switch card.
+* *The switch card names VLANs that did not answer:* a VLAN with no port up has no forwarding table on IOS and stays
+  silent (`show spanning-tree vlan 20` says the instance does not exist); that is normal. DENIS reads the other VLANs, and
+  in 4.2.4 refuses a port action only on a port that carries a VLAN it could not read.
+* The full table (text on the switch card, cause, check, fix) with the `show` commands and an `snmpwalk` test is in
+  [Switches: troubleshooting a Cisco switch](../switches.md#troubleshooting-a-cisco-switch).
 * *A port is refused:* the port DENIS or the gateway is behind, the way to the switch itself, `Fa0`, a mirror port; for the
   VLAN move also a trunk, an EtherChannel member, more than one device, a voice VLAN, 802.1X or MAC authentication. The
   plan names the reason. An uplink, a trunk, an EtherChannel member or a port with a CDP neighbour can be switched off
@@ -183,7 +196,8 @@ fewer rows (this switch does).
 1. On the switch, create a **separate write credential**: preferably an **SNMPv3 write user** (see
    [switches.md](../switches.md#snmpv3) and the Cisco IOS steps above), otherwise a separate **write community** (do not
    reuse the read-only polling one). Restrict it to an access list that allows only the DENIS server's address, and, if
-   the switch supports SNMP views, to writing only `ifAdminStatus`.
+   the switch supports SNMP views, to writing only `ifAdminStatus` (on a Cisco switch also `vmVlan`,
+   `1.3.6.1.4.1.9.9.68.1.2.2.1.2`, for the quarantine VLAN move).
 2. *Network → Equipment* → edit the switch → open "Allow DENIS to disable ports on this switch" →
    enter the write user and its passwords (SNMPv3) or the write community (SNMPv2c).
 3. *Settings → Response policy*: turn on "Allow administrators to block devices from DENIS".

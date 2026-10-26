@@ -191,6 +191,64 @@ per-switch setting in the switch form (`cisco_per_vlan`):
 *Automatic* (default), *Always* or *Never*. Other switches are never read this way. Tested on a
 Catalyst WS-C2960X-48TS-L (IOS 15.2(7)E4) with SNMPv2c and SNMPv3.
 
+### Cisco IOS: what the switch needs for port actions
+
+* **SNMPv3:** a write user in a group whose write view contains **both** `ifAdminStatus` (`1.3.6.1.2.1.2.2.1.7`) and
+  `vmVlan` (`1.3.6.1.4.1.9.9.68.1.2.2.1.2`), see [the SNMPv3 steps](#setting-up-snmpv3-on-a-cisco-ios-switch-catalyst-2960-x).
+  With only `ifAdminStatus` in the view, *Disable port* works and *Move port to quarantine VLAN* fails at the switch.
+* **SNMPv2c:** the **SNMP write community** in the switch form (*Allow DENIS to disable ports on this switch*), with a
+  write view that contains the same two objects. **Without the write community the switch offers no port actions at
+  all:** *Disable port* and *Move port to quarantine VLAN* are simply missing from the Respond menu, without an error.
+  If the actions are missing, check the write community first.
+* For the quarantine VLAN, also the VLAN itself and the tick *I tested this VLAN* (see
+  [the response dialog](#the-response-dialog-and-quarantine-by-vlan-41)).
+
+### Cisco IOS: VLANs that stay silent
+
+Some VLANs give no forwarding table even when everything else works. The usual reasons:
+
+* **The VLAN has no active port.** IOS keeps a forwarding table (and a spanning-tree instance) only for a VLAN that has
+  at least one port up in it. A VLAN with no device plugged in, or one that exists only on trunks, answers nothing.
+  `show spanning-tree vlan 20` then says that the instance does not exist. This is normal and nothing to fix.
+* **The VLAN has no SNMP context for DENIS's user.** With SNMPv3 every VLAN is a context `vlan-<n>`, and the read group
+  needs the line `snmp-server group <RO group> v3 priv context vlan- match prefix read <read view>`. Without it every VLAN
+  but VLAN 1 is silent. With SNMPv2c the switch must accept `<community>@<vlan>`.
+
+What DENIS does then: it reads the rest. The VLANs that answered are used as usual, and the switch card names the VLANs
+that did not answer. In 4.2.4 a port action is refused only on a port that carries a VLAN DENIS could not read (DENIS
+cannot tell what is behind it there); every other port of the switch can be switched off or moved as usual.
+
+### Troubleshooting a Cisco switch
+
+Run the switch commands in the switch's privileged mode. In the examples, VLAN 20 stands for the VLAN in question and
+`192.0.2.2` for the switch.
+
+| Text on the Switches card | Cause | Check | Fix |
+|---|---|---|---|
+| "VLANs 20, 30 did not answer their per-VLAN read; the others were read." | The VLANs have no port up, or the read user has no context for them | `show vlan brief` (is the VLAN there, which ports), `show interfaces status` (is any of those ports *connected*), `show spanning-tree vlan 20` (does the instance exist) | No port up: nothing to fix, the VLAN is read once a device is in it. Ports up: add the `context vlan- match prefix` line to the read group (SNMPv3) |
+| "The switch did not answer the per-VLAN reads (VLANs ...)" | No VLAN context works for this user or community | `show snmp group` (the read group needs a second line with `context vlan-`), `show snmp user` (the user is in that group) | Add `snmp-server group <RO group> v3 priv context vlan- match prefix read <read view>`; for SNMPv2c check that the community is accepted with `@<vlan>` (test below) |
+| Disable port and Move port to quarantine VLAN are missing from the Respond menu | No write user (SNMPv3) or no write community (SNMPv2c) in the switch form | The switch form, *Allow DENIS to disable ports on this switch* | Enter the write user or the write community |
+| The quarantine move fails, Disable port works | The write view does not contain `vmVlan` | `show snmp view \| include DENIS` (both `1.3.6.1.2.1.2.2.1.7` and `1.3.6.1.4.1.9.9.68.1.2.2.1.2` must be listed for the write view), `show snmp group` (which view the write group uses) | Add `snmp-server view <write view> 1.3.6.1.4.1.9.9.68.1.2.2.1.2 included` |
+| "The switch rejected the authentication ..." | Protocol or password differs between switch and DENIS | `show snmp user` (authentication and privacy protocol of the user) | IOS 15.2: SHA-1 and AES-128 in DENIS; enter the passwords again |
+| "No answer from the device" | UDP 161 blocked, access list, wrong user or community, wrong privacy password | `show snmp user`, `show snmp group`, the access list named in them | Allow the DENIS server's address in the access list; check the user and the passwords |
+| *Engine ID changed* | The switch was replaced or its SNMP configuration reset | `show snmp engineID` | Confirm the new engine ID on *Network → Equipment* (create the users again if the engine ID was changed on purpose) |
+
+**A test from another machine.** The access list allows only the DENIS server, so run the test there, or add the test
+machine's address to the access list for the test and remove it afterwards. The walk reads the forwarding table of VLAN
+20 (`dot1dTpFdbPort`); a few lines of output mean the VLAN is readable, no output means it is silent:
+
+```
+# SNMPv2c: the read community with @ and the VLAN number
+snmpwalk -v2c -c '<read community>@20' 192.0.2.2 1.3.6.1.2.1.17.4.3.1.2
+# SNMPv3: the same user, the context vlan-20
+snmpwalk -v3 -l authPriv -u denis-ro -a SHA -A '<auth password>' -x AES -X '<privacy password>' -n vlan-20 192.0.2.2 1.3.6.1.2.1.17.4.3.1.2
+```
+
+Do not leave the passwords in the shell history: type them at a prompt or clear the history afterwards.
+
+**Verified with:** Cisco Catalyst 2960-X, IOS 15.2, with SNMPv3 `authPriv` (SHA-1 and AES-128) and with SNMPv2c and a
+write community. Switching a port off and moving a port to the quarantine VLAN were verified in the owner's lab.
+
 ### Undo, drift, and what is announced
 
 * **Enable** (Topology → *Disabled by DENIS*, or the port's row) takes one ordinary confirmation and no password, and
@@ -404,7 +462,8 @@ SHA-1 and AES-128 for it; that is still far better than SNMPv2c.
 
 **Two users, as with the two communities.** The **read user** is used for every poll and needs read access only. The
 **write user** is used only when an administrator disables or enables a port (see [Disabling a port](#disabling-a-port));
-give it write access to `ifAdminStatus` only, and keep it a different user, so that polling never carries write rights.
+give it write access to `ifAdminStatus` only (on a Cisco switch also `vmVlan` for the quarantine VLAN, see below), and
+keep it a different user, so that polling never carries write rights.
 Leave the write user's name empty and DENIS stays read-only on that switch. Port control over SNMPv3 is validated on the
 Catalyst 2960-X (SHA-1, AES-128) and, since 4.2, needs no *Allow experimental actions (lab use)*, like SNMPv2c; other
 switch models stay untested. The same rules as for the communities apply
@@ -446,13 +505,15 @@ ip access-list standard DENIS-SNMP
  permit 192.0.2.10
 !
 snmp-server view DENIS-READ iso included
-snmp-server view DENIS-IFADMIN 1.3.6.1.2.1.2.2.1.7 included
+! write view: ifAdminStatus (switch a port off and on) and vmVlan (move a port to the quarantine VLAN)
+snmp-server view DENIS-WRITE 1.3.6.1.2.1.2.2.1.7 included
+snmp-server view DENIS-WRITE 1.3.6.1.4.1.9.9.68.1.2.2.1.2 included
 !
 ! read group: read-only, authentication and encryption required, also for the per-VLAN contexts
 snmp-server group DENIS-RO v3 priv read DENIS-READ access DENIS-SNMP
 snmp-server group DENIS-RO v3 priv context vlan- match prefix read DENIS-READ access DENIS-SNMP
-! write group: may write only ifAdminStatus (ifAdminStatus is also what the read view shows)
-snmp-server group DENIS-RW v3 priv read DENIS-READ write DENIS-IFADMIN access DENIS-SNMP
+! write group: may write only what the write view contains
+snmp-server group DENIS-RW v3 priv read DENIS-READ write DENIS-WRITE access DENIS-SNMP
 !
 snmp-server user denis-ro DENIS-RO v3 auth sha <auth password> priv aes 128 <privacy password> access DENIS-SNMP
 snmp-server user denis-rw DENIS-RW v3 auth sha <auth password> priv aes 128 <privacy password> access DENIS-SNMP
@@ -461,6 +522,13 @@ snmp-server user denis-rw DENIS-RW v3 auth sha <auth password> priv aes 128 <pri
 Then in DENIS: *Settings* → *Switches (SNMP)* → add or edit the switch → **SNMP version: SNMPv3** → user `denis-ro`,
 level `authPriv`, authentication **SHA-1**, privacy **AES-128**, and the two passwords. For port control, open *Allow
 DENIS to disable ports on this switch* and enter `denis-rw` and its passwords.
+
+**The write view needs both lines.** `1.3.6.1.2.1.2.2.1.7` (`ifAdminStatus`) is what *Disable port* writes;
+`1.3.6.1.4.1.9.9.68.1.2.2.1.2` (`vmVlan`, CISCO-VLAN-MEMBERSHIP-MIB `vmMembershipEntry.2`) is what *Move port to
+quarantine VLAN* writes. A write view with only `ifAdminStatus` lets DENIS switch ports off, and every quarantine move
+fails at the switch. Leave out the second line only if you will never use the quarantine VLAN. `show snmp view | include
+DENIS` shows what each view contains. The second context line of the read group (`context vlan- match prefix`) is what
+lets the read user read the forwarding table of each VLAN; without it only VLAN 1 is read.
 
 Notes: the user lines are not shown in `show running-config` (the keys are kept in a form tied to the switch's SNMP
 engine ID, so changing `snmp-server engineID` invalidates them: create the users again). `show snmp user` lists them.
@@ -479,7 +547,8 @@ The names differ, the pieces are the same:
    `iso` tree).
 3. Allow only the DENIS server's address to use it (an access list or management ACL, where the switch has one).
 4. For port control, create a **second user** mapped to a group with **write** access to `ifAdminStatus`
-   (`1.3.6.1.2.1.2.2.1.7`) only.
+   (`1.3.6.1.2.1.2.2.1.7`) only. The quarantine VLAN move on a switch that is not Cisco writes `dot1qPvid`
+   (`1.3.6.1.2.1.17.7.1.4.5.1.1`), which then belongs in the write view too.
 5. Enter both in DENIS as above, press **Read now**, and check that the ports and MAC addresses show up.
 
 If the switch offers only DES or MD5, DENIS cannot use SNMPv3 with it: use SNMPv2c on a management network.

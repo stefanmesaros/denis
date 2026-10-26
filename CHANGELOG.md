@@ -4,6 +4,21 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 4.2.4: Cisco switches are read per VLAN with precise port checks, and a clearer setup guide
+
+- Cisco switches: a VLAN whose per-VLAN read gets no answer while other VLANs answer is now advice only. Switch off port and Move port to quarantine VLAN are refused only on a port that carries such a VLAN, and the refusal names the VLANs. A VLAN without ports never blocks anything; a trunk, whose VLANs DENIS does not read, is still refused.
+- Cisco switches: when the first VLANs read give no answer, DENIS reads VLAN 1 before deciding that the switch does not answer per-VLAN reads at all, so the other VLANs are still read.
+- The Switches card no longer says the tables were cut off when only some VLANs did not answer; it says that DENIS does not act on ports in those VLANs until they are read.
+- The device location is incomplete only when the device's port carries a VLAN that was not read.
+- Test write: when the write user may not change whether a port is on, the result says so and that Switch off port cannot work. Test write never writes a port's VLAN.
+- Cisco switches: a new Test quarantine VLAN write button, in the switch details and the switch editor, writes a free port's current VLAN back to it without changing it, and says whether Move port to quarantine VLAN can work and, if not, what the write user is missing.
+- Cisco switches: a device that moved to another port is no longer named on its old port when its VLAN was not read in the last poll and the old port is down or its link changed.
+- Cisco switches: a trunk, a port whose mode or VLAN was not read, and every port when the list of port VLANs was cut short now count every VLAN that was not read, and a VLAN a port is in is read or named as not read even when the switch does not list it. Test quarantine VLAN write skips the VLAN write when the port has come up, and its refused message no longer says the VLAN was set.
+- Switches docs: Cisco SNMPv3 and SNMPv2c setup for port actions, why some VLANs stay silent, and a troubleshooting table.
+- A DHCP reply seen at one site no longer warns about the same router address at another site, and the warning for an address a DHCP server names as a router uses the DHCP replies seen at the connector's own site when no known device holds the address.
+- The plan for an action on a dual-stack device's IPv4 address now says that its IPv6 traffic stays open.
+- The Respond menu asks the server again after a switch is read or an action changes something, so it no longer shows an older state.
+
 ## 4.2.3: A computer is no longer taken for the gateway, and refusals name the device
 
 - Fix: a computer that only exchanges internet traffic is no longer taken for the network's gateway. Traffic alone now supports a gateway only when DHCP, a route or a person already names it, and traffic to another private network is no longer read as a next hop.
