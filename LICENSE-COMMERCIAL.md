@@ -1,7 +1,9 @@
 # Commercial licensing
 
 Any business, non-profit, government or other organisational use of DENIS — and any installation
-monitoring more than 100 devices — needs a commercial license (see `LICENSE`, clause 2).
+monitoring more than 100 devices — needs a commercial license (see `LICENSE`, clause 2), except that an organisation may evaluate the Community
+edition free of charge for up to 30 days from its first installation, on up to 100 devices (clause 2A). After that
+period, continued use needs a commercial license.
 
 A commercial license is a small signed file that raises the device cap (or removes it) for your
 installation. It is issued individually; there is no self-service purchase yet.

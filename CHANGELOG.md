@@ -4,6 +4,22 @@ This is a customer-facing summary of what changed release to release — grouped
 for you, not by internal implementation detail. Every release's full technical notes ship inside
 the binary and the GitHub Release page for that version.
 
+## 4.3.0: more than 40 new detections, a redesigned Network section, site administrators and read-only UniFi and Meraki clients
+
+- More than 40 new detections. Industrial networks: new control functions, program uploads, several masters, a changed device identity, scanning, new protocols, remote-access paths and commands outside working hours. Office networks: brute force from outside, DNS threat domains, mining pools, VPN and anonymizer use, remote-access tools, a changed gateway and a rogue DHCPv6 server. The threat-domain list needs a free abuse.ch key, entered in Settings.
+- Detection runs on its own threads and each detection is measured. Under overload DENIS can pause the heaviest optional detections and tells you.
+- On any alert you can say This is normal, and DENIS counts what was accepted and dismissed per detection.
+- A new page, What DENIS cannot see, shows blind spots and link quality. A Not managed view lists unmanaged devices, and each device has a timeline. Duplicate packets from SPAN or TAP copies can be counted or removed.
+- Any managed switch with standard SNMP can now be read. Port off and quarantine VLAN on such switches are Experimental, off by default, need a write test and were tested only on simulators.
+- API tokens have scopes, expiry, rotation and an acts-as mode. Site-limited accounts can no longer change other sites through imports or new devices.
+- An administrator limited to some sites is now a site administrator: they manage only those sites and no longer see Users, Audit or installation settings. On upgrade, an administrator who already has such a limit becomes one; a full administrator always remains.
+- The Network section has a new map with zoom, search, groups and cable drawing that saves itself, and new Map, Equipment, Response and Setup pages.
+- UniFi and Meraki can show the clients they see (access point, network name, port) on the map. It only reads; it is on for a new connector, and an earlier UniFi connector reads clients once you tick it. Meraki is Experimental.
+- Capture sources can be grouped into separate networks, so the same VLAN number on two networks is not taken for one. A hardware address can be marked as shared.
+- Palo Alto: extended support. Cisco switches: fewer missed VLAN reads and a stricter quarantine VLAN write test.
+- PostgreSQL: the new 4.3 database code was reviewed and compiled but not yet run against a live PostgreSQL database.
+- Licence: an organisation may evaluate the Community edition free for 30 days from its first installation (up to 100 devices); see LICENSE, clause 2A.
+
 ## 4.2.4: Cisco switches are read per VLAN with precise port checks, and a clearer setup guide
 
 - Cisco switches: a VLAN whose per-VLAN read gets no answer while other VLANs answer is now advice only. Switch off port and Move port to quarantine VLAN are refused only on a port that carries such a VLAN, and the refusal names the VLANs. A VLAN without ports never blocks anything; a trunk, whose VLANs DENIS does not read, is still refused.

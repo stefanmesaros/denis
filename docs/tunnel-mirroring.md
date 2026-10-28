@@ -59,6 +59,13 @@ VLAN although the mirror carries them.
   with the reason `other_vlan`. It is **never** quiet when the claimed address is the gateway's or the
   claimant claims three or more addresses, in either mode. A frame without a visible VLAN counts as "the
   same VLAN as anything", so an untagged capture behaves exactly as before.
+- **Mirrors of separate networks (4.3).** Two mirror interfaces of one DENIS that carry two different
+  networks may both use VLAN 10. By default all interfaces are one network (a mirror and the main interface
+  usually see the same one), so the same address in VLAN 10 on both is a plain conflict, as before. Place the
+  interfaces into separate networks (`PUT /api/interfaces/capture/l2-domains`, e.g.
+  `{"networks": {"eth1": "Plant A", "eth2": "Plant B"}}`) and DENIS treats them as two networks: the alert
+  says "seen in two separate networks (VLAN 10 of Plant A and VLAN 10 of Plant B)", the same `quiet` choice
+  applies, and inside one network an untagged frame still counts as "the same VLAN as anything".
 - **Not merged, not guessed.** While two VLANs claim an address, a result that names a device only by
   address (a port scan, a banner, a service probe) is skipped and counted
   (`denis_identity_ambiguous_ip_skips_total`) instead of being put on one of the two devices. The address

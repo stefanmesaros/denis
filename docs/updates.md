@@ -130,6 +130,68 @@ console cannot change it). A customer's agents follow it the same way as the ins
 customer's administrator saves a mode in their console; their saved mode always wins, and the console shows which
 mode they inherit while none is saved.
 
+## Upgrading to 4.3
+
+DENIS makes the usual backup first and migrates the database forward when it starts; a database that 4.3 has upgraded may
+not open with an older program, so to go back, restore the backup the update made. Read these before you update a
+production installation:
+
+* **Administrators who are limited to some sites become site administrators.** Before 4.3 an administrator's site
+  access changed nothing. From the first start of 4.3, an administrator with *read only* or *no access* on a site is a
+  **site administrator**: it manages only the sites it may change, and it no longer sees *Users*, *Audit log* or the
+  settings of the whole installation. This happens automatically. The *Users* page marks such accounts *own sites only*,
+  and Health names them for 30 days. At least one administrator of the whole installation always remains: if every enabled
+  administrator would have become a site administrator, the oldest one keeps the whole installation (its limits are removed
+  and the audit log says so). If you are ever left without one (a restored backup, a database edit), Health warns, and on
+  the server `denis user sites-clear <name>` removes the site limits of one account
+  ([details](tour.md#users-administrators), [command](deployment.md#users-and-roles)). Check the *Users* page after the
+  update.
+* **Reading the clients of a controller is on for new connectors only.** A new UniFi or Meraki connector reads the
+  clients its controller sees (read only) and shows them on the map. A UniFi connector made before 4.3 reads nothing until
+  an administrator ticks *Read the clients this controller sees* in the connector's settings
+  ([UniFi](nac/unifi.md#client-visibility-read-only-43), [Meraki](nac/meraki.md#client-visibility-read-only-43-experimental)).
+* **The list of known-bad domains needs a free abuse.ch key.** ThreatFox now also lists malware domains, and abuse.ch asks
+  for an Auth-Key for those downloads. Make one in your abuse.ch account and paste it under *Settings → Data → Threat list
+  sources*; it is stored encrypted and never shown again. Without a key ThreatFox is not fetched (the lists you already
+  have stay) and the box says so. The other lists need no key.
+* **Contact with a Tor exit relay is now its own alert**, `anonymizer_contact` (medium), no longer a `threat_list_match`.
+  An exception you made for the old alert does not cover the new one.
+* **API tokens keep what they had.** A token made before 4.3 keeps every area its role allows. Narrow it under *Users →
+  API tokens* if you want to; new tokens are limited to the areas you tick and expire after 90 days unless you choose
+  otherwise ([API](api.md#api-tokens-for-scripts-and-integrations)).
+* **The Network menu changed.** *Topology*, *Switches* and the connectors are now *Network → Map*, *Equipment*, *Response*
+  and *Setup*; the old addresses still open the right page. *Settings → Network* is *Settings → Capture*, and *Settings →
+  Enforcement* is *Settings → Response policy*.
+* **CSV import checks site access.** Each row of an import is checked against the sites the importing account may change.
+* **New detections learn first.** Several of the 40 new detections learn what is normal for a day before they alert, and a
+  few need something besides the rule (traffic analysis, passive DNS, a mirror port, a schedule): see
+  [the rules added in 4.3](detection-rules.md#the-rules-added-in-43-at-a-glance).
+
+## Known limits in 4.3.0
+
+What 4.3.0 does not do, or has not proven, so that nothing here comes as a surprise:
+
+* **Not in 4.3.0:** Cisco Catalyst 9800 and other wireless controllers (only UniFi and Meraki are read); address spaces
+  and VRF (the same address in two routing domains: *Separate networks* covers capture interfaces only, and a hardware
+  address seen in two networks is marked, not split); the layer-2 card in a device's panel.
+* **Meraki is read only and tested only against a simulator.** Its client reading is marked *Experimental*. Of UniFi, the
+  client's hardware address and its wired or wireless flag were checked on a real controller; the access point, SSID,
+  VLAN, signal, switch and port fields were not.
+* **Generic SNMP control is Experimental.** Any managed switch can be read with standard SNMP; switching a port off and
+  moving it to the quarantine VLAN on a switch that is not a Cisco Catalyst are off by default, need a write test first,
+  and have been tried only against simulated switches. No switch model is validated.
+* **Enforcement validation is unchanged:** what was tried on real equipment is on the
+  [validation page](nac/validation.md); every other connector is simulator only.
+* **PostgreSQL:** the PostgreSQL code of 4.3 (the new tables and settings on a shared database) is compiled and reviewed,
+  not yet run against a production database. Try 4.3.0 on a test pair before a production one
+  ([High availability](high-availability.md)).
+* **What DENIS cannot see** does not receive the capture counters of remote sites in this version; it says *not measured*
+  for them ([details](visibility.md#remote-sites)).
+* **Site administrators** do not add or edit equipment in the console, and cannot change the settings of the whole
+  installation.
+* **Detections:** the port list of the remote-access tools was not checked against the vendors' documentation; the
+  off-hours industrial rule does nothing until a schedule is set; S7comm-plus uploads (TIA Portal) are not seen.
+
 ## Requirements and limits
 
 * The program must be in a folder the DENIS user can write to. `install.sh` sets this up for you: the program lives

@@ -58,12 +58,12 @@ Passively decoded (nothing is ever sent):
 
 | Protocol | Port | Reads / writes / control detected | Identity learned |
 |---|---|---|---|
-| Modbus/TCP | 502 | read, write, diagnostics (restart/listen-only) | – |
-| Siemens S7comm (S7-300/400, S7-1200/1500 with PUT/GET) | 102 | read/write variable, **program download**, **PLC start/stop** | – |
+| Modbus/TCP | 502 | read, write, diagnostics (restart/listen-only); refused requests (exception responses) counted per path | vendor, product code, revision per unit id (the answer to read device identification, 43/14) |
+| Siemens S7comm (S7-300/400, S7-1200/1500 with PUT/GET) | 102 | read/write variable, **program download**, **program upload**, **PLC start/stop**, system status list (SZL) read | – |
 | Siemens S7comm-plus (S7-1200/1500: TIA Portal, most HMIs) | 102 | session set-up, read, write. **Stop/start and program download are not reported as control commands** (see below). Marked `s7plus` | engineering or HMI client |
 | EtherNet/IP + CIP | 44818 | CIP read/write, reset/start/**stop** | vendor, product, serial, revision (ListIdentity) |
 | DNP3 | 20000 | read, write, select/operate, restarts, stop application | – |
-| BACnet/IP | 47808 | ReadProperty, WriteProperty, **ReinitializeDevice**, DeviceCommunicationControl | device instance, vendor (I-Am) |
+| BACnet/IP | 47808 | ReadProperty, WriteProperty, **ReinitializeDevice**, DeviceCommunicationControl, Who-Is/Who-Has | device instance, vendor (I-Am) |
 | OPC UA (binary, `opc.tcp`) | 4840 | read, browse, subscribe/publish, **write**, history update, address-space changes, **method call (counted as a write)**, session and the kind of user identity (anonymous, user name, certificate, issued token). Only when the channel is not encrypted: see *Encrypted traffic* | the endpoint address the client asked for |
 | IEC 61850 MMS (substations; also ICCP/TASE.2) | 102 | read, write, **operate / select** (the IEC 61850 control model), program-invocation start/stop/reset/kill, domain download, file transfer, dataset changes. An IEC 61850 device is no longer listed as a Siemens PLC just because it answers on port 102 | vendor, model, revision (Identify answer) |
 | IEC 61850 GOOSE | link layer (0x88B8) | who publishes, not what: GOOSE is multicast, so there is no "conversation" | the control blocks each publisher announces (at most 8 per device) |
@@ -71,7 +71,7 @@ Passively decoded (nothing is ever sent):
 | PROFINET IO | UDP 34964 (connection management), link layer (DCP Set) | a controller connecting to an IO device, record read/write, **DCP set station name / IP address**, **DCP factory reset** | order number, serial number and firmware (I&M data; checked with hand-built frames only: the public capture shows the record read, not its answer) |
 | CODESYS V2 / V3 | TCP 1200, 2455, 11740, UDP 1740–1743 | **identified only**: the runtime is recognised and the path is shown, nothing is read, written or controlled in the sense of a command | – |
 | IEC 60870-5-104 | 2404 | commands (types 45–64), clock sync, reset | – |
-| Omron FINS | 9600 | memory/parameter/program area read/write, **run/stop** | – |
+| Omron FINS | 9600 | memory/parameter/program area read/write, **program area write/clear** (a control command since 4.3), **run/stop** | – |
 | HART-IP | 5094 | protocol and session only (see below) | – |
 | MQTT | 1883 | PUBLISH (write), SUBSCRIBE (read) | – |
 | CoAP | 5683 | GET (read), POST/PUT/DELETE (write) | – |
@@ -162,11 +162,52 @@ tab, the matrix and reports, so you can spot, for example, an office-level (L4) 
 | `ot_new_conversation` | a client/server/protocol path that did not exist during the learning period appears | 50; +20 writes; +25 control commands; +10 target is a controller; +10 the client itself is new (<1 h); −15 only session set-up |
 | `ot_control_command` | DENIS **sees** a STOP/START, program download, restart or operate command (not every command can be seen: read *Limits to know about*; S7comm-plus stop and download are never reported). Never suppressed by learning | 85 the first time this source does it to this target; 45 if it has before; 60 during learning; +10 for industrial targets. Repeats held for 10 min |
 | `ot_goose_conflict` | the same **GOOSE control block** (`gocbRef`) is published from two different source MAC addresses: a spoofed or duplicated publisher. PRP copies (one address) do not count; blocks both addresses published during learning are the baseline | 60; +15 a made-up (locally administered) address; +10 different manufacturers; +10 the newer publisher is new (<1 h). Once per 6 h per device, filed under the newer publisher; confRev and the simulation flag are evidence only |
-| `ot_internet_exposure` | industrial protocol traffic between a device and an address **outside the local network** | 90, no learning period; once per 6 h per device |
+| `ot_internet_exposure` | industrial protocol traffic between a device and an address **outside the local network** (since 4.3 also Unitronics PCOM 20256, Red Lion 789, Niagara Fox TLS 4911, MELSEC 5006 over TCP and EtherNet/IP I/O 2222 over UDP) | 90, no learning period; once per 6 h per device |
+| `ot_new_function` | a **learned** path (client, controller, protocol) uses a **function it never used**: a Modbus multiple-register write on a path that only read, a new CIP service. Judged only once the site and the path are each at least one learning period old; control commands and uploads have their own rules | 30; +25 when the same window carried writes or control commands. Once per path per hour |
+| `ot_program_upload` | a client **copies the program out** of a controller (S7comm upload, MMS domain upload). Never quiet | 70 the first time this client does it to this controller; 45 if it has before, or during learning. Once per pair per hour |
+| `ot_concurrent_masters` | **two clients write to one industrial device within 10 minutes**, one of them not an established writer (a path that wrote before and is at least one learning period old). Never quiet | 65; +15 with control commands. A redundant pair of established writers never alerts. Once per device and pair per 6 h |
+| `ot_identity_changed` | a device's **own identification answer** (EtherNet/IP ListIdentity, MMS Identify, PROFINET I&M0, Modbus 43/14) now gives another **firmware revision**, **serial number**, product or vendor. Never quiet | 65 a new revision; 75 another serial/product/vendor; +10 several fields. Once per device and field per day; not during learning |
+| `ot_recon` | a device **asks industrial devices who they are** (Modbus 43/17, ListIdentity, Who-Is/Who-Has, MMS Identify, OPC UA discovery, S7 SZL read): five or more within ten minutes, or for the first time at all. Discoverers of the learning period are learned with their usual sweep size | 65 a sweep; +10 started within the hour; 45 a first request. Once per device per hour |
+| `ot_cross_cell` | a **write or control command between two cells** of the register ("Zone / cell"), with no zone policy deciding the pair. A path that has written for a learning period is learned | 55; +15 control. Once per pair per 6 h |
+| `ot_new_protocol` | an industrial device **serves or speaks a protocol it never did**: a new industrial protocol, or an IT service (SSH, Telnet, web, SMB, RDP, VNC, ...) seen in east-west traffic. Learned per device for a learning period | 50; +15 serving a remote-administration service. Once per device and protocol |
+| `ot_remote_access_path` | **RDP, VNC, TeamViewer, AnyDesk or RustDesk into a control cell**: from Purdue level 4+ to level 2 or below (east-west), or from the internet to level 2 or below or an unlevelled industrial device | 70; 80 from the internet. Once per target, source and port per 6 h |
+| `ot_write_rate` | a path **writes more than five times its largest hour** of the last 14 days (and at least 100 in the hour) | 55; +10 at 20 times. Once per path per 6 h |
+| `ot_offhours_command` | a write or control command to an industrial device **outside the site's declared operating schedule** (site time). No schedule: inactive | 60; +15 control. Once per pair per hour |
+| `ot_exception_burst` | a device **refuses 20 or more requests on one path within ten minutes** (Modbus exception responses), more than three times the path's learned maximum | 45; +10 at 200 or more. Once per path per hour |
 
 *Learning:* for the first 24 hours (`--learning-minutes`), normal paths are recorded silently. Run DENIS through a
 **representative production period** (including maintenance windows if engineers download programs) before
 relying on `ot_new_conversation`.
+
+*Learning in the 4.3 rules:* `ot_new_function` needs a path's functions to be learned: the site past its learning
+period and the path itself at least one learning period old (a path that appears later learns its functions for its
+first day). `ot_concurrent_masters` calls a client an *established writer* once its path wrote and is a learning period
+old. `ot_identity_changed` compares with the value the device announced before; the first answer is learned. A
+firmware update done through EtherNet/IP (the public capture in `tools/ot-samples.sh` shows thousands of tag writes
+and a reset) is seen as a reset by `ot_control_command` and, once the device answers ListIdentity again, as a new
+revision by `ot_identity_changed`; DENIS has no separate "firmware update" command name for CIP, since no capture of
+the service itself was available to check one against. BACnet DeviceCommunicationControl and ReinitializeDevice are
+control commands (they silence or restart a controller) and reach `ot_control_command`.
+
+*Learning in the 4.3 pack 2 rules:* `ot_recon` learns which devices identify others (SCADA servers, inventory tools)
+and how many devices they usually ask; a device that starts doing it after the learning period is judged at once.
+`ot_new_protocol` learns each industrial device's protocols for one learning period from when it first sees the device
+(industrial protocols from the conversations, IT services from east-west traffic). `ot_write_rate` and
+`ot_exception_burst` learn each path's largest hour of writes and largest ten minutes of refused requests over 14 days
+and judge a path once they have known it for a learning period; the learned values are saved every ten minutes.
+`ot_cross_cell` learns the cross-cell writers of the learning period. `ot_remote_access_path` and `ot_offhours_command`
+learn nothing: they judge what the register and your schedule say.
+
+*Operating schedule (`ot_offhours_command`):* Rules → *Built-in OT rules* → *OT: command outside operating hours* →
+details → *Operating schedule*. Pick the site, the working days and the start and end of the working day in the site's
+own time (set the site's time zone on the Sites page). A night shift is written with an end before its start (22:00 to
+06:00 starts on the days you tick). The same setting is `ot_schedules` in `PUT /api/rules`, for example
+`{"ot_schedules": {"local": {"days": ["mon","tue","wed","thu","fri"], "start": "06:00", "end": "22:00"}}}`
+(`local` is this server's own site, an agent's site is its id; `null` removes a schedule).
+
+*Overload:* none of the 4.3 pack 2 rules is on the never-quiet or the never-paused list. Under the default industrial
+overload setting (*warn only*) they are never paused; with the advanced opt-in a pack 2 rule that keeps exceeding its
+budget may be paused like any other non-critical industrial rule.
 
 *Engineering workstations* legitimately download programs. After the first alert, an alert for the same source
 and target scores 45 instead of 85 and is held for 10 minutes; if it is routine for you, lower
@@ -174,6 +215,8 @@ and target scores 45 instead of 85 and is held for 10 minutes; if it is routine 
 
 <a id="command-watches"></a>
 ## OT rules
+
+![The OT rules on the Rules page: two rules of your own, then the built-in groups](img/ot-watches.png)
 
 *Rules → OT · industrial → Your OT rules.* An OT rule says: **when this command reaches that device, tell me**. **+ New OT rule** (or **+ New rule → OT rule** at the top of the page) opens the dialog described under [Your own rules](detection-rules.md#your-own-rules-it-rules-and-ot-rules), with a template for each common case and a preview of how often the rule would have fired.
 
@@ -314,8 +357,9 @@ This needs the mirror port to carry the traffic between the devices (the same re
     datagram from another MAC is not told apart from a router's copy (it is counted as a duplicate, not decoded).
   * **Not covered**: protocol-internal fragmentation above these layers (S7comm-plus and OPC UA multi-chunk messages are classified from their first
     chunk); HART-IP and CODESYS (named only); anything encrypted. A device on the cell network can use any of these on purpose, and a capture NIC with GRO/LRO
-    on merges frames by itself. **Turn GRO/LRO off on the capture interface**
-    (`ethtool -K <interface> gro off lro off`), and keep the mirror's snap length at the default.
+    on merges frames by itself. **Turn GRO/LRO off on the capture interface**: see
+    [Deployment, receive offload](deployment.md#receive-offload-grolro-on-the-capture-interface) for how, how to keep
+    it after a reboot, and the Health warning that tells when it is still on.
   * **No checksum, CRC or TCP-validity check stops the decoding**, so a forged or corrupted frame is read like a real
     one (a forged frame can start the 10-minute repeat gap of `ot_control_command`). TCP/UDP checksums are only
     counted (`denis_ot_checksum_mismatch_total`, `reassembled="false"` for unfragmented packets, whose checksum

@@ -58,8 +58,7 @@ the program, checked against the code, not against plans:
   refuses `--database-url` while tenants exist). IP fragments are reassembled for OT decoding since 4.1.2.
 * Smaller findings of the internal code reviews, fixed in the next releases.
 
-**Next:** 4.2 (below: connector safety and the exact scope of every action, tests on real equipment, resilient capture, monitored networks, one identity per device, notifications), then 4.3 *Correctness under failure*
-(below).
+**Next:** 4.2 and 4.3.0 have shipped (below). What comes after 4.3.0 is under "Next after 4.3.0".
 
 ## 4.1.1: delivered (tag `v4.1.1`)
 
@@ -138,23 +137,77 @@ Details in CHANGELOG.md 4.1.4.
   limit (no forwarding table or LLDP over SNMP). FortiGate 40F: first lab run passed; not yet called validated.
 * Fixes from the internal code review of 4.1.3, and the TLS library update for new security advisories.
 
+## 4.3.0: delivered (the release notes are in CHANGELOG.md)
+
+4.3.0 took the first part of the "correctness under failure" plan and the customer asks below. What is in the program, checked
+against the code:
+
+* **More than 40 new detections.** Industrial: new control functions, program uploads, several masters at once, a changed device
+  identity, scanning, cross-cell traffic, new protocols, remote-access paths, write bursts and commands outside working
+  hours. Office networks: brute force from outside, known-bad domains, mining pools, VPN and anonymizer use, remote-access
+  tools, administration spreading, a changed gateway, a rogue DHCPv6 server and a lost or stolen device on the network.
+  One plain sentence for each is in [docs/detection-rules.md](docs/detection-rules.md#the-rules-added-in-43-at-a-glance).
+* **Detection that measures itself.** Detection runs on its own threads, each rule is timed, and when one makes detection late
+  DENIS can pause it (your choice, with industrial rules only warned about unless you opt in), tells you, and resumes it by
+  itself; packet loss from overload is reported. Duplicate copies of a packet from SPAN or TAP ports are counted, and
+  removed once an administrator switches it on.
+* **Seeing what DENIS cannot see.** A page of Health shows, per capture interface, what arrived and what was lost, the
+  networks and VLANs seen against the ones expected, and traffic seen in one direction only
+  ([docs/visibility.md](docs/visibility.md)).
+* **Alerts people can trust.** *This is normal* on any alert, and per-detection counters of what was acted on and what was
+  dismissed, kept on the installation.
+* **One history per device**, *Not managed by any tool* as a list and a Dashboard tile, and who had an address at a given time.
+* **A new Network section.** Map (zoom, search, groups, drawn cables that save themselves), Equipment (one table, product-first
+  *Add equipment*, controller rows that open), Response and Setup in seven steps.
+* **Any managed switch with standard SNMP can be read.** Port off and the quarantine VLAN on such switches are Experimental,
+  off by default and need a write test; tried only against simulated switches.
+* **UniFi and Meraki clients** (read only): the clients a controller sees, on the map and on the device. UniFi checked on a real
+  controller for the hardware address and the wired flag only; Meraki is Experimental and tested only against a simulator.
+* **Site administrators.** An administrator limited to some sites manages only those sites; upgrade converts them
+  automatically and an administrator of the whole installation always remains.
+* **API tokens** with areas, expiry, rotation and an acts-as mode; site-limited accounts can no longer change other sites
+  through imports or new devices.
+* **Separate networks** for capture interfaces (the same VLAN number on two plants is not one VLAN) and a shared-hardware-address
+  mark. Palo Alto extended support; Cisco VLAN reads that miss less.
+
+**Not in 4.3.0, or known limits** (see [docs/updates.md](docs/updates.md#known-limits-in-430)): Catalyst 9800 and other
+controllers, address spaces and VRF, the layer-2 card of a device, and a hardware-address split are not built. The PostgreSQL
+code of 4.3 is compiled and reviewed, not yet run against a production database. Generic SNMP control and everything about
+Meraki are Experimental.
+
+## Next after 4.3.0 (in this order; nothing here has a date)
+
+* **Controllers and wireless (W1 to W4).** Cisco Catalyst 9800 and other wireless controllers, in four steps, reading first.
+* **Address spaces (VRF), the layer-2 card of a device, and the hardware-address split.** The same address in two routing
+  domains, the layer-2 view in a device's panel, and an administrator-confirmed split of a shared hardware address (4.3
+  only marks it).
+* **PostgreSQL to the standard of SQLite.** Fencing of the old leader in the database, per-tenant encryption keys, tenants on
+  PostgreSQL, and the high-availability tests on a real managed cluster.
+* **More detections (a third pack, P3) and Rules v2.**
+* **Block by domain or URL**, not only by address.
+* **Read what the endpoint tools know**: the device lists of EDR and MDM products (first ESET PROTECT and Microsoft Intune), next
+  to what is seen on the network.
+* **802.1X, RADIUS accounting and CoA.** Who is behind an address, durable quarantine through your own RADIUS server,
+  session-exact disconnect; with the first customer who runs 802.1X.
+* **Sandbox validations** of connectors that are simulator-only: Cisco Catalyst 9300, Cisco FTD and FMC, and Meraki.
+
 ## Next: what customers asked for (planned, in this order)
 
 From what people running network detection and access control say about their own deployments. These come before new connectors.
 
-* **Seeing what DENIS cannot see.** Removing duplicate copies of the same packet when several mirror ports feed one sensor, and a coverage view that says which networks and links are seen, which are not, and what is missing (no mirror feed, drops, a link seen from one side only). Planned for 4.3.
-* **Unknown devices without an agent.** Onboarding puts the unknown-device question first: what is on the network that nothing manages, with the evidence for each device and an owner to assign. Planned for 4.3.
+* **Unknown devices without an agent.** Onboarding puts the unknown-device question first: what is on the network that nothing manages, with the evidence for each device and an owner to assign. Built for 4.3: Devices → "Not managed by any tool", a Dashboard tile, an evidence card at the top of the device panel, owner assignment, CSV export, and the question as the first step of the setup guide. The answers come from the coverage tools you have connected (Intune, Entra, Active Directory, Jamf, Defender, Nessus), a hand entry, or a switch or connector DENIS reads; "cannot tell" is never shown as managed or as not managed. Tested against fixtures, not yet against a real tenant.
 * **Which devices a security or management tool knows (read-only import).** DENIS reads the device list of the endpoint security and device management products you already run (first ESET PROTECT and Microsoft Intune; others on request) and sets it next to what it sees on the network. Each device then says either "managed by <tool>, last seen <time>, protection <status>" or "not managed by any tool", and the second group is a list an administrator can filter, assign an owner to, and export. How it works: a device is matched by hardware address, name or serial number; an unclear match is shown as a possible match for a person to confirm and is never guessed; a tool that cannot be reached or an old answer gives "unknown", a third state that never counts as healthy or as unhealthy. DENIS only reads: it changes nothing in those products, and it takes no action because of this data unless an administrator sets a rule for it. Not part of this item: admission by device health, or isolating a host through the endpoint product. Planned after the Visibility page.
 * **Who is behind an address (802.1X logs).** Reading the authentication and accounting records of your RADIUS server (user or certificate name, hardware address, access point, network name) to attach the identity to the device, including devices that use a random hardware address on Wi-Fi. For organisations that run 802.1X; planned later, together with the first customer who does.
 * **RADIUS accounting and durable quarantine (for organisations that run 802.1X).** Planned to start with the first customer who does. DENIS reads the accounting records of your own RADIUS server and shows, per device, the user or certificate, how it signed in (802.1X or MAC), the port or access point and the session history. A quarantine can then be made lasting: DENIS gives your RADIUS server a restrict-only verdict to check at each sign-in, and with no answer from DENIS nothing is restricted. Session-exact disconnect, re-authenticate and port bounce go through the existing approval and audit path. DENIS also compares what it sees with what a MAC-authenticated port claims, to flag a spoofed hardware address. An integration with Cisco ISE (then Aruba ClearPass) comes on request. DENIS does not plan to be a RADIUS server itself.
-* **One history per device.** A single timeline of a device: addresses, ports, alerts, connections and responses, to answer an incident question without opening five pages. Planned after 4.3.
-* **Alerts people can trust.** Feedback on false alarms (this was normal, do not tell me again) and measurement of how many alerts are acted on, kept on the installation. Planned after 4.3.
 * **More real-equipment checks of enforcement.** Kill switch, hourly limit, wrong credential, a connector that loses its connection, and release after a restart, on each verified device.
 * **Simple, affordable use for small teams.** Quick first result, safe defaults, and licensing that does not price small organisations out; to be settled before the first commercial sale.
 
-## 4.2: planned (4.1.5 was folded into it)
+## 4.2: delivered as 4.2.0 to 4.2.4, with the plan it was built from
 
-What was left out of 4.1.4 on purpose or not reached, and what the first lab runs on real equipment showed, in the order it is planned.
+The plan below is kept as it was made. What shipped is in CHANGELOG.md under 4.2.0 to 4.2.4; an item of this list that is not
+there is not built and moves to "Next after 4.3.0" or to the lists further down.
+
+What was left out of 4.1.4 on purpose or not reached, and what the first lab runs on real equipment showed, in the order it was planned.
 
 * **Safety and exactness of actions** (found in the first lab runs on real firewalls and switches):
   * The actions offered for a device follow where it really is: a switch-port action only when the device's own access port is

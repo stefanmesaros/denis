@@ -19,6 +19,9 @@ version is in [Deployment › PostgreSQL and a second node](deployment.md#postgr
 * This has been tried with PostgreSQL 16 in a test container and with two processes on one machine. It has not been tried
   on managed or clustered PostgreSQL in production. Run the [failover test](#testing-a-failover) on your own pair before
   you rely on it.
+* **4.3.0 on PostgreSQL:** the PostgreSQL code of 4.3 (the new tables for API token scopes, rule outcomes and capture
+  samples, and the new settings) is compiled and reviewed, but not yet run against a production database. Update a test
+  pair first, run the failover test again, and only then the production pair ([Known limits in 4.3.0](updates.md#known-limits-in-430)).
 
 ## How the pair works
 

@@ -232,6 +232,46 @@ has not changed in 4.1, and nothing about a VLAN is part of it:
 - **Capture source.** The main interface and each mirror interface are numbered capture sources. Two sources
   that see the same traffic count it twice; Health says so
   ([Do not overlap your mirrors](tunnel-mirroring.md#do-not-overlap-your-mirrors)).
+- **Layer-2 network (4.3).** A VLAN number means something only inside one layer-2 network. By default every
+  capture interface of a site sees **one** network, so a mirror and the main interface that see the same
+  network behave exactly as before. When one DENIS has mirrors of two separate networks (plant A and plant B,
+  both using VLAN 10 and 10.0.0.0/24), an administrator places the interfaces into separate networks
+  (`PUT /api/interfaces/capture/l2-domains`, see [API](api.md)). DENIS then judges an address claim by network
+  and VLAN together: the same address in two networks is reported as address reuse (the alert names both
+  networks), never as one device taking over another's address, and a result that names a device only by
+  address is not guessed. Separate networks never loosen an enforcement guard: blocking still checks every
+  device at the site that holds the address. An interface that is not listed stays in the default network.
+  Settings → Capture → *Separate networks* lists every capture interface per site (this installation's own and
+  each agent's) and sets the network of each; an agent receives its own setting with the answer to its next
+  report.
+
+  ![Settings → Capture → Separate networks: the interface eth2 sees another plant](img/settings-capture-networks.png)
+
+  When two separate networks use the **same gateway address** (each network has its own gateway), DENIS still
+  reports it, once per cooldown like every address conflict, but with a lower score: the extra weight of a
+  gateway claim (the man-in-the-middle position) is not added, and the alert names both networks. An
+  administrator may quiet these with the setting that quiets conflicts across VLANs and networks
+  (`cross_vlan_conflicts: quiet`); they then go to the quiet stream with the reason `gateway_other_network`
+  ("The gateway address is used in two separate networks, each with its own gateway."). A device that claims three or more addresses is never quieted. Inside one network, and
+  with the default of one network per site, a gateway claim is weighted and never quiet, as before. None of this
+  hands the gateway's address over to the other device or lowers its protection: enforcement still refuses to
+  act on the gateway and checks every device at the site that holds the address.
+- **Shared hardware address (4.3).** One hardware address seen at the same time (within 24 hours) in two
+  separate networks of a site, or at two sites, is marked "shared hardware address" in the device list and the
+  device panel, with the reason. It is a mark to check (a copied virtual machine, a factory default address):
+  DENIS does not split the device, does not merge devices of different sites or networks, and does not change
+  any enforcement decision because of it. A gateway, router or other forwarder is expected in several networks
+  and is not marked for that; a virtual router address (VRRP, HSRP, GLBP) is never marked. Another site is only
+  mentioned to someone who may see it.
+- **Used by more than one device (4.3, confirmed).** An administrator of the device's site can confirm, with a
+  reason, that a hardware address really is used by more than one device (device panel, "Used by more than one
+  device"). From then on DENIS fails closed on it: every action that names the device by that hardware address is
+  refused, at the plan and again at the apply (act on a switch port or on an address instead); a port action for the
+  device no longer trusts the port the address was seen on; the identity job never links or suggests the row. The
+  devices stay one row (their alerts and history included) until a real split exists; removing the mark is audited
+  like setting it. A mark at any site counts for every site's equipment (stricter, never looser), so an administrator
+  limited to some sites can set it only when no device at a site it cannot change has the same hardware address. At most 1000
+  marks per site.
 
 ## Timezones
 

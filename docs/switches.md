@@ -1,13 +1,15 @@
 # Switches and the physical topology (SNMP)
 
-The **Topology** tab has three maps. *By gateway* is the logical one every install has. **Switches and cables** is the
-physical one: which **port** each device is plugged into and how the **switches are cabled together**. **Equipment links**
-shows the cables between switches, firewalls, routers and access points, each marked confirmed, best guess or set by hand
-(see below). They need your switches to answer SNMP, so you tell DENIS which ones to read.
+*Network* → **Map** is one map: your equipment (switches, firewalls, routers, access points, controllers) with the cables
+between them, each marked confirmed, best guess or set by hand (see below), and, when you ask for them, the devices under
+each switch port. Click a switch for its ports and what is plugged into each; **Equipment** has the same ports as a grid. They
+need your switches to answer SNMP, so you tell DENIS which ones to read.
+
+![Network → Equipment: the switches DENIS reads, and a UniFi controller row opened](img/network-equipment.png)
 
 ## What DENIS reads
 
-For every switch you add (*Settings* → **Switches (SNMP)**), DENIS reads, and only reads, every few minutes:
+For every switch you add (*Network* → **Equipment** → **Add equipment…**), DENIS reads, and only reads, every few minutes:
 
 | MIB | What for |
 |---|---|
@@ -28,6 +30,80 @@ their password (see [Disabling a port](#disabling-a-port)). A switch without a w
 A table a switch does not implement is simply left out; only a switch that does not answer at all is an error, shown on
 the switch's line with the reason.
 
+## Any managed switch with standard SNMP (Experimental, 4.3)
+
+A switch that is not Cisco IOS needs no special support to be **read**. DENIS reads the standard tables listed above for
+every make, names the make, and says in the switch's detail (*Network* → *Equipment*, open the switch's row) what it
+found and what it cannot do with that switch. Nothing in this step writes to a switch.
+
+**The make** comes from `sysObjectID` (the number after `1.3.6.1.4.1.` is the vendor's SNMP enterprise number) and
+`sysDescr`, through one table of about 80 lines in the program (`src/snmp_profile/vendors.tsv`): Cisco, HPE and Aruba
+(ArubaOS-Switch, ArubaOS-CX), Juniper, MikroTik, Ubiquiti, Netgear, TP-Link, D-Link, Zyxel, Dell, Extreme, Huawei, Fortinet
+(FortiSwitch) and a few more. The model is a best guess from the description (or ENTITY-MIB `entPhysicalModelName`) and can be
+empty. A switch nobody listed is still read: the detail says "Make not recognised" and goes on with the standard tables.
+The make changes no behaviour; it is only shown.
+
+**What is read, and what each table gives:**
+
+| Table | What DENIS gets from it |
+|---|---|
+| IF-MIB `ifTable` / `ifXTable` | ports: name, link, speed, switched on or off |
+| BRIDGE-MIB `dot1dBasePortIfIndex`, `dot1dTpFdbPort` | which interface each bridge port is; the older forwarding table |
+| Q-BRIDGE-MIB `dot1qTpFdbPort`, `dot1qVlanFdbId`, `dot1qPvid`, `dot1qVlanStaticName` | who is plugged into which port, in which VLAN; the access VLAN of each port |
+| Q-BRIDGE-MIB `dot1qVlanStaticEgressPorts`, `dot1qVlanStaticUntaggedPorts` (else `dot1qVlanCurrentEgressPorts` and `dot1qVlanCurrentUntaggedPorts`) | which VLANs each port is a **tagged** and an **untagged** member of |
+| LLDP-MIB | the neighbours each port sees |
+| ENTITY-MIB `entPhysicalModelName`, POWER-ETHERNET-MIB | asked once each, only to record whether the switch has them (and a model name) |
+
+**Access and trunk ports.** A port that is tagged in **two or more** VLANs is treated as a trunk (a warning on port actions,
+no VLAN move). A port that is only an untagged member, and only when both port lists were read to the end and every bridge
+port could be mapped to an interface, is recorded as not a trunk. One tagged VLAN is not enough to call a trunk, because a
+phone port looks the same. Everything else stays unknown, as before.
+
+**Limits.** Every request is bounded the same way as the rest of the poll (rows, time and bytes per table; the VLAN port
+lists are cut at 1,024 bytes each, 2,000 ports and 4,094 VLANs). A table the switch does not offer is left out and named in the
+switch's detail, never an error; a table cut at a limit is shown as incomplete, and a table that is only partly there (for example port
+lists that cannot be tied to interfaces because the switch gives no bridge-port map) counts as partial: DENIS then says so and
+does not act on those ports. Simple "smart" switches (the D-Link DGS-1100 family is the example) often implement only part of
+Q-BRIDGE-MIB, or none of it beyond the interface table.
+
+**Port control on these switches.** Switching a port off uses the standard `ifAdminStatus` write on every make (validated
+on a D-Link DGS-1100-08V2). Moving a port to the quarantine VLAN on a switch that is not Cisco IOS goes only through the
+**experimental generic SNMP control** (4.3): off by default and switched on per switch by an administrator, only after a
+passed write test on a spare port, only on access ports this reading proves (complete VLAN port lists, one untagged VLAN
+that is the port's `dot1qPvid`, no tagged one, the device's place read from the switch), with the port lists read back
+after the write. See [Port control: SNMP switches](nac/snmp.md#experimental-generic-snmp-control-any-switch-that-is-not-cisco-ios)
+for the steps, the write test and how to report what your switch did.
+
+**How to check what your switch answers**, from any machine that may query it (replace the community and address; add `-v3`
+options for SNMPv3). If a line prints nothing, DENIS will not get that table either:
+
+```
+snmpget  -v2c -c COMMUNITY SWITCH 1.3.6.1.2.1.1.2.0                  # sysObjectID: the make
+snmpwalk -v2c -c COMMUNITY SWITCH 1.3.6.1.2.1.31.1.1.1.1             # ifName: the ports
+snmpwalk -v2c -c COMMUNITY SWITCH 1.3.6.1.2.1.17.1.4.1.2             # dot1dBasePortIfIndex: bridge port -> interface
+snmpwalk -v2c -c COMMUNITY SWITCH 1.3.6.1.2.1.17.7.1.2.2.1.2         # dot1qTpFdbPort: who is plugged in where, with the VLAN
+snmpwalk -v2c -c COMMUNITY SWITCH 1.3.6.1.2.1.17.4.3.1.2             # dot1dTpFdbPort: the older table
+snmpwalk -v2c -c COMMUNITY SWITCH 1.3.6.1.2.1.17.7.1.4.5.1.1         # dot1qPvid
+snmpwalk -v2c -c COMMUNITY SWITCH 1.3.6.1.2.1.17.7.1.4.3.1           # dot1qVlanStatic: names, egress and untagged port lists
+snmpwalk -v2c -c COMMUNITY SWITCH 1.0.8802.1.1.2.1.4.1.1.9           # lldpRemSysName: LLDP neighbours
+```
+
+The same answers can be saved as a raw dump for a bug report (an administrator's *Read now* with `?raw=1`, see the API page);
+it never contains a community.
+
+### Verified with
+
+**Not verified on real equipment.** Reading a switch generically is tested with a simulated switch and with recorded answers
+only: simulated HPE ProCurve, Juniper EX, MikroTik CRS and D-Link DGS-1100-style switches (including one that implements only
+part of Q-BRIDGE-MIB), a hand-built copy of the D-Link DGS-1100-08V2's answers, and hostile answers (garbage, oversized lists,
+wrong types). The switch's detail therefore carries the **Experimental** label for every make that is not Cisco IOS. The real Cisco
+Catalyst 2960-X and D-Link DGS-1100-08V2 readings described under [What is verified, and what is not](#what-is-verified-and-what-is-not)
+are older and are about the Cisco-specific reading and the ports of that D-Link; the VLAN port lists, the make table and the
+trunk rule above have not been seen on any real switch yet. The experimental generic VLAN move and its write test are tested
+the same way only (a D-Link DGS-1100-like switch whose port lists follow a `dot1qPvid` write, one whose lists do not, one with
+part of Q-BRIDGE-MIB, the recorded DGS-1100-08V2 answers, lost and refused writes, read-only and wrong communities); no model
+is validated. Please report what your switch shows.
+
 ## Setting it up
 
 For the two switches tested on real equipment there is a step-by-step quick setup, with the switch commands, the DENIS fields, a first test and the common problems: [Cisco Catalyst 2960-X](nac/snmp.md#quick-setup-cisco-catalyst-2960-x) and [D-Link DGS-1100](nac/snmp.md#quick-setup-d-link-dgs-1100). The general steps follow.
@@ -42,7 +118,9 @@ For the two switches tested on real equipment there is a step-by-step quick setu
    appear in the audit log.
 3. Press **Read now**. It says how many ports, neighbours and MAC addresses were read, or why not ("no answer from the
    device": check that SNMP is on, the community, and that UDP 161 is reachable from the DENIS server).
-4. Open **Network** → *Map* (formerly *Topology*) → *Switches and cables*. A device's own panel has a **Place & response** block that says which port it is plugged into. *Network* → *Setup* walks through these steps for several switches and a firewall.
+4. Open **Network** → *Map* to see the switches and cables, and **Network** → *Equipment* (open the switch's row) for what was read. A device's own panel has a **Place & response** block that says which port it is plugged into. *Network* → *Setup* walks through these steps for several switches and a firewall.
+
+![Add equipment: pick the product, and DENIS asks only for what it needs](img/network-add-equipment.png)
 
 Polling runs from the DENIS collector (not in a `denis serve` viewer). The interval is 5 minutes by default (60 to 3600 seconds).
 
@@ -62,7 +140,7 @@ logged, announced on every alerting channel, and listed until someone undoes it.
    the firewall and cloud connectors, see [Zones and policies](segmentation.md#enforcement-connectors)), and the most blocks
    per hour across all administrators (10 by default). Switching it off stops new blocks at once; it does not enable
    ports that are already off, and enabling them from DENIS keeps working.
-2. Per switch: *Settings* → *Switches (SNMP)* → *Edit* → **Allow DENIS to disable ports on this switch**, and enter a
+2. Per switch: *Network* → *Equipment* → the switch → *Edit* → **Allow DENIS to disable ports on this switch**, and enter a
    **write community**. Each switch's line then says *Port control* (or *Port control (off)* while step 1 is off)
    instead of *Read only*. Like the read community it is never shown again, never logged or audited (the audit log
    only says `port_control: true`); leave it blank to keep it, or tick *Remove the write community* to clear it. It
@@ -179,13 +257,13 @@ that of VLAN 1 (and IOS does not serve the Q-BRIDGE tables). When a switch says 
 VLANs of the ports) and reads the bridge-port map and the forwarding table once for each, with `<community>@<vlan>`.
 It reads at most 64 VLANs per poll (set per switch under *VLANs read per poll*, 2 to 512) and for at most 30 seconds,
 stops after two VLANs in a row without an answer (the device does not index by community), and records what it left
-out on the switch card as an incomplete read; the plain table stays in use whenever the per-VLAN read gives nothing.
+out in the switch's detail (Network → Equipment) as an incomplete read; the plain table stays in use whenever the per-VLAN read gives nothing.
 **A switch with more VLANs is read across polls:** VLAN 1 is read every time (last, after the others: its plain table
 is read anyway, so it never uses up a poll's time before them), and the others in turn, each poll continuing where the
 last one stopped (the limit, or the 30 seconds), so every VLAN is read within a few polls. The VLANs a poll does not
 reach keep the entries of the poll that last read them, except for a device this poll saw elsewhere (it is shown only
-where it is now), and the switch card says which VLANs those are. Once every VLAN has been read by some poll, such a
-switch's table counts as complete (a note on the card, not an incomplete read): port actions and a VLAN quarantine are
+where it is now), and the switch's detail says which VLANs those are. Once every VLAN has been read by some poll, such a
+switch's table counts as complete (a note in the switch's detail, not an incomplete read): port actions and a VLAN quarantine are
 not refused for it. Until then (the first polls after adding the switch or upgrading) it is an incomplete read. The
 per-switch setting in the switch form (`cisco_per_vlan`):
 *Automatic* (default), *Always* or *Never*. Other switches are never read this way. Tested on a
@@ -214,7 +292,7 @@ Some VLANs give no forwarding table even when everything else works. The usual r
   needs the line `snmp-server group <RO group> v3 priv context vlan- match prefix read <read view>`. Without it every VLAN
   but VLAN 1 is silent. With SNMPv2c the switch must accept `<community>@<vlan>`.
 
-What DENIS does then: it reads the rest. The VLANs that answered are used as usual, and the switch card names the VLANs
+What DENIS does then: it reads the rest. The VLANs that answered are used as usual, and the switch's detail names the VLANs
 that did not answer. In 4.2.4 a port action is refused only on a port that carries a VLAN DENIS could not read (DENIS
 cannot tell what is behind it there); every other port of the switch can be switched off or moved as usual.
 
@@ -223,7 +301,7 @@ cannot tell what is behind it there); every other port of the switch can be swit
 Run the switch commands in the switch's privileged mode. In the examples, VLAN 20 stands for the VLAN in question and
 `192.0.2.2` for the switch.
 
-| Text on the Switches card | Cause | Check | Fix |
+| Text in the switch's detail (Network → Equipment) | Cause | Check | Fix |
 |---|---|---|---|
 | "VLANs 20, 30 did not answer their per-VLAN read; the others were read." | The VLANs have no port up, or the read user has no context for them | `show vlan brief` (is the VLAN there, which ports), `show interfaces status` (is any of those ports *connected*), `show spanning-tree vlan 20` (does the instance exist) | No port up: nothing to fix, the VLAN is read once a device is in it. Ports up: add the `context vlan- match prefix` line to the read group (SNMPv3) |
 | "The switch did not answer the per-VLAN reads (VLANs ...)" | No VLAN context works for this user or community | `show snmp group` (the read group needs a second line with `context vlan-`), `show snmp user` (the user is in that group) | Add `snmp-server group <RO group> v3 priv context vlan- match prefix read <read view>`; for SNMPv2c check that the community is accepted with `@<vlan>` (test below) |
@@ -251,7 +329,7 @@ write community. Switching a port off and moving a port to the quarantine VLAN w
 
 ### Undo, drift, and what is announced
 
-* **Enable** (Topology → *Disabled by DENIS*, or the port's row) takes one ordinary confirmation and no password, and
+* **Enable** (*Network* → *Response* → *Currently blocked by DENIS*, or the port's card in *Equipment*) takes one ordinary confirmation and no password, and
   works while port control is switched off. DENIS only enables ports **it** disabled (its own ledger), after checking the
   index still carries the same port name.
 * Removing a switch, or its write community, while ports DENIS disabled are still off asks for confirmation first:
@@ -264,7 +342,7 @@ write community. Switching a port off and moving a port to the quarantine VLAN w
   switch restart.** Not yet verified per vendor.
 * Every block, enable, *not confirmed* outcome and drift goes to **every enabled alerting channel**, regardless of its
   minimum score and of maintenance mode. While any port is disabled by DENIS, **Health** shows a warning. Everyone who
-  can see Topology sees the *Disabled by DENIS* list (who, when); only administrators see the reason and can enable.
+  can see *Network* sees the list of ports DENIS switched off (who, when); only administrators see the reason and can enable.
 * The audit log records `nac.plan.refused`, `nac.disable`, `nac.disable.denied` (wrong password, expired plan, renamed
   port), `nac.restore`, `nac.check`, `nac.drift` and `nac.settings`. Neither community ever appears in them.
 
@@ -356,9 +434,9 @@ it does not read the default route of a layer-3 switch.
 Spanning tree helps with uplinks: the port toward the root bridge and the ports held in blocking are treated as uplinks, so they are
 never switched off or moved. A neighbour's management address (LLDP) is kept for the "add it" step.
 
-### Equipment links: the cabling between your equipment (4.2)
+### The cabling between your equipment (4.2, the map since 4.3)
 
-*Network* → *Map* → **Equipment links** draws your switches, firewalls, routers and access points with the cables between them, the
+*Network* → *Map* draws your switches, firewalls, routers and access points with the cables between them, the
 internet side on top (the gateway, then what is behind it). It is where you check the cabling: DENIS shows its best estimate first, you
 correct it once at setup, and later it just shows. Every cable says how DENIS knows it, in words and by the line pattern (never by
 colour alone):
@@ -375,16 +453,16 @@ A firewall that DENIS also reads as a switch, or whose interfaces are one device
 says so under **Where DENIS is not sure** and offers the choices (*Yes, that is right*, *Choose the cable myself…*, *A switch or
 access point DENIS does not read*, *A shared desk switch or hub*); it never presents a guess as fact.
 
-**Correcting a cable** (administrators): drag a thread from the small circle of one box and drop it on the other box (on the map and in
-the setup wizard's *Uplinks* step); a short form then asks for the ports (from the switch's list) and a note, and you confirm. Without a
-mouse: press Enter on one box, then Enter on the other, then confirm; or **Choose a cable…** picks both ends from lists. A cable drawn by
-hand always wins over every guess between the same equipment or on the same port, is saved for every administrator, survives a restart,
-is written to the audit log with the old and the new value, and is undone with **Remove cable**. When the equipment itself announces
+**Correcting a cable** (administrators): press **Add cable…** on the map (or drag from the dot under a box), click the first device, click
+the second one; a dialog in the middle of the map, *Which ports are connected?*, asks for the two ports (from the switch's list) and a
+note, and you press *Confirm cable* (Esc or *Cancel* removes the cable again). Setup step 5, *Cables DENIS is not sure about*, sends you to the map
+and back. A cable drawn by hand always wins over every guess between the same equipment or on the same port, is saved for every
+administrator, survives a restart, is written to the audit log with the old and the new value, and is undone with **Remove cable**
+on the cable's panel. When the equipment itself announces
 something else, the cable you drew is used and the map shows the conflict. A switch port with a cable drawn by hand is never treated as a
 plain access port for port actions (more warnings, never fewer).
 
-The same links give the order **by wiring** that *Network* → *Equipment* can use (internet side first, firewalls and routers on one
-level), and the setup wizard asks its *Uplinks* questions from them and lists *Networks and firewalls* (which firewall routes which
+Setup (Network → Setup, step 5, *Cables DENIS is not sure about*) asks its questions from them and lists *Networks and firewalls* (which firewall routes which
 network, and whether DENIS also sees it is that network's gateway). The API is `GET /api/topology/relations`, `POST /api/topology/links`
 and `DELETE /api/topology/links/{id}` (see the API reference).
 
@@ -406,7 +484,7 @@ What DENIS cannot know here: that the device is really on that port. The warning
 
 DENIS keeps a bounded history of where each MAC has been seen (per switch, port and VLAN) and a change log, and a
 change is only believed when **two consecutive polls agree**, so one flaky read never raises anything. A port or VLAN can
-be **watched** (*Watch* in the port drawer or port table; administrators only, up to 64 of each, ports by ifIndex so it is
+be **watched** (*Watch* on the port's card in *Network* → *Equipment*; administrators only, up to 64 of each, ports by ifIndex so it is
 offered only for switches that answered a bridge-port map). Four detection rules read this, see
 [Detection rules](detection-rules.md): `port_move`, `new_on_port` (watched ports and VLANs only), `vlan_change` and
 `fingerprint_changed` (which needs no switch at all). Port-level configuration changes (PVID, admin state changed by
@@ -519,7 +597,7 @@ snmp-server user denis-ro DENIS-RO v3 auth sha <auth password> priv aes 128 <pri
 snmp-server user denis-rw DENIS-RW v3 auth sha <auth password> priv aes 128 <privacy password> access DENIS-SNMP
 ```
 
-Then in DENIS: *Settings* → *Switches (SNMP)* → add or edit the switch → **SNMP version: SNMPv3** → user `denis-ro`,
+Then in DENIS: *Network* → *Equipment* → add or edit the switch → **SNMP version: SNMPv3** → user `denis-ro`,
 level `authPriv`, authentication **SHA-1**, privacy **AES-128**, and the two passwords. For port control, open *Allow
 DENIS to disable ports on this switch* and enter `denis-rw` and its passwords.
 

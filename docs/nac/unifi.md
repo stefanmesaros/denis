@@ -156,6 +156,42 @@ Use a **dedicated local account** for DENIS (a role limited to what DENIS needs,
 
 Username (plain configuration), password (`nac.unifi.password`) and API key (`nac.unifi.api_key`), both in the encrypted secret store, write-only in the form. Neither is ever written to the ledger, the plan, the steps, the audit log, a notification, a log line or a support bundle; an error from the console is reduced to its status and code before DENIS keeps it.
 
+## Client visibility (read only, 4.3)
+
+With **Read the clients this controller sees** ticked, DENIS lists the clients the console sees and shows them on the
+*Network → Map* (a Wi-Fi client under its access point, with its SSID and VLAN), in the map's device panel ("Seen on SSID
+Corporate, VLAN 120, via AP-07 of UniFi A, 2m ago") and as *N clients seen* on the connector's row of *Network →
+Equipment*. **It never writes**: every request is a `GET` (plus the local account's sign-in), nothing is blocked,
+disconnected or changed on the console, and nothing it reads decides or loosens a response: a switch port DENIS reads over
+SNMP keeps its place on the map, and port actions, plans and guards never use what a controller reports.
+
+* **On by default for a new UniFi connector.** A connector made before 4.3 reads nothing until an administrator ticks the
+  box (Edit connector). Unticking it forgets what was read.
+* **What is read**, every 2 minutes, by the leader node only:
+  * with the local account: `GET {prefix}/api/s/{site}/stat/sta` (the clients connected now: MAC, IP, host name, wired or
+    wireless, access point, SSID, VLAN, signal, switch and port, first and last seen, the console's own blocked flag) and
+    `GET .../stat/device` (the names of the access points, switches and the gateway). `{prefix}` is `/proxy/network` on a
+    UniFi OS console, nothing on a classic controller;
+  * with the API key only: the Integration API's `GET /sites/{id}/clients` and `/sites/{id}/devices` (paged). This gives
+    the client, its address, wired or wireless, and the device it is connected to, but **no SSID, VLAN, signal or port**;
+    the Equipment row says so.
+* **Permissions:** a local account with the *View Only* role for the Network application, or a key made by such an
+  administrator, is enough for the read. Use a separate account if the connector also acts.
+* **Bounds:** at most 4,000 clients per read (20 pages of 200) and 1,000 managed devices; every text cut to 96
+  characters; 15 s per request; the console's answer limited in size. A longer list is a *partial* read: clients it does
+  not name are kept as they were, never taken as gone. After a failed read the last list is kept, the next read waits
+  longer (up to 30 minutes), and after three missed reads Health says the console could not be read.
+* **Matching:** by MAC address within the connector's site, then by an IP address exactly one device of that site holds
+  (a client the console knows under another MAC). A client DENIS does not know creates no device. A device whose MAC is
+  randomised is never matched by address. Roaming, a new address or a new VLAN is kept as *Before: ...* in the panel.
+* **Verified with:** verified on a Cloud Gateway Ultra (Network 10.6.106): the client's MAC and wired/wireless flag. Unverified on
+  hardware: switch MAC and port, VLAN, last seen, and every wireless field (no UniFi access point in the lab): the `stat/sta`
+  fields `essid`, `vlan`, `ap_mac`, `sw_mac`, `sw_port`, `signal`, `first_seen`, `last_seen` and the Integration API device
+  feature `accessPoint` are marked *unverified* in the code, so where a wired client is placed on its switch and port rests on
+  fields no hardware has confirmed yet. In DENIS's own tests (a simulated console): wired and wireless clients, 800 clients over four
+  pages, a list longer than the bound, roaming between two access points, a console that is down, malformed answers, and
+  that nothing but a read is ever sent.
+
 ## Details from the console
 
 The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.

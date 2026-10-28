@@ -43,7 +43,7 @@ console.
 ```
 
 This loads a fictional company and serves the console on your own machine only, with no login and no
-capture. Click around the Devices, Alerts, Findings and Topology pages to see what DENIS shows when it
+capture. Click around the Devices, Alerts, Findings and Network pages to see what DENIS shows when it
 is working. Nothing you do there touches a real network. See the [console tour](tour.md).
 
 ## 3. Test on your real network
@@ -75,7 +75,7 @@ Wi-Fi client isolation).
    with reality. Open the device page and read *Why this guess*. Report the wrong ones (section 5).
 3. **Unusual hardware (5 min).** Look specifically at IoT, printers, cameras, TVs, game consoles, smart-home
    hubs, NAS boxes, industrial controllers and anything odd. These are the most valuable reports.
-4. **Topology (5 min).** Open Topology. Does the picture match how your network is actually connected?
+4. **Network map (5 min).** Open Network → Map. Does the picture match how your network is actually connected?
    If you have VLANs, are they separated the way you expect? If you use IPv6, are your IPv6 devices
    there and attached to the right device?
 5. **Alerts (5 min).** Look at the first alerts. Each one shows the reasons behind its score. Were they

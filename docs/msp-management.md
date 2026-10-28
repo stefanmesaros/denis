@@ -81,6 +81,9 @@ Remotely, at any level (the request is refused before it runs, whatever the MSP 
 9. Change where this master sends its data (`--report-to`, `--backup-upstream`).
 10. Anything served to somebody without a session (shared report links, phone approval links) and the operator pages.
 11. Anything that would itself be forwarded over another management channel (one hop only).
+12. Ask a device on your network what it is (Network → Equipment → **Add equipment** → *Find out*, new in 4.3). That request
+    starts from your network and goes to a device address, so it is made only by one of your own administrators, never
+    remotely and never with an API token.
 
 These stay with you so that you can always see what happened, take the access away and recover.
 

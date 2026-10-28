@@ -30,8 +30,8 @@ Open a device (click its row) → **Edit asset** (needs the *editor* role).
 | Notes | free text |
 | Custom fields | any name/value pairs you need ("Cost centre", "VLAN"…) |
 
-Clear a field by emptying it. Every change is recorded with **who, when, old value → new value** and shown under
-**Change history** on the device page (admins also see the global **Audit log** page).
+Clear a field by emptying it. Every change is recorded with **who, when, old value → new value** and shown on the
+**History** tab of the device page (admins also see the global **Audit log** page).
 
 ## The review queue
 
@@ -94,6 +94,11 @@ Rules:
 * The **`mac`** column identifies the device; it is required. Unknown MACs create manual assets.
 * **Empty cells change nothing.** To clear a value use the edit form.
 * Columns that describe discovery (`ip`, `vendor`, `risk_score`, …) may stay in the file; they are ignored.
+* **`site`** is optional: `local`, a site name or a site id (an export writes the name). It picks the device when
+  the same MAC is known at several sites (without it such a row is refused), and sets the site of a new manual
+  record (without it, the local site). An unknown site, or a name two sites share, is a row error. Every row is
+  checked against your access to its site: a row for a site you may only read is refused with its own error and
+  the other rows are still applied.
 * `tags` are separated by `;`. Custom fields use a `custom.` prefix and keep their capitalisation.
 * Dates are `YYYY-MM-DD`. `status`, `criticality`, `icon`, `purdue_level` must be valid values.
 * The file must be ≤ 5 MB and ≤ 5000 rows. A summary shows how many rows were created, updated, unchanged
@@ -107,6 +112,41 @@ Rules:
 
 The filter box on the Devices tab searches IP, MAC, name, vendor, type, OS, ports, site **and** owner, serial
 number, asset tag, location, department, zone, status and tags.
+
+To find out **which device had an address at a given time**, type the address, an `@` and the time into the same box:
+`10.0.20.15 @ 2026-10-21 14:02` (your local time). DENIS lists every device that used the address within five minutes
+of that time, with the window each had it, the switch port it was seen on then, and the devices that used it
+afterwards. When more than one device is listed (a DHCP lease that moved), compare the windows: DENIS never picks one
+for you. A device that forwards traffic for others (a router, a firewall) is marked, because the address may belong to
+a machine behind it.
+
+## The History tab
+
+The **History** tab of a device puts everything DENIS knows about the device in one list, newest first, 200 entries a
+page ("Show older entries" reads the next page). It reads the tables DENIS already keeps and stores nothing new:
+
+![The History tab of a device](img/device-timeline.png)
+
+| Group | What it shows | Where it comes from |
+|---|---|---|
+| Addresses | an address started being used, was last seen | the device's IPv4 and IPv6 history |
+| Port and VLAN | the switch port it was seen on, moves, VLAN changes | the switch port tables and the change log |
+| Contacts | first contact with a peer (once per day and per peer device), first contacted by | the traffic relationships |
+| Alerts and events | alerts, quiet alerts, other events, fingerprint changes | events |
+| Incidents | an incident opened for the device | incidents |
+| Responses | what DENIS or a person did to the device and each step | the enforcement ledger |
+| Identity | interfaces linked, copies merged, suggestions and what was decided | device links, merges, suggestions |
+| Changes | edits, acknowledgements and other state changes | the audit log and the decision log |
+
+Each entry says where it comes from (a sensor, a switch, a connector, a person, DENIS) and how DENIS knows it
+(observed, reported by another system, inferred, entered or decided). A device made of several interfaces shows the
+history of all of them. A device on a site you may not read is not found, and a peer or a suggested partner on such a
+site is left out of the entries, as it is everywhere else. The filter buttons and the period select narrow the list.
+
+Events, alerts and port movements older than the retention period (Settings → Data → Data retention, 90 days unless you
+changed it) are deleted, and the tab says so at the end of the list. Addresses, "first seen" and "last seen" are never deleted.
+Not in the list: hostname changes and changes of the "is anything managing this device" answer, which DENIS does not
+store.
 
 ## Details from the console
 

@@ -36,8 +36,17 @@ firewall, and DENIS never takes it over.
    nights only) or only traffic *to* the group does not prove the block, and DENIS refuses with "No enabled deny rule
    uses ...".
 4. Quarantine (optional): a dynamic group `DENIS-DYN-QUARANTINE` with the match `'denis-quarantine-<id>'`, and **your own**
-   rules for it (allow DHCP, DNS, NTP and the remediation server above a deny for the rest). DENIS never creates an allow
-   rule; it checks only that an enabled rule uses the group.
+   rules for it: allow rules for what a quarantined device needs (DHCP, DNS, NTP, the remediation server), and **below them
+   a deny rule for the rest**: source `DENIS-DYN-QUARANTINE`, destination any, zones any, application any, **service any
+   (not `application-default`)**, action Drop. DENIS never creates an allow rule. From 4.3 it checks (in *Test connection*,
+   before every quarantine and every minute while one is active) that such a deny rule drops **everything else** from the
+   group, by the same test as the block's deny rule. A deny rule with service `application-default` drops only the
+   applications' default ports and lets a quarantined device out on every other port (seen in the owner's lab,
+   2026-10-21): DENIS refuses it and says that service and application must be `any`. Your allow rules for the group
+   above the deny rule are listed in *Test connection* as "allowed out of quarantine: rule ... (applications ...;
+   services ...)", as information. An enabled allow rule above the deny rule that does **not** name the group (for
+   example a LAN-to-Internet rule with source any) can let a quarantined device out, and is refused as for the block.
+   An active quarantine whose deny rule no longer passes is shown as *unconfirmed* at the next check.
 5. *Device → Admin Roles → Add* `denis-api-dag`: XML API **User-ID Agent** (register and remove tags), **Operational
    Requests** (the list of registered addresses, ending sessions, the firewall's model and uptime) and **Configuration**
    (DENIS reads the group and the security rules; it writes no configuration for these methods). Add **Commit** only if you
@@ -118,6 +127,36 @@ shows that DENIS could not verify, with the time of its last proof. Right before
 again: one released, expired or changed meanwhile is not registered again. An unchanged result is written to the action at
 most every ten minutes, and a skipped re-registration is written to the audit log when its reason is new, at most hourly
 otherwise.
+
+**The firewall's own timeout (4.3, opt-in, Experimental).** A tag registered without a timeout stays until it is
+removed ("never expire" in `show object registered-ip`): if DENIS is not running when a block ends, the block stays until
+DENIS is back (the expiry job then releases every overdue action within about half a minute of its start, and the
+notification says "released N min late" when it ended more than 90 seconds after its end). With *Let the firewall remove
+a timed tag by itself (experimental)* switched on in the connector, a block or quarantine through a dynamic group **that
+has an end** registers DENIS's tag with PAN-OS's own timeout (`<member timeout="...">`): the duration plus 15 minutes. DENIS
+still releases the action itself at its end and its record stays what counts; the firewall removes the tag on its own only
+when DENIS could not. Details:
+
+* Off by default, and off for connectors saved before 4.3. The plan dialog says when a block will carry the timeout, and
+  the action's record and its steps say it ("timeout N s").
+* A permanent action never gets a timeout. Neither does one longer than 30 days less 15 minutes: PAN-OS accepts at most 30
+  days, and a shorter timeout would end the block before DENIS's end.
+* **Extend** renews it: before DENIS moves the end in its record, it reads the firewall's registered addresses (the tag
+  must be there and be DENIS's registration), registers the tag again with the new timeout (a second register replaces
+  the timeout: observed on a PA-220, see below), and reads the tag back. If that is refused, or the answer is lost, the
+  extend is refused and the action keeps its old end ("The end was not moved"). An action whose tag carries a timeout
+  cannot be made permanent or extended past 30 days from now (the timeout cannot be taken off again): release it and
+  block again.
+* A re-registration of a lost tag (the minute check) carries a timeout for the time that is left, under the same rules.
+* An expiry that finds the tag already gone (the timeout fired, a restart) is a normal release: nothing is left to remove,
+  and the read-back confirms it.
+* What is tested: on a PA-220 with PAN-OS 10.1.14-h9 (D4 fixtures F6/F7, 2026-10-19) a tag registered with a timeout of 120
+  seconds was gone after 130 seconds, and registering the same tag again with a timeout of 600 kept it past the first
+  timeout. The list of registered addresses shows no remaining time, so DENIS cannot read a timeout back, only that the tag
+  is there. DENIS's own path (register with the timeout, extend, a stopped DENIS during a short block) is checked against
+  the simulated firewall only, and is **Experimental** until it has been run on the firewall; the validated table is not
+  changed by it. Lab run to do: stop DENIS during a 5-minute block and see the tag vanish about 15 minutes after the end;
+  extend a timed block and see the tag stay past the old end.
 
 **Measuring the real time to block.** The time that counts is from the click on *Apply* until the device's traffic stops,
 not the API's answer. DENIS records the moment the apply request arrived as the action's first step ("apply received", in
@@ -256,8 +295,9 @@ matched (the simulated firewall answers in these shapes): a register answers suc
 answers `status="error"` with the entry message `... already exists, ignore` (DENIS reads it as "the tag was already
 there", never as its own); an unregister answers success whether or not the tag was there (so DENIS reads back before and
 after); the list of registered addresses has the address, `from_agent`, `persistent` and the tags, and no remaining time;
-the `X-PAN-KEY` header works for `type=user-id`; a member timeout works and a second register replaces it (DENIS sets no
-timeout in this version); the tag was still there after a commit and after a full restart. In DENIS's own tests, against
+the `X-PAN-KEY` header works for `type=user-id`; a member timeout works and a second register replaces it (DENIS sets one
+only with the opt-in setting of 4.3, see "The firewall's own timeout"); the tag was still there after a commit and after a
+full restart. In DENIS's own tests, against
 the simulated firewall: register and release of exactly DENIS's tag, a tag already there refused and never removed, a tag
 that appears between the plan and the write not taken over, another DENIS tag and foreign addresses as warnings, lost
 answers on register and unregister, the setup check (missing group, static group, a match with more than the tag, no or a
@@ -317,3 +357,4 @@ The console shows a short line under each field and a short note behind its (i).
 - **Quarantine tag (DENIS's own)**: Leave it empty: DENIS fills in denis-quarantine- and this installation's six-character tag when you save. Type the saved name, in single quotes, as the match of the quarantine dynamic group in PAN-OS.
 - **Register a tag again when the firewall lost it**: On by default. DENIS reads the firewall's registered addresses every minute and right after it sees a restart. When the tag of an active block or quarantine is missing, the action is shown as unconfirmed at once, and with this on DENIS registers the tag again, at most three times per action per hour, only while every safety check still allows the device, and writes it to the audit log. Off: DENIS only shows the action as unconfirmed and notifies you.
 - **At most this many registered addresses**: DENIS refuses a new block or quarantine through a dynamic group when it already holds this many registered addresses on this firewall (default 200, from 1 to 1000). The firewall's own limit is shared with every other source (a PA-220 holds 1000); DENIS also refuses when the firewall is at 95 percent of it.
+- **Let the firewall remove a timed tag by itself (experimental)** (4.3): Off by default. When on, a block or quarantine through a dynamic group that has an end registers DENIS's tag with the firewall's own timeout, the end plus 15 minutes, so the firewall removes the tag by itself if DENIS is not running at the end. DENIS still releases the action at its end. Extend renews the timeout first and is refused (the end stays) when it cannot. A permanent action, or one longer than 30 days, gets no timeout. Experimental: the timeout itself was seen working on a PA-220 with PAN-OS 10.1.14-h9, DENIS's use of it has not yet been run on a firewall (see "The firewall's own timeout").

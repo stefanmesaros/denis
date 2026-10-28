@@ -189,7 +189,7 @@ register and the monitored networks under Settings, Capture: six of the console'
 
 <p>
 <img src="docs/img/incident.png" width="32%" alt="An incident scored 100: two alerts about the finance file server, its timeline, the device involved and the related findings">
-<img src="docs/img/network-links.png" width="32%" alt="Network map, Equipment links: switches, routers and access points with each cable marked confirmed by LLDP, a best guess from the forwarding tables, or set by hand">
+<img src="docs/img/network-links.png" width="32%" alt="Network map: switches, routers and access points with each cable marked confirmed by LLDP, a best guess from the forwarding tables, or set by hand">
 <img src="docs/img/notifications.png" width="32%" alt="The notification bell open: five notifications, one marked high and two marked warn, each with an Open button">
 </p>
 <p>
@@ -217,10 +217,15 @@ register and the monitored networks under Settings, Capture: six of the console'
 | Control coverage | Which devices your directory, device-management, scanning and endpoint-protection tools do and do not reach, shown per device as managed / scanned / protected, with "no match" and "not managed" kept separate, tracked over time against goals you set — see [docs/coverage.md](docs/coverage.md) |
 | One workflow for alerts, incidents and findings | Acknowledge, resolve or reopen an alert, incident or finding with a required reason, every decision written to a log; an incident's decision reaches its own alerts only, never findings or other incidents — see ALERT_INCIDENT_FINDING.md |
 | Dashboard | 12 clickable KPI tiles, trend charts, risk/severity/type breakdowns, recent alerts, most at-risk devices — the home screen |
-| SNMP topology | Switch ports, LLDP neighbours, MAC-to-port physical map, over SNMPv2c or SNMPv3 (a read-only user; Cisco switches are read per VLAN). Tried on one real switch so far, not per vendor ([switches](docs/switches.md)) |
+| SNMP topology | Switch ports, LLDP neighbours, MAC-to-port physical map, over SNMPv2c or SNMPv3 (a read-only user; Cisco switches are read per VLAN). Tried on two real switches (a Cisco Catalyst and a D-Link), not per vendor. New in 4.3: any managed switch with standard SNMP can be read, and its port control is Experimental ([switches](docs/switches.md)) |
+| Network section | *Network* has a map (zoom, search, groups, cables that DENIS marks confirmed, best guess or set by hand), **Equipment** (one table of every switch, firewall and controller, with a product-first *Add equipment*), **Response** and a guided **Setup** in seven steps. UniFi and Meraki controllers can show the clients they see on the map, read only (Meraki is Experimental) |
+| What DENIS cannot see | A Health section: per capture interface what arrived and what was lost or unreadable, duplicate packets, networks and VLANs seen against the ones expected, traffic seen in one direction only; every row says measured, estimated or not measurable, and it never claims to see everything ([docs](docs/visibility.md)) |
+| Detection that measures itself | More than 40 detections added in 4.3 (industrial and office); every rule is timed and one that makes detection late can be paused, with a notice and an automatic resume; *This is normal* on any alert; per-rule counts of what was acted on ([docs](docs/detection-rules.md#the-rules-added-in-43-at-a-glance)) |
+| Not managed, and one history per device | *Not managed by any tool* lists what no management tool covers; each device has a timeline of its addresses, ports, alerts and responses, and DENIS can say who had an address at a given time |
+| Site administrators and API tokens | An administrator limited to some sites manages only those sites; API tokens have areas, expiry, rotation and an acts-as mode ([API](docs/api.md#api-tokens-for-scripts-and-integrations)) |
 | IP enrichment | Country (flag), city, ASN, AS organisation, reverse-DNS hostname for any public IP (Alerts, Events, Recent destinations, IP history) — local GeoIP (DB-IP Lite, auto-updated, or your own MMDB), never sent to a third party |
 | Vulnerability & EOL findings | Live CISA/NVD known-exploited feed (+ EPSS score) and end-of-support dates, matched per device — both refreshed weekly by default; your own custom CVEs |
-| Threat intelligence | abuse.ch Feodo Tracker, ThreatFox and URLhaus, Spamhaus DROP and ASN-DROP, the Tor exit-node list — each an opt-in, named source on a match; your own list too |
+| Threat intelligence | abuse.ch Feodo Tracker, ThreatFox and URLhaus, Spamhaus DROP and ASN-DROP, the Tor exit-node list — each an opt-in, named source on a match, with known-bad domains matched against what devices look up (ThreatFox needs a free abuse.ch key, entered in Settings); your own list too |
 | Certificates & web pages | Opt-in: TLS certificate (expiry, self-signed, weak protocol/cipher) and HTTP page title on already-open ports of your own devices — findings for an expired, expiring, self-signed or weak-TLS certificate |
 | Remediation tracking | Assign a finding or exposure to a person, a due date, a linked Jira/ServiceNow ticket; DENIS confirms the fix itself (rescan, or no further contact while the device stays online) and watches for 30 days in case it comes back |
 | Connection stability test | One-click, 10-20s test of packet loss, jitter and latency over this browser's link to DENIS and DENIS's own link to your gateway or the internet — rated for browsing, a video call, and 1080p/4K streaming, with a note on whether DENIS's own activity was the cause |
@@ -403,6 +408,9 @@ The Community edition is distributed as pre-built, signed binaries under the ter
 * **Free** for personal, non-commercial use, on a single installation monitoring up to **100 devices**.
 * **Any organisational use** (a business, non-profit, government body or other organisation, regardless of size)
   **— or more than 100 devices —** needs a commercial license.
+* **Organisations may evaluate** the Community edition free of charge for **30 days from the first installation**, on up to
+  100 devices, to evaluate and demonstrate DENIS (not to run their operations on it). After that, a commercial license is
+  needed.
 
 See [LICENSE](LICENSE) for the exact terms and [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md) for how to get a
 commercial license (there is no self-service purchase yet — open a GitHub issue). List of
@@ -418,7 +426,12 @@ enforcement connectors, in 4.0.0. 4.1.1 added a static Linux program for Alpine 
 4.1.2 added IP fragment reassembly for industrial protocols; 4.1.3 the fixes of the next code review; 4.1.4 the Network
 page, gateway detection, the new Respond menu and the first validation on real equipment (Cisco). 4.2 added the Respond menu
 that knows the path, verified actions on FortiGate, Palo Alto, MikroTik and UniFi (see Enforcement) and a fuller network map;
-4.2.1 an OpenAPI description and a ready-made PostgreSQL build. Still owed before a
+4.2.1 an OpenAPI description and a ready-made PostgreSQL build. 4.3.0 added more than 40 detections, detection that
+measures itself, the *What DENIS cannot see* page, *This is normal*, a new Network section, any managed switch over standard
+SNMP (Experimental for control), UniFi and Meraki client reading, site administrators and scoped API tokens; its known limits are in
+[docs/updates.md](docs/updates.md#known-limits-in-430), and the PostgreSQL code of 4.3 is compiled and reviewed, not yet run against a
+production database. Next: Catalyst 9800 and other controllers, address spaces, the PostgreSQL work, more rules, domain blocking and
+endpoint-tool import (ROADMAP.md). Still owed before a
 commercial launch: an independent penetration test and verification on real equipment, listed in ROADMAP.md. A
 packaged Windows collector, Qualys import and SAML are also open. OIDC single sign-on is built, but its exchange with an
 identity provider has not been verified against a real provider yet.

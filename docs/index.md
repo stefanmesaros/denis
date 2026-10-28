@@ -34,11 +34,14 @@ search box (it also works without JavaScript as an ordinary form: `/docs/search?
 | Send events, audit log and inventory to OpenObserve, events/findings/audit to a SIEM (syslog: CEF/LEEF/JSON), or ECS documents to Elasticsearch/OpenSearch | [Export](export.md) |
 | See which switch port each device is plugged into (SNMP) | [Switches](switches.md) |
 | Feed DENIS a mirror over RSPAN, ERSPAN, VXLAN or another tunnel | [Tunnel mirroring](tunnel-mirroring.md) |
+| See what DENIS cannot see, and where to put the sensor | [What DENIS cannot see](visibility.md) |
 | Understand why an IDS, IPS or endpoint product flags DENIS as a port scan, and what to do | [Security tools that may flag DENIS](security-tools.md) |
 | Run it in Docker | [Docker](docker.md) |
 | Back up and restore, load demo data, monitor DENIS itself, size an installation | [Operations](operations.md) |
 | Put the customer's logo, colours and day/night mode on the portal | [Branding](branding.md) |
 | Keep DENIS up to date (changelog, install now or later, automatic backup, remote agents, if GitHub is unreachable) | [Updates](updates.md) |
+| Update to 4.3 (what changes for administrators, the abuse.ch key) and see what 4.3.0 does not do | [Upgrading to 4.3](updates.md#upgrading-to-43), [Known limits in 4.3.0](updates.md#known-limits-in-430) |
+| See what was tested on real equipment and what only on a simulator | [Enforcement validation](nac/validation.md) |
 | Assess or harden its security | [Security](security.md) |
 | Get the software bill of materials, or see how DENIS is being prepared for the EU Cyber Resilience Act (not certified) | [SBOM](https://github.com/stefanmesaros/denis/blob/main/docs/compliance/SBOM.md), [CRA readiness](https://github.com/stefanmesaros/denis/blob/main/docs/compliance/CRA.md) |
 | Help test DENIS and report what I find | [Testing DENIS](community-testing.md) |

@@ -74,6 +74,33 @@ Behaviours that are unproven vendor facts (marked **[verify]** in the code):
 
 A single Dashboard API key (`nac.meraki.api_key`), sent as the `X-Cisco-Meraki-API-Key` header on every call: there is no session and nothing is kept between calls. It is never written to the ledger, the audit log or a notification.
 
+## Client visibility (read only, 4.3, Experimental)
+
+With **Read the clients this network sees** ticked (on by default for a new Meraki connector), DENIS lists the clients of
+the connector's one network and shows them on the *Network → Map* (a Wi-Fi client under its access point with its SSID
+and VLAN, a wired client on its MS switch and port when no switch DENIS reads places it), in the map's device panel and as
+*N clients seen · Experimental* on the Equipment row. **It never writes**: every request is a `GET`, nothing is blocked
+or changed in the Dashboard, and nothing it reads decides or loosens a response.
+
+* **What is read**, every 5 minutes (the Dashboard updates its client list at most every five minutes), by the leader
+  node only: `GET /api/v1/organizations/{organizationId}/devices?networkIds[]={networkId}` (names and product types of
+  the access points, switches and appliances) and `GET /api/v1/networks/{networkId}/clients?perPage=1000&timespan=86400`
+  (MAC, IP, description, first and last seen, VLAN, SSID, switch port, the device it was seen on, wired or wireless,
+  online or offline). Both lists are paged by the `Link` header (`rel=next`); a link to another host is never followed.
+  `GET /devices/{serial}/clients` is not needed and not used; `GET /networks/{id}/devices` is deprecated by Cisco and not
+  used.
+* **Permissions:** an API key of an organization administrator with **read-only** access is enough for the read.
+* **Rate limits:** the Dashboard allows about ten requests a second per organization, shared with every other tool of the
+  organization. A read of 2,000 clients takes three requests. A `429` is waited out for the `Retry-After` it gives (at
+  most 10 s, at most three times per request); then the read fails and the next one waits longer (up to 30 minutes).
+* **Bounds:** at most 6 pages and 5,000 clients, 1,000 devices, 8 MB per answer, 20 s per request, every text cut to 96
+  characters. A list cut by a bound is *partial* and never used to conclude that a client is gone. After three missed
+  reads Health says the Dashboard could not be read; the last list stays shown, marked *not current*.
+* **Verified with:** a simulator only (`src/controller_clients/tests.rs`): 2,000 clients over two pages, devices of
+  another network left out, `429` waits and an endless `429`, a `Link` to another host, malformed answers. Checked
+  against Cisco's current API reference (2026-10-28). **Unverified** on a real organization: the unit of `firstSeen` and
+  `lastSeen` (read as Unix seconds, from the reference's examples) and the array form of the `networkIds[]` parameter.
+
 ## Details from the console
 
 The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.

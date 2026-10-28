@@ -35,7 +35,12 @@ Six more are **opt-in**, off by default rather than on-by-default like the four 
 scheduled (Daily/Weekly/Monthly) independently under *Settings → Data → Threat list sources*
 ([details](detection-rules.md#threat_list_match-contact-with-a-known-bad-address-needs---flows-and-a-threat-list)).
 Each download is a plain GET of the publisher's public file; nothing about your network is sent (ASN-DROP's AS numbers
-are resolved to networks offline, with the local GeoIP database). Turning any of them on is the one deliberate exception to "nothing fetched unless you asked for it" — not a silent
+are resolved to networks offline, with the local GeoIP database). Since 4.3 ThreatFox is two such downloads (its
+address and its domain indicators; both carry your free abuse.ch Auth-Key, entered under *Settings → Data → Threat list sources* and stored
+encrypted, or `DENIS_ABUSECH_AUTH_KEY` as the fallback, sent only to `threatfox.abuse.ch` over HTTPS), and the domain indicators of ThreatFox and URLhaus are matched locally against
+the names devices look up (`dns_threat_domain`); no name a device looks up ever leaves your network. Since 4.3 a hit
+on the Tor exit list alone is reported by its own policy rule, `anonymizer_contact` (medium), not as a
+`threat_list_match`. Turning any of them on is the one deliberate exception to "nothing fetched unless you asked for it" — not a silent
 default.
 
 Reverse-DNS lookups of public addresses go to the resolver you set (`1.1.1.1` by default) and do carry the
@@ -365,7 +370,8 @@ types a correct first code. Ten **recovery codes** are shown once.
 * Unit and integration tests (780+ across the crate) including negative tests: unauthenticated access to every
   route, every role on every kind of route, session/cookie flags, lock-out, CSRF header, rebinding, token binding
   and revocation, API-token rate limits, hostile CSV/HTML, secrets never echoed back by any settings endpoint.
-* Coverage-guided fuzzing (libFuzzer) with 18 targets over the untrusted-input parsers: captured frames, mirror tunnels
+* Coverage-guided fuzzing (libFuzzer) with 23 targets over the untrusted-input parsers: captured frames and the
+  capture thread's whole per-frame path, passkey sign-in responses, the vendor lifecycle feed, mirror tunnels
   (ERSPAN, GRE, VXLAN, Geneve), DNS answers, the agent report, the SNMP raw dump, the industrial-protocol decoders
   (including the layer-2 and BER readers and IP fragment reassembly), uploaded SCL files, IPv6 extension headers and
   identity messages, SNMP and SNMPv3 replies, device banners, the enforcement connectors' reply parsers, the MSP

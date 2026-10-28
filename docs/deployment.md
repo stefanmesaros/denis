@@ -291,6 +291,7 @@ denis user disable jana                  # and: denis user enable jana
 denis user reset-mfa jana                # removes her authenticator app and signs her out; she sets it up again
 denis user reset-mfa --unreadable        # every account whose authenticator app secrets.key cannot open
 denis user scrub-backups               # seals authenticator secrets left readable in scheduled and manual backups
+denis user sites-clear jana              # removes every site limit of jana (a site administrator becomes a full one)
 ```
 
 `denis user` works on the SQLite file (`--db`, `--data-dir` for where `secrets.key` is) or, on a PostgreSQL
@@ -307,7 +308,9 @@ Rules: new and reset passwords are one-time and **must be changed at first sign-
 characters; five wrong passwords from one address lock that account out *for that address* for 30 seconds (doubling for
 repeated failures, up to 15 minutes; the exact limits, and why a stranger cannot lock the owner out, are in
 [Security](security.md#sign-in-limits-and-lock-out)); sessions end after 12 h idle or 7 days; changing a password signs out the user's other sessions;
-**the last enabled administrator cannot be removed or demoted**. Everything security-relevant is in the audit log.
+**the last enabled administrator cannot be removed or demoted**, and since 4.3 neither can the last one who is not
+limited to some sites ([site administrators](tour.md#users-administrators)). Everything security-relevant is in the
+audit log.
 
 ## Multiple sites (agents)
 
@@ -610,10 +613,116 @@ A mirror delivered over the network (RSPAN VLAN, ERSPAN, AWS or Azure VXLAN) is 
 
 **Never mirror the same traffic to two interfaces.** The flow counts of the interfaces are added, so
 overlapping mirrors count every byte twice. Health warns when two sources look identical; see
-[Do not overlap your mirrors](tunnel-mirroring.md#do-not-overlap-your-mirrors). To see the VLAN of a
+[Do not overlap your mirrors](tunnel-mirroring.md#do-not-overlap-your-mirrors). Where it cannot be avoided,
+see merging copies across interfaces under [Duplicate packets from a mirror](#duplicate-packets-from-a-mirror). To see the VLAN of a
 mirrored frame (recorded on the device as evidence, and used to annotate address conflicts across VLANs),
 the capture interface must receive the 802.1Q tag in the frame: on a Linux network card that strips it,
 `ethtool -K <iface> rxvlan off`.
+
+### Receive offload (GRO/LRO) on the capture interface
+
+Most network cards and drivers merge consecutive TCP packets of one connection into one large frame before
+the operating system sees them (GRO, generic receive offload, in the kernel; LRO, large receive offload, on
+the card). That saves work for a server, but a sensor then captures frames of up to 64 KB that never were on
+the wire: the real packet boundaries are gone, and the industrial decoders, which read messages packet by
+packet, can miss or misread commands. Switch both off on every capture interface (the main one and each
+mirror):
+
+```bash
+sudo ethtool -K <iface> gro off lro off
+ethtool -k <iface> | grep -E 'generic-receive-offload|large-receive-offload'   # both "off"
+```
+
+The setting is lost at a reboot. Keep it with your distribution's network configuration, for example a
+`post-up /usr/sbin/ethtool -K <iface> gro off lro off` line under the interface in `/etc/network/interfaces`, an
+`ethtool` setting in NetworkManager (`nmcli connection modify <name> ethtool.feature-gro off ethtool.feature-lro off`),
+or a small systemd unit that runs the command after the interface is up. Keep the capture's snap length at
+the default as well.
+
+DENIS notices merged frames on its own: a frame longer than the interface's network can carry (its MTU plus
+the Ethernet header, two VLAN tags and the checksum) on an interface with a standard MTU (1,500 or less) is
+counted per interface (`denis_capture_oversize_frames_total{iface}` on `/metrics`, "larger than the network
+carries" on the Health page), and the Health page warns while such frames keep arriving. DENIS's own outgoing
+frames are not counted (segmentation offload makes them look large before the card splits them). On an
+interface with jumbo frames, or where the MTU cannot be read, no such check is made. The same counters show
+frames the capture cut short and IPv4, ARP or IPv6 frames whose header could not be read.
+
+### Duplicate packets from a mirror
+
+A SPAN session that mirrors both directions of two ports that talk to each other hands DENIS every packet
+between them twice, a few microseconds apart. By default DENIS **counts** these copies per capture interface
+(Settings > Capture > Duplicate packets) and removes none; Health warns when more than 5 % of an interface's
+packets are copies, and the Visibility section shows the share per feed. Fix it on the switch where you can:
+mirror one direction per port, or the VLAN instead of its ports.
+
+Where the switch cannot be changed, an administrator can set **Remove copies** for that interface under
+Settings > Capture > Duplicate removal per interface. It is never the default, it is set per interface, and
+saving it asks for a confirmation, because a removed copy is not analysed by anything. With it, the capture
+thread drops the second copy of a packet seen within the window (2 ms by default) before parsing it:
+
+* A copy is the same IP packet (addresses, ports, sequence numbers, the first 64 bytes of content); the TTL,
+  DSCP and VLAN may differ. A real retransmission usually arrives hundreds of milliseconds later. Packets whose
+  bytes cannot prove they are copies are counted but never removed: every IPv6 packet (IPv6 has no packet ID, so a
+  fast retransmission or a repeated datagram looks the same), IPv4 packets with ID 0, TCP segments without payload
+  (duplicate acknowledgements) and IP fragments. In practice removal applies to IPv4 packets.
+* Industrial messages (GOOSE, Sampled Values, PROFINET, TCP and UDP on an industrial port) are never removed:
+  no industrial command is lost to duplicate removal. They are counted apart.
+* A copy that came on another link (other Ethernet addresses or another VLAN, as on both sides of a router) is
+  counted but kept: it carries the layer-2 evidence of the device on that side.
+* Set an interface to **Off** to leave it out entirely ("do not dedup").
+
+**Safety valve.** If more than 60 % of the packets an interface looked at in one check (at least 2,000
+packets, checked every 5 seconds) would be removed as copies (a doubled stream is 50 %, so more points to a
+mirror loop or to packets that only look alike), or its table has to give up more than 10 % of its packets
+while they could still have copies, DENIS switches that interface back to counting only at once, saves that,
+writes `capture.dedup.auto_off` to the audit log and warns on Health until an administrator sets the
+interface's mode again.
+
+**Two interfaces with the same traffic.** With **Merge copies across capture interfaces** switched on, an
+interface also looks a packet up in the tables of the interfaces ranked above it: one marked "keep the copy of
+this interface" first, then the main interface, then by name (at most four). An interface set to remove copies
+drops a packet a higher-ranked interface already delivered within the window; one that only counts, counts
+it. The highest-ranked interface never drops a packet because of another, so a packet is never dropped on
+both. When the higher-ranked interface's thread has not reached its copy yet, both copies pass: merging may
+miss a copy, it never loses a packet. This works inside one DENIS process only; copies between a remote site's
+agent and the master are not merged, and the overlap estimate (`W_SOURCE_OVERLAP`) keeps reporting those.
+
+**Cost and memory.** Each counting interface keeps a fixed table of 65,536 packets (1 MiB, allocated once), so 17
+interfaces hold 17 MiB; this is capture memory, apart from the detection rules' limit. Measured with
+`cargo run --release --example capture_dedup_bench` on an Apple M-series laptop: about 49 ns per frame for the
+whole path in `observe` and in `on`, with or without merging (the parser costs about 64 ns per IMIX frame), which
+is under 2 % of one core at 1 Gbit/s IMIX (350,000 packets a second).
+
+`/metrics` has `denis_capture_duplicates_total{source}`, `denis_capture_dedup_removed_total{source}`,
+`denis_capture_dedup_merged_total{source}` and `denis_capture_dedup_merged_pair_total{source,kept}`.
+
+### Capture buffer on a busy mirror
+
+The operating system keeps captured packets in a buffer until DENIS reads them. When DENIS pauses for a moment
+(a busy disk, a burst of new devices) and the buffer fills, the kernel drops packets: they appear as
+`denis_capture_dropped_packets_by_iface{iface}` on `/metrics` and as dropped packets on the Health page. The
+system's default buffer (about 2 MiB on Linux, less on macOS) holds only a few milliseconds of a busy 1 Gbit/s
+mirror, so DENIS opens every mirror interface with a 32 MiB buffer. The main interface keeps the system's
+default.
+
+`--capture-buffer-mib` (or `DENIS_CAPTURE_BUFFER_MIB`) changes it, in MiB from 0 (the system's default) to
+1024:
+
+```bash
+denis run --iface eth0 --mirror-iface eth1 --capture-buffer-mib eth1=128   # one interface
+denis run --iface eth0 --mirror-iface eth1 --capture-buffer-mib 64          # every capture interface
+DENIS_CAPTURE_BUFFER_MIB=eth1=128,eth2=64 denis run ...                     # several, in the environment
+```
+
+A value for a named interface wins over one without a name; the last value given counts. The buffer takes that
+much memory per interface. If the system refuses the size (a memory limit), the interface opens with the
+system's default and DENIS logs a warning. On macOS the system caps the buffer on its own (`sysctl
+debug.bpf_maxbufsize`).
+
+`--capture-batch-ms` is off by default. With it, mirror interfaces leave immediate mode and the system hands
+packets over in batches, at the latest after that many milliseconds (10 to 250). At a high packet rate that
+means fewer wake-ups; it has not been measured at line rate yet, so keep the default unless your own
+measurement shows fewer dropped packets with it.
 
 ## Alert notifications
 
@@ -718,6 +827,8 @@ stays out of the process list).
 | `-i`, `--iface` | yes | the default-route interface | interface to monitor |
 | `--mirror-iface` | yes | none | capture-only interface (switch mirror/SPAN port); repeatable; implies `--flows` |
 | `--mirror-subnet` | yes | none | extra subnet to treat as local for a mirror port; repeatable |
+| `--capture-buffer-mib` *env* | yes | 32 on mirrors, system default on the main interface | kernel capture buffer in MiB, `MIB` or `IFACE=MIB`, 0-1024; repeatable; see [Capture buffer](#capture-buffer-on-a-busy-mirror) |
+| `--capture-batch-ms` | yes | off | mirror interfaces receive packets in batches of up to this many milliseconds (10-250) instead of one by one; see [Capture buffer](#capture-buffer-on-a-busy-mirror) |
 | `--sweep-interval` | yes | 300 | seconds between ARP sweeps |
 | `--rescan-interval` | yes | 1800 | minimum seconds between port scans of one host |
 | `--passive-only` | yes | off | never transmit ARP, ICMP, TCP probes (nor the IPv6 discovery below) |

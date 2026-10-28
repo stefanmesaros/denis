@@ -84,6 +84,38 @@ own reads No match. Records that match no device are listed under **In your tool
 (for users who may see every site); they are often legitimate (a laptop that is away, a network DENIS
 does not watch) and are never counted as gaps.
 
+## Not managed by any tool
+
+The question a security person asks first: *what is on my network that nothing manages?* Under Devices, the
+button **Not managed by any tool** (and a tile on the Dashboard, and the first step of the setup guide) answers it
+from what DENIS already knows. Nothing new is asked of the network or of your tools.
+
+![Not managed by any tool](img/not-managed.png)
+
+Every device gets one of five answers, worked out from its cells and from what else manages it:
+
+| Answer | What it means |
+|---|---|
+| **Managed** | A control has the device (covered, or a tool reports a problem with it), or someone entered it by hand, or DENIS reads it itself through a switch or connector that answered within the last 7 days. |
+| **Not managed** | Every control that could be asked was asked and the device is not there. At least one control looked it up and did not find it, and none of the others could not look. |
+| **Cannot tell** | At least one control could not look (no usable name, a name shared with another device, a source that is out of date), or a switch or connector tied to the device has not been read lately. DENIS never calls this managed, and never "not managed". It is shown as large as "not managed": fixing a name is usually the next step. |
+| **No tool connected** | No tool is switched on for any control that applies to the device. The honest answer for an installation without integrations. |
+| **No tool applies** | None of the four controls applies to this kind of device (a PLC, for example). |
+
+An accepted risk (an *Exempt* cell) is judged by what it hid: an accepted "not managed" stays "not managed" and is
+counted as *risk accepted*; an accepted problem report still means a tool has the device. A device a person marked
+**reviewed** (Devices, "Mark all shown as known") leaves the list and is counted apart; "include reviewed" brings it back.
+
+Each device has an evidence card (in the list, and at the top of the device panel): since when and how DENIS saw it
+(DHCP, mDNS, address, switch port with how long ago, VLAN, active scan), what it looks like and why, who it talks to
+(or that DENIS has no record, which is not the same as "nobody"), one line per control saying what was looked up
+and when, what could manage it (which tools to connect, and whether the device can be read as network equipment),
+and its owner. Assign an owner to the selected devices from the list; it is the ordinary owner field. The list can be
+filtered by answer, text, owner (or no owner), site and reviewed, and exported to CSV for a ticket.
+
+Like every source here, the answers have been tested against fixtures and not yet against a real tenant: check a few
+before you rely on them.
+
 ## Findings
 
 | Finding | Severity | Raised for |
@@ -144,6 +176,6 @@ sites they may read.
 ## API
 
 The endpoints are listed in [the API reference](api.md): `GET /api/coverage`,
-`GET /api/coverage/unmatched`, `GET /api/assets/{id}/coverage`, `GET`/`PUT /api/coverage/settings`,
+`GET /api/coverage/unmatched`, `GET /api/assets/{id}/coverage`, `GET /api/unmanaged`, `GET /api/export/unmanaged.csv`, `GET /api/assets?management=`, `GET`/`PUT /api/coverage/settings`,
 `GET /api/posture`, `POST /api/posture/sample` and the goal endpoints under `/api/posture/goals`.
 The detection findings are listed in [Detection rules](detection-rules.md).

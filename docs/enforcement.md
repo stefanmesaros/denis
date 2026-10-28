@@ -25,6 +25,9 @@ what is available today. The setup of each device type is on its own page, liste
 * **Switch ports over SNMP.** Disabling a port and moving a port to a quarantine VLAN are validated on a Cisco Catalyst
   2960-X (IOS 15.2(7)E4, SNMPv2c and SNMPv3). On a D-Link DGS-1100 only switching a port off and on works; that model cannot
   say which device is on which port. See [SNMP port control](nac/snmp.md) and [Switches](switches.md#disabling-a-port).
+  Since 4.3 any other managed switch with standard SNMP can be read, and its port off and quarantine VLAN actions
+  exist as **Experimental**: off by default, they need a write test first and were tested only against simulated switches
+  ([details](switches.md#any-managed-switch-with-standard-snmp-experimental-43)).
 * **Blocking, quarantine and ending sessions through the connectors** (firewalls, UniFi, Meraki, AWS, Azure, NSX-T,
   Hyper-V, Proxmox, RADIUS Disconnect), each with the connector's own **Block** button under *Settings → Response policy*.
   Some actions of UniFi, FortiGate, Palo Alto and MikroTik are validated on real devices (the table below says which);
@@ -396,7 +399,7 @@ Opened from the Respond menu the response and the connector are already chosen, 
 
 ## Active responses
 
-*Settings -> Enforcement* lists what is in force, a failed removal first. Each row has **Release** (no password), **Extend**
+*Network → Response* lists what is in force, a failed removal first. Each row has **Release** (no password), **Extend**
 (password) and, when DENIS could not confirm a change, **Check now**. A device's panel shows the same for that device.
 
 **Extend** offers two ways, and shows the new end as a clock time before you give your password:
@@ -547,11 +550,17 @@ or by `rule:<policy id>` (automatic), as for every other action.
 
 **Network** is a group in the left menu, like Settings, with four pages:
 
-* *Network → Map* (formerly *Topology*): the gateway DENIS knows, your switches and the cables between them, and the ports of each switch with a role and the reason for it (uplink, trunk, link aggregation, management, infrastructure, access). **Read now** is on every switch.
+* *Network → Map* (formerly *Topology*): the gateway DENIS knows, your switches and the cables between them; click a switch for its ports with a role and the reason for it (uplink, trunk, link aggregation, management, infrastructure, access). **Read now** is on every switch (in *Equipment*).
 * *Network → Equipment*: every switch DENIS reads and every firewall, controller or cloud platform it acts through, in one table (this used to be *Settings → Switches* and *Settings → Connectors*). Add a switch or a connector, read or test one, and the **write test** of a switch. Where DENIS recognises your gateway as a firewall it offers to set up that connector.
   One row per physical device: a switch DENIS reads and a connector it acts through are one row with two roles (*Ports · SNMP*, *Enforcement · kind*) when the identity layer says they are one device, or when both are set up on the same address (the row says which: *same address*, *reported by the device*, *joined by admin*); the row takes the connector's name, settings, credentials, Edit and Delete stay per role. The row shows the state in short words (*read 2m ago*, *Tested 1d ago*, *no forwarding table*, *Simulator only*); the chevron opens the detail with the full sentences, what it can do, the last action, the site and where it is wired. *Read now*, *Test* and *Edit* stay visible, the rest (*Test write*, *Block…*, *Placed by hand…*, *Delete…*) is in the **⋯** menu. **Order:** *By wiring* (the default) follows the cables on *Network → Map* (internet side first, then by address); *Manual* keeps the order you set with the handle or **Move up** / **Move down**, saved for every administrator (`PUT /api/network/equipment-order`, audited); *Use this order* starts the manual order from the order by wiring.
-* *Network → Response*: *Equipment state* (what each piece can do and the one thing to change), *Currently blocked by DENIS* (every response in force with its origin: a person, an automation policy by name, Autopilot; releasing an automatic one can also pause its policy), *Hands-off devices*, and what your account may do.
-* *Network → Setup*: a seven-step guided setup (discover, gateway, equipment, uplinks and hands-off, response methods, write credentials, dry run).
+* *Network → Response*: a strip with whether enforcement is on, the hourly limit and what your account may and may not do, *Currently blocked by DENIS* (every response in force with its origin: a person, an automation policy by name, Autopilot; releasing an automatic one can also pause its policy), the responses waiting for your approval, and *Hands-off devices* (grouped: built-in, your list, connector lists). What each piece of equipment can do is on *Network → Equipment*.
+* *Network → Setup*: a seven-step guided setup (discover, confirm the gateway, add equipment, same device?, cables DENIS is not sure about, write credentials, dry run).
+
+![Network → Response: the strip, the responses in force and the hands-off devices](img/network-response.png)
+
+![Network → Equipment with two firewall connectors set up](img/enforcement.png)
+
+Both pictures come from the demonstration data; the responses and the two connectors in them are stand-ins, because a demonstration console never switches enforcement on.
 
 *Settings → Response policy* keeps what DENIS is **allowed** to do: the kill switch and the hourly limit, the lab switches and *Automation*, under a status strip. A device's panel has the **Place & response** block and the **Respond…** menu. *Users* shows each administrator's enforcement permissions.
 
@@ -571,5 +580,6 @@ Fields every firewall connector shares. The console shows a short line under eac
 [Juniper SRX](nac/juniper.md), [WatchGuard Firebox](nac/watchguard.md), [MikroTik RouterOS](nac/mikrotik.md),
 [Ubiquiti UniFi](nac/unifi.md), [Cisco Meraki](nac/meraki.md), [VMware NSX-T](nac/nsx.md),
 [AWS Security Groups](nac/aws.md), [Azure NSGs](nac/azure.md), [Microsoft Hyper-V](nac/hyperv.md),
-[Proxmox VE](nac/proxmox.md) and [RADIUS CoA](nac/radius_coa.md). The overview of the connectors is in
+[Proxmox VE](nac/proxmox.md) and [RADIUS CoA](nac/radius_coa.md). What is tested at which level, and the owner's lab
+checklist, is in [Enforcement validation](nac/validation.md). The overview of the connectors is in
 [Zones and policies](segmentation.md#enforcement-connectors); the actions API is in [API](api.md).

@@ -6,7 +6,7 @@ Status, by switch:
 |---|---|
 | **Cisco Catalyst 2960-X** (tested: WS-C2960X-48TS-L, IOS 15.2(7)E4) | **Validated on real equipment**, with SNMPv2c and with SNMPv3 (SHA-1, AES-128, `authPriv`): reading, disabling a port, moving a port to a quarantine VLAN, release, extending the time, the Release button, the uplink refusal, and placing a device that announces itself over LLDP. |
 | **D-Link DGS-1100** (tested: DGS-1100-08V2, firmware 1.00.015) | **Partly tested.** Reading the ports and switching a port off and on by `ifAdminStatus` work. This model answers SNMP only for the system group and the interface table: no forwarding table and no LLDP, so DENIS cannot place devices behind it by itself (you place them by hand), and it has no VLAN objects, so there is no quarantine VLAN. This is a limit of the model. |
-| Any other managed switch | SNMPv2c and SNMPv3 reading and `ifAdminStatus` follow the same standard tables and are expected to work. **Not tested** on other makes. The VLAN move on a switch that is not Cisco (`dot1qPvid`) has not been tried at all. |
+| Any other managed switch | SNMPv2c and SNMPv3 reading and `ifAdminStatus` follow the same standard tables and are expected to work. **Not tested** on other makes. The VLAN move on a switch that is not Cisco IOS (`dot1qPvid`) runs only through the **[experimental generic SNMP control](#experimental-generic-snmp-control-any-switch-that-is-not-cisco-ios)** (4.3): off by default, after a passed write test. Tested against simulated switches only; **no model is validated yet**. |
 
 Configured per switch, not through the generic *Add a connector* list (it predates it): *Network → Equipment → + Add a
 switch…*. The two actions that change a switch are **Disable port** and **Move the port to the quarantine VLAN**. The
@@ -15,6 +15,7 @@ page has a quick setup for each tested switch, then the details that apply to ev
 * [Quick setup: Cisco Catalyst 2960-X](#quick-setup-cisco-catalyst-2960-x)
 * [Quick setup: D-Link DGS-1100](#quick-setup-d-link-dgs-1100)
 * [What each action does on a switch](#what-each-action-does-on-a-switch)
+* [Experimental: generic SNMP control (any switch that is not Cisco IOS)](#experimental-generic-snmp-control-any-switch-that-is-not-cisco-ios)
 
 ## What it blocks
 
@@ -159,8 +160,8 @@ UDP 161.
    (read only)**. Leave **Cisco: forwarding table per VLAN** as it is (it does not apply). Open **Allow DENIS to disable
    ports on this switch** and enter the **SNMP write community**. Save and press **Read now**: it reports the ports and no
    MAC addresses.
-3. **Settings → Response policy:** tick *Allow administrators to block devices from DENIS*. The old port control (Topology)
-   is validated on this switch. Placing a device by hand is **experimental** and needs *Allow experimental actions (lab use)*.
+3. **Settings → Response policy:** tick *Allow administrators to block devices from DENIS*. The port control (Network → Equipment, the
+   switch's port card) is validated on this switch. Placing a device by hand is **experimental** and needs *Allow experimental actions (lab use)*.
 4. **Place the device by hand.** Open the device's panel, *Place & response* → **Place it manually…**: choose the switch and
    the port (the list shows plain access ports that have a link), add a note, save. The panel then says *placed by hand*.
    The placement holds for **30 days**, or until the port's link changes (DENIS reads `ifLastChange`), and can be changed,
@@ -179,7 +180,7 @@ fewer rows (this switch does).
 | Action | What DENIS writes | Undo | Verified how |
 |---|---|---|---|
 | **Disable port** | `ifAdminStatus` of **one** port to *down*, after the typed port name, the password and a fresh read of the switch. | The port is set back to *up* at the end of the time, on **Release**, or on **Enable**. Only a port DENIS switched off is ever switched on. | DENIS reads the port back after the write; the hourly job reads it again. |
-| **Move to the quarantine VLAN** (Cisco) | `vmVlan` of **one** access port to your quarantine VLAN. On a switch that is not Cisco: `dot1qPvid` (not tried). | The port's previous VLAN is recorded and written back **only if the port is still in the quarantine VLAN**. | Same read-back and hourly check. |
+| **Move to the quarantine VLAN** (Cisco) | `vmVlan` of **one** access port to your quarantine VLAN. On a switch that is not Cisco: `dot1qPvid`, only through the [experimental generic SNMP control](#experimental-generic-snmp-control-any-switch-that-is-not-cisco-ios) (not tried on real equipment). | The port's previous VLAN is recorded and written back **only if the port is still in the quarantine VLAN**. | Same read-back and hourly check. |
 | Block a device, block a flow, end sessions | Not offered: a switch cannot do them. | | |
 
 * **A duration** (minutes, hours, days or permanent; the default is one hour). A permanent action needs a tick. When
@@ -246,7 +247,7 @@ it in the switch form. DES and MD5 are not supported.
 ## The response dialog (4.1): disable a port, or move it to the quarantine VLAN
 
 Each switch also appears in the response dialog (Respond, from a device, a port or an incident) as the
-connector `snmp:<switch id>`. Two actions are built; the old buttons on the Topology page keep working exactly as
+connector `snmp:<switch id>`. Two actions are built; the port buttons on the switch's port card (Network → Equipment) work exactly as
 before and share the same refusals. The dialog adds what every response has (see [Enforcement](../enforcement.md)):
 
 * **A duration**: minutes, hours, days or permanent. The default is **one hour**. A permanent action carries an extra
@@ -289,7 +290,9 @@ What DENIS writes: on a **Cisco IOS** switch `vmVlan` (CISCO-VLAN-MEMBERSHIP-MIB
 INTEGER); on **every other switch** `dot1qPvid` (Q-BRIDGE-MIB, `1.3.6.1.2.1.17.7.1.4.5.1.1.<bridge port>`, Gauge32), the
 bridge port found through `dot1dBasePortIfIndex`. On a switch that is not Cisco only the port's VLAN changes. Some switches
 also need the port to be an untagged member of the new VLAN, which DENIS does not do (see the list below). The move on a
-Cisco switch is validated on the 2960-X; the `dot1qPvid` write is **not** tried on any switch.
+Cisco switch is validated on the 2960-X; the `dot1qPvid` write is **not** tried on any real switch, and since 4.3 it runs
+only through the [experimental generic SNMP control](#experimental-generic-snmp-control-any-switch-that-is-not-cisco-ios),
+with its own opt-in, write test, proofs and read-back of the VLAN port lists.
 
 **Refused, whatever is ticked** (the same hard list as for disabling a port, plus these):
 
@@ -342,6 +345,103 @@ before the write, the one action per port rule). On the 2960-X:
 
 **Not tried:** `dot1qPvid` on a switch that is not Cisco (some switches need the egress membership too); the bounce on a
 real device; whether a block survives a switch restart on any switch.
+
+## Experimental: generic SNMP control (any switch that is not Cisco IOS)
+
+**Experimental (4.3). Tested against simulated switches only. No switch model is validated yet.** DENIS has a vendor
+adapter for Cisco IOS only. On every other managed switch the *Move the port to the quarantine VLAN* action goes through
+the **generic SNMP control**: one standard write, Q-BRIDGE-MIB `dot1qPvid` (RFC 4363), and nothing else. A switch may
+accept that write and do something else (change the port only in part, keep it in its old VLAN as well, refuse it unless
+the port is already a member of the new VLAN), so this path is guarded more tightly than any other.
+
+*Disable port* (`ifAdminStatus`) is **not** changed by this: it is the same standard write on every make, validated on a
+D-Link DGS-1100-08V2, with all its usual guards.
+
+### What has to be true before DENIS moves a port
+
+All of these, checked when the plan is made and again right before the write:
+
+1. **The generic control is switched on for this switch.** It is **off by default**. *Network → Equipment* → the switch's
+   ⋯ menu → **Experimental generic control…** → **Switch on…**. The dialog names the risks; you type the switch's name and
+   your password. It is bound to the switch's address. Switching it off is one click and needs nothing more. Audited as
+   `nac.generic.control`.
+2. **The generic write test passed** on this switch as it is now (below). A new address, a new write credential, or a
+   different make or model in the switch's answers make the test stale, and DENIS refuses until it passes again.
+3. **Experimental actions are allowed** (*Settings → Enforcement*, *Allow experimental actions (lab use)*), unless the
+   model is in the validated table (empty today).
+4. **A person asks for it.** A rule or Autopilot never uses the generic control.
+5. **DENIS can prove the port is an access port**, from what the switch itself answers (see
+   [switches.md](../switches.md#any-managed-switch-with-standard-snmp-experimental-43)):
+   * the switch is read at the level *ports, who is plugged into each and the VLAN of each device*;
+   * its VLAN port lists (`dot1qVlanStaticEgressPorts`/`UntaggedPorts`, or the `Current` pair) were read to the end and
+     its bridge-port map (`dot1dBasePortIfIndex`) ties them to interfaces;
+   * the port is an untagged member of **exactly one** VLAN, tagged in none, and that VLAN is its port VLAN
+     (`dot1qPvid`); the live port VLAN right before the write is the one that was read;
+   * the device's place was read from the switch, not placed by hand or guessed;
+   * nothing marks it as anything but a plain access port: no uplink, trunk, aggregation, neighbour (LLDP or CDP) or
+     other equipment behind it.
+6. Everything the [quarantine by VLAN](#quarantine-by-vlan-access_vlan) already refuses still refuses (DENIS itself, the
+   gateway, the way to the switch, the management or mirror port, the hands-off list, more than one device, an unknown or
+   missing quarantine VLAN), and the kill switch, the hourly limit and one action per port hold as for every action.
+
+Anything that cannot be shown is a refusal with its reason in the plan; nothing is guessed.
+
+### What DENIS does, and how it checks it
+
+1. The plan records the port's VLAN (the value to restore) in the action's record **before** anything is written.
+2. DENIS writes `dot1qPvid.<bridge port> = <quarantine VLAN>` with the write credential.
+3. It reads back the port VLAN **and** the VLAN port lists: the port must be an untagged (and egress) member of the
+   quarantine VLAN and no longer an untagged member of its old VLAN. If the switch took the port VLAN but its lists did
+   not follow, DENIS moves the port back at once and the action **fails**. No answer, or a read-back that does not show the
+   change, leaves the action **not confirmed**; it is never reported as applied.
+4. **Release** (by hand, at the end of the time, after a restart of DENIS) writes back **the recorded VLAN**, never a
+   default, and only while the port is still in the quarantine VLAN: a port someone moved meanwhile is left where it is.
+
+The plan, the record of the action, the *Active responses* list and the audit entries say **Experimental** for every move
+made this way on a model that is not validated.
+
+### The write test (run it on a spare port before you trust a switch)
+
+*Network → Equipment* → the switch's ⋯ menu → **Experimental generic control…** → **Run the write test…**. It needs
+enforcement switched on, the generic control switched on, a write credential, and a quarantine VLAN set (and existing) on
+the switch.
+
+* DENIS picks a **spare port**: a physical port that is switched **on** but has **no link**, with nothing learned on it, no
+  neighbour, not a link to another switch, not a mirror port and not in use by an action. (The API also takes the port
+  you choose, `{"ifindex": 7}`, and refuses it if it is not spare.) Unplug an unused port before you start if there is
+  none.
+* Unlike *Test write*, this test **really changes** the spare port, for a moment: it switches it off and on, then moves it
+  to the quarantine VLAN and back, reading every step back from the switch, the VLAN port lists included. The original
+  values are written to the audit log (`nac.generic.write_test.start`) before the first write; if a link comes up on the
+  port while the test runs, DENIS stops.
+* Since 4.3.0 each kind of write (switching off, moving the VLAN) also goes through **the record of actions like a real
+  action**: a row with the original value is written before the write, and closed only when the port is read back as it
+  was. A row that stays open (DENIS stopped in the middle, or the switch did not confirm the port is back) is ended by
+  the same expiry job as any action, at the latest about ten minutes later and again after a restart: it switches the
+  port on again and moves it back to the recorded VLAN, and leaves a port someone else changed meanwhile as it is. These
+  rows are marked **Write test** in *Active responses* and `test: true` in the audit log, carry no device, and are not
+  counted a second time toward the hourly limit (the test itself counts once).
+* The result says, in plain words: whether the switch refused (a read-only or wrong community, a view without
+  `ifAdminStatus` or `dot1qPvid`), whether the VLAN move was clean, whether the switch's VLAN port lists followed the new
+  port VLAN, and whether the port is back as it was. If it is not, check that port on the switch at once.
+
+Only a passed test lets the generic control act. The result is kept per switch with the make, model and `sysObjectID` it
+was run against, and audited as `nac.generic.write_test`.
+
+### Reporting what your switch did
+
+Every result helps, a failed one as much as a passed one: the validated table grows only from real tests. Please report
+it with the **Integration testing feedback** template, as described in the [tester guide](../community-testing.md#5-how-to-report-what-you-find):
+
+* the switch's make, model and firmware version, and what its card says (*Identified as …*, the level, *Answers: …*);
+* the write test's result: the sentences it showed and the `admin` and `vlan` values (`done`, `refused`, `unconfirmed`,
+  `inconsistent`, `skipped`);
+* if you can, the output of the `snmpwalk` checks in [switches.md](../switches.md#any-managed-switch-with-standard-snmp-experimental-43)
+  for `dot1qPvid` and `dot1qVlanStatic` before and after the test;
+* whether a quarantined device really lost its old VLAN and got an address in the quarantine VLAN.
+
+Remove the SNMP communities and SNMPv3 passwords before you post anything (see *What to remove before sharing* in the
+tester guide).
 
 ## Caveats
 

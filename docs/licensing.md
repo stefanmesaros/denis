@@ -9,9 +9,17 @@ reading it.
 Free to use for **personal or other non-commercial purposes**, on a single installation
 monitoring **up to 100 devices**. This covers a household network, or trying DENIS out.
 
+## Evaluation by an organisation
+
+A business, non-profit, government body or other organisation may use the Community edition **free of charge for
+30 days, counted from the first installation**, to evaluate and demonstrate DENIS, on up to 100 devices. The period
+does not restart if DENIS is installed again on another machine. It is for evaluation, not for running your operations
+on DENIS: after the 30 days, stop using it or get a commercial license. DENIS does not switch itself off after 30
+days and the license check does not count them: the condition is in the licence (`LICENSE`, clause 2A).
+
 ## Commercial use
 
-Any use by or for a business, non-profit, government body or other organisation — regardless of
+Beyond the evaluation above, any use by or for a business, non-profit, government body or other organisation — regardless of
 device count — and any installation over the 100-device cap, needs a **commercial license**. See
 `LICENSE-COMMERCIAL.md`, in the root of the repository, for how to get one.
 

@@ -12,10 +12,20 @@ after it.)
       edition"). An installation that discovers more than 100 devices must either stay within
       this license by not exceeding the cap, or obtain a commercial license under clause 2.
 
-2. Commercial use. Any use by, for, or on behalf of a business, non-profit, government body or
-   other organisation — regardless of the number of devices — and any use above the 100-device
-   cap in clause 1(b), requires a separate commercial license from the copyright holder. See
-   LICENSE-COMMERCIAL.md for how to obtain one. Without it, such use is not authorised.
+2. Commercial use. Except for the evaluation allowed by clause 2A, any use by, for, or on behalf
+   of a business, non-profit, government body or other organisation — regardless of the number of
+   devices — and any use above the 100-device cap in clause 1(b), requires a separate commercial
+   license from the copyright holder. See LICENSE-COMMERCIAL.md for how to obtain one. Without
+   it, such use is not authorised.
+
+2A. Evaluation by an organisation. A business, non-profit, government body or other organisation
+   may use the Community edition free of charge to evaluate and demonstrate DENIS, for up to 30
+   days counted from the first installation of DENIS by or for that organisation, on no more than
+   100 devices at a time (the cap in clause 1(b) applies). Installing again, on another machine
+   or after removing it, does not start a new period. This is evaluation only: it does not
+   permit continued use to protect or run the organisation's operations. When the 30 days end the
+   organisation must stop using DENIS or obtain a commercial license under clause 2. Clauses 3 to
+   6 apply to evaluation as they do to all use.
 
 3. Modification and redistribution. You may modify the source for your own permitted use under
    clause 1. You may not distribute DENIS or a modified version of it, in source or binary form,
@@ -35,4 +45,4 @@ after it.)
    the copyright holder may also grant it back after a breach is cured.
 
 This is a plain-language summary of the project's terms, not a substitute for legal advice; if
-your use is not clearly covered by clause 1, get a commercial license first.
+your use is not clearly covered by clause 1 or 2A, get a commercial license first.

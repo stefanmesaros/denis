@@ -78,7 +78,8 @@ plus `src/ot/` (industrial decoders, see OT below). **Done.**
 ### Detection / rules engine
 `src/detect.rs` plus `src/detect/` (about 20,000 lines together, split by rule family: `arp`,
 `inbound` (connections opened from the internet, 4.1), `exposure`, `identity`, `scan`, `volume`,
-`ot`, `segmentation` and more; the detector's unit tests are split by rule topic into
+`ot`, `segmentation` and more; `facts` is the per-window cache of device attributes every rule reads
+through; the detector's unit tests are split by rule topic into
 `src/detect/tests/`), `src/rules.rs` (admin tuning), `src/rule_drafts.rs` (AI-assisted
 tuning *drafts*, never auto-applied), `src/rule_dryrun.rs`, `src/rule_suggest.rs` (deterministic, **not
 an AI feature**), `src/engine.rs` (orchestration: one `Collector` shared by `run` and `agent`; module root, the code is split by topic into `src/engine/`: shared, collector, tenants, run, agent_run).
@@ -211,7 +212,7 @@ per-switch limit "VLANs read per poll", 2 to 512, default 64). Doc: **archive/SW
 `src/topology_relations.rs` (`build`, a pure builder computed per request, no stored snapshots), `src/web_relations.rs`
 (`GET /api/topology/relations`, `POST /api/topology/links`, `DELETE /api/topology/links/{id}`), `src/web_gateway.rs`
 (tiers, unmanaged marks, `PUT /api/network/equipment-order`), `src/gateway.rs` (`Confirmations`: the administrator's
-statements, including the drawn cables and the order), `ui/wiring.js`, `ui/network.js`, `ui/physical.js`. Every link
+statements, including the drawn cables and the order), `ui/wiring.js`, `ui/network.js`. Every link
 says how DENIS knows it: `confirmed` (LLDP/CDP on a port with one neighbour), `inferred` with a confidence from the
 forwarding tables (high, medium, low), or `manual` (drawn by an administrator; it always wins over a guess, and a
 conflict with what the equipment said itself is shown). Where DENIS is not sure it asks (`questions`). At most 400
@@ -341,7 +342,7 @@ chains re-pointed to their root, dangling ones cleared); **V50** `notifications`
 `notification_cursor`; **V51** `policies.response`, `nac_prompts.prepared`/`snoozed_until`/`rule_kind` and the table
 `nac_rule_trial` (data step: an existing automatic mark stays live, an existing "offer to block" becomes "prepare for
 approval"); **V52** three indexes only. `repair_renumbered_v49` repairs a lab database from a build that numbered the
-notification tables V49 (no released database is affected). There is no V53 in the code. Upgrade tests: `tests_v49.rs`,
+notification tables V49 (no released database is affected). **V53** one index; **V54** (4.3) the `api_tokens` columns `scopes`, `expires_at`, `rotated_from`, `last_used_from`, `acts_as_id` (all NULL for an existing token, so nothing changes yet). Upgrade tests: `tests_v49.rs`,
 `tests_v51.rs`, and the PostgreSQL upgrade test in `store/pg/tests/upgrade_backup_tests.rs`. **Done.**
 
 ### Secrets / encryption
@@ -452,10 +453,10 @@ restartable jobs are restarted with backoff (Health page). **Done.**
 | Add a NAC connector | a recent orchestrated module (`src/nac_mikrotik.rs`, `src/nac_asa.rs`) + `src/nac_registry.rs` (`ConnectorKind::ALL`, `wired()`) + its `CAPS` for `src/nac_action.rs::static_caps` + `src/nac_orchestrator.rs` (the `Connector` trait) + `docs/enforcement.md` and `tools/gen-enforcement-matrix.py` |
 | Touch enforcement safety | `src/nac_orchestrator.rs`, `src/nac_guard.rs`, `src/nac_plan.rs`, `src/nac_lab.rs`, `src/nac_perm.rs`; the conformance tests in `src/nac_orchestrator_tests.rs` and `src/nac_orchestrator_action_tests.rs` |
 | Touch automation / Autopilot blocking | `src/nac_auto.rs` (+ `nac_auto_tests.rs`, `nac_auto_ap_tests.rs`), `src/autopilot/enforce.rs`, `docs/enforcement.md#automation` |
-| Add/modify a detection rule | `src/detect/` (the right family file) + `src/detect/kinds.rs` + `src/rules.rs` + archive/DETECTION_RULES_REVIEW.md |
+| Add/modify a detection rule | `src/detect/` (the right family file) + `src/detect/kinds.rs` + `src/rules.rs` + archive/DETECTION_RULES_REVIEW.md; a rule reads device attributes (type, Purdue level, criticality, zone, site) only through `Detector::device_facts` and MACs only through `Detector::asset_id`, never a store query per window record (`src/detect/facts.rs`, "How a rule reads device attributes") |
 | Add a web route | `src/web/routes.rs` (`router()`) + the handler module + `src/web/policy.rs` (`required_role`, and `hand_role_table` must agree) + a remote class in `src/web/remote_policy.rs`'s `TABLE` (the build fails without one) + `is_public()` if it must work pre-login |
 | Add a store method | `src/store/mod.rs` (the right sub-trait) + `src/store/sqlite/<area>.rs` + `src/store/pg/<area>.rs` + a contract in `src/store/conformance.rs` (both backends call it) |
-| Add a migration | `src/store/sqlite/migrations.rs` (next `V53`, and `SCHEMA_VERSION`) and the list in `SqliteStore::init` (`src/store/sqlite/mod.rs`) + `src/store/pg/migrations.rs` (a paired entry in `PG_MIGRATIONS`, and `PG_LATEST_VERSION`) + an upgrade test like `tests_v49.rs` / `tests_v51.rs` |
+| Add a migration | `src/store/sqlite/migrations.rs` (next `V55`, and `SCHEMA_VERSION`) and the list in `SqliteStore::init` (`src/store/sqlite/mod.rs`) + `src/store/pg/migrations.rs` (a paired entry in `PG_MIGRATIONS`, and `PG_LATEST_VERSION`) + an upgrade test like `tests_v49.rs` / `tests_v51.rs` |
 | Add a UI setting/string | the relevant `ui/*.js` + a line in the right `tools/i18n/*.tsv` + `python3 tools/i18n/build.py` + `--check` |
 | Add a CMDB/cloud source | an existing one (`src/jamf.rs`, `src/aws_cloud.rs`) as the pattern + CMDB.md |
 | Add a notification channel | `src/channels.rs` (`KINDS`) + `src/notify.rs` |

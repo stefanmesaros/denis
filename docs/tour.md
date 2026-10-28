@@ -31,7 +31,7 @@ own real data or real documentation — never from what the model already "knows
   devices have contacted 10.0.5.0/24?"* — searches every device's own learned baseline and its recorded
   [relationships](concepts.md#relationships-and-the-investigate-section), not just recent alerts. An exact IP
   address or a CIDR range only: DENIS does not keep which domain names a device looked up.
-* **Navigate.** *"Take me to Topology"*, *"open the SSO settings"*, *"show me the OT devices"* — jumps straight
+* **Navigate.** *"Take me to the network map"*, *"open the SSO settings"*, *"show me the OT devices"* — jumps straight
   there, the same as typing the address, with nothing to read afterwards.
 * **Answer how-to and configuration questions** from this very documentation. *"How do I add a switch?"*, *"how do
   I set up single sign-on?"* — answered from the one real page that covers it, never guessed.
@@ -43,9 +43,9 @@ It never changes a setting, acknowledges an alert, or takes any action by itself
 or describes what is really there. A yellow banner appears while **maintenance mode** silences notifications; a blue
 one while demo data is loaded or an update is available.
 
-The menu on the left is grouped into *Monitor* (Devices, Incidents, Alerts, Findings), *Analyze* (Topology, Zones, OT,
-Software, Events, Compliance, Reports) and *Manage* (Rules, Health, Sites, Users, Settings, Audit log; alert channels are under *Settings → Notifications*);
-the ☰ button collapses it to an icon rail.
+The menu on the left lists *Dashboard*, *Devices*, *Alerts*, *Findings* and *Network* (Map, Equipment, Response, Setup), then the groups
+*Segmentation* (Zones, OT), *Governance* (Compliance, Reports, Software) and *Operate* (Events, Rules, Sites, Users, Health, Audit log,
+Settings; alert channels are under *Settings → Notifications*); the ☰ button collapses it to an icon rail.
 
 ## Dashboard
 
@@ -101,6 +101,13 @@ names, owners, serial numbers, tags and more.
 * **Filters** combines several conditions at once (type **and** location **and** vendor **and** owner **and** a
   substring of the OS guess) — a badge on the button shows how many are set; **Clear filters** resets them.
 * **online only** hides silent devices; **needs review** shows the [review queue](asset-management.md#the-review-queue).
+* **Not managed by any tool** answers *what is on my network that nothing manages?* from what DENIS already knows: the
+  devices no management, directory, scanning or endpoint tool reports, and no switch or connector DENIS reads. It says
+  *Cannot tell* where a tool could not be asked, and never calls such a device managed or not managed
+  ([details](coverage.md#not-managed-by-any-tool)).
+
+![Not managed by any tool](img/not-managed.png)
+
 * **Devices CSV** and **Import CSV** are buttons next to each other; **+ Add asset** adds one by hand.
 
 Group-by and filters are per-browser, like table columns; they narrow what is shown, not what is exported (**Devices
@@ -117,6 +124,13 @@ Everything DENIS knows: your data (owner, serial number, warranty…), what it *
 behind each guess** ("Why this guess"), IP history, open ports, the learned **traffic baseline** (usual
 destinations, ports, volume, active hours), its alerts and the **change history** of your edits. A device on the
 Dashboard's Top exposures list also gets a **Why this is a top exposure** section on its Overview, line by line.
+
+The **History** tab is one list of everything DENIS knows about the device, newest first: its addresses, the switch ports
+and VLANs it was seen on, first contacts, alerts, incidents and what was done to it. Pick a group or a period to narrow it;
+nothing is stored for it, it is read from what DENIS already keeps ([details](asset-management.md#the-history-tab)). The
+search box also answers *who had this address then*: type `10.0.20.15 @ 2026-10-21 14:02`.
+
+![The History tab of a device](img/device-timeline.png)
 
 ### Editing a device
 
@@ -158,6 +172,14 @@ with an optional reason (resolved / false positive / expected behaviour); acknow
 towards a device's risk score. Tick several rows to acknowledge them together, or **Acknowledge all**. The same
 alert kind repeating for the same device is folded into one row ("×12, recurring since…") that expands on click.
 **Add exception** (administrators) silences that exact alert for that device without a trip to the Rules page.
+**This is normal…** (editors and administrators) closes the alert as expected behaviour and keeps later alerts like it
+out of the alert list for the time you choose (90 days by default), for this rule on this device, for this device and
+destination, or for everything ordinary on the device. Nothing is deleted: the quiet alerts are still stored and counted,
+and an administrator removes the exception under *Rules → Suppressed by "This is normal"*
+([details](detection-rules.md#this-is-normal-and-how-useful-each-rule-is)).
+
+![This is normal](img/this-is-normal.png)
+
 With an AI provider configured, **Assess & Explain with AI** appears in the dialog: one click covers what the
 alert means, whether it looks malicious, the consequences of ignoring it and what to do next, plus — for alerts
 about a change from a device's own baseline — a behavior-change explanation, all in the same answer.
@@ -219,6 +241,17 @@ within seconds, survive restarts and are written to the audit log ([details](det
 also find **Continue learning mode** and **Forget all learned baseline data** here, and can export the rule
 settings as a file and import them elsewhere.
 
+Two more sections sit above the list. **Suppressed by "This is normal"** lists what the button above kept quiet, with a way to
+take each exception back. **How useful is each rule** counts, per rule, how many alerts it raised and what became of them
+(handled, marked normal, closed automatically, acted on, still open after a week), for 30 or 90 days, with a CSV; it only
+counts, nothing leaves the system, and a rule whose alerts are rarely acted on gets a suggestion to quiet it
+([details](detection-rules.md#this-is-normal-and-how-useful-each-rule-is)). The **Performance protection** box at the top says
+what DENIS does when a rule makes detection late: pause that rule and say so (the default for your own IT rules and the
+newer built-in ones), or keep it running; industrial rules are only warned about unless you choose otherwise
+([details](detection-rules.md#when-detection-is-overloaded)).
+
+![How useful is each rule](img/rule-outcomes.png)
+
 The page has a second view, **Exceptions, accepted risks & baseline** (a sub-entry in the menu): every place a
 rule or finding has been told to stay quiet, and every learned baseline destination, grouped by device in
 one searchable list. Removing something here has exactly the same effect as removing it where it was added.
@@ -234,30 +267,54 @@ SP 800-53 controls), **ISO/IEC 27001:2022 Annex A**, **NIS2 Article 21**, **DORA
 in place, partly or not yet, and why. It is evidence for your own assessment, not a certification. Print the page
 to keep it.
 
-## Topology
+## Network
 
-![Topology](img/topology.png)
+*Network* is a group in the left menu with four pages: **Map**, **Equipment**, **Response** and **Setup**.
 
-Devices grouped by type around the gateway, each one an icon chip coloured by its risk level (see the legend above
-the map). Click a chip to select it: every other node and spoke dims and the selected device's own spoke to the
-gateway is highlighted, so a crowded map stays readable; click the same chip again (or its already-selected self) to
-open that device's own page. Hover any chip for its name, address, type and risk score. A device with an unacknowledged
-alert raised in the last five minutes gets a pulsing ring around it, so something that just happened stands out
-without having to scan every number.
+**Map** draws your equipment (switches, firewalls, routers, access points, controllers) with the cables between them, internet side
+on top, and the devices under each switch port or access point; from 40 devices on a site they are grouped into one box you can open.
+Pan and zoom with the mouse, a trackpad pinch or the +/- buttons; **Fit** shows everything; drag a box to place it; **Hide from map**
+removes noise (nothing is deleted); search, filters and a minimap keep a large site usable; **Full screen** gives the map the whole
+window. Click a box for its details, its ports and the actions you may take on it. Each cable says how DENIS knows it: confirmed (the
+equipment announces it over LLDP or CDP), a best guess from the forwarding tables, or set by hand ([details](switches.md)).
+Administrators save the layout for everyone (it saves by itself); everyone else can rearrange the map for their own view.
+The picture shows a generated example network with its groups: the box *18 Wi-Fi clients* is selected, under the access
+point they are on, and the side panel lists them.
 
-**Switches and cables** is the physical map, read from your switches over SNMP: which port each device is plugged into and
-how the switches are cabled together. A device's panel gets a *Connected to* line. Set it up under *Settings* → *Switches (SNMP)*
-([details](switches.md)).
+![The Network map, with a group of Wi-Fi clients under their access point](img/network-map.png)
 
-**Equipment links** draws how your switches, routers, firewalls and access points are cabled, internet side on top. Each
-cable says how DENIS knows it: confirmed (the equipment announces it over LLDP or CDP), a best guess from the forwarding
-tables, or set by hand.
+With the keyboard, Tab to a box and press Enter to select it, then the arrow keys move it 10 px (Shift: 50). On a touch screen one finger pans (or drags a box) and two fingers pinch to zoom. With more than 1,500 devices open at once the devices are drawn on a canvas under the map to keep it quick; they can still be clicked, dragged and moved with the arrow keys, but a device drawn that way has no tooltip and is not in the keyboard's Tab order (use the search box).
 
-![Equipment links](img/network-links.png)
-
-*Network → Equipment* lists the same equipment, one row per switch or connector, in wiring order.
+**Equipment** is one table: every switch DENIS reads and every firewall, controller or cloud platform it acts through, with its state
+in words, when it was last read and what DENIS can do with it. Open a row for the ports as a grid; a controller row (UniFi, Meraki)
+opens into the access points and switches it manages, read only, with the number of clients each one carries. The tags say how far
+a product was tested: *Simulator only* and *Experimental* mean it was tried against a simulated device, not a real one
+([what was verified](nac/validation.md)).
 
 ![Equipment](img/equipment.png)
+
+![A controller row opened: the access point it manages and how many clients it carries](img/network-equipment.png)
+
+**Add equipment…** starts with the product: DENIS then asks only for what that product needs, tests the connection, and says
+what it can do with it (read the cables, place devices on ports, block, quarantine, end sessions). Type a vendor or product in
+the search box or pick a card; a gateway DENIS has already seen is suggested at the top. *Any switch with SNMP* reads any managed
+switch with the standard tables; its port actions are Experimental.
+
+![Add equipment: pick the product](img/network-add-equipment.png)
+
+**Setup** is the guided setup in seven steps: *Discover* (what DENIS has already found, passively), *Confirm the gateway*, *Add equipment*,
+*Same device?* (interfaces of one machine), *Cables DENIS is not sure about*, *Write credentials* and *Dry run*. Every step can be
+entered again later. Nothing is written to equipment before you press a button of its own, and the dry run only asks what is possible.
+
+![Setup in seven steps](img/network-setup.png)
+
+
+**Response** starts with one strip: whether enforcement is on, the hourly limit, what your account may do and whether experimental actions
+are allowed. Under it are every response in force (*Currently blocked by DENIS*, with **Release**, **Extend** and **Details**), the
+responses waiting for your approval and the hands-off devices ([Enforcement](enforcement.md)). The picture uses stand-in
+data, because a demonstration console never switches enforcement on.
+
+![Network → Response: the strip, the responses in force and the hands-off devices](img/network-response.png)
 
 ## Zones
 
@@ -312,6 +369,14 @@ of it is free space), free disk, packets dropped, the last sweep, and how many r
 when the database is bigger than expected). **Internet connection watch** counts the packets the capture skipped when a
 burst of internet scanning reached its per-window limits (zero normally).
 
+**What DENIS cannot see** is a section of this page (open by default): per capture interface, what arrived and what was lost or could
+not be read on the way, the networks and VLANs DENIS was told to watch against the ones it actually saw, and one plain sentence of
+advice for each problem. Each row says whether it was *measured*, *estimated* or is *not measurable*; the page never claims to see
+everything ([details](visibility.md)). The numbers in the picture are made up for the example. **Detection rules**, further down, shows
+what each detection costs and which rules were paused for being too slow ([details](operations.md#what-each-detection-rule-costs)).
+
+![What DENIS cannot see](img/visibility.png)
+
 A device's **Overview** tab has a switch, **Alert on every connection from the internet**, for a device that must never
 be reachable from outside; and **Recent destinations** on the same panel shows, per address, who initiated the traffic
 (**Initiated by**).
@@ -350,11 +415,39 @@ default) turns the correlation itself on or off network-wide ([details](alerting
 Accounts and roles (*viewer* reads, *editor* also edits devices and acknowledges alerts, *admin* also manages
 users, settings and rules) and **API tokens** for scripts and Grafana.
 
+**API tokens (4.3)** reach only the areas you tick (devices, alerts, network, reports, metrics and so on), each at *Read* or
+*Read and change*, and never administer anything. A token expires (90 days by default; *Never expires* is allowed, with a
+warning), can be **narrowed** later but never widened, **rotated** (the old value keeps working for a grace period you choose)
+and **revoked**. *Acts as* lets a token work as a service account (a viewer or editor account you made for it), with that account's
+site access, so a token can be limited to some sites. The token itself is shown once, when it is made ([API](api.md#api-tokens-for-scripts-and-integrations)).
+
+![API tokens: the form, and the two tokens made as an example](img/tokens.png)
+
 **Sites** (per user) opens which sites — the local network, or a remote agent — that person may see or change:
 **full access**, **read only**, or **no access**. Nothing is set by default, which means full access everywhere,
 same as before this existed; an administrator restricts a user only by opening this and choosing otherwise.
-Administrators themselves are never restricted. Useful for an MSP whose technicians should only see their own
-customers, or to keep a sensitive site out of a viewer's sight entirely.
+Useful for an MSP whose technicians should only see their own customers, or to keep a sensitive site out of a
+viewer's sight entirely.
+
+![The console of a site administrator: no Users and no Audit log in the menu](img/site-admin.png)
+
+**Site administrators (4.3).** An administrator with *read only* or *no access* on any site is an administrator of
+its other sites only, marked *own sites only* in the list. It sees and changes only the sites it may change, acts
+(plan, apply, undo, extend) only through switches and connectors bound to those sites and only on a device DENIS knows
+there, can switch enforcement off but not on, and confirms identity questions (links, suggestions, a shared hardware
+address) for its own rows. Users, Audit, Settings of the whole installation, rules, Autopilot, joins and adding or
+binding equipment stay with administrators of the whole installation; the server refuses them (`403`), the console
+hides Users and Audit. A site without an entry for the account counts as full access, also a site added later (a
+new agent): give a site administrator *no access* on every site it should not manage, and check its entries whenever
+a site is added. At least one enabled administrator of the whole installation always remains: limiting,
+demoting or disabling the last one is refused. If that state is reached anyway (a restore), Health says so and
+`denis user sites-clear <name>` on the server lifts an account's site limits.
+
+*Updating from 4.2 or older:* before 4.3 an administrator's site access changed nothing; from the first start of 4.3
+an administrator with *read only* or *no access* on a site is a site administrator. Health names these accounts for
+30 days (to administrators of the whole installation; other readers see how many). If every enabled administrator
+would become one, the oldest administrator keeps the whole installation: its *read only* and *no access* entries are
+removed, and the audit log shows it. Check the Users page after the update.
 
 ## Settings (administrators)
 
@@ -369,15 +462,16 @@ Everything about the installation that is not about people, in eleven categories
 * **Notifications** — the channels alerts are sent to ([Alerting](alerting.md)).
 * **Sign-in & security** — who must use a second step, passkey-only sign-in, single sign-on (OIDC), the HTTPS
   certificate (download the local CA, or use your own).
-* **Network** — the discovery and mirror interfaces and the agent listener (under *Advanced*: east-west traffic, passive
-  DNS and IEC 61850 Sampled Values, each off by default), the connection stability test, switches (SNMP), certificates and
-  web pages, Network Intelligence (GeoIP / reverse DNS).
-* **Enforcement** — the switch that lets administrators block a device (off by default) and its hourly limit, the
-  firewall, cloud, hypervisor and RADIUS connectors, and the list *Currently blocked by DENIS* with **Unblock…**
-  ([details](segmentation.md#enforcement-connectors)).
+* **Capture** — what DENIS sees: the discovery and mirror interfaces and the agent listener (under *Advanced*: east-west traffic,
+  passive DNS and IEC 61850 Sampled Values, each off by default), duplicate packets (counted by default), **Separate networks**
+  (below), watched VLANs, monitored networks and active probing, certificates and web pages, the connection stability test, and
+  Network Intelligence (GeoIP / reverse DNS). The switches and connectors are under *Network → Equipment*.
+* **Response policy** — what DENIS may do: the switch that lets administrators block a device (off by default), its hourly limit,
+  the lab settings for experimental actions and automation. What is in force is under *Network → Response*
+  ([details](enforcement.md)).
 * **Data** — data retention, the software-version data (end-of-support and known-exploited refreshes, custom
-  CVEs), threat list sources (the auto-fetched abuse.ch, Spamhaus and Tor exit blocklists, each independently schedulable), and
-  demo data: load a fictional company to explore, remove it, or **erase all data** when you are ready
+  CVEs), threat list sources (the auto-fetched abuse.ch, Spamhaus and Tor exit blocklists, each independently schedulable, and
+  the free **abuse.ch Auth-Key** that ThreatFox needs), and demo data: load a fictional company to explore, remove it, or **erase all data** when you are ready
   for the real network ([details](operations.md#demo-data-and-starting-clean-erase-all-data)).
 * **Integrations** — SIEM / log export, CMDB import (Entra ID, Intune, Active Directory, Jamf Pro, Azure, AWS,
   GCP), the vulnerability scanner (Nessus).
@@ -391,6 +485,20 @@ Everything about the installation that is not about people, in eleven categories
 
 Deep links like `#settings/tls` still open the right category.
 
+**Separate networks.** Interfaces that see the same network share one VLAN numbering and one address range. When one DENIS watches
+mirrors of two plants that both use VLAN 10 and 10.0.0.0/24, give the interfaces of the second plant a network name here: the
+same VLAN and address are then a different network, not a conflict ([details](concepts.md#sites-agents-and-the-master)). Leaving
+the name empty means *the same network as the other interfaces of the site*; it never loosens an enforcement check.
+
+![Settings → Capture → Separate networks](img/settings-capture-networks.png)
+
+**The abuse.ch key.** The ThreatFox list (malware server addresses and, since 4.3, domain names) needs a free Auth-Key from your
+abuse.ch account. Paste it under *Settings → Data → Threat list sources*: it is stored encrypted, sent only to threatfox.abuse.ch,
+and never shown again (the box shows only whether one is saved). Without a key ThreatFox is simply not fetched, and the box says so.
+The picture shows the box with no key.
+
+![Settings → Data → Threat list sources: the abuse.ch key box with no key](img/settings-abusech.png)
+
 ## IP enrichment
 
 ![Network Intelligence](img/network-intelligence.png)
@@ -402,7 +510,7 @@ longest part by far, sits on its own line underneath. A private/loopback/link-lo
 never geolocated at all, only classified as such. Clicking the address itself still opens a full detail panel with
 coordinates, connection type and which GeoIP database answered.
 
-Under *Settings* → **Network** → **Network Intelligence**:
+Under *Settings* → **Capture** → **Network Intelligence**:
 
 * **Reverse DNS**: on by default (resolver `1.1.1.1`, secondary `1.0.0.1`, 2000 ms timeout) — change the
   resolver(s) and timeout, or switch it off entirely.

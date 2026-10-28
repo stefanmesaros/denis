@@ -9,7 +9,7 @@ against*, never a rule DENIS imposes on the network.
 This is the visibility and verification half of segmentation: what the zones are, which paths
 between them exist, which paths are approved, and which observed traffic breaks the approval. The
 console's **Zones** tab (administrators create and edit; anyone with console access can view) is
-where this lives, between *Topology* and *OT*.
+where this lives, between *Network* and *OT*.
 
 ## Zones: every device and address resolves to exactly one
 

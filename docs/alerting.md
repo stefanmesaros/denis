@@ -103,6 +103,19 @@ to a channel.
   kept quiet. It adds no exception, and it is in the audit log. An administrator can allow it for every device of a
   profile. **Acknowledge all like this** closes every open alert of the same kind about the same provider from the
   last 7 days (never for the kinds above).
+* **This is normal** (an alert's dialog; editors and administrators): acknowledges the alert as expected behaviour and
+  stores an exception for 90 days (1 to 365). *This rule on this device*, *this rule, this device and this
+  destination*, or *everything ordinary on this device*. A later alert it covers is kept quiet (reason
+  `owner_exception`, with who made the exception), never dropped: **Show quiet** lists it, the daily digest and the
+  counters count it, and `GET /api/rules/normal/suppressed` lists them per exception. Remove an exception on the Rules
+  page (administrators) and the rule alerts again; when it expires it does the same. It never covers the kinds above
+  that are never kept quiet, address-claim and new-device alerts, an alert with a risky port, a threat-list address or
+  a large transfer, your own rules (they have their own exceptions) or an industrial alert of high severity; the
+  whole-device choice also never covers any industrial or high-severity alert.
+* **How often each rule was acted on**: DENIS keeps, per rule and day, how many alerts were raised, kept quiet,
+  acknowledged as resolved, false or expected, closed automatically or put in an incident, and how many nobody
+  reviewed after a week. These are counts only (no addresses), kept 400 days whatever the event retention is.
+  Your own rules are counted one by one. `GET /api/rules/outcomes` (and `.csv`) reads them.
 * **Close low alerts automatically** (*Settings → Notifications → Quiet routine alerts*, off by default): a low alert that
   has not happened again (same device, kind and provider) for 3 to 30 days (7 by default) is acknowledged by the system.
   The alert's history says so, and it can be undone. Medium and high alerts, the kinds above and alerts in an open

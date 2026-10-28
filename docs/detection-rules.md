@@ -29,24 +29,85 @@ All rules are **rule-based and explainable**: each alert shows the factors that 
 Rule names for `--rule-weight`: `new_device`, `new_destination`, `volume_anomaly`, `new_port`,
 `unusual_hours`, `arp_conflict`, `device_silent`, `rogue_dhcp`, `new_device_burst`, `threat_list_match`,
 `lan_scan`, `lan_sweep`, `outbound_fanout`, `dhcp_options_changed`, `dhcp_starvation`, `new_destination_v6`, `ot_new_conversation`, `ot_control_command`, `ot_internet_exposure`,
-`ot_purdue_skip`, `ot_unexpected_writer`, `ot_command_watch`, `ot_write_escalation`, `ot_goose_conflict`, `it_watch`, `segmentation_violation`, `inbound_from_public`.
+`ot_purdue_skip`, `ot_unexpected_writer`, `ot_command_watch`, `ot_write_escalation`, `ot_goose_conflict`, `it_watch`, `segmentation_violation`, `inbound_from_public`,
+`dns_resolver_changed`, `port_move`, `new_on_port`, `vlan_change`, `fingerprint_changed`, `ot_new_function`, `ot_program_upload`,
+`ot_concurrent_masters`, `ot_identity_changed`, `iot_initiates_admin`, `admin_into_critical`, `dns_threat_domain`,
+`remote_access_tool`, `ot_recon`, `ot_cross_cell`, `ot_new_protocol`, `ot_remote_access_path`,
+`ot_write_rate`, `ot_offhours_command`, `ot_exception_burst`, `inbound_bruteforce`, `inbound_then_fetch`,
+`dns_nxdomain_burst`, `mining_pool`, `vpn_tunnel_start`, `anonymizer_contact`, `admin_spread`, `new_admin_listener`,
+`daily_upload_new_owner`, `gateway_changed`, `rogue_dhcpv6`, `lifecycle_device_seen`.
 
 Every alert carries **advice**: click an alert (Alerts or Events tab) to see its summary, *why* it scored what
 it did, and *what to do next*. The same advice is in `GET /api/meta/options` (`advice`).
+
+## The rules added in 4.3, at a glance
+
+DENIS 4.3 adds more than 40 detections. Each has its own section below with what it needs, how it scores and what makes
+it a false alarm; this is the plain version, one sentence each. They are off only if you set their weight to `0`.
+
+**Industrial networks** (see the [OT guide](ot-guide.md)):
+
+* `ot_new_function`: a device uses a function on a controller that it never used before.
+* `ot_program_upload`: someone copies the program out of a controller. Never kept quiet.
+* `ot_concurrent_masters`: two different machines write to the same controller within ten minutes. Never kept quiet.
+* `ot_identity_changed`: a controller announces another firmware, serial number, product or vendor. Never kept quiet.
+* `ot_recon`: a device asks many industrial devices who they are, the way a scanner does.
+* `ot_cross_cell`: a write or command goes between two devices whose "Zone / cell" in the register differ, and no zone policy decides it.
+* `ot_new_protocol`: an industrial device starts using a protocol or service it never used.
+* `ot_remote_access_path`: a remote-desktop or remote-support tool reaches a device in a control cell.
+* `ot_write_rate`: a path writes far more often than it ever did in the last 14 days.
+* `ot_offhours_command`: a write or command arrives outside the working hours you declared for the site. It does nothing
+  until a schedule is set.
+* `ot_exception_burst`: a device refuses many requests in a few minutes, as under register probing.
+
+**Office and IT networks:**
+
+* `inbound_bruteforce`: one outside network tries a login port of one device again and again.
+* `inbound_then_fetch`: a device that was reached from the internet then fetches from somewhere it never used. Never
+  kept quiet.
+* `dns_threat_domain`: a device looks up a domain that a threat list names as malware infrastructure. Never kept quiet.
+  The list needs a free abuse.ch key (see [`threat_list_match`](#threat_list_match-contact-with-a-known-bad-address-needs---flows-and-a-threat-list)).
+* `dns_nxdomain_burst`: a device gets failed answers for many random-looking domains, as malware does that hunts for its server.
+* `mining_pool`: a device contacts a cryptocurrency mining pool.
+* `vpn_tunnel_start`: a device opens a VPN tunnel to the internet for the first time.
+* `anonymizer_contact`: a device contacts a Tor exit relay.
+* `remote_access_tool`: a device uses a remote-access tool (AnyDesk, TeamViewer and others) for the first time.
+* `iot_initiates_admin`: a camera, printer or other IoT device opens an administration session to another device.
+* `admin_into_critical`: a device that never did so opens an administration session to a device you rated high or critical.
+* `admin_spread`: one device opens administration sessions to many devices in a day.
+* `new_admin_listener`: an IoT or field device starts offering remote administration.
+* `daily_upload_new_owner`: a device that is not a server sends 500 MB or more in a day to a provider it had not used before.
+* `gateway_changed`: the default gateway's hardware address changed for good. Never kept quiet.
+* `rogue_dhcpv6`: a new device answers as a DHCPv6 server (needs `--ipv6`). Never kept quiet.
+* `lifecycle_device_seen`: a device you marked lost, stolen or retired is on the network. Never kept quiet for a lost or stolen one.
+
+A few of these need something besides the rule itself: traffic accounting (`--flows`), passive DNS, a mirror port or
+east-west accounting. The section of each rule says which, and the Rules page says how many rules cannot fire for want of
+traffic analysis. The list of remote-access tools and of mining pools ships with DENIS and is reviewed with each release;
+the port list of the remote-access tools has not been checked against the vendors' documentation.
 
 ## Network rules
 
 ### `new_device`: a device joined
 Fires when an asset first appears **after** the learning period (~60 seconds later, once fingerprinting had
 time to work). Score 50, +15 if the type is unidentified, +10 if the manufacturer is unknown, −15 for a private
-(randomised) MAC. Devices you registered by hand never trigger it.
+(randomised) MAC, **+20 when it joins an industrial cell**: a subnet (IPv4 /24 or IPv6 /64, link-local addresses
+excluded) where, leaving the newcomer out, at least two devices are industrial and they are at least half of the
+subnet's devices, or where you placed a device at Purdue level 2 or below. A laptop plugged into a control cell is the
+first step of most plant incidents; a flat office or home network with one PLC or solar inverter in it is not a cell
+and gets no extra points. The subnets are read from the register at most once a minute. Devices you registered by
+hand never trigger it.
 *Typical false positive:* a visitor's phone. Tune: lower the weight, or use a guest VLAN.
 
 ### `new_destination`: first contact with an address *(needs `--flows`)*
 A device that has been observed long enough contacts an IP it never used. Score 35, +15 if no other device
 uses that address, −10 if it is in the same /24 as one the device already uses (CDN neighbours), +15 for an
 unusual port, +10/+20 for ≥1 MB/≥50 MB sent in the first window, −10/−20 for devices that already talk to
-≥100/≥500 hosts (laptops and phones naturally do). One alert per device per window.
+≥100/≥500 hosts (laptops and phones naturally do), **+20 for an engineering workstation** (4.3): a device that
+sent an industrial control command (stop/start, program download) in the last 30 days, because an engineering
+station's contacts with the outside matter most. The same +20 applies to `new_destination_v6` and `new_port`. The
+list of such stations is rebuilt from the stored industrial conversations after a restart. One alert per device per
+window.
 *Best for:* NAS, cameras, printers, servers. *Noisy for:* laptops and phones; give it a lower weight.
 
 *Rotation suppression:* three new destinations on the same port within an hour promote that port to
@@ -187,6 +248,44 @@ threshold (capped at +20). The gateway is exempt outright (it routinely re-ARPs 
 discovery tool (Fing, a router's own "network map" feature, Home Assistant, a UniFi controller) seen sweeping
 during the learning period is remembered and never judged again.
 
+### `iot_initiates_admin`: an IoT device opens an admin session *(needs east-west accounting or a mirror port)*
+A camera, printer, TV, smart-home gadget, phone, tablet or industrial field device (PLC, RTU, drive, sensor, building
+controller; not an HMI, SCADA server, historian or engineering workstation) **opens** SSH (22), Telnet (23), SMB
+(445, 139), RDP (3389), VNC (5900-5903), WinRM (5985, 5986) or ADB (5555) to another device on your network. Such
+devices almost never administer others; a compromised camera spreading inward (Mirai-style) does. Only connections
+whose opener the capture proved by the TCP handshake count (east-west records with a confirmed initiator), never one
+guessed from port numbers; UDP never counts. The type is the register's, with your correction applied: a PC typed as a
+camera is fixed by correcting its type. IPv4 and IPv6.
+
+*Learning:* the pairs a device opens admin sessions to are learned while the site is in its learning period **and**
+for the first learning period after this rule first saw east-west data from the site (so turning east-west accounting
+on later starts with a day of learning, not a burst of alerts); the learning clock is saved and survives a restart.
+After that a new pair is reported and learned; at most 8 peers are kept per device and direction (the least recently seen goes; a baseline saved with more is cut to the eight most recent when it is read).
+
+*Score:* 70 (high); +10 for an industrial field device; +10 when it reached three or more devices in one window; 20
+less for a phone or tablet that only opened file shares (SMB), which file-manager apps do, and 20 less for a printer or
+scanner that only opened file shares (SMB), which scan-to-folder does. *Cooldown:* one alert per
+device per hour, naming every new peer of the window; a new peer seen during that hour is not learned and is reported
+once the hour is over. Not on the never-quiet list. Use `--rule-weight iot_initiates_admin=<weight>`.
+
+### `admin_into_critical`: new admin access to a critical device *(needs east-west accounting or a mirror port)*
+A device that never did so before opens a remote-administration session (RDP, SSH, WinRM, VNC or Telnet) to a device
+you rated **high** or **critical** in the register (the device panel's criticality): lateral movement towards a
+domain controller, file server or SCADA server. File sharing (SMB) is not judged: most clients map file shares, and an
+admin share cannot be told from a file share without reading the payload. Same handshake evidence as
+`iot_initiates_admin`; IPv4 and IPv6.
+
+*Learning:* the sources of admin sessions are learned for **every** device, rated or not, so rating a server critical
+later does not report its usual administrators. Learning as `iot_initiates_admin` (site learning period plus the first
+learning period of east-west data); after it, a new source into a high or critical device is reported and learned,
+and into any other device only learned. A source tagged **admin-workstation** (device panel, tags) is learned without
+an alert. At most 8 sources are kept per device (see the learning note of `iot_initiates_admin`).
+
+*Score:* 60 (medium); +10 when the target is rated critical; +10 when the source is not a computer, laptop, server,
+virtual machine, thin client, hypervisor or engineering workstation. *Cooldown:* once per source and target per 24
+hours. Not on the never-quiet list. The alert is filed under the critical device; incidents name the source as the
+actor. Use `--rule-weight admin_into_critical=<weight>`.
+
 ### `outbound_fanout`: worm/spam fan-out *(needs `--flows`)*
 An already-known device contacts at least 10 distinct **public** addresses on one remote-administration,
 file-sharing, database or worm/spam-signature port (the same ports `new_port` flags, plus 2323/5555/7547 —
@@ -296,7 +395,7 @@ exactly that). DENIS only reports this; nothing on the switch is changed. Not ju
 for the learning period, and an unregistered MAC is never judged.
 
 ### `new_on_port`: a new device on a port or VLAN you watch *(needs switches read over SNMP)*
-Fires only on ports and VLANs you chose to watch (the *Watch* toggle in the Topology port drawer and port table;
+Fires only on ports and VLANs you chose to watch (the *Watch* box on a port's card in *Network* → *Equipment*;
 nothing watched means this rule never fires). A MAC that has not been on that port in the last 30 days appears there:
 base 55, +20 if the address is not in the register (a minimal entry is created for it, the one place a switch rule does
 that, so the alert has a device to be about), +10 if the device type is unknown, −20 if it was seen there before more
@@ -312,7 +411,7 @@ A registered device whose VLAN had been stable for at least 7 days shows up in a
 Base 40, +20 if the new VLAN is watched, +15 for a stationary or critical device, −15 if the port's own access VLAN
 changed in the same poll (the port was reconfigured), −10 if the VLAN number came from the switch's forwarding-table
 numbering rather than a confirmed mapping, −25 for a mobile device. One alert per device every 24 hours; no incident
-pattern. A port's own configuration change is logged and shown in the port drawer, but raises no alert in itself.
+pattern. A port's own configuration change is logged and shown on the port's card, but raises no alert in itself.
 *Typical false positive:* you reconfigured a port on purpose. *Investigate:* the switch configuration; a device moved
 into a more (or less) trusted VLAN without anyone planning it is a misconfiguration or an intrusion.
 
@@ -391,6 +490,42 @@ all. Behind double NAT or a reverse proxy the source is the proxy's address.
 *Typical false positive:* the vendor's cloud connecting in through a port forward you opened on purpose: mark its
 network as expected. *Investigate:* the port forward or UPnP rule on the router, and the device's passwords.
 
+### `inbound_bruteforce`: password guessing from the internet *(needs `--flows` on the link to the internet)*
+One source network (an IPv4 /24 or an IPv6 /48) completes **30 or more TCP handshakes within ten minutes** to one
+login or remote-administration port of one device: FTP 21, SSH 22, Telnet 23, SMB 445, OpenVPN over TCP 1194, MS SQL
+1433, PPTP 1723, MySQL 3306, RDP 3389, Synology DSM 5000/5001, PostgreSQL 5432, VNC 5900-5903, MikroTik Winbox 8291
+and RouterOS API 8728/8729. That is password guessing on a port forward, the classic way into a small network.
+
+*Evidence:* the same inbound handshake records as `inbound_from_public`: only completed handshakes count (a lone SYN,
+a reset, UDP never). Web ports (80, 443, 8080) are not judged: a browser opens many short connections.
+*Learning:* while the site learns (its learning period, and one learning period after this rule first saw the site's
+inbound handshakes), a port and source network that reach the threshold are learned on the device (one per
+device): a backup or monitoring job that reconnects all day. Afterwards only unlearned pairs are judged.
+*Exempt:* a source whose provider you allowed for the device's profile (**Allow this provider**); exceptions and
+"This is normal" apply as for every rule.
+*Score:* 70 (high). *Cooldown:* one alert per source network per hour on a site, naming the other devices and ports it
+hit in the same window. Not on the never-quiet list; may be paused under overload. Use
+`--rule-weight inbound_bruteforce=<weight>`.
+*Typical false positive:* a remote office or script that reconnects for every request: allow its provider or add an
+exception. *Investigate:* the device's login log for a success after the failures; close the port forward if nobody
+needs it, or limit it to known addresses and turn on lockout.
+
+### `inbound_then_fetch`: an exposed device fetches from somewhere new *(needs `--flows` on the link to the internet)*
+A device **accepted a connection from the internet** (an `inbound_from_public` or `inbound_bruteforce` alert that was
+raised, not quieted) and **within 60 minutes contacted a provider it never used** (`new_destination`,
+`new_destination_v6`, unless it was only a new address of a provider it knows), **an address on a threat list**
+(`threat_list_match`, `anonymizer_contact`) **or a listed name** (`dns_threat_domain`). That is how an exposed service is
+exploited: the attacker gets in, then the device downloads the payload.
+
+It correlates two rare alerts: it reads the alerts the other rules built, never the traffic itself. A fetch judged a
+moment before the inbound alert of the same window (DNS and flows are judged before inbound handshakes) counts too.
+*Learning:* none of its own: both alerts it needs already follow their rules' learning. *Score:* 80 (high); it can
+open an incident on its own. *Cooldown:* one alert per device per six hours. **Never quiet and never paused** under
+overload (a compromise sign, and cheap); the rules it is built from are never paused either. Use `--rule-weight inbound_then_fetch=<weight>`.
+*Typical false positive:* a remote user connects and an update runs in the same hour. *Investigate:* the inbound
+connection and the new destination in the alert; if neither is explained, isolate the device and close the port
+forward.
+
 ### `dhcp_starvation`: DHCP pool exhaustion
 One real sender floods DHCP DISCOVER/REQUEST messages claiming at least 20 distinct, almost certainly made-up
 client hardware addresses within five minutes — the Yersinia/dhcpstarv class of attack, and the textbook first
@@ -423,17 +558,43 @@ counts:
   switched on independently, each with its own refresh schedule (Daily / Weekly / Monthly):
   * **abuse.ch Feodo Tracker** — botnet command-and-control addresses.
   * **abuse.ch ThreatFox** — malware command-and-control addresses (`ip:port` indicators from the last 48 hours;
-    the port is dropped). ThreatFox's domain and URL indicators are not used yet: DENIS has nothing to match a
-    domain against until it records DNS answers.
-  * **abuse.ch URLhaus** — addresses currently serving malware downloads; only URLs whose host is an IP address
-    are used, for the same reason.
+    the port is dropped). Since 4.3 its **domain indicators** of the last 48 hours are fetched with them (a second
+    download, `threatfox.abuse.ch/export/csv/domains/recent/`, under the same switch) and matched by
+    [`dns_threat_domain`](#dns_threat_domain-a-known-bad-domain-looked-up-needs-passive-dns) against the names
+    devices look up, each name with its subdomains. **ThreatFox needs a free abuse.ch Auth-Key** (from your abuse.ch
+    account; abuse.ch describes the exports at <https://threatfox.abuse.ch/export/> — *unverified, from the vendor
+    page*). Since 4.3.0 an administrator enters it right there, under the ThreatFox line: **Save key**, **Replace key**
+    and **Clear key**. It is stored encrypted like every other secret, never shown again (the console and the API say
+    only whether a key is set), not settable with an API token or over the MSP channel, and its audit entry
+    (`threat.abusech_key`) says only that it was set, replaced or cleared. The environment variable
+    `DENIS_ABUSECH_AUTH_KEY` of the DENIS service still works as the fallback when no key is saved in the console (the
+    installation's own console only: on a server with tenants, each tenant enters its own key). The key is sent only to
+    `threatfox.abuse.ch` over HTTPS, as the `Auth-Key` header, never along a redirect, and never logged, audited or
+    shown.
+    Without a key, or when the server refuses it, nothing is fetched, the previous lists stay, Health says which of
+    the two it is (and when the kept list gets old), a ThreatFox list fetched more than 7 days ago is no longer
+    matched at all until the next successful refresh (Health says so), and `dns_threat_domain`
+    keeps judging with the other lists (URLhaus hosts, your own list). *Unverified:* the two export addresses above and
+    whether the exports take the key as a header could not be checked against abuse.ch's current documentation for
+    this release; a refused or changed address shows as a failed refresh, never as an empty list.
+  * **abuse.ch URLhaus** — addresses currently serving malware downloads (URLs whose host is an IP address); since
+    4.3 the host names of the other URLs feed `dns_threat_domain` (that exact host only).
   * **Spamhaus DROP** — hijacked and spammer networks.
   * **Spamhaus ASN-DROP** — whole autonomous systems run by or for criminals. The list names AS numbers, not
     addresses, so DENIS turns it into networks with the GeoIP ASN database already used for IP enrichment (*Settings*
     → **IP enrichment**), offline — nothing is looked up online. Without an ASN database installed this source
     cannot be fetched (the refresh says so); the networks are as current as the older of the two downloads.
   * **The Tor Project's exit-node list** — current Tor exit relays. Not malware: a hit means a device talked to a Tor
-    exit, which most networks treat as a policy question.
+    exit, which most networks treat as a policy question. **Since 4.3 a hit on this list alone is
+    [`anonymizer_contact`](#anonymizer_contact-a-tor-exit-relay-contacted-needs---flows-and-the-tor-exit-list)
+    (50, medium), no longer a `threat_list_match`** (85, high, never quiet); an address that is also on another list
+    stays a `threat_list_match`.
+
+  A domain indicator is checked when it is fetched: it must be a valid DNS name of at least two labels, not an
+  address, not a public suffix (`co.uk`, `duckdns.org`, `github.io`, ...: they would match every name under them) and
+  not a shared platform anyone can host a file on (`raw.githubusercontent.com`, `docs.google.com`,
+  `cdn.discordapp.com`, ...: URLhaus lists them because one malware file sat there once). At most 50,000 domain
+  indicators are kept per source; the stored list says how many were refused or over the cap.
 
   Every hit names the list that flagged it, the most specific first (your own file, then the abuse.ch lists, then
   Spamhaus, then Tor). **Refresh now** fetches
@@ -444,8 +605,231 @@ counts:
 Turning on a fetched source can only ever add coverage: it is unioned with your own file, never a replacement for it,
 and a source you turn back off stops being used immediately even if its last fetch is still cached. A device
 contacting a listed address scores 85 (+10 if it sent ≥100 kB), from the first day (no learning period), once per
-device and address per six hours. Traffic is only seen when it crosses the interface DENIS listens on (see
+device and address per six hours. A hit only on the Tor exit list is `anonymizer_contact` since 4.3 (below); the
+weight, minimum score and exceptions you saved for `threat_list_match` keep applying to every other hit. Traffic is only seen when it crosses the interface DENIS listens on (see
 [Concepts](concepts.md#visibility-what-can-be-seen-from-where)).
+
+### `dns_threat_domain`: a known-bad domain looked up *(needs passive DNS)*
+A device looks up a name that a threat feed lists as malware infrastructure (abuse.ch ThreatFox domain indicators,
+the hosts of URLhaus malware URLs, see above) or a name on **your own domain list**. Malware finds its control server
+by name, so a name keeps matching when the address behind it changes. The question name and the last CNAME target of
+every passive-DNS answer are checked, over IPv4 and IPv6.
+
+*Your own domain list:* on the Rules page, in this rule's details (administrators): one name per line, each matched
+with everything under it (`evil.example` also matches `cdn.evil.example`; a leading `*.` is accepted and means the
+same). At most 5,000 names. The list is checked as a whole when you save it: an entry that is not a valid DNS name of
+at least two labels, an address, or a public suffix such as `co.uk` is refused with its reason and nothing is saved.
+Your list may name a shared platform on purpose (a policy, for example a paste site). It is part of the rules export.
+
+*Matching:* exact names and parents at label boundaries only (`notevil.example` never matches `evil.example`), from
+sets compiled when a feed is fetched or your list is saved; no regular expressions.
+
+The key is entered in the console, under *Settings → Data → Threat list sources*; the box shows no key until you save one:
+
+![The abuse.ch key box with no key](img/settings-abusech.png)
+
+*Learning:* none. Like `threat_list_match`, it judges from the first lookup, during the learning period too: the
+lists are curated, and a device infected before DENIS was installed must not be learned as normal. A learning period
+restarted by hand holds it below the alert threshold like every rule.
+
+*Score:* 80 (high); 20 less when the device resolves names for other devices (a local DNS server or forwarder: the
+device that asked is behind it). *Cooldown:* once per device and listed entry per six hours. **Never quiet and never
+paused**, like `threat_list_match`: "This is normal" cannot hide it. Use `--rule-weight dns_threat_domain=<weight>`.
+
+*Typical false positive:* a feed listing a host you use on purpose (a compromised but legitimate site): report it to
+the publisher (the next fetch drops it), add a rule exception for the devices that use it, switch that feed off, or
+lower the rule's weight. There is no allow list per domain, and it cannot be marked as normal. *Investigate:* the device named in the alert and what it runs; the
+alert lists each listed name, the list, whether it came through a CNAME and the addresses that answered.
+
+### `remote_access_tool`: a remote-access tool used for the first time *(needs passive DNS or `--flows`)*
+A device uses a remote-access service for the first time: AnyDesk, TeamViewer, ConnectWise ScreenConnect, Splashtop,
+RustDesk, Atera, LogMeIn, GoTo Assist, BeyondTrust (Bomgar), NinjaOne, Kaseya VSA, Zoho Assist, RemotePC, Supremo,
+NetSupport Manager, Ammyy Admin, UltraViewer, Remote Utilities, Action1, MeshCentral (public server), Chrome Remote
+Desktop, Parsec, DWService, Pulseway and AeroAdmin. Scammers talk users into installing these, and ransomware crews
+keep their way back in with them.
+
+*Evidence:* the names it looks up (passive DNS: `anydesk.com` and anything under it), or the service's own protocol
+port to a public address (TeamViewer tcp/udp 5938, AnyDesk tcp/6568, ScreenConnect's relay tcp/8041, RustDesk
+tcp/21115-21117 and udp/21116, NetSupport tcp/5405, Remote Utilities tcp/5650). Services that only use HTTPS are
+seen by name only. A device that resolves names for others is not judged by name (the lookups are its clients'). The
+catalogue ships with DENIS and is reviewed with every release; nothing is fetched for it.
+
+*Allowed tools:* on the Rules page, in this rule's details (administrators), tick the tools your organisation
+uses: their use is never reported, on any site. Part of the rules export.
+
+*Learning:* each device learns the tools it uses. While the site is in its learning period, and for the first
+learning period after this rule first saw the site's passive DNS (for names) or flows (for ports), every use is
+learned without an alert, so an update or turning passive DNS on does not report every existing helpdesk tool.
+After that the first use of a tool by a device is reported once and learned.
+
+*Score:* 45 (low) for a workstation, phone or other device; 70 (high) for a server, NAS, industrial device or a device
+you placed at Purdue level 3 or below. *Cooldown:* one alert per device per hour; a tool first seen during that hour
+is not learned and is reported once the hour is over. Not on the never-quiet list. Use
+`--rule-weight remote_access_tool=<weight>`.
+
+*Typical false positive:* your helpdesk's own tool on a new laptop: allow the tool. *Investigate:* ask the device's
+user; if nobody installed it, remove it and end its sessions.
+
+### `dns_nxdomain_burst`: a burst of failed random lookups *(needs passive DNS)*
+A device gets failed answers for **50 or more distinct random-looking domains within ten minutes**: malware with a
+domain generation algorithm (DGA) tries name after name until one answers.
+
+*What counts:* only lookups that failed and returned no address. The domain's registrable label (`kq3hd8fjs` in
+`a.kq3hd8fjs.com`, the label left of `co.uk` and the like) must look machine-made: 8 to 63 letters and digits, no
+hyphen, a high character entropy (at least 0.8 x log2 of its length, capped at 3.2 bits), and few vowels (at most
+30 % of the letters) or letters mixed with at least two digits. Each registrable domain counts once, so one antivirus or
+telemetry service asking hash-like names under its own domain is one domain; a search-suffix lookup
+(`wpad.corp.example.com`) is judged by `example`. Single labels (Chrome's random intranet probes), `.arpa`, `.local`
+and other local-only suffixes are never judged, and neither is a device that resolves names for others.
+*Learning:* while the site learns, each device learns its own peak; afterwards its threshold is twice that peak when
+that is above 50 (at most 56). *Score:* 55 (medium). *Cooldown:* one alert per device per six hours. Not on the
+never-quiet list; may be paused under overload. Use `--rule-weight dns_nxdomain_burst=<weight>`.
+*Typical false positive:* a security product that checks reputations by DNS under many domains. *Investigate:* the
+examples in the alert, and what runs on the device.
+
+### `mining_pool`: cryptocurrency mining *(needs passive DNS, or `--flows` for the ports)*
+A device **looks up a known mining pool** or miner download site (2Miners, Nanopool, F2Pool, Ethermine, SupportXMR,
+MoneroOcean, NiceHash, unMineable, MineXMR, HeroMiners and about thirty others, each with its subdomains; the list
+ships with DENIS and is reviewed with every release, nothing is fetched for it), or **speaks the Stratum mining
+protocol** on TCP 3333, 14433 or 14444 to a provider it never used (4444 is shared with too much else). Cryptojacking
+on servers, NAS and office computers usually follows a break-in.
+
+*Names:* the question name or the last CNAME, matched on label boundaries; judged from the first lookup, during the
+learning period too (a device mining before DENIS was installed must not be learned as normal). A device that resolves
+names for others is not judged by name. Score 70 (high).
+*Ports:* judged once the site's flows have been seen by these rules for one learning period; a provider the device
+already uses is not reported. Score 55 (medium): a port is weaker evidence than a name.
+*Cooldown:* one alert per device per six hours. Not on the never-quiet list; may be paused under overload. Use
+`--rule-weight mining_pool=<weight>`. *Typical false positive:* you mine on purpose: mark it normal for that device.
+*Investigate:* the process that made the connection, and how it got there.
+
+### `vpn_tunnel_start`: a new VPN tunnel to the internet *(needs `--flows`)*
+A device opens a VPN tunnel to a public address **for the first time**: WireGuard (UDP 51820), OpenVPN (UDP or TCP
+1194), IPsec (IKE UDP 500, NAT-T UDP 4500, ESP), L2TP (UDP 1701) or PPTP (TCP 1723, GRE). Traffic inside the tunnel is
+hidden from DENIS and from your firewall. A flow records the lower of its two ports, so WireGuard is seen when the
+device's own port is above 51820 or both sides use it.
+
+*Learning:* each device learns the tunnel kinds it uses: silently while the site learns and for one learning period
+after these rules first saw the site's flows. Afterwards the first use of a kind by a device is reported once and
+learned. *Score:* 55 (medium); 70 (high) for a server, NAS, IoT gadget, industrial device or a device you placed at
+Purdue level 3 or below. A device with the **personal** noise profile (phones open IPsec for Wi-Fi calling) is recorded
+in the quiet stream instead. *Cooldown:* one alert per device per hour; a kind first seen during that hour is reported
+after it. Not on the never-quiet list; may be paused under overload. Use `--rule-weight vpn_tunnel_start=<weight>`.
+*Typical false positive:* a laptop with a new company VPN. *Investigate:* ask who looks after the device; remove the
+program or configuration that opened the tunnel if nobody did it on purpose.
+
+### `anonymizer_contact`: a Tor exit relay contacted *(needs `--flows` and the Tor exit list)*
+A device talks to an address on **the Tor Project's exit-node list** (*Settings* → **Data** → **Threat list
+sources**). Tor is a policy question, not proof of malware: someone may be getting around web filtering, or software
+may be hiding where it talks to. **Until 4.3 these hits were `threat_list_match` alerts (85, high, never quiet).**
+
+*Score:* 50 (medium), +10 if the device sent 100 kB or more in one window; judged from the first day, like the threat
+list. An address that is also on another list stays a `threat_list_match`. *Cooldown:* one alert per device per six
+hours, naming up to five relays (a Tor client, and a public service visited over Tor, touch many). Not on the
+never-quiet list; may be paused under overload. Use `--rule-weight anonymizer_contact=<weight>` (`1.7` gives back the
+old 85).
+*Upgrading:* until you give this rule a weight, a minimum score or an exception of its own, the ones you saved for
+`threat_list_match` apply to it, so an installation that had turned Tor hits down or excepted a device keeps that.
+*Typical false positive:* a device that runs a public service which Tor users visit. *Investigate:* whether Tor is
+allowed on the device; if not, remove it and block Tor at the firewall.
+
+### `admin_spread`: admin sessions spreading to many devices *(needs east-west accounting or a mirror port)*
+One device opens remote-administration sessions (SSH, Telnet, RDP, VNC, WinRM, ADB and SMB) to many different devices in
+one day, more than it ever did before. `lan_scan` judges two minutes; ransomware operators and PsExec-style waves move
+slowly enough to slip under it and are visible over a day. Same handshake evidence as `iot_initiates_admin` (only
+connections whose opener the capture proved); IPv4 and IPv6.
+
+*When it fires:* the day's count (UTC day) of **different devices on protocols other than SMB reaches 5**, or **10 counting
+SMB** (file sharing is ordinary for clients; an SMB wave touches many devices fast), **and** it is more than a quarter
+above the largest count of the previous 13 days (a device that always administers 20 others needs more than 25).
+*Learning:* the daily counts are recorded silently while the site learns and for one learning period after these rules
+first saw east-west data from the site, and always afterwards; nothing is judged before. A day that fired is recorded
+like any other: tomorrow the same behaviour is the new normal. Only days that reached 5 are stored (one byte a day, 14
+days, in the device's baseline); the day's peers are kept in memory only (at most 40 per device, 10,000 devices).
+*Score:* 60 (medium); +10 at 20 devices or more; 20 less for a server, hypervisor, NAS, storage array or virtual machine,
+or a device tagged `admin-workstation`, `monitoring` or `backup` (deployment, backup and monitoring tools do this by
+design). *Cooldown:* one alert per device per 24 hours. Not on the never-quiet list; may be paused under overload. Use
+`--rule-weight admin_spread=<weight>`. *Typical false positive:* a software rollout from a workstation. *Investigate:*
+ask whoever uses the device; if nobody can explain it, isolate it and check the devices it reached (named in the alert).
+
+### `new_admin_listener`: a device starts offering remote administration *(needs east-west accounting or a mirror port)*
+A camera, printer, TV, smart-home gadget or industrial field device (PLC, RTU, drive, sensor, building controller)
+starts **serving** SSH, Telnet, SMB, RDP, VNC, WinRM or ADB to other devices: a backdoor, or remote access somebody
+switched on. The device must have answered with data on a connection whose opener the handshake proved, so a connection to
+a closed port that only drew a reset never counts. Phones and tablets (file-manager apps share files) and computers,
+servers and NAS (serving is their job) are not judged. IPv4 and IPv6.
+
+*Learning:* the protocols a device serves are learned (one bit each, in its baseline) silently while the site learns and
+for one learning period after east-west data was first seen; afterwards the first sighting of a protocol is reported
+and learned (taken back when the alert is lost). *Score:* 55 (medium); +10 for an industrial field device; +10 for Telnet
+(clear-text passwords). *Cooldown:* one alert per device per 24 hours, filed under the device that serves. Not on the
+never-quiet list; may be paused under overload. Use `--rule-weight new_admin_listener=<weight>`. *Typical false
+positive:* a printer whose scan-to-folder or web admin was turned on on purpose. *Investigate:* who opened the connection
+(named in the alert) and whether the device's settings or firmware were changed.
+
+### `daily_upload_new_owner`: a large daily upload to a new provider *(needs `--flows`)*
+A device that is not a server sends **500 MB or more in a day** to a provider (the owner of the address: its autonomous
+system, else its domain, else its network) it had not used before. The 5-minute `volume_anomaly` never sees data that
+trickles out in small windows; the sum of all of them over a day does. The provider is the one the flow pass already
+resolved (it is not looked up twice). IPv4 and IPv6.
+
+*Which providers:* a public one the device has not established (first contact less than six hours ago, or unused for 30
+days, and not allowed for the device's profile or by *Allow this provider*). A day total starts at the first window of at
+least 8 kB to such a provider and runs for 24 hours; it keeps counting when the provider becomes established meanwhile. A
+device still inside its own learning period is not judged. *Which devices:* all but servers, hypervisors, storage, NAS,
+network infrastructure (router, firewall, access point, VPN gateway and the like), the DENIS host and the default gateway.
+*Score:* 60 (medium); +10 at 2 GB or more; +10 for an IoT or industrial device; 10 less for a device of the personal
+noise profile. *Cooldown:* one alert per device and provider per 24 hours. The day totals are in memory (at most 20,000
+(device, provider) pairs; a restart forgets the day so far). Not on the never-quiet list; may be paused under overload.
+Use `--rule-weight daily_upload_new_owner=<weight>`. *Typical false positive:* a new cloud backup or sync; *Allow this
+provider* on the alert settles it. *Investigate:* ask the device's user; find the program doing it.
+
+### `gateway_changed`: the default gateway changed *(nothing extra needed)*
+The default gateway's hardware address changed, for good and without a contest. `arp_conflict` and the inventory's
+one-hour hold stop a spoofer from taking the gateway's address while the real router is alive; a router that is **gone for
+more than an hour** hands the address over silently, and so does an attacker who waited it out or knocked the router off
+the network first. Until 4.3 nothing told anybody.
+
+*Evidence and what is left out:* the inventory raises a `gateway_changed` signal when an uncontested claim of the gateway
+address takes the gateway flag from a device that had it, the previous holder having been seen within the last 14 days
+and silent for more than an hour. Nothing is reported when either hardware address is a virtual router address (VRRP,
+HSRP, GLBP), when either device is not in the register or they are on different sites, or when DHCP tells clients to use
+another router address altogether (the address the collector routes through may then not be the network's gateway). The
+flag moves as it always did; this only says it happened. *Score:* 65 (medium); +10 when DHCP offers name this address as
+the router (at least 3 offers); +10 when the new device is not a network device; 15 less for the same manufacturer prefix
+as the old one (a like-for-like replacement). *Cooldown:* one alert per new device per 7 days, filed under the new
+device. **Never quiet and never paused.** Use `--rule-weight gateway_changed=<weight>`. *IPv6:* this is the IPv4 default
+gateway; the IPv6 router is covered by `rogue_ra` (a new router) and the IPv6 address conflict (a challenger to its
+address). *Typical false positive:* you
+replaced the router. *Investigate:* find the new device's switch port or access point; disconnect it if it is not yours.
+
+### `rogue_dhcpv6`: a new DHCPv6 server *(opt-in `--ipv6`)*
+`rogue_dhcp`'s DHCPv6 twin, for the **mitm6** attack: a device answers DHCPv6 requests (Advertise or Reply from UDP port 547)
+and hands every Windows computer an attacker's DNS server, then relays the logins. A device that was not a DHCPv6 server
+during the learning period starts doing it. *Learning:* the servers seen while the site learns are the normal ones, saved
+per site (`dhcpv6_servers`) and remembered across restarts; a new one afterwards is reported once and learned (taken back
+when the alert is lost). A site with no DHCPv6 server at all is where it is best: the first one that appears is reported.
+Only the fact that the sender acts as a server is read from the packet; nothing it says about a client is ever learned (a
+forged Reply would plant an address on a victim). *Score:* 75 (high); 30 less for the default gateway (a router newly
+switching DHCPv6 on). **Never quiet and never paused.** Use `--rule-weight rogue_dhcpv6=<weight>`. *Investigate:* the MAC
+and switch port in the alert; block DHCPv6 replies from ports that must not have a server (DHCPv6 guard on managed
+switches), or turn IPv6 off on the computers that do not need it.
+
+### `lifecycle_device_seen`: a lost, stolen or retired device is on the network *(nothing extra needed)*
+A device you marked **lost**, **stolen** or **retired** in the register (the device panel's status) is seen on the
+network. Until 4.3 that was only a *finding* (`lost_device_online`, `retired_device_online`, found when someone opened
+the page); a stolen laptop joining the Wi-Fi is the moment to act, so it is an alert now. The findings stay: they list
+the state until it is resolved. *Evidence:* the register and presence, no traffic needed. The detector keeps the small set
+of flagged devices (rebuilt from the register at most once a minute: an edit is seen within a minute) and, on its 5-second
+tick, looks at the flagged devices among those the register log says were written (a device the inventory flushed because
+it was seen), and at once at a device that was just flagged. A device is **seen** when its last-seen time is within 15
+minutes; a console edit of a flagged device is not a sighting. A merged interface of a device is not judged; the device it
+belongs to is, by its own status. *Learning:* none, judged from the first minute. *Score:* 70 (high) for lost and stolen,
+45 for retired. *Cooldown:* one alert per device per 24 hours (lost, stolen) or 7 days (retired), carrying the owner and
+location from the register. A lost or stolen device is **never quiet** and the rule is **never paused**; an alert for a
+retired device can be turned down or quieted like any other. Use `--rule-weight lifecycle_device_seen=<weight>`.
+*Investigate:* for lost or stolen, find where it is connected, block it at the switch or access point and change the
+passwords and keys it held; for retired, disconnect and wipe it or change its status.
 
 ### Your own rules: IT rules and OT rules
 
@@ -605,6 +989,12 @@ Details and examples are in the [OT guide](ot-guide.md). In short:
   addresses used by VPN and proxy software (`240.0.0.0/4`, `198.18.0.0/15`, `192.0.0.0/24`) are never "the internet":
   they are judged like another internal network (50). GE-SRTP (18245), PC Worx (1962) and Niagara Fox (1911) are
   TCP only, like Modbus and S7.
+  *Ports added in 4.3:* Unitronics PCOM (TCP 20256: the PLCs defaced in water utilities in 2023), Red Lion Crimson
+  (TCP 789), Niagara Fox over TLS (TCP 4911), MELSEC (TCP 5006) and EtherNet/IP I/O messaging (**UDP** 2222 only:
+  TCP 2222 is a common alternative SSH port and is not judged). Each is judged only on its own transport, and only
+  for this finding and the industrial factor of `inbound_from_public` (+25): DENIS does not decode these protocols
+  and never names a local conversation after them. PROFINET's UDP 34962-34964 are not listed: they lie in the Linux
+  range of random client ports, so a port-only finding would mostly be wrong.
 * `ot_purdue_skip`: two industrial devices talk across **more than one Purdue level** (a controller straight to an
   office PC; L1 ↔ L4, L2 ↔ L4, L3.5 ↔ L1…). Needs the Purdue level on both devices in the register. Score 50, +15 with
   write/control commands. Adjacent levels and the DMZ (3.5) next to 3 or 4 are fine. Once per pair per six hours.
@@ -628,6 +1018,93 @@ Details and examples are in the [OT guide](ot-guide.md). In short:
   alert, or a lower weight, silences it). The configuration revision and the simulation flag are shown as evidence
   and are not scored. Once per newer publisher per six hours (adjustable, shared with `ot_write_escalation`). Needs
   GOOSE frames on the mirror (see the [OT guide](ot-guide.md#layer-2-traffic-goose-sampled-values-profinet)).
+* `ot_new_function` *(4.3)*: a path DENIS has **learned** (client, controller, protocol) uses an industrial
+  **function it never used** before: a Modbus "write multiple registers" on a path that only read and wrote single
+  registers, a new S7 or CIP service. Score 30 (low), +25 when the window that brought it also carried writes or
+  control commands (55, medium). *Learning:* a path is judged only once the site is past its learning period, the
+  protocol's decoder is past its upgrade grace period, **and the path itself is at least one learning period old**
+  (24 h by default): a path that appears later learns its own functions for its first day, in silence. A path that has
+  recorded no function yet, an encrypted path, and a path whose list of functions is full (32 names) are not judged.
+  A control command and a program upload on a path are left to `ot_control_command` and `ot_program_upload`. At most
+  one alert per path per hour; a function first used in that hour is learned. *False positives:* rare maintenance
+  functions (a yearly recipe download as register writes). Each function alerts once, then it is learned.
+* `ot_program_upload` *(4.3, never quiet)*: a client **copies the program out of a controller**: S7comm upload
+  (functions 0x1d-0x1f) or IEC 61850 MMS domain upload (29-31). Logic theft, or the first step of "upload, change,
+  download again". Score 70 (high) the first time this client uploads from this controller, 45 when it has before or
+  during the learning period. Once per client, controller and protocol per hour. *False positives:* engineering
+  software comparing the online and offline program ("compare", "upload to project") or a backup tool; after the
+  first alert such a station scores 45. S7comm-plus (S7-1200/1500 with TIA Portal) uploads are not seen: that
+  protocol's upload is not told apart from reads.
+* `ot_concurrent_masters` *(4.3, never quiet)*: **two different clients write to (or control) the same industrial
+  device within ten minutes**, and at least one of them is not an **established writer** of it (a client whose path to
+  the device wrote before and is at least one learning period old). A rogue master writing beside the real SCADA
+  looks exactly like this. Score 65, +15 with control commands. Two established writers (a redundant SCADA pair, two
+  operator stations) never alert; nothing is raised while the site is learning. Once per device and pair of writers
+  per six hours. At most 20,000 devices and 4 recent writers per device are remembered. *False positives:* a second
+  operator station or engineering laptop added on purpose: it alerts during its first day, then it is established.
+* `ot_identity_changed` *(4.3, never quiet)*: an industrial device **announces a different firmware revision,
+  serial number, product or vendor** than before, in its own identification answer: EtherNet/IP ListIdentity,
+  IEC 61850 MMS Identify, PROFINET I&M0, Modbus device identification (function 43/14, kept per unit id so a gateway
+  answering for several serial devices is never "one device changing"). Score 65 for a new revision, 75 for another
+  serial number, product, order number or vendor (another physical device answers), +10 when more than one field
+  changed. Only an answer in a frame that did not cross a router counts (a routed frame carries the router's MAC).
+  The first answer a device gives is learned, not judged; nothing is raised while the site is learning or the
+  decoder is in its grace period. Once per device and field per day; a device answering with two values in turn is
+  reported at most once every five minutes by the collector. *False positives:* planned firmware updates and device
+  replacements. S7comm (SZL) and BACnet identities are not judged.
+* `ot_recon` *(4.3)*: a device **asks industrial devices who they are**: Modbus read device identification (43) or
+  report server id (17), the EtherNet/IP ListIdentity request, BACnet Who-Is or Who-Has, the MMS Identify request,
+  OPC UA discovery, or a Siemens S7 system status list (SZL) read. Score 65 when it asks **five or more industrial
+  devices within ten minutes**, +10 when it started identifying devices within the last hour; 45 for the **first
+  identification request** of a device that never sent one. *Learning:* the devices that identified others during
+  the learning period (and a device that started doing so while its protocol's decoder was in its grace period) are
+  learned discoverers for their first learning period, with the largest number of devices they asked within ten
+  minutes; afterwards a learned discoverer alerts only when it asks more devices than that (a SCADA server or an
+  asset-inventory tool keeps its routine sweeps quiet). A device that starts identifying after the learning period
+  is judged at once. Filed on the asking device. Once per device per hour. *Limits:* a broadcast request (BACnet
+  Who-Is to the whole segment, a ListIdentity broadcast) is no conversation and is not seen; at most 16 devices per
+  client and ten minutes, 10,000 clients and 10,000 discoverers are remembered. *False positives:* an inventory tool
+  or a new SCADA server: add a rule exception for it.
+* `ot_cross_cell` *(4.3)*: a **write or control command between two devices whose register "Zone / cell" values
+  differ** (compared trimmed and case-insensitive), when no zone policy decides the pair: a pair a zone rule allows
+  or denies is left to `segmentation_violation`. Score 55, +15 with control commands. *Learning:* nothing is raised
+  while the site is learning, and a path that wrote before and is at least one learning period old is learned (a
+  central HMI that serves two lines), so only a new cross-cell writer alerts. Needs the cell filled in for both
+  devices. Once per pair per six hours.
+* `ot_new_protocol` *(4.3)*: an industrial device **serves or speaks a protocol it never did**: a new industrial
+  protocol in its decoded conversations (a PLC that starts answering Modbus beside S7), or an IT service in
+  east-west traffic (FTP, SSH, Telnet, HTTP(S), SMB, RDP, VNC, SNMP, TFTP, WinRM, MS-RPC, TeamViewer, AnyDesk,
+  RustDesk; needs east-west accounting or a mirror). Score 50, +15 when the new service it serves is a
+  remote-administration one. *Learning:* per device, the industrial protocols are learned for one learning period
+  from the first conversation this rule sees (the conversations stored before an upgrade count as learned), the IT
+  services for one learning period from the first east-west record; the site and the protocol's decoder must be past
+  their learning and grace periods. Each (device, served or spoken, protocol) alerts once and is then learned. Filed
+  on the device. *False positives:* a firmware update that adds a web interface. At most 20,000 devices.
+* `ot_remote_access_path` *(4.3)*: **RDP, VNC, TeamViewer, AnyDesk or RustDesk reaches a device in a control cell**:
+  east-west from a device at Purdue level 4 or above to one at level 2 or below (score 70; both levels must be in the
+  register), or a connection from the internet whose handshake completed to a device at level 2 or below, or to an
+  industrial device without a level (score 80). Either address family. No learning (it is about the pair and the
+  levels, like `ot_purdue_skip`); once per target, source (an IPv4 /24, an IPv6 /48 or the client) and port per six
+  hours. *False positives:* a vendor's support session through an approved path: add a rule exception.
+* `ot_write_rate` *(4.3)*: a path **writes more than five times its largest hour of the last 14 days**, and at least
+  100 times in the clock hour. Score 55, +10 at more than 20 times (and at least 500). *Learning:* per path, the
+  largest number of writes in one clock hour of each of the last 14 days; a path is judged once this rule has known it
+  for one learning period, the site and decoder are mature and the path wrote before. The hour that alerted is
+  learned as well: a new steady rate (a recipe change that stays) alerts once. The learned rates are saved every ten
+  minutes and read back after a restart. Once per path per six hours. At most 20,000 paths.
+* `ot_offhours_command` *(4.3)*: a **write or control command to an industrial device outside the operating schedule
+  declared for its site** (Rules page, the rule's details: days, start and end in site time; an end before the start
+  runs past midnight, the same start and end mean the whole day). Site time is the site's time zone (Sites page), else
+  this server's. Score 60, +15 with control commands. **Does nothing for a site without a schedule.** Nothing to
+  learn, so it also fires during the learning period. Once per pair per hour. *False positives:* planned night work or
+  an automatic night job: add a rule exception for the sender. Holidays are not known.
+* `ot_exception_burst` *(4.3)*: a device **refuses 20 or more requests on one path within ten minutes** (Modbus
+  exception responses), more than three times the most that path produced in a ten-minute bucket of the last 14 days.
+  Score 45, +10 at 200 or more. Register probing and fuzzing look like this; so does a misconfigured HMI, which is
+  learned after its first alert. Judged once this rule has known the path for one learning period. Once per path per
+  hour. Needs a collector of 4.3 or later (older agents do not report refused requests).
+* **Omron FINS program-area write or clear** *(4.3)* is a control command: it reaches `ot_control_command` like an S7
+  program download.
 * `ot_command_watch`: **your own OT rules** for specific commands, or for **any communication** from a device that is not allowed to talk to a controller (also when it is encrypted): see the [OT guide](ot-guide.md#ot-rules) and [Encrypted traffic](ot-guide.md#encrypted-traffic-who-talks-to-whom-is-still-visible).
 
 ## Findings: standing problems, with a fix
@@ -638,7 +1115,7 @@ finding, each with why it matters and what to do.
 
 | Finding | Severity | Meaning |
 |---|---|---|
-| `lost_device_online` | high | a device you marked *lost* or *stolen* was seen in the last 7 days |
+| `lost_device_online` | high | a device you marked *lost* or *stolen* was seen in the last 7 days (the moment it appears is also the alert `lifecycle_device_seen`) |
 | `kev_software` | high | a service announces a software version that is in the range of a vulnerability on CISA's known-exploited list ([below](#software-versions-end-of-support-and-known-exploits)) |
 | `telnet_open` | high | Telnet open |
 | `rdp_open`, `vnc_open`, `ftp_open`, `mysql_open`, `winbox_open` | medium | risky remote-access / data services reachable |
@@ -800,6 +1277,32 @@ reason) and accepted risks appear in the **saved reports** and as `denis_accepte
 `GET/POST /api/risk-acceptances`, `DELETE /api/risk-acceptances/{id}`, `POST /api/findings/{id}/verify` (see the
 [API reference](api.md)). Deleting a device, or *erase all data*, removes its accepted risks.
 
+## When detection is overloaded
+
+Every rule is timed. When one rule is much slower than its budget (more than four times, in three of its last six
+runs), it makes all detection late, and after that the capture can drop packets. What DENIS does then is **your choice**
+(Rules page, **Performance protection**; administrators change it and it is audited):
+
+* **Pause the rule that overloads detection** (the default for the newer built-in IT rules and for your own IT rules): the
+  one slow rule is skipped, every other rule keeps running, and nothing is silent: Health says which rule was paused and
+  why, the Rules page marks it **paused**, the administrators get a notice (at most one per rule every six hours), and the
+  audit log records it. After 30 minutes DENIS tries the rule again on a little work, and when three runs in a row are fast
+  enough it **resumes by itself** (audited too); a rule that is slow again waits longer. An administrator can re-enable it
+  at any time under Health, Detection rules.
+* **Keep every rule running and accept that packets may be dropped:** nothing is paused, the rule is only warned about,
+  and packet loss is reported on Health and by a notice.
+
+**Industrial rules** have their own setting and default to *warn only*: a paused industrial rule stops watching your
+industrial network, so DENIS pauses one only if you choose that, after a strong warning.
+
+**Some rules are never paused**, whatever you choose, only warned about: every rule that is never kept quiet (threat list,
+rogue DHCP and router advertisements, DHCP changes, sweeps, segmentation, fingerprint changes, a changed gateway,
+and the industrial command and write rules), the safety-critical industrial rules (`ot_program_upload`,
+`ot_concurrent_masters`, `ot_identity_changed`), `dns_threat_domain`, `inbound_then_fetch` and the rules they are built
+from, and every built-in rule of 4.2 and earlier. The complete list, the numbers and the metrics are in
+[Operations](operations.md#when-a-rule-is-paused-or-detection-is-overloaded). Packet loss from overload is reported:
+Health shows it, and a high notice is sent when traffic was lost while detection was far behind.
+
 ## Acknowledging and false positives
 
 **Acknowledge** an alert once handled, optionally with a reason (*resolved*, *false positive*, *expected
@@ -808,6 +1311,32 @@ behaviour*). It stops counting toward the device's risk (and you can *Undo*). Ch
 acknowledged together, and the same alert kind repeating for the same device is folded into one row you can expand.
 For a recurring harmless pattern, prefer lowering that rule's weight or raising `--min-score` over ignoring
 alerts. Repeats are suppressed by cooldowns, so an alert is not a flood.
+
+## This is normal, and how useful each rule is
+
+In an alert's dialog, **This is normal…** (editors and administrators) closes the alert as expected behaviour and keeps
+later alerts like it out of the list. You choose how wide (*this rule on this device*; *this device and this destination*;
+*everything ordinary on this device*) and for how long (90 days by default, 1 to 365), with an optional note. Nothing is
+deleted: the covered alerts are stored as quiet entries with the reason and who made the exception, **Show quiet** lists
+them, and the daily digest and the counters count them. It never covers what must always be seen: address-claim and
+new-device alerts, a risky port, a threat-list address, a large transfer, your own rules (they have their own exceptions)
+and industrial alerts of high severity; the whole-device choice never covers any industrial or high-severity alert. An
+administrator removes an exception under *Rules → Suppressed by "This is normal"*, and an expired one stops by itself.
+
+![This is normal: how wide, how long](img/this-is-normal.png)
+
+DENIS also counts, per rule and per day, what became of each alert: how many were raised, kept quiet, handled
+(*resolved*, *false positive*, *expected*), closed automatically or put in an incident, and how many nobody reviewed after a
+week. **Rules → How useful is each rule** shows the last 30 or 90 days with a CSV link. Only counts are kept (no
+addresses), for 400 days, on this system; nothing is sent anywhere. A rule of which at least 20 alerts were raised and fewer than
+a tenth were acted on gets a suggestion: raise its threshold, limit it to a profile or move it to the digest. "Acted on" means closed
+as resolved; an alert nobody looked at is not counted as a false alarm.
+
+![How useful is each rule](img/rule-outcomes.png)
+
+API: `POST /api/alerts/{id}/normal`, `GET /api/rules/normal/suppressed`, `GET /api/rules/outcomes` (and `.csv`); see the
+[API reference](api.md). The settings that keep routine alerts quiet on their own are in
+[Alerting](alerting.md#what-denis-keeps-quiet).
 
 ## Learning mode, and forgetting a baseline
 
@@ -821,7 +1350,8 @@ accepted risks & baseline*.
 
 **A lost alert does not teach DENIS the behaviour.** When an alert could not be saved (the database was briefly
 unavailable), what the rule had learned for it (the destinations and ports of `new_destination` and `new_port`, a
-DHCP or router-advertisement server, a DNS resolver, an industrial conversation) is taken back, so the next sighting
+DHCP, DHCPv6 or router-advertisement server, a DNS resolver, an industrial conversation, an administration protocol a
+device serves) is taken back, so the next sighting
 alerts again. Learned state that belongs to an alert is written to disk only after the alert itself is stored, so this
 also holds across a restart. The delay is a few milliseconds; if the confirmation never arrives, saving resumes after
 two minutes.
