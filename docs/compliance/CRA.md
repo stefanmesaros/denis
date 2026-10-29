@@ -163,7 +163,7 @@ and in the console, and decide what "supported" covers beyond security fixes.
 | What | Where |
 |---|---|
 | Product description, features, edition limits | [README.md](../../README.md), [docs/index.md](../index.md), [docs/licensing.md](../licensing.md) |
-| Architecture, where each subsystem lives, what is verified | ARCHITECTURE.md |
+| What is verified, and how | [Enforcement validation](../nac/validation.md) |
 | Threat model, controls, known limitations, verification performed | [docs/security.md](../security.md) |
 | Enforcement safety model | NAC.md, [docs/enforcement.md](../enforcement.md) |
 | Hardware validation status | NAC_HARDWARE_VALIDATION.md, the generated matrix in [docs/enforcement.md](../enforcement.md) |

@@ -1,10 +1,9 @@
 # DENIS
 
-**Know every device. Understand every connection.**
+**Know every device. Understand your network. Detect what matters.**
 
 **Self-hosted network visibility and detection (NDR) for IT, IoT and OT**, with optional, administrator-approved response (NAC-style containment) through the switches and firewalls you already own. Passive-first, no endpoint agents, one Rust binary, every score explained.
 
-[![CI](https://github.com/stefanmesaros/denis/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/stefanmesaros/denis/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/stefanmesaros/denis)](https://github.com/stefanmesaros/denis/releases/latest)
 [![License: DENIS Community License](https://img.shields.io/badge/license-DENIS%20Community-blue)](LICENSE)
 
@@ -25,7 +24,7 @@ including the east-west and OT/industrial traffic a perimeter box was never in a
 > 2960-X, FortiGate 40F, Palo Alto PA-220, MikroTik E50UG and UniFi Cloud Gateway Ultra, for the actions listed in
 > [Enforcement](docs/enforcement.md); all other connectors and actions are experimental. DENIS is not a replacement for
 > 802.1X NAC, EDR, a firewall or a SIEM. Free signed binaries for personal, non-commercial use up to 100 devices;
-> organisations need a licence ([License](#license)).
+> organisations need a licence, with a free 30-day evaluation ([License](#license)).
 
 ![The DENIS console: the Dashboard](docs/img/dashboard.png)
 
