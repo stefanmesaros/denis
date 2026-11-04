@@ -50,9 +50,39 @@ The first start creates an administrator and prints a **one-time password**. Cop
 Open **https://localhost:8080** (DENIS uses HTTPS by default; your browser will warn once about the certificate DENIS created: see [Deployment](deployment.md#reaching-the-ui-securely-https-is-on-by-default) to trust it or use your own). Sign in as `admin` and choose your own password (at least 12 characters).
 Lost it later? `denis user reset admin` on the same machine prints a new one-time password.
 
-The **Dashboard** is the first screen; within seconds its counts move and the **Devices** page fills up.
+On a new installation the first screen is **Start**. It is one short path, and the next section describes it. The **Dashboard**
+and the **Devices** page fill up within seconds either way.
 
 ![The Devices tab](img/devices.png)
+
+## 2a. The Start page: your first look at the network
+
+Start appears in the menu for an administrator of a **new** installation (an installation that was updated from an earlier
+version does not get it by itself; open it under *Settings → Setup guide*). It shows five stages: *Install*, *Open the
+console*, *Connect your network*, *First result* and *First decision*, each with the minutes it took.
+
+1. **Where do I get my network from?** Tick everything you have: a **controller or firewall** DENIS can read (UniFi, Meraki,
+   Omada, FortiGate, MikroTik, Proxmox, Hyper-V, a Cisco 9800 wireless controller), the **machine's own network** (always on),
+   a **mirror (SPAN) port**, or **example data** (a made-up company, clearly marked). Then answer whether DENIS may ask the
+   devices on this network who they are (ARP and ping every five minutes; industrial devices are never pinged). Your
+   answers are kept if you close the page.
+2. **Read your controller** (if you ticked it). Choose the product, make a read-only key or account as the page says, press
+   *Test connection*, then *Save and read*. DENIS only reads the list of clients and devices; it changes nothing on the
+   controller, and nothing can block anything from here. Products whose reading has not been checked on real equipment
+   are marked *Experimental*. The first read takes a minute or two; the page then shows what was read.
+3. **Who should hear from DENIS?** One e-mail address and your mail server. DENIS sends a test e-mail only when you press
+   the button, and the password is stored encrypted. You can instead use Slack, Teams or a webhook under *Alerting*.
+4. **Your network, first look.** Three numbers (devices, unknown devices, devices no management tool knows), a short list of
+   what to do next, what DENIS is **not** seeing (for example: without a mirror port it sees which devices exist, not
+   who they talk to), and what is on and off (blocking is off, nothing is sent to us).
+
+Press **I am done with the quick start** when you are finished; Start then leaves the menu. The full checklist stays under
+*Settings → Setup guide*.
+
+**The weekly summary.** If you turn it on (on Start, or under *Alerting*), DENIS sends one e-mail a week with counts: new
+and unknown devices, alerts by severity, what it could not see and the next thing to do. It contains no device addresses.
+The link in it opens your console and needs a sign-in. The summary is **in English only**; the console itself is
+translated. *Send one now* sends it at once; the day and time are yours to set. The routes behind it are listed in the [API](api.md#all-routes).
 
 ## 3. Explore with demo data (optional)
 
@@ -68,7 +98,8 @@ a clean slate; see [Operations](operations.md#demo-data-and-starting-clean-erase
 
 ## 4. The first hour: what to set, in this order
 
-The first time an administrator signs in, the **setup guide** opens by itself: a checklist of your network, sign-in
+On an installation that did not start with the Start page above (an update from an older version), the first time an
+administrator signs in, the **setup guide** opens by itself: a checklist of your network, sign-in
 security, notifications, colleagues, backups and branding. Each item turns green when it is really done (DENIS checks
 what is configured, it does not take your word for it), and each has a button to the right page. **Remind me later**
 closes it until your next sign-in; **Mark as done** stops it opening (for everyone). You can open it again any time
@@ -117,7 +148,8 @@ Reading data without the console: `denis list`, `denis alerts`, `denis report`. 
 in the console (the *Help* link), with a search box.
 
 **A second site.** In the console open **Sites** and press **Add agent**: DENIS creates the token and shows the commands to
-copy, for Linux (`install.sh --agent`) and for Docker ([Deployment](deployment.md#multiple-sites-agents)).
+copy, for Linux (`install.sh --agent`) and for Docker ([Deployment](deployment.md#multiple-sites-agents)). For several agents, or
+to avoid copying a token, use **One-line enrolment** next to it: one code, one command, also for cloud-init, Docker, Ansible and systemd.
 
 **Updates.** DENIS offers stable releases only and installs them when an administrator presses the button, after a backup
 ([Updates](updates.md)). Testers can opt in to pre-releases there.

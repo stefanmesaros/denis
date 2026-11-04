@@ -2,7 +2,7 @@
 
 <!-- enforcement-experimental -->
 **Most of enforcement is experimental.** Switch port control on a Cisco Catalyst 2960-X (disable a port, move it to a
-quarantine VLAN) and some actions of four connectors are validated on real equipment: UniFi on a Cloud Gateway Ultra
+quarantine VLAN; the same two actions were also verified on a Catalyst C9300 and a C9200CX in the Cisco DevNet sandbox) and some actions of four connectors are validated on real equipment: UniFi on a Cloud Gateway Ultra
 (block device through a firewall policy, block a flow), FortiGate on a 40F (block device, block a flow, quarantine, end sessions), Palo Alto on a
 PA-220 (block device and quarantine through the dynamic address group, block a flow, end sessions) and MikroTik on an E50UG (block a flow, quarantine
 by address), each with its release (see the table below). Every other action has been tested only against a local
@@ -31,13 +31,13 @@ what is available today. The setup of each device type is on its own page, liste
 * **Blocking, quarantine and ending sessions through the connectors** (firewalls, UniFi, Meraki, AWS, Azure, NSX-T,
   Hyper-V, Proxmox, RADIUS Disconnect), each with the connector's own **Block** button under *Settings → Response policy*.
   Some actions of UniFi, FortiGate, Palo Alto and MikroTik are validated on real devices (the table below says which);
-  the other connectors are simulator only.
+  the other connectors are Experimental.
 * **The general path** with plans, durations, expiry, per-action permissions, a ledger and an API
-  (`/api/nac/actions/...`) is built on the server, and **all twenty connectors are on it now** (flow blocks, quarantine,
+  (`/api/nac/actions/...`) is built on the server, and **all 22 connector kinds are on it now** (flow blocks, quarantine,
   ending sessions and, where the device has them, port actions; validated on the Cisco switch for SNMP, validated per
-  action on a UniFi, a FortiGate, a Palo Alto and a MikroTik, simulator only for the rest). In the
-  console it is reached through the **Respond...** menu of a device, an incident or a flow, which opens the plan dialog
-  (see [The plan dialog](#the-plan-dialog)), and through the API.
+  action on a UniFi, a FortiGate, a Palo Alto and a MikroTik, Experimental for the rest). In the
+  console it is reached through the **Respond…** button of a device, an incident, a switch port or a connection, which opens the Respond dialog
+  (see [Respond](#respond) and [The plan dialog](#the-plan-dialog)), and through the API.
 
 ## Tested on real equipment
 
@@ -48,23 +48,26 @@ what is available today. The setup of each device type is on its own page, liste
 | Fortinet FortiGate 40F (FortiOS 7.2.3) | block device (address group, released by hand in 3 s), flow block (effect and release at once), expiry, extend, End sessions (an open SSH session cut in 1-2 s), quarantine through the address group (in at once, web access blocked, released after 5 minutes with traffic back within 1 s), cleanup | **Validated** for these actions; not tested: IPv6, HA, VDOM mode ([setup](nac/fortigate.md#quick-setup-about-10-minutes)) |
 | MikroTik E50UG (RouterOS 7.21.4) | block flow, quarantine by address, release, expiry, extend; block device (enforced, but DENIS reported its read-back as failed before 4.2) | **Validated** for block a flow and quarantine by address; not tested: block device (the 4.2 read-back fix), disabling a port, removing connections ([setup](nac/mikrotik.md#quick-setup-about-10-minutes)) |
 | Palo Alto PA-220 (PAN-OS 10.1.14-h9) | test connection, block device through the dynamic address group (no commit, in effect within 10 s, released in 8 s), block a flow with the static deny rule and a commit (early release about 2.5 minutes), automatic expiry, extend, End sessions (an open SSH session dropped, Done in 3 s), quarantine through the dynamic group (in and out in about 10 s), the tag surviving a firewall restart with an active block | **Validated** for these actions; not tested: block through the static address group, quarantine through the static group, re-registering a lost tag, HA, IPv6 ([setup](nac/paloalto.md)) |
-| Ubiquiti UniFi Cloud Gateway Ultra (UniFi OS 5.1.33, Network 10.6.106), API key | block device (firewall policy), block a flow, release by hand, early and at expiry | **Validated** for these actions; not tested: Wi-Fi client disconnect, client block by MAC, port actions ([setup](nac/unifi.md)) |
+| Ubiquiti UniFi Cloud Gateway Ultra (UniFi OS 5.1.33, Network 10.6.106), API key | block device (firewall policy), block a flow, release by hand, early and at expiry; with a nanoHD access point in the owner's lab, 29 October 2026, for **wireless clients only**: block by client MAC (the phone could not rejoin; released by hand; automatic expiry after 5 minutes) and disconnecting the wireless client | **Validated** for these actions; not validated: the block by MAC of a wired client, port actions ([setup](nac/unifi.md)) |
+| Cisco Catalyst C9300-24UX (IOS XE 17.15.1, SNMPv2c) and C9200CX-12P-2X2G (IOS XE 26.02.1, SNMPv3), Cisco DevNet sandbox, 29 October 2026 | read, write test, disable port and release, quarantine VLAN and release, each confirmed by reading the switch back; no client was plugged into the test port | **Verified in the sandbox** (the same methods are Validated on the 2960-X); not tested: client traffic, stacks, LAG and trunk refusals, LLDP |
+| Cisco FTD 7.0.1-84 through FDM, Cisco DevNet sandbox, 29 October 2026 (virtual) | test connection, block device through the network group with its deployment, release, cleanup | **Verified in the sandbox**, virtual device, not real equipment; every other FDM action is Experimental ([setup](nac/ftd_fdm.md)) |
+| Cisco Secure Firewall Management Center 7.7.12 through FMC, Cisco DevNet sandbox, 29 October 2026 (virtual) | sign-in, listings, dynamic objects, block device through the dynamic object and release (see the connector page) | **Verified in the sandbox**, virtual device, not real equipment; every other FMC action is Experimental ([setup](nac/ftd_fmc.md)) |
 
-Every other connector in the matrix below is simulator only.
+Every other connector in the matrix below is Experimental.
 
 **Validation is per action** (4.2). An action validated on real equipment shows no *Experimental* mark and needs neither
-*Allow connectors that are not validated on real equipment (lab use)* nor *Allow experimental actions (lab use)*, by the
+*Allow Experimental connectors (lab use)* nor *Allow experimental actions (lab use)*, by the
 owner's decision. The other actions of the same connector keep the mark and the lab settings: on UniFi, the client block
 by MAC, the Wi-Fi disconnect and the port actions; FortiGate has none left; on Palo Alto, the
 block through the static address group and the static quarantine group; on MikroTik, the block device, disabling a
-port and removing connections. The *Experimental* mark appears once per row in the Respond menu and
-only on the rows it applies to.
+port and removing connections. The *Experimental* mark appears in the Respond dialog as a pill in the title and on the card of the equipment
+that offers the method, and only where it applies.
 
 ## Capability matrix
 
 *Written from the capability tables in the code (`CAPS` in each `src/nac_*.rs`) by `tools/gen-enforcement-matrix.py`; a test fails when the table below differs from what the generator writes.* The states:
 
-* **Built**: the code exists and has been validated on real equipment.
+* **Built**: the code exists and has been validated on real equipment. A method marked *(sandbox only)* was verified in the vendor's sandbox on a virtual device, not on a physical one: it is no longer Experimental and needs no lab switch, but it is not claimed for hardware.
 * **Experimental**: the code exists and has not been validated on real equipment. It needs the lab switches.
 * **Not built**: the connector does not do this yet in this version.
 * **Unsupported**: the device or its interface cannot do this honestly, so DENIS does not offer it. It is shown as
@@ -79,7 +82,7 @@ through that path; for the others, a vendor's existing action is reached through
 
 | Connector | Block device | Block flow | Quarantine | Disable port | End sessions |
 |---|---|---|---|---|---|
-| [SNMP switch ports](nac/snmp.md) | Unsupported | Unsupported | Built: `access_vlan` | Built: `if_admin_status` | Unsupported |
+| [SNMP v2c & v3 (port shutdown & quarantine VLAN)](nac/snmp.md) | Unsupported | Unsupported | Built: `access_vlan` | Built: `if_admin_status` | Unsupported |
 | [Fortinet FortiGate](nac/fortigate.md) | Built: `address_group` | Built: `deny_rule` | Built: `quarantine_group` | Unsupported | Built: `session_clear` |
 | [Palo Alto PAN-OS](nac/paloalto.md) | Built: `dynamic_group`; Experimental: `address_group` | Built: `deny_rule` | Built: `quarantine_dynamic_group`; Experimental: `quarantine_group` | Unsupported | Built: `session_clear` |
 | [OPNsense](nac/opnsense.md) | Experimental: `alias` | Experimental: `deny_rule` | Experimental: `quarantine_alias` | Unsupported | Experimental: `state_kill` |
@@ -87,21 +90,23 @@ through that path; for the others, a vendor's existing action is reached through
 | [Check Point](nac/checkpoint.md) | Experimental: `group` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Unsupported |
 | [Juniper SRX](nac/juniper.md) | Experimental: `address_set` | Experimental: `deny_rule` | Experimental: `quarantine_set` | Unsupported | Experimental: `session_clear` |
 | [WatchGuard Firebox](nac/watchguard.md) | Experimental: `blocked_sites` | Unsupported | Unsupported | Unsupported | Unsupported |
-| [MikroTik RouterOS](nac/mikrotik.md) | Built: `address_list` | Built: `deny_rule` | Built: `quarantine_list`; Not built: `access_vlan` | Experimental: `ethernet_disable` | Built: `conntrack_remove` |
-| [Ubiquiti UniFi](nac/unifi.md) | Built: `fw_policy`; Experimental: `block_sta` | Built: `fw_flow` | Experimental: `port_profile` | Experimental: `port_disable` | Experimental: `kick_sta` |
+| [MikroTik RouterOS](nac/mikrotik.md) | Built: `address_list`; Experimental: `block_client_mac` | Built: `deny_rule` | Built: `quarantine_list`; Not built: `access_vlan` | Experimental: `ethernet_disable` | Built: `conntrack_remove`; Experimental: `disconnect_client` |
+| [Ubiquiti UniFi](nac/unifi.md) | Built: `fw_policy`, `block_sta` | Built: `fw_flow` | Experimental: `port_profile` | Experimental: `port_disable` | Built: `kick_sta` |
 | [Cisco Meraki](nac/meraki.md) | Experimental: `client_policy_blocked` | Unsupported | Experimental: `group_policy`; Not built: `access_vlan` | Experimental: `port_disable` | Unsupported |
-| [Cisco ASA](nac/asa.md) | Experimental: `object_group` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Experimental: `clear_conn` |
-| [Cisco FTD via FDM](nac/ftd_fdm.md) | Experimental: `network_group` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Unsupported |
-| [Cisco FTD via FMC](nac/ftd_fmc.md) | Experimental: `dynamic_object`, `network_group` | Experimental: `deny_rule` | Experimental: `quarantine_dynamic_object`, `quarantine_network_group` | Unsupported | Unsupported |
-| [VMware NSX-T](nac/nsx.md) | Experimental: `dfw_group` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Unsupported |
-| [AWS Security Groups](nac/aws.md) | Experimental: `isolation_sg` | Unsupported | Experimental: `security_group_swap` | Unsupported | Unsupported |
-| [Azure NSGs](nac/azure.md) | Experimental: `isolation_nsg` | Experimental: `deny_rule` | Experimental: `nsg_swap` | Unsupported | Unsupported |
+| [TP-Link Omada](nac/omada.md) | Experimental: `client_block` | Unsupported | Not built: `client_vlan` | Not built: `port_disable` | Unsupported |
+| [Cisco Catalyst 9800 wireless controller (WLC)](nac/ciscowlc.md) | Unsupported | Unsupported | Unsupported | Unsupported | Experimental: `client_delete` |
+| [Cisco Adaptive Security Appliance (ASA)](nac/asa.md) | Experimental: `object_group` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Experimental: `clear_conn` |
+| [Cisco Secure Firewall Device Manager (FDM)](nac/ftd_fdm.md) | Built: `network_group (sandbox only)` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Unsupported |
+| [Cisco Secure Firewall Management Center (FMC)](nac/ftd_fmc.md) | Built: `dynamic_object (sandbox only)`; Experimental: `network_group` | Experimental: `deny_rule` | Experimental: `quarantine_dynamic_object`, `quarantine_network_group` | Unsupported | Unsupported |
+| [VMware NSX-T Data Center (NSX-T)](nac/nsx.md) | Experimental: `dfw_group` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Unsupported |
+| [Amazon Web Services security groups (AWS)](nac/aws.md) | Built: `isolation_sg` | Unsupported | Built: `security_group_swap` | Unsupported | Unsupported |
+| [Microsoft Azure network security groups (NSG)](nac/azure.md) | Experimental: `isolation_nsg` | Experimental: `deny_rule` | Experimental: `nsg_swap` | Unsupported | Unsupported |
 | [Microsoft Hyper-V](nac/hyperv.md) | Experimental: `port_acl_deny_all` | Experimental: `deny_rule` | Experimental: `access_vlan` | Experimental: `vnic_disconnect` | Unsupported |
-| [Proxmox VE](nac/proxmox.md) | Experimental: `vm_firewall_drop` | Experimental: `deny_rule` | Experimental: `quarantine_ipset` | Experimental: `link_down` | Unsupported |
-| [RADIUS CoA](nac/radius_coa.md) | Unsupported | Unsupported | Unsupported | Unsupported | Experimental: `radius_disconnect` |
+| [Proxmox Virtual Environment (VE)](nac/proxmox.md) | Experimental: `vm_firewall_drop` | Experimental: `deny_rule` | Experimental: `quarantine_ipset` | Experimental: `link_down` | Unsupported |
+| [RADIUS Change of Authorization (CoA)](nac/radius_coa.md) | Unsupported | Unsupported | Unsupported | Unsupported | Experimental: `radius_disconnect` |
 
-Of the 100 cells (20 connectors, 5 actions; a cell with two methods counts by its best one): 16 are Built, 48 Experimental, 0 Not built and 36 Unsupported.
-20 of the 20 connectors have code for at least one action.
+Of the 110 cells (22 connectors, 5 actions; a cell with two methods counts by its best one): 21 are Built, 45 Experimental, 2 Not built and 42 Unsupported.
+22 of the 22 connectors have code for at least one action.
 
 <!-- matrix:end -->
 
@@ -126,7 +131,7 @@ Why a cell says Unsupported, in short:
 A connector that can block one flow with a deny rule has two more settings in its form (under Safety):
 
 * **At most this many DENIS deny rules** (`max_managed_rules`, default 50, from 1 to 1000). DENIS refuses a new flow block (code `max_rules`) when it already manages that many rules on this connector. Releasing a block frees a place.
-* **Networks this firewall routes between** (`routed_networks`, a list of networks such as `10.0.0.0/24`; only on firewalls that sit in the path of the traffic: MikroTik, FortiGate, PAN-OS, OPNsense, Check Point, Juniper SRX, ASA, FDM and FMC, and since 4.2 UniFi, SonicWall and WatchGuard). When it is set, and a device of the flow is in none of the listed networks, the plan shows a warning that the rule may never see this traffic. Empty means DENIS cannot tell whether the firewall is on the path: its actions are listed under *Path not verified* in the Respond menu, never recommended and never used by automation. Hyper-V, Proxmox, Azure, AWS, NSX-T, Meraki and RADIUS do not have it: they act on the device or the group itself, and only on their own guests or clients, which DENIS does not know in 4.2, so they too are listed under *Path not verified* ("this device is not known to it").
+* **Networks this firewall routes between** (`routed_networks`, a list of networks such as `10.0.0.0/24`; only on firewalls that sit in the path of the traffic: MikroTik, FortiGate, PAN-OS, OPNsense, Check Point, Juniper SRX, ASA, FDM and FMC, and since 4.2 UniFi, SonicWall and WatchGuard). When it is set, and a device of the flow is in none of the listed networks, the plan shows a warning that the rule may never see this traffic. Empty means DENIS cannot tell whether the firewall is on the path: its actions are listed under *Other equipment* in the Respond dialog, never recommended and never used by automation. Hyper-V, Proxmox, Azure, AWS, NSX-T, Meraki, TP-Link Omada, the Cisco Catalyst 9800 and RADIUS do not have it: they act on the device or the group itself, and only on their own guests or clients, which DENIS does not know in 4.2, so they too are listed under *Other equipment* ("does not know this device").
 
 Where the rule goes is not a setting: every connector puts its rule first (at the top of the policy, the layer or the access list you name in its form, or with the highest priority the device allows), because a deny rule below an allow rule does nothing.
 
@@ -152,6 +157,7 @@ When DENIS refuses, the plan lists each refusal with a code. The common ones:
 | `protected_net` | The address is in a network this connector is set never to block (its *protected networks* setting). You can change that setting. When the device is named by its hardware address (a quarantine from the device's page), the text names the address that matched and when it was last seen: its newest address, or one seen within a day of its newest sighting (seven days for IPv6). |
 | `protected_net_earlier` (a warning to tick) | The device, named by its hardware address, was in a protected network earlier and has been seen since at another address, today, inside a network the connector routes (when its *routed networks* are set). The warning names both addresses and their times; tick it only if the device no longer uses the old one. Without that fresh sighting the action is refused instead. |
 | `protected_earlier` (a warning to tick) | DENIS itself, a gateway or a DNS or directory server was seen with the address only more than a day before its own newest sighting, and another device of the same site has been seen with it since (4.2.1). Tick it after checking that the protected device no longer uses the address. Automation never acts on it. |
+| `address_in_two_spaces` | The address is used by devices in two different address spaces of the site (Settings → Capture → *Address spaces*, 4.4), so a block could reach the wrong one. Name the device by its hardware address, or act on a switch port. Only a site that declared address spaces is judged. |
 | `protected_connector` | The target is on this connector's own never-block list, or is a virtual router address. |
 | `protected_list` | The target is on your hands-off list (*Network → Readiness → Hands-off devices*). Remove it from the list there, with your password, if the action is meant. |
 | `site`, `egress` | The target belongs to another site than the connector, or the tenant is not allowed to reach this address. |
@@ -164,7 +170,7 @@ When DENIS refuses, the plan lists each refusal with a code. The common ones:
 | `conflict` | Another DENIS action is already active on this target. Release it or extend it. |
 | `max_rules` | The connector already holds the most DENIS rules allowed (50 by default). |
 | `cap_reached` | The hourly limit is used up. Wait, or raise it under *Settings → Response policy*. |
-| `same_subnet`, `no_endpoint_here` | Flow refusals, explained under *Block a flow*. |
+| `same_subnet`, `no_endpoint_here` | Flow refusals, explained under *Block a connection*. |
 | `no_effect`, `effect`, `observe` | The connector could not say what it would change or undo with, so DENIS will not act. |
 
 Other situations:
@@ -206,7 +212,7 @@ There are three levels:
   some sites) and who holds the permissions to block a device **and** to quarantine;
 * the administrator's password again;
 * the typed phrase **AUTOMATIC ENFORCEMENT** (capitals do not matter, spaces around it do not matter, anything else is refused);
-* both lab switches (connectors not validated on real equipment, and new actions of 4.1) and the enforcement switch on.
+* both lab switches (Experimental connectors, and Experimental actions) and the enforcement switch on.
 
 Switching it **off** is one click for any administrator, without a password. It also switches level (c) off. Actions that are
 already running keep their end time and can be released at any time.
@@ -287,11 +293,49 @@ On top of them there is one list for the whole installation, the **hands-off lis
 
 The list can only add refusals. Adding an entry needs no password, because it makes DENIS more careful. Removing one needs your password, because it makes blocking possible again; the person who added an entry may take it back without the password in the first ten minutes. Both are audited (`nac.hands_off.add`, `nac.hands_off.remove`). The API is under `/api/network/hands-off` (see the API reference).
 
-## The Respond menu
+## Respond
 
-On a device's panel, **Respond…** opens a menu grouped by what you want: **Cut the device off** (block the device, switch off its port, end its sessions), **Contain it** (quarantine through a firewall group, move the port to the quarantine VLAN) and **Block one connection** (one item, *Block a flow…*, which lets you pick the recorded flow in the next step). Nothing is pre-selected and nothing is recommended: you choose at that moment. Each response says which connector or switch it goes through.
+On a device's panel, in an incident, on the map and on a switch port, **Respond…** opens one dialog. It does not ask you to
+choose from a list: it opens on one sentence with the answer already in it, for example *Block iPhone (10.1.0.42) through
+UniFi Gateway, for 1 hour.*, with one line under it that says why ("Recommended: the controller shows it connected on Wi-Fi
+at Office AP, and UniFi Gateway routes its network (checked)."). The three bold parts of the sentence are buttons: the
+response, the equipment and the duration. The common case takes four acts: read the sentence, change the duration if you
+like, write your reason, type your password and press **Apply**.
 
-What is not available is folded into **Not available here (N)**, with **one row per cause**, not one per response: a chip that says in words what kind of cause it is, a plain sentence, the responses it affects, and a **Fix:** link to the exact control that changes it. The chips:
+![The Respond dialog for a device on Wi-Fi](img/enforcement-respond.png)
+
+**What DENIS recommends, and what it never does for you.** The recommended equipment is chosen only from equipment known to
+be on the device's path: a firewall or gateway whose *routed networks* hold the device's address (checked or from your
+settings), or the switch port DENIS knows for certain. A controller that shows the device as online is not proof of a path.
+For a device the controller shows connected on Wi-Fi, the client block of that controller is chosen when its method is
+validated (UniFi: validated on a nanoHD behind a Cloud Gateway Ultra); for a wired or unknown client the gateway's own
+policy is chosen and the client block needs the lab switch, as before. When two pieces of equipment have the same proof
+("Two gateways can stop this device"), when nothing is known to be on the path, or when the device is seen only behind a
+shared port, **nothing is chosen**: the equipment part of the sentence is a gap and its list opens at once. A firewall not
+known to be on the path, a shared or non-access port, a permanent duration and an experimental method can always be chosen
+by hand, never for you: each one asks for its own tick, in the words it always had. Automation never acts on a plan with a
+warning.
+
+**The choosers.** Clicking a part opens a list under the sentence; the rest of the dialog stays where it is.
+
+* *What DENIS should do*: the responses the server offers for this target (block the device, switch off the port, end
+  sessions, quarantine, move the port to the quarantine VLAN, **Block a connection…**), each with the equipment it goes
+  through.
+* *Through which equipment*: one card per piece of equipment, not per method (equipment with two methods has a small
+  *Method* choice on its card). *On this device's path* is open; **Other equipment (n)** (names appear when it is opened),
+  **By hand only (n)** (the shared or non-access port the device is seen behind, with the count) and **Not available here
+  (n)** are closed lines with counts. With more than ten pieces of equipment a filter field appears.
+
+Arrow keys move inside a list, Enter chooses, Esc closes the list first and the dialog second.
+
+![The Respond dialog when DENIS does not know which equipment carries the traffic](img/enforcement-respond-hand.png)
+
+When nothing is possible the dialog shows no sentence, only the first step that would change that ("Switch enforcement on",
+"Add a firewall connector", "Tell DENIS which networks … routes", "Open the write credential", "Place it on a switch port
+by hand…") and every cause under **Not available here**. A device that is **hands-off** says so, with the way to remove it
+from the list.
+
+What is not available is folded into **Not available here (n)**, with **one row per cause**, not one per response: a chip that says in words what kind of cause it is, a plain sentence, and a **Fix:** link to the exact control that changes it. The chips:
 
 | Chip | Meaning |
 |---|---|
@@ -304,7 +348,7 @@ What is not available is folded into **Not available here (N)**, with **one row 
 | Data | DENIS lacks information, for example it has not seen the device on a switch port. |
 
 **The addresses a device has now (4.2.1).** One rule is used everywhere DENIS asks where a device is now: which
-firewall is on its path, which address the Respond menu and automation act on, and the check that the address and the
+firewall is on its path, which address the Respond dialog and automation act on, and the check that the address and the
 hardware address of a target belong together. The newest sighting decides. A device's current IPv4 address is its
 newest one; another IPv4 address counts as current only when it was seen within two minutes of it (one interface that
 really holds two addresses is seen at both all the time). Every older address is history: a laptop moved from port to
@@ -316,7 +360,7 @@ several sensors of one site, all of their sightings count as one device; a senso
 (two sites can use the same private addresses). An address seen with two hardware addresses belongs to the one seen
 with it last; two devices seen with it at the same time are a contradiction, and the plan refuses. A device with a
 wired and a Wi-Fi interface has two hardware addresses, so two current addresses: the plan lists the other interface
-under what the action does not cover. When you choose a device in the Respond menu, the action takes its newest current
+under what the action does not cover. When you respond to a device, the action takes its newest current
 address in a network the firewall routes, otherwise its newest current IPv4 address; the plan shows the address it acts
 on. The plan judges the path on every current address of the device, not only on that one: a firewall that routes only
 an older one is not on the path, and the plan asks you to tick its warning. When the device list cannot be read, DENIS
@@ -345,34 +389,36 @@ ago is not its own.
 firewall whose *routed networks* hold one of the device's current addresses, and the switch port DENIS knows for
 certain. Where the device is **now** decides: when a
 device moved from one firewall's network to another's, the firewall that routes only its older address is listed under
-*Other firewalls* (an address of the other family loses only when it was last seen an hour or more before). Checks that
+*Other equipment* (an address of the other family loses only when it was last seen an hour or more before). Checks that
 must not miss an address the device held lately (an open ARP conflict, a protected network the device was in earlier)
 keep their longer look-back. Everything else is still listed, never hidden, each on its own line with its reason, and is
 never recommended or used by automation; the plan asks you to tick its warning:
 
-* **Other firewalls: path not verified**: another firewall routes the device ("192.168.12.10 is routed by Palo Alto
-  PA-220, not by FortiGate 40F").
-* **Path not verified**: DENIS cannot tell, because the firewall has no routed networks that hold the address, the
-  device has no current address, or the connector acts at the device itself (a hypervisor, a cloud group, NSX, Meraki,
-  RADIUS) and DENIS has nothing that says the device is one of its own ("Hyper-V: this device is not known to it").
+* **Another gateway routes the device** ("192.168.12.10 is routed by Palo Alto PA-220, not by FortiGate 40F").
+* **Does not list this device's network / has no network set**: DENIS cannot tell, because the firewall has no routed
+  networks that hold the address, or none at all.
+* **Does not know this device**: the connector acts at the device itself (a hypervisor, a cloud group, NSX, Meraki,
+  RADIUS) and DENIS has nothing that says the device is one of its own.
+
+Each is a card under **Other equipment**, with that reason; choosing one is a choice by hand.
 
 UniFi (the gateway's zone-based firewall policy and the client block), SonicWall and WatchGuard count as firewalls
 on the path, with routed networks of their own, like FortiGate or Palo Alto: set them on the connector, or they stay
-under *Path not verified*. **Switch off port** and **Move the port to the quarantine VLAN** for a device go only
+under *Other equipment*. **Switch off port** and **Move the port to the quarantine VLAN** for a device go only
 through the switch DENIS knows the device is plugged into: a router's, a controller's or a hypervisor's own port
 action never acts on another vendor's switch, and the capabilities list marks it *not the switch of this device*.
 
-**Location line.** The head of the menu says where the device is plugged in, how DENIS knows (*announced by the device*
+**Location.** The dialog says where the device is plugged in (in the line under the sentence and in the list of equipment), how DENIS knows (*announced by the device*
 over LLDP, or *learned from the switch*'s forwarding table) and how old the reading is ("switch read 3 minutes ago"). An
 LLDP announcement on a port where the same switch's forwarding table no longer learns the device, while it learns it on
 another port, is where the device was, not where it is: the forwarding table wins. A placement on another port in the
 last two reads makes the location uncertain until the reads agree, so no port action is proposed meanwhile.
 
-**Slow methods.** A method that needs a commit on the firewall (PAN-OS: the deny rule of *Block a flow*, the static block
+**Slow methods.** A method that needs a commit on the firewall (PAN-OS: the deny rule of *Block a connection*, the static block
 and quarantine groups) says so on its row and in the plan dialog: the commit takes minutes on a PA-220. For fast
 containment use *Block device* with the dynamic address group, which needs no commit and acts in seconds.
 
-When nothing is available the list is open, under a headline that says so. A device that is **hands-off** gets one row (Safety) and nothing else. The not-available rows can be reached with the keyboard, and each one points at its reason. The menu is fixed to the screen, so no scrolling panel cuts it off; on a phone it docks to the bottom.
+A device that is **hands-off** gets nothing but that statement. Every refusal and warning the plan shows carries the same chip and **Fix:** link as the *Not available here* rows.
 
 ## Switches that cannot say where a device is
 
@@ -393,9 +439,8 @@ A flow block names its protocol and port, or says that it covers any protocol an
 and whether the reverse direction is covered. The same sentences are kept with the action (*Active responses* and the
 action's details), in the audit log and in the notification.
 
-Opened from the Respond menu the response and the connector are already chosen, so the dialog is one step: the plan, how long, why, the warnings to tick, and, in the footer that stays in view, your password and **Apply**. The **reason field starts empty**: you write why in your own words (5 to 200 characters), because it goes to the audit log; **Apply** stays off until you have. Each refusal in the plan carries the same chip and **Fix:** link as the menu.
+In the dialog the plan is one short block, **What this changes** (what it does, what it covers, its first limit), with **Details** under it: the exact lines, what it covers and does not cover, what it cuts off, every limit, whether it survives a restart, how it is rolled back, notes, and whether the method was tested on real equipment or in the vendor's sandbox. Warnings follow, only when there are any, with the boxes only a person may tick first. With **one** warning its tick is the confirmation; with two or more, one more line, *I have read these n warnings*, follows them. The **reason** is mandatory (5 to 200 characters, in your own words, because it goes to the audit log; it grows to four lines and is never clipped) and starts empty. The footer is one row: *Nothing changes until you apply*, how many of the hourly limit are used, *Check again*, your password, **Cancel** and **Apply** (on a phone the footer stacks with **Apply** first). **Block a connection…** keeps its fields (the recorded connection, protocol, port, both directions) in a compact row, each with a chip that says where the value came from.
 
-![The plan dialog for blocking one flow](img/enforcement-plan.png)
 
 ## Active responses
 
@@ -575,11 +620,11 @@ Fields every firewall connector shares. The console shows a short line under eac
 
 ## The connector pages
 
-[SNMP switch ports](nac/snmp.md), [Fortinet FortiGate](nac/fortigate.md), [Palo Alto PAN-OS](nac/paloalto.md),
+[SNMP v2c & v3 (port shutdown & quarantine VLAN)](nac/snmp.md), [Fortinet FortiGate](nac/fortigate.md), [Palo Alto PAN-OS](nac/paloalto.md),
 [OPNsense](nac/opnsense.md), [SonicWall](nac/sonicwall.md), [Check Point](nac/checkpoint.md),
 [Juniper SRX](nac/juniper.md), [WatchGuard Firebox](nac/watchguard.md), [MikroTik RouterOS](nac/mikrotik.md),
-[Ubiquiti UniFi](nac/unifi.md), [Cisco Meraki](nac/meraki.md), [VMware NSX-T](nac/nsx.md),
-[AWS Security Groups](nac/aws.md), [Azure NSGs](nac/azure.md), [Microsoft Hyper-V](nac/hyperv.md),
-[Proxmox VE](nac/proxmox.md) and [RADIUS CoA](nac/radius_coa.md). What is tested at which level, and the owner's lab
+[Ubiquiti UniFi](nac/unifi.md), [Cisco Meraki](nac/meraki.md), [TP-Link Omada](nac/omada.md), [Cisco Catalyst 9800 wireless controller](nac/ciscowlc.md), [VMware NSX-T Data Center (NSX-T)](nac/nsx.md),
+[Amazon Web Services security groups (AWS)](nac/aws.md), [Microsoft Azure network security groups (NSG)](nac/azure.md), [Microsoft Hyper-V](nac/hyperv.md),
+[Proxmox Virtual Environment (VE)](nac/proxmox.md) and [RADIUS Change of Authorization (CoA)](nac/radius_coa.md). What is tested at which level, and the owner's lab
 checklist, is in [Enforcement validation](nac/validation.md). The overview of the connectors is in
 [Zones and policies](segmentation.md#enforcement-connectors); the actions API is in [API](api.md).

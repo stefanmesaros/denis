@@ -11,7 +11,7 @@ for the tests only real equipment can answer.
 |---|---|---|
 | **Unit-tested** | Small pieces on their own: configuration checks, address checks, parsers, the guards. | The piece does what its test says. |
 | **Mock-integration-tested** | The real connector, the real plan, apply, release, expiry, reconcile and ledger code, against a **simulated** device (a stand-in server that speaks the vendor's protocol, written from the vendor's documentation). The matrix below is this level. | DENIS's own code behaves as the scenario says when the device behaves as simulated. It says **nothing** about how the real device or its software behaves. |
-| **Live-API-validated** | The connector against a real vendor service or a virtual appliance, without a production effect. | None is recorded on this page. |
+| **Live-API-validated** | The connector against a real vendor service or a virtual appliance, without a production effect. | What the vendor's API really answers, for the version that was tested. Partial results only so far: Cisco Catalyst switches over SNMP, and Cisco FTD through FDM and through FMC, in the Cisco DevNet sandbox (see the tables below). A sandbox device may be physical or virtual; each result says which, and a virtual one is never called real equipment. |
 | **Real-hardware-validated** | The owner's lab: a real device, a test client, a probe that sees whether traffic really stopped. Recorded per action in `NAC_HARDWARE_VALIDATION.md` and in the *Validated* tables of the connector pages. | What the device really did, for the version that was tested. |
 
 A pass at one level does not become a pass at the next. A result for one action does not carry over to another action
@@ -129,6 +129,8 @@ the shared scenario list yet. This is a gap, not a pass.
 - Cisco ASA <!-- not-in-matrix:Asa -->
 - Cisco FTD through FDM <!-- not-in-matrix:FtdFdm -->
 - Cisco FTD through FMC <!-- not-in-matrix:FtdFmc -->
+- TP-Link Omada <!-- not-in-matrix:Omada -->
+- Cisco Catalyst 9800 wireless controller <!-- not-in-matrix:Ciscowlc -->
 
 ## What is tested at which level, per connector
 
@@ -137,12 +139,34 @@ adds no hardware result of its own. Anything not named there is not validated on
 
 | Connector | Unit-tested | Mock-integration (this matrix) | Live API | Real hardware |
 |---|---|---|---|---|
-| Cisco Catalyst (SNMP) | yes (port assessment, trunk and neighbour rules) | yes, quarantine VLAN | none recorded | Catalyst 2960-X (WS-C2960X-48TS-L, IOS 15.2(7)E4), SNMPv2c and v3: disable port, quarantine VLAN, release, uplink refusal. The fault and safety rows below are not recorded. |
+| Cisco Catalyst (SNMP) | yes (port assessment, trunk and neighbour rules) | yes, quarantine VLAN | **Verified in the Cisco DevNet sandbox, 29 October 2026, DENIS 4.3.0:** Catalyst C9300-24UX (IOS XE 17.15.1, SNMPv2c) and Catalyst C9200CX-12P-2X2G (IOS XE 26.02.1, a physical compact switch, SNMPv3). On each: reading ports, MAC and VLAN tables, the write test, switching a port off and on, and moving a port to a quarantine VLAN and back, each confirmed by reading the switch back. See below. | Catalyst 2960-X (WS-C2960X-48TS-L, IOS 15.2(7)E4), SNMPv2c and v3: disable port, quarantine VLAN, release, uplink refusal. The fault and safety rows below are not recorded. |
 | Generic SNMP control (`dot1qPvid`) | yes | yes, a simulated switch that answers the whole standard set | none recorded | **None.** No switch model is validated; a D-Link DGS-1100-08V2 gave a partial result (port down works; no forwarding table or VLAN objects over SNMP). |
 | Palo Alto | yes | yes, the **static** address group block (and the other static-group paths in the connector's own tests) | none recorded | PA-220, PAN-OS 10.1.14-h9: block through the dynamic address group, block a flow, end sessions, quarantine through the dynamic group. **The static group block is not tested on hardware.** The native timeout was tested on the PA-220 (F6/F7) as a safety net only. |
 | FortiGate | yes | yes, address group block | none recorded | FortiGate 40F, FortiOS 7.2.3: block device, block a flow, end sessions, quarantine. Not tested: IPv6, HA, VDOM mode, T02, T04, T11 to T15, T21 to T23. |
 | MikroTik | yes | yes, address list block | none recorded | E50UG, RouterOS 7.21.4: block device, block a flow, quarantine by address, end sessions (with prerequisites). Not tested: disabling a port. |
-| UniFi | yes | yes, **client block by MAC** (`block_sta`) | none recorded | Cloud Gateway Ultra (UniFi OS 5.1.33, Network 10.6.106): the two firewall-policy actions. **The client block by MAC is not validated** (on the bench the traffic came back before the time was up); its row in the matrix is a mock result only. |
+| UniFi | yes | yes, **client block by MAC** (`block_sta`) | none recorded | Cloud Gateway Ultra (UniFi OS 5.1.33, Network 10.6.106): the two firewall-policy actions; and, with a nanoHD access point, 29 October 2026, **for wireless clients only**: the block by MAC (not rejoining, release by hand and automatic expiry after 5 minutes) and the Wi-Fi disconnect. **The block by MAC of a wired client is not validated** (on the bench the traffic came back before the time was up); the port actions are not tested. |
+| AWS | yes | not in the matrix (own fake-EC2 tests, run through the plan, apply, release and expiry code) | **Verified in a lab AWS account (eu-central-1), 3 November 2026:** the host block through the isolation security group and the quarantine, found by private IP address, the four `denis-` tags, release at expiry, the refusal for an address no instance has, the refusals for protected instance ids and networks. Not tested: IPv6, several interfaces on one instance, throttling. | Category: cloud (lab account). No hardware is involved. |
+| Cisco FTD through FDM | yes | not in the matrix (its own simulated-device tests) | **Block device through the network group verified in the sandbox.** Virtual FTD 7.0.1-84 in the Cisco DevNet sandbox, 29 October 2026, DENIS 4.3.1: *Test connection*, plan, apply (`enforced`, read back, deployment about 66 s), release (`restored`, about 63 s), cleanup; sign-in and tokens, lists, object and group creation. Not run: quarantine, flow rules, HA, other FTD versions. See [ftd_fdm.md](../nac/ftd_fdm.md). | **None.** (Not a physical FTD; DENIS shows this method as "Verified in the sandbox", without the Experimental mark and without the lab switches, and the other FDM actions stay Experimental.) |
+| Cisco FTD through FMC | yes | not in the matrix (its own simulated-device tests) | **Block device through the dynamic object verified in the sandbox.** Virtual FMC 7.7.12 in the Cisco DevNet sandbox, 29 October 2026: *Test connection*, plan, apply (`enforced`) and release (`restored`), confirmed by DENIS's read-back and by a fresh FMC sign-in (the mapping present after the apply, absent after the release); the test object was deleted. Not run: block through a network group, quarantine, flow rules, deployment. See [ftd_fmc.md](../nac/ftd_fmc.md). | **None.** (Not a physical FMC; DENIS shows this method as "Verified in the sandbox", and the other FMC actions stay Experimental.) |
+| Cisco Catalyst 9800 wireless controller | yes (the sign-in, the clients and access points read over RESTCONF, the refusals, the disconnect and its note about the client table) | not in the matrix (its own fake-controller tests) | none recorded | **None.** No real Catalyst 9800 has been used. The YANG models, leaves and the disconnect RPC are documented in Cisco's public YANG files; the URL form and answer of the RPC call, the privilege needed for a read-only user, `ip http authentication local`, the `fields` selector and the meaning of `neigh-mac` are best guesses (see [ciscowlc.md](../nac/ciscowlc.md)). A 9800-CL image checks the models and the sign-in; clients and neighbours need a real access point. |
+| TP-Link Omada | yes (the sign-in, the site, the block and release, the refusals, the client read) | not in the matrix (its own fake-controller tests) | none recorded | **None.** Not tried on real equipment; every vendor fact is a best guess except the Open API's existence, its Client mode and the `AccessToken=` header (see [omada.md](../nac/omada.md)). |
+
+## Cisco Catalyst switches in the Cisco DevNet sandbox (29 October 2026)
+
+Run with the released DENIS 4.3.0 against a switch reserved in the Cisco DevNet sandbox, with a free test port, a quarantine VLAN and a static MAC entry on the port so that DENIS had a device to place. Everything created on the switches was removed afterwards and nothing was saved to the startup configuration. These are sandbox results: they are not results from the owner's lab, and no client was plugged into the test port.
+
+| Switch | Read | Write test | Disable port, then release | Quarantine VLAN, then release |
+|---|---|---|---|---|
+| Catalyst C9300-24UX, IOS XE 17.15.1, SNMPv2c | ports, MAC table, per-VLAN tables, trunk table | passed (same-value write of port state and of the access VLAN) | passed, confirmed by reading the switch back | passed, confirmed by reading the switch back |
+| Catalyst C9200CX-12P-2X2G, IOS XE 26.02.1, SNMPv3 (authPriv, SHA-1 and AES-128, separate read and write users) | ports, MAC table, per-VLAN tables, location placed after two scheduled reads | passed through the write user | passed, confirmed by reading the switch back | passed, confirmed by reading the switch back |
+
+What the sandbox runs also showed:
+
+* The guards worked as designed: the write test is refused while enforcement is off, port options stay hidden until the account holds the permission, and a plan needs the typed port name and the password.
+* On the C9200CX, SNMPv2c polling with a community got no answer (the switch runs in a secure mode and Management is in a separate VRF; the cause was not isolated further). SNMPv3 worked through that VRF. For newer IOS XE, use SNMPv3.
+* The switch family shows as "IOS" for IOS XE: cosmetic.
+* **Not tested:** a real client on the port and the effect on its traffic, stacks, link aggregation and trunk refusals on real ports, LLDP, SHA-256 and AES-256 for SNMPv3.
+* **Cisco IOL in the Cisco DevNet Cisco Modeling Labs sandbox (virtual switches): nothing is claimed.** The virtual IOL L2 switch gives back no forwarding table over SNMP, so DENIS read its ports only and refused every port action, as designed (it does not guess). SNMPv3 users were not accepted by that image, so no SNMPv3 test was possible there.
 
 ## Lab checklist for the owner
 

@@ -1,8 +1,8 @@
 # Enforcement: WatchGuard Firebox
 
-Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from WatchGuard's published API documentation and checked against a fake WatchGuard Cloud endpoint in DENIS's own tests. It has never been run against a real account or Firebox. Nothing here is listed as validated on hardware. Needs **Fireware v12.5.3 or higher** on the Firebox.
+Status: **Experimental.** Everything below was built from WatchGuard's published API documentation and checked against a fake WatchGuard Cloud endpoint in DENIS's own tests. It has never been run against a real account or Firebox. Nothing here is listed as validated on hardware. Needs **Fireware v12.5.3 or higher** on the Firebox.
 
-Lab use: the block (the pre-4.1 action, and the only action of this connector) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. Because it is an action of the pre-4.1 kind, the second switch for new actions is not needed. Releasing it always works.
+Lab use: the block (the pre-4.1 action, and the only action of this connector) is allowed only while an administrator has switched on *Allow Experimental connectors (lab use)* under *Settings → Response policy*. Because it is an action of the pre-4.1 kind, the second switch for new actions is not needed. Releasing it always works.
 
 Besides this connector's own refusals, every action through it goes through DENIS's common guards before anything is sent: loopback, unspecified, broadcast and multicast addresses, DENIS itself, the gateway, and an address in an open `arp_conflict` alert are refused, and a list DENIS cannot read refuses the action.
 
@@ -11,7 +11,7 @@ Besides this connector's own refusals, every action through it goes through DENI
 | Action | What DENIS does | What it does not do |
 |---|---|---|
 | **Block device** (`blocked_sites`) | Adds one IPv4 address to the Firebox's native **Blocked Sites** list through WatchGuard Cloud (`POST .../exceptions/blockedsite`, address type `ipv4_host`, action `block`, for the one configured device), reads the list back, and removes the entry (`DELETE`) when the action ends. | **IPv4 only**: WatchGuard documents no IPv6 address type for a blocked site, and a MAC address or a host name is refused. It never creates a range or a network. It does not close a connection that is already open: WatchGuard documents no call for that. |
-| Block a flow | **Unsupported.** Blocked Sites works per address only, and DENIS uses no rule interface on this device. Shown greyed out with that reason. | |
+| Block a connection | **Unsupported.** Blocked Sites works per address only, and DENIS uses no rule interface on this device. Shown greyed out with that reason. | |
 | Quarantine | **Unsupported.** WatchGuard offers no group an administrator can reference through the interface DENIS uses. | |
 | Disable port | **Unsupported.** A firewall has no access port DENIS can switch off. | |
 | End sessions | **Unsupported.** This connector has no way to end sessions that DENIS uses. | |

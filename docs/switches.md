@@ -91,18 +91,97 @@ snmpwalk -v2c -c COMMUNITY SWITCH 1.0.8802.1.1.2.1.4.1.1.9           # lldpRemSy
 The same answers can be saved as a raw dump for a bug report (an administrator's *Read now* with `?raw=1`, see the API page);
 it never contains a community.
 
+### What DENIS can read from a switch
+
+After each read, the switch's detail (*Network* → *Equipment*, open the row) lists in plain words what this switch answered
+and what it did not, for every make, listed or not. A make nobody listed is read through the standard tables the same way, is
+marked **SNMP port reading: Experimental**, and gets no port control. The mark is not shown on a router or firewall that DENIS does not use as a switch, on
+equipment that has its own connector, or on the D-Link DGS-1100, whose port off and on is verified. A line is shown only for what the switch really answered:
+
+* **Ports** (IF-MIB): name, link, speed, switched on or off.
+* **Who is plugged into which port** (BRIDGE-MIB `dot1dTpFdbPort`, Q-BRIDGE-MIB `dot1qTpFdbPort`; on Cisco IOS one table per VLAN, read with `community@vlan` or the SNMPv3 context `vlan-<id>`), and **the VLAN of each device**.
+* **VLANs**: the list and the names (`dot1qVlanStaticName`), and which VLANs each port belongs to, tagged or untagged (`dot1qVlanStaticEgressPorts` / `dot1qVlanStaticUntaggedPorts`, `dot1qPvid`).
+* **Neighbours**: LLDP (LLDP-MIB `lldpRemTable`), and CDP on Cisco.
+* **Power over Ethernet** (POWER-ETHERNET-MIB): whether the switch answers it. Read only.
+
+When a table is missing, a short reason is shown instead (for example *no forwarding table over SNMP*, *LLDP is off or not
+offered*, *the VLAN table answered only in part*). Evidence: `documented` (the table names and OIDs are the standard MIBs, RFC 4188,
+RFC 4363, RFC 3621, IEEE 802.1AB); `verified` (2026-10: Cisco Catalyst 2960-X and D-Link DGS-1100-08V2, see below); every other make
+`best guess` until a real switch of that make has answered.
+
+### Port join: the port of an access point or switch a controller did not name
+
+A controller (FortiGate, Meraki, Omada, UniFi, Catalyst 9800) often says which switch an access point hangs on but not which
+port. When that switch is one that DENIS reads over SNMP, DENIS fills in the port from what the switch itself shows. It uses what
+is already read (no extra polling), and only when the answer is certain:
+
+* **By LLDP first:** the switch lists the access point as a neighbour on one port (its chassis ID is the device's MAC address, or
+  its system name is the device's name). **Otherwise by the MAC table:** the device's MAC address is learned on exactly one port
+  that is a plain access port.
+* **Never guessed:** the port stays empty when the MAC address is seen on two ports, only on uplinks or trunks, or not at all; when
+  the controller already gave a port; when the link is a Wi-Fi mesh; or when the parent is not a switch DENIS reads (a port of another
+  switch would be the wrong box).
+* **On the map:** the link shows the port, and the line says *port learned from <switch> by LLDP* (or *by the MAC table*) instead of
+  *reported by the controller*. It is a display only; nothing is blocked or changed because of it, and it disappears when the
+  switch no longer shows the device. `GET /api/topology/controller-clients` carries it as `infra[].uplink.port`, with
+  `uplink.via` set to `learned from <switch> by lldp` or `learned from <switch> by mac table`.
+* **Limits:** `best guess`: the MAC address the controller gives for an access point is the one its switch learns. Some access
+  points use a different base MAC address on their Ethernet port; then nothing is found and the port stays empty. `verified`: not
+  yet on real equipment (tested with recorded fixtures only).
+
 ### Verified with
 
 **Not verified on real equipment.** Reading a switch generically is tested with a simulated switch and with recorded answers
 only: simulated HPE ProCurve, Juniper EX, MikroTik CRS and D-Link DGS-1100-style switches (including one that implements only
 part of Q-BRIDGE-MIB), a hand-built copy of the D-Link DGS-1100-08V2's answers, and hostile answers (garbage, oversized lists,
-wrong types). The switch's detail therefore carries the **Experimental** label for every make that is not Cisco IOS. The real Cisco
+wrong types). The switch's row therefore carries the **SNMP port reading: Experimental** mark for every make that is not Cisco IOS (except the D-Link DGS-1100, whose reading of the ports is verified, and routers and firewalls DENIS does not use as switches). The real Cisco
 Catalyst 2960-X and D-Link DGS-1100-08V2 readings described under [What is verified, and what is not](#what-is-verified-and-what-is-not)
 are older and are about the Cisco-specific reading and the ports of that D-Link; the VLAN port lists, the make table and the
 trunk rule above have not been seen on any real switch yet. The experimental generic VLAN move and its write test are tested
 the same way only (a D-Link DGS-1100-like switch whose port lists follow a `dot1qPvid` write, one whose lists do not, one with
 part of Q-BRIDGE-MIB, the recorded DGS-1100-08V2 answers, lost and refused writes, read-only and wrong communities); no model
 is validated. Please report what your switch shows.
+
+### TP-Link without a controller (4.4)
+
+TP-Link's small devices (Omada EAP access points in standalone mode, Easy Smart and JetStream switches, Archer routers) have no
+REST interface that DENIS knows of, and **DENIS does not invent one**. What it does with them is what it does with any device:
+standard SNMP where the device offers it, LLDP, and what it sees on the wire. Every claim on this page is labelled
+**documented** (in a page TP-Link publishes, read 2 November 2026), **best guess** (memory, field reports, product names: not
+checked) or **verified** (on real equipment, with a date). **Nothing here is verified: no TP-Link switch or access point has been
+polled by DENIS.**
+
+| What | Label | Source and detail |
+|---|---|---|
+| TP-Link's SNMP enterprise number is 11863. | documented | TP-Link FAQ 1330 (CPU and memory objects of the T1600/T2600 switches, `1.3.6.1.4.1.11863.6.4...`). DENIS names a device `TP-Link` from `sysObjectID` under `1.3.6.1.4.1.11863` (`src/snmp_profile/vendors.tsv`). |
+| JetStream switches offer SNMP v1/v2c (Maintenance, SNMP), with read-only or read-write communities. | documented | TP-Link FAQ 3282 (VLANs over SNMP on a JetStream switch). SNMP v3 is only mentioned there, with a pointer to the guide. |
+| The same FAQ reads the VLANs of a JetStream switch with TP-Link's own MIB files, downloaded per model. | documented | DENIS reads the standard Q-BRIDGE-MIB instead; whether a JetStream model fills it is **best guess**. |
+| A standalone EAP has an SNMP page among its management features (EAP225 3.0 and EAP245 3.0 are named). | documented | TP-Link's standalone EAP quick start guide. Which MIBs it answers is **not documented** in what DENIS could check. |
+| JetStream models answer the standard IF-MIB, BRIDGE-MIB/Q-BRIDGE-MIB forwarding tables and LLDP-MIB. | best guess | The fixtures in DENIS's tests are built from TP-Link's product names, not captured. DENIS reads whatever table answers and says in the switch's detail which ones did. |
+| Easy Smart switches (`TL-SG105E`, `TL-SG108E`, `TL-SG1016DE`, ...) answer little or nothing over SNMP. | best guess | Retail listings and one user report conflict. DENIS reads what answers; a switch that answers only `ifTable` is read as "ports only", with no placement. |
+| A standalone EAP is not an SNMP switch; DENIS sees it by passive capture, DHCP and LLDP. | best guess | See below. |
+| Writing `ifAdminStatus` (port off) works on any TP-Link model. | **not documented** | No TP-Link page DENIS found says so. Port control through the generic path stays **Experimental** for every TP-Link model. |
+
+**How a TP-Link device is recognised.** Three independent hints, each a vote, none a command: the **make** from `sysObjectID` and
+`sysDescr` (the rows for enterprise 11863: `t1600`, `t2600` and `t3700` JetStream, `sg3` JetStream managed, `sg2` JetStream smart,
+`sg10` Easy Smart, `eap` standalone access point, `archer` router: the words are **best guess** from product names); the **hardware
+address** (the OUI vendor, "TP-LINK TECHNOLOGIES" is a weak "network device" hint, "TP-Link Systems" is the Kasa/Tapo smart-home
+business and reads as IoT); and the **host name** the device announces when it takes an address (`EAP245`, `TL-SG3428`,
+`Archer_C7`: a model followed by a number, **best guess**). A bare `eap` or `tl-` in a name is not enough.
+
+**An EAP in standalone mode.** Without Omada, DENIS has no client list for it: a standalone EAP lists its clients on its own web
+page only (**best guess**; TP-Link documents that the standalone web page manages the access point itself and is not reachable while a controller manages it). DENIS sees the access point as a
+device (its address from DHCP or capture, its model from its name), sees the clients as they appear on the wire, and sees its
+position when the access point or the switch it hangs on announces LLDP. It cannot list the Wi-Fi clients of that access point,
+cannot tell which SSID a client uses, and cannot block or disconnect a client through it. For those, adopt the access point in an
+Omada controller and use the [Omada connector](nac/omada.md). If the access point answers SNMP, the standard tables it offers are
+read like any switch's; whether it does is **best guess**.
+
+**TP-Link models known to answer / not tried.** *Known to answer:* none. No TP-Link device has been polled; the tests use built
+fixtures. *Documented to offer SNMP:* JetStream switches (FAQ 3282: T1600/T2600 named for the CPU and memory objects in FAQ 1330) and standalone EAPs (EAP225 3.0, EAP245 3.0 named in the quick start guide). *Not tried at all:* every model, in particular the
+JetStream SG2/SG3/T3700 families, Easy Smart (TL-SG105E, TL-SG108E, TL-SG1016DE and the like), standalone EAPs of every
+generation, and Archer routers. A report of what `snmpwalk` shows on one of them (the commands above) is the quickest way to
+move a model out of this paragraph.
 
 ## Setting it up
 
@@ -240,7 +319,7 @@ off cuts:
 | `class_unknown` | a Cisco IOS port whose trunk mode the switch did not report, unless exactly one device and no neighbour is behind it |
 | `behind_port` | any port the one port rule does not call a plain access port (an uplink, a trunk, network equipment learned there, spanning tree, a port marked as unmanaged equipment), with the count and the names of what is behind it |
 
-These ports are **never proposed** by DENIS (the Respond menu lists them under *Only by hand*, with the warning, never as
+These ports are **never proposed** by DENIS (the Respond dialog lists them under *By hand only*, with the warning, never as
 the recommended choice) and **never acted on by automation or Autopilot**: they never accept a plan that has a warning.
 Right before the write DENIS reads the port once more; if it then finds a kind of port the plan you confirmed did not warn
 about, it changes nothing and asks you to plan again. The VLAN move stays refused on a trunk and on an aggregation member
@@ -276,7 +355,7 @@ Catalyst WS-C2960X-48TS-L (IOS 15.2(7)E4) with SNMPv2c and SNMPv3.
   With only `ifAdminStatus` in the view, *Disable port* works and *Move port to quarantine VLAN* fails at the switch.
 * **SNMPv2c:** the **SNMP write community** in the switch form (*Allow DENIS to disable ports on this switch*), with a
   write view that contains the same two objects. **Without the write community the switch offers no port actions at
-  all:** *Disable port* and *Move port to quarantine VLAN* are simply missing from the Respond menu, without an error.
+  all:** *Disable port* and *Move port to quarantine VLAN* are simply missing from the Respond dialog, without an error.
   If the actions are missing, check the write community first.
 * For the quarantine VLAN, also the VLAN itself and the tick *I tested this VLAN* (see
   [the response dialog](#the-response-dialog-and-quarantine-by-vlan-41)).
@@ -292,6 +371,17 @@ Some VLANs give no forwarding table even when everything else works. The usual r
   needs the line `snmp-server group <RO group> v3 priv context vlan- match prefix read <read view>`. Without it every VLAN
   but VLAN 1 is silent. With SNMPv2c the switch must accept `<community>@<vlan>`.
 
+  The line DENIS shows on the switch's card, with a copy button, is the same:
+
+  ```
+  snmp-server group <group> v3 priv context vlan- match prefix read <view>
+  ```
+
+  **Verified** on a Catalyst 2960-X, IOS 15.2(7)E4, SNMPv3, on 3 November 2026: the groups `DENIS-RO` and `DENIS-RW` had no
+  `vlan-` context. After the line was added to them, the per-VLAN reads worked: the reading went from 20 to 29 MAC addresses
+  and the VLAN of each device became available. For SNMPv2c the equivalent is that the community is accepted with
+  `<community>@<vlan>` (documented, not verified).
+
 What DENIS does then: it reads the rest. The VLANs that answered are used as usual, and the switch's detail names the VLANs
 that did not answer. In 4.2.4 a port action is refused only on a port that carries a VLAN DENIS could not read (DENIS
 cannot tell what is behind it there); every other port of the switch can be switched off or moved as usual.
@@ -305,7 +395,7 @@ Run the switch commands in the switch's privileged mode. In the examples, VLAN 2
 |---|---|---|---|
 | "VLANs 20, 30 did not answer their per-VLAN read; the others were read." | The VLANs have no port up, or the read user has no context for them | `show vlan brief` (is the VLAN there, which ports), `show interfaces status` (is any of those ports *connected*), `show spanning-tree vlan 20` (does the instance exist) | No port up: nothing to fix, the VLAN is read once a device is in it. Ports up: add the `context vlan- match prefix` line to the read group (SNMPv3) |
 | "The switch did not answer the per-VLAN reads (VLANs ...)" | No VLAN context works for this user or community | `show snmp group` (the read group needs a second line with `context vlan-`), `show snmp user` (the user is in that group) | Add `snmp-server group <RO group> v3 priv context vlan- match prefix read <read view>`; for SNMPv2c check that the community is accepted with `@<vlan>` (test below) |
-| Disable port and Move port to quarantine VLAN are missing from the Respond menu | No write user (SNMPv3) or no write community (SNMPv2c) in the switch form | The switch form, *Allow DENIS to disable ports on this switch* | Enter the write user or the write community |
+| Disable port and Move port to quarantine VLAN are missing from the Respond dialog | No write user (SNMPv3) or no write community (SNMPv2c) in the switch form | The switch form, *Allow DENIS to disable ports on this switch* | Enter the write user or the write community |
 | The quarantine move fails, Disable port works | The write view does not contain `vmVlan` | `show snmp view \| include DENIS` (both `1.3.6.1.2.1.2.2.1.7` and `1.3.6.1.4.1.9.9.68.1.2.2.1.2` must be listed for the write view), `show snmp group` (which view the write group uses) | Add `snmp-server view <write view> 1.3.6.1.4.1.9.9.68.1.2.2.1.2 included` |
 | "The switch rejected the authentication ..." | Protocol or password differs between switch and DENIS | `show snmp user` (authentication and privacy protocol of the user) | IOS 15.2: SHA-1 and AES-128 in DENIS; enter the passwords again |
 | "No answer from the device" | UDP 161 blocked, access list, wrong user or community, wrong privacy password | `show snmp user`, `show snmp group`, the access list named in them | Allow the DENIS server's address in the access list; check the user and the passwords |
@@ -326,6 +416,7 @@ Do not leave the passwords in the shell history: type them at a prompt or clear 
 
 **Verified with:** Cisco Catalyst 2960-X, IOS 15.2, with SNMPv3 `authPriv` (SHA-1 and AES-128) and with SNMPv2c and a
 write community. Switching a port off and moving a port to the quarantine VLAN were verified in the owner's lab.
+The same two actions, the write test and reading the ports, MAC and VLAN tables were also verified in the Cisco DevNet sandbox on 29 October 2026, on a Catalyst C9300-24UX (IOS XE 17.15.1, SNMPv2c) and on a Catalyst C9200CX-12P-2X2G (IOS XE 26.02.1, SNMPv3). Newer IOS XE images can refuse the older SNMPv2c configuration: use SNMPv3 there (it works through a management VRF). Virtual lab switches that serve no forwarding table over SNMP (Cisco IOL) are read for ports only; DENIS does not move or switch off their ports.
 
 ### Undo, drift, and what is announced
 
@@ -339,7 +430,7 @@ write community. Switching a port off and moving a port to the quarantine VLAN w
   DENIS never disables it again on its own.
 * **Restarts**: on many switches a port disabled over SNMP is only off in the running configuration and comes back
   on when the switch restarts, unless someone saves the configuration. **A block by DENIS is not guaranteed to survive a
-  switch restart.** Not yet verified per vendor.
+  switch restart.**
 * Every block, enable, *not confirmed* outcome and drift goes to **every enabled alerting channel**, regardless of its
   minimum score and of maintenance mode. While any port is disabled by DENIS, **Health** shows a warning. Everyone who
   can see *Network* sees the list of ports DENIS switched off (who, when); only administrators see the reason and can enable.

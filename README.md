@@ -9,7 +9,7 @@
 
 DENIS is **not** a SIEM, an AI security platform, a SOC replacement or a UTM/firewall appliance. It does not sit
 inline and, by default, it does not block anything on its own. Enforcement is off by default; when an administrator
-switches it on, DENIS can act through 20 kinds of connectors (SNMP switch ports, firewalls, controllers, cloud and
+switches it on, DENIS can act through 22 kinds of connectors (SNMP switch ports, firewalls, controllers, cloud and
 hypervisors): block or quarantine a device, block a flow, end its sessions or switch a port off, each one confirmed by
 an administrator (see [Enforcement](docs/enforcement.md)). Automatic enforcement by rules (level (b)) and letting
 Autopilot block (level (c)) are experimental and off by default. Otherwise it is a passive, out-of-band layer underneath
@@ -21,8 +21,9 @@ including the east-west and OT/industrial traffic a perimeter box was never in a
 > traffic need a mirror/SPAN port or a tap and `--flows` (or `--profile ot`). Active discovery (ARP sweep, ping, light
 > port scan) is on by default and can be switched off per network or with `--passive-only`; industrial devices are never
 > probed. Response is off by default and a person approves every action. Verified on lab equipment: Cisco Catalyst
-> 2960-X, FortiGate 40F, Palo Alto PA-220, MikroTik E50UG and UniFi Cloud Gateway Ultra, for the actions listed in
-> [Enforcement](docs/enforcement.md); all other connectors and actions are experimental. DENIS is not a replacement for
+> 2960-X, FortiGate 40F, Palo Alto PA-220, MikroTik E50UG and UniFi Cloud Gateway Ultra, and in vendor sandboxes or a
+> lab account: Cisco Catalyst 9300 and 9200CX, Cisco FTD through FDM and through FMC (virtual) and AWS, for the actions
+> listed in [Enforcement](docs/enforcement.md); all other connectors and actions are Experimental. DENIS is not a replacement for
 > 802.1X NAC, EDR, a firewall or a SIEM. Free signed binaries for personal, non-commercial use up to 100 devices;
 > organisations need a licence, with a free 30-day evaluation ([License](#license)).
 
@@ -138,6 +139,8 @@ reports — nothing you do here touches a real network. More: [Demo](#demo-try-d
 ./denis run          # prints a one-time admin password; open https://localhost:8080 (self-signed by default)
 ```
 
+On a new installation the console opens on **Start**: it asks where your network comes from (a controller or firewall it can read, the machine's own network, a mirror port), can set up an e-mail address and a weekly summary, and shows a first look at what it found ([Quick start](docs/quickstart.md#2a-the-start-page-your-first-look-at-the-network)).
+
 `denis run` needs to see the traffic it should watch. On a normal switch, that means the interface it captures on
 (auto-detected, or `--iface`) sees at least ARP/broadcast/multicast traffic for the segment — enough for passive
 discovery and the active sweep. **Per-device traffic baselines and OT communications** need more: a **mirror/SPAN
@@ -204,7 +207,7 @@ register and the monitored networks under Settings, Capture: six of the console'
 | Discovery | Passive (ARP, DHCP, mDNS, SSDP, LLDP/CDP, PROFINET) + active (ARP sweep, ping, port scan) |
 | Asset inventory | Owner, location, serial, tag, warranty, criticality, tags, custom fields, history, CSV import/export; the devices list shows each device's actual 0-100 risk number next to its priority word |
 | Fingerprinting | Vendor (IEEE OUI), device type & OS with weighted, listed evidence; product/version from 9 service banners; JA3/JA3S TLS client & server fingerprints; a fleet-wide *Software* page (product × version × devices) |
-| Anomaly detection | New device, rogue DHCP, ARP hijack/gateway takeover, new destination/port, unusual volume/hour, silent device, internal host sweep / port scan, known-bad addresses, your own network watches, a device switching to a never-before-used DNS resolver, a connection opened from the internet to one of your devices (a port forward to a solar inverter or a camera) — each with an explainable 0–100 score. IPv6 (new destination, NDP mismatch, rogue router advertisement) is opt-in, see IPV6.md |
+| Anomaly detection | Twelve more detections in 4.4 (a flood of hardware addresses, a cloned host name, a rogue network device, a dynamic-DNS name used for the first time, name poisoning and more; three are Experimental), which arrive switched off and wait on the Rules page. New device, rogue DHCP, ARP hijack/gateway takeover, new destination/port, unusual volume/hour, silent device, internal host sweep / port scan, known-bad addresses, your own network watches, a device switching to a never-before-used DNS resolver, a connection opened from the internet to one of your devices (a port forward to a solar inverter or a camera) — each with an explainable 0–100 score. IPv6 (new destination, NDP mismatch, rogue router advertisement) is opt-in, see IPV6.md |
 | Quieter alerts | A routine event (a provider a device already uses, random peer-to-peer ports, a phone that is away) is kept in the console and in a **daily digest** instead of being pushed, with the reason it was kept quiet; known providers are learned per device. Threat-list matches, rogue DHCP, industrial control commands and the like are never kept quiet |
 | Autopilot (experimental) | Off by default and **experimental**: it triages alerts, explains each in plain language and asks one specific question at a time, in the console or on a phone through Telegram, ntfy or web push. It starts in shadow mode (it records what it would have done, for at least 7 days). By default it does not block anything and its proposals have no block action (the only exception is a separate, off-by-default, highly experimental option that you must switch on yourself: Autopilot may block); it can file away low-importance alerts only if you allow it, with an undo. It can miss real threats ([Autopilot](docs/autopilot.md)) |
 | Passive DNS | Opt-in, off by default: remembers which name each device looked up (not just the address it connected to), shown next to addresses in alerts and on the device page, searchable in Ask DENIS ("which devices looked up evil.example?") — see [docs/passive-dns.md](docs/passive-dns.md) |
@@ -220,6 +223,9 @@ register and the monitored networks under Settings, Capture: six of the console'
 | Network section | *Network* has a map (zoom, search, groups, cables that DENIS marks confirmed, best guess or set by hand), **Equipment** (one table of every switch, firewall and controller, with a product-first *Add equipment*), **Response** and a guided **Setup** in seven steps. UniFi and Meraki controllers can show the clients they see on the map, read only (Meraki is Experimental) |
 | What DENIS cannot see | A Health section: per capture interface what arrived and what was lost or unreadable, duplicate packets, networks and VLANs seen against the ones expected, traffic seen in one direction only; every row says measured, estimated or not measurable, and it never claims to see everything ([docs](docs/visibility.md)) |
 | Detection that measures itself | More than 40 detections added in 4.3 (industrial and office); every rule is timed and one that makes detection late can be paused, with a notice and an automatic resume; *This is normal* on any alert; per-rule counts of what was acted on ([docs](docs/detection-rules.md#the-rules-added-in-43-at-a-glance)) |
+| Your own rules | Write a rule with several conditions in an editor on the Rules page, check it against recent data before it is on, run it in a **trial mode** (alerts are marked, nothing else changes), give an exception an expiry, see what a change would have done over the last days and why a rule alerted or did not. Export, import and ten templates; counts and sequences are Experimental and off by default. An MSP can send you a set of rules: not allowed (the default), ask me, or into a trial ([docs](docs/detection-rules.md)) |
+| Address spaces | The same address in two routing domains (VRFs) is no longer taken for one network: the spaces are declared under Settings → Capture, and an administrator can split a hardware address shared by two devices ([docs](docs/concepts.md#what-a-device-is-site-vlan-mac)) |
+| Lists that update themselves | The shipped lists (known-bad domains, dynamic-DNS suffixes and others) can be refreshed from the update repository; off by default, signed and checked before use |
 | Not managed, and one history per device | *Not managed by any tool* lists what no management tool covers; each device has a timeline of its addresses, ports, alerts and responses, and DENIS can say who had an address at a given time |
 | Site administrators and API tokens | An administrator limited to some sites manages only those sites; API tokens have areas, expiry, rotation and an acts-as mode ([API](docs/api.md#api-tokens-for-scripts-and-integrations)) |
 | IP enrichment | Country (flag), city, ASN, AS organisation, reverse-DNS hostname for any public IP (Alerts, Events, Recent destinations, IP history) — local GeoIP (DB-IP Lite, auto-updated, or your own MMDB), never sent to a third party |
@@ -238,14 +244,14 @@ register and the monitored networks under Settings, Capture: six of the console'
 | OpenObserve | Cursor-based, at-least-once export |
 | Prometheus | `/metrics` exposition |
 | REST API | Read the register and alerts, manage assets, API tokens |
-| Multi-site agents | Outbound-only agents report to one master; per-user, per-site access. An agent installs with one command (`install.sh --agent`, the *Add agent* dialog on the Sites page, or Docker), and can be updated from the console: by hand (the default), automatically, or through the master for sites without internet |
+| Multi-site agents | Outbound-only agents report to one master; per-user, per-site access. An agent installs with one command (`install.sh --agent`, the *Add agent* dialog on the Sites page, or Docker), enrols itself with a one-line code (`denis agent-enroll`), and can be updated from the console: by hand (the default), automatically, or through the master for sites without internet |
 | Multi-tenancy | Separate customers on one installation — own database, detector and console each, nothing reachable across them; MSP operator accounts; export/import a customer as a standalone database |
 | Port control (NAC) | Optional, administrator-confirmed: disable one switch access port at a time on a switch DENIS already monitors over SNMP (v2c or v3), with a preview, a reason, a password and one-click undo. Trunk, EtherChannel, management and CDP-neighbour ports are refused. DENIS does not act on its own unless you switch on automatic enforcement (experimental, off by default) |
-| Enforcement connectors | Settings → Response policy: 20 connector kinds in the code, all wired (SNMP, FortiGate, Palo Alto, UniFi, Meraki, Check Point, SonicWall, WatchGuard, Juniper, Proxmox, Hyper-V, VMware NSX, OPNsense, RADIUS CoA, AWS, Azure, MikroTik, Cisco ASA, Cisco FTD through FDM and through FMC). Any number of instances per kind. Block a device, block one flow, quarantine, switch a port off or end sessions, where the device can, through the **Respond…** menu of a device, an incident or a flow: a plan dialog shows the action in full before it runs, with a duration, and every action can be released. Every action goes through one safety path with a kill switch, an hourly limit, a preview, per-action permissions and a ledger of what DENIS changed. **Experimental:** apart from switching a port off over SNMP, no connector has been tried on real equipment (simulator only); each is labelled *Experimental* and cannot act until an administrator switches on the lab setting, and the actions new in 4.1 sit behind a second lab switch. By default a person decides every action; automatic enforcement by marked policies, and on top of it Autopilot blocking, are separate, off-by-default, experimental switches ([enforcement](docs/enforcement.md)) |
+| Enforcement connectors | Settings → Response policy: 22 connector kinds in the code, all wired (SNMP, FortiGate, Palo Alto, UniFi, Meraki, TP-Link Omada, Cisco Catalyst 9800, Check Point, SonicWall, WatchGuard, Juniper, Proxmox, Hyper-V, VMware NSX, OPNsense, RADIUS CoA, AWS, Azure, MikroTik, Cisco ASA, Cisco FTD through FDM and through FMC). Any number of instances per kind. Block a device, block one flow, quarantine, switch a port off or end sessions, where the device can, through the **Respond…** menu of a device, an incident or a flow: a plan dialog shows the action in full before it runs, with a duration, and every action can be released. Every action goes through one safety path with a kill switch, an hourly limit, a preview, per-action permissions and a ledger of what DENIS changed. The dialog names the few responses that can work for this device and why one is recommended. Validated on real equipment (per action, see [Enforcement](docs/enforcement.md)): a Cisco Catalyst 2960-X over SNMP, FortiGate, Palo Alto, MikroTik and UniFi; verified in a vendor sandbox or a lab account: Cisco Catalyst 9300 and 9200CX, Cisco FTD through FDM and through FMC (virtual) and AWS. **Experimental:** every other connector and action (among them TP-Link Omada, MikroTik Wi-Fi, Cisco Catalyst 9800 and Azure) is labelled *Experimental*, has not been tried on real equipment and cannot act until an administrator switches on the lab setting. By default a person decides every action; automatic enforcement by marked policies, and on top of it Autopilot blocking, are separate, off-by-default, experimental switches ([enforcement](docs/enforcement.md)) |
 | Console looks | Three selectable looks — Triage (the default), Scope and Clipboard — each in light and dark, chosen under My account; new in 4.1: a refreshed palette, corner radius and fonts, the fonts shipped inside the program |
 | Documentation | Built into the console and served by the program itself, with a search box |
 | Language | Per-account, not per-browser: your chosen language follows you to any device you sign in from |
-| PostgreSQL & high availability | PostgreSQL as a complete, selectable backend (every store method ported) in addition to the default SQLite; with it, two DENIS nodes can share one database and fail over leadership in under two seconds if the active one goes down. Off by default, for installations that specifically need it |
+| PostgreSQL & high availability | PostgreSQL as a complete, selectable backend (every store method ported) in addition to the default SQLite; with it, two DENIS nodes can share one database and fail over leadership in about two seconds if the active one goes down (measured on one machine and in a local fault lab). A write from a node that is no longer the leader is refused by the database, and channel messages go through a durable queue, at least once. Tenants can live on PostgreSQL too. The pair, the fence and tenants on PostgreSQL are Experimental in 4.4 and not yet run on a managed PostgreSQL service (that run happens after the 4.4.0 release). Off by default, for installations that specifically need it |
 | White-label | Your logo, colour, default theme |
 | Authentication | Roles, per-site access, passkeys (WebAuthn, optionally passkey-only), authenticator apps (TOTP), OIDC single sign-on, Argon2id, lock-outs, audit log, built-in HTTPS |
 | Data retention | Events, alerts and trend samples pruned after a period you set (Settings → Data); the register itself is never pruned |
@@ -258,7 +264,7 @@ Only what is actually implemented is listed above — see [ROADMAP.md](ROADMAP.m
 
 * **Small IT teams** who need a real device inventory without buying an enterprise platform.
 * **Small and medium-sized businesses** who want to know what is on their network without hiring a security team.
-* **MSPs** managing several customer sites from one place (per-site access, white-label), and, **experimental in 4.1**, opening a customer's own console remotely at the level the customer allows ([MSP management](docs/msp-management.md)).
+* **MSPs** managing several customer sites from one place (per-site access, white-label), opening a customer's own console remotely at the level the customer allows, and sending a set of detection rules that the customer accepts, tries in a trial and can take back ([MSP management](docs/msp-management.md)).
 * **Manufacturing / building automation** that needs OT visibility without touching production traffic.
 * **Security-conscious teams** who want explainable detection they can audit, not a black box.
 * **Homelabs and researchers** — free for personal, non-commercial use.
@@ -267,7 +273,7 @@ Only what is actually implemented is listed above — see [ROADMAP.md](ROADMAP.m
 
 DENIS is security software; its own trustworthiness matters. Here is the honest state, not a marketing gloss.
 
-**Verified today:** more than 4,000 unit and integration tests and an end-to-end replay of a simulated industrial network
+**Verified today:** more than 6,000 unit and integration tests and an end-to-end replay of a simulated industrial network
 through the whole pipeline; fuzz tests of every parser; `cargo audit` clean; a master and agent talking over HTTP;
 the UI exercised in a browser (sign-in, forced password change, editing, users, OT, topology, trends, reports); a
 real Linux server running DENIS as a permanent `systemd` service, including a real one-click self-update (backup,
@@ -298,25 +304,30 @@ Gemini, see AI.md) and a real local Ollama instance.
   verified so far against hand-written fixtures matching each API's documented shape, and (for the
   cloud sources) a deliberately wrong credential reaching the real endpoint and being refused. See
   CMDB.md for the itemised accounting.
-* The SNMP switch reader against real switches from any vendor (tested against two stand-in
-  switches and hostile input only; see docs/switches.md).
+* The SNMP switch reader against real switches from further vendors (tried on a Cisco Catalyst 2960-X, a D-Link and,
+  in the Cisco sandbox, a Catalyst 9300 and a 9200CX; any other switch is read through standard SNMP only; see
+  docs/switches.md).
 * IPv6 (opt-in, `--ipv6`/`--ipv6-subnet`: passive discovery, flow accounting, decoded OT,
   address-conflict and router detection, NAT64 threat matching, east-west accounting, remote-agent
   reporting, active discovery of new addresses) on a genuine dual-stack network — verified so far
   only with hand-built frames and integration tests, not real ICMPv6/NDP traffic or a real raw-socket
   send. Real IPv6 alert-noise data may also show the scoring wants IPv6-specific tuning (see IPV6.md
   for the complete, itemised accounting).
-* PostgreSQL and high availability: built and measured, but only across five real `kill -9` runs
-  on one machine against one shared PostgreSQL — not yet measured across two real machines with a
-  real network between node and database. No per-tenant PostgreSQL (each tenant is still its own
-  separate store; a Postgres-backed multi-tenant install is not yet built).
-* The enforcement connectors. All 20 connector kinds are wired and can be configured, tested against
-  a local simulation of their documented API and used for a block, but only SNMP port control has been tried on
-  real equipment (one D-Link switch). The other 19 are labelled Experimental and are off until an administrator
-  switches on the lab setting. The new actions (flow block, quarantine, session ending, port actions) are simulator
-  only and sit behind a second lab switch, and every connector runs on the same action path. By default every action
-  is an administrator's decision; automatic enforcement by policies and Autopilot blocking are experimental, off by
-  default and each switched on separately (see docs/enforcement.md).
+* PostgreSQL and high availability (Experimental in 4.4): built and tested with PostgreSQL 16 in containers, with two
+  processes on one machine and in a local fault lab (Patroni cluster, `tools/ha-lab/`) — not yet run on two real
+  machines, nor on a managed PostgreSQL service (that run happens after the 4.4.0 release). Two lab scenarios (a half-open link to the database) are fixed but still
+  to confirm in the lab. Tenants on PostgreSQL are built but not measured with 10, 50 or 100 tenants.
+* The enforcement connectors. All 22 connector kinds are wired and can be configured. Some actions were tried on real
+  equipment (a Cisco Catalyst 2960-X, a FortiGate 40F, a Palo Alto PA-220, a MikroTik E50UG, a UniFi gateway with an access
+  point; the exact actions are in docs/enforcement.md) and some in a vendor sandbox or a lab account (Cisco Catalyst 9300 and
+  9200CX, Cisco FTD through FDM and FMC, AWS). Everything else, among it TP-Link Omada, MikroTik Wi-Fi, Cisco Catalyst 9800
+  and Azure, is tested against a local simulation of the documented API only, is labelled Experimental and is off until an
+  administrator switches on the lab setting. By default every action is an administrator's decision; automatic enforcement
+  by policies and Autopilot blocking are experimental, off by default and each switched on separately (see
+  docs/enforcement.md).
+* The parts of 4.4 labelled Experimental (three of the twelve new detections, counts and sequences in your own rules, two
+  servers on one PostgreSQL database and customers in PostgreSQL) have not been run on a real production network; the page
+  that describes each one says what was tested.
 * Autopilot (experimental): not yet run for a shadow week on a real network, not yet through real phone round
   trips on Android and iOS or real delivery to Telegram, ntfy and web push, not yet reviewed by an external
   security reviewer (docs/autopilot.md lists what is verified and what is not).
@@ -410,6 +421,8 @@ The Community edition is distributed as pre-built, signed binaries under the ter
 * **Organisations may evaluate** the Community edition free of charge for **30 days from the first installation**, on up to
   100 devices, to evaluate and demonstrate DENIS (not to run their operations on it). After that, a commercial license is
   needed.
+* A device counts while it was seen in the last 30 days (a device with several identities counts once), and every license
+  can also cover the linked customers of an MSP ([Licensing](docs/licensing.md)).
 
 See [LICENSE](LICENSE) for the exact terms and [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md) for how to get a
 commercial license (there is no self-service purchase yet — open a GitHub issue). List of
@@ -418,8 +431,8 @@ commercial license (there is no self-service purchase yet — open a GitHub issu
 ## Roadmap
 
 A single priority-ordered list of what's missing and planned: see [ROADMAP.md](ROADMAP.md). 4.1.0 brought the
-enforcement actions on all 20 connector kinds, the automation levels and Autopilot (all experimental), and remote
-management of customers' installations from an MSP console (experimental, off until a customer pairs; see
+enforcement actions on all 20 connector kinds then in the program, the automation levels and Autopilot (experimental), and remote
+management of customers' installations from an MSP console (off until a customer pairs; see
 docs/msp-management.md). Multi-tenancy shipped in 3.3.0; PostgreSQL and high availability, and the first 16
 enforcement connectors, in 4.0.0. 4.1.1 added a static Linux program for Alpine and any Linux, OpenRC support and fixes;
 4.1.2 added IP fragment reassembly for industrial protocols; 4.1.3 the fixes of the next code review; 4.1.4 the Network
@@ -427,9 +440,15 @@ page, gateway detection, the new Respond menu and the first validation on real e
 that knows the path, verified actions on FortiGate, Palo Alto, MikroTik and UniFi (see Enforcement) and a fuller network map;
 4.2.1 an OpenAPI description and a ready-made PostgreSQL build. 4.3.0 added more than 40 detections, detection that
 measures itself, the *What DENIS cannot see* page, *This is normal*, a new Network section, any managed switch over standard
-SNMP (Experimental for control), UniFi and Meraki client reading, site administrators and scoped API tokens; its known limits are in
-[docs/updates.md](docs/updates.md#known-limits-in-430), and the PostgreSQL code of 4.3 is compiled and reviewed, not yet run against a
-production database. Next: Catalyst 9800 and other controllers, address spaces, the PostgreSQL work, more rules, domain blocking and
+SNMP (Experimental for control), UniFi and Meraki client reading, site administrators and scoped API tokens.
+4.4.0 shows where a device is plugged in (access points and switches under their controller, virtual machines under their host),
+adds the TP-Link Omada, MikroTik Wi-Fi and Cisco Catalyst 9800 connectors (Experimental), address spaces, one Respond dialog,
+twelve more detections, your own rules with a trial mode, rules an MSP can send you, a durable queue for alerts and notices,
+a data key per customer with rotation, a Start page, one-line enrolment of agents and licensing by devices seen in the last
+30 days. Its PostgreSQL work (a write fence for the old leader, tenants on PostgreSQL) is Experimental and not yet run on a
+managed PostgreSQL service; the limits are in [docs/updates.md](docs/updates.md#known-limits-in-440) and
+[docs/high-availability.md](docs/high-availability.md).
+Next: tests on real systems (a managed PostgreSQL service, Azure, AWS, TP-Link Omada), more rules, domain blocking and
 endpoint-tool import (ROADMAP.md). Still owed before a
 commercial launch: an independent penetration test and verification on real equipment, listed in ROADMAP.md. A
 packaged Windows collector, Qualys import and SAML are also open. OIDC single sign-on is built, but its exchange with an

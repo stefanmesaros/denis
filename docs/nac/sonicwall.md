@@ -1,10 +1,10 @@
 # Enforcement: SonicWall SonicOS
 
-Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from SonicWall's published SonicOS 7 API documentation and knowledge-base articles, and checked against a fake SonicWall in DENIS's own tests. It has never been run against a real SonicWall. The vendor behaviours that are still unproven are listed under *Verified and not verified* below.
+Status: **Experimental.** Everything below was built from SonicWall's published SonicOS 7 API documentation and knowledge-base articles, and checked against a fake SonicWall in DENIS's own tests. It has never been run against a real SonicWall. The vendor behaviours that are still unproven are listed under *Verified and not verified* below.
 
 **SonicOS Gen7 / SonicOSX 7.x only.** Every working address-object and address-group example SonicWall publishes is marked for 7.X firmware. Gen6 is not implemented and not assumed to work.
 
-Lab use: the old block (*Block device*, the address group) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The quarantine is new in 4.1 and needs that switch and also *Allow experimental enforcement actions*. Testing, reading and releasing always work.
+Lab use: the old block (*Block device*, the address group) is allowed only while an administrator has switched on *Allow Experimental connectors (lab use)* under *Settings → Response policy*. The quarantine is new in 4.1 and needs that switch and also *Allow experimental enforcement actions*. Testing, reading and releasing always work.
 
 Besides the connector's own refusals, every action through it is refused for a loopback, unspecified, broadcast or multicast address, for DENIS itself and for the gateway, for DNS and directory servers, for anything in *Never block these IP addresses*, and for the address you are using to reach the console. Release is never refused for these reasons.
 

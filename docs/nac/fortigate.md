@@ -2,7 +2,7 @@
 
 Status: **Verified on FortiGate 40F, FortiOS 7.2.3: block device (address group), release, expiry, extend, block a flow, End sessions (an open SSH session was cut in 1-2 s) and quarantine through the quarantine address group (blocks web access; what a quarantined device may reach is decided by your own policies); not tested: IPv6, HA, VDOM mode.** Tested on that FortiGate (2026-10-15 to 2026-10-21): block device and its release (by hand in 3 s), expiry after 5 minutes, extending the time, a flow block with read-back and real traffic stopped (effect and release at once), End sessions (an active SSH channel was cut within 1 to 2 s), quarantine through the quarantine address group (the device was in the group at once, read back OK, web access was blocked, and after 5 minutes it was released automatically and traffic was back within 1 s), and cleanup of everything DENIS made. Not yet tested on the device: IPv6, HA, VDOM mode, a lost answer or a reboot during an action, a concurrent edit by another administrator, a 24 hour hold, repeated block and release cycles, and other FortiOS versions or models. All four actions carry no *Experimental* mark and need neither lab setting.
 
-Lab use: none of the FortiGate actions (*Block device*, *Block a flow*, *Quarantine*, *End sessions*) needs a lab setting: all four are validated on real equipment. Releasing an action and removing what DENIS made always work.
+Lab use: none of the FortiGate actions (*Block device*, *Block a connection*, *Quarantine*, *End sessions*) needs a lab setting: all four are validated on real equipment. Releasing an action and removing what DENIS made always work.
 
 ## Quick setup (about 10 minutes)
 
@@ -243,6 +243,21 @@ steps and never changes the result of the block itself.
 * One change at a time on one FortiGate (4.1.2): a block, a release or an orphan removal holds the firewall for its
   whole run; another one waits up to two minutes and is then refused with nothing changed. Ending sessions does not
   hold it.
+
+## Where is it plugged in (4.4)
+
+With **Read what this firewall manages (read only)** ticked (it is ticked for a new connector; a connector made before 4.4 stays off until you tick it), DENIS reads which FortiAP and FortiSwitch units this FortiGate manages and the Wi-Fi clients on its FortiAPs. The map then draws a managed unit under the FortiGate, with the interface the FortiGate names, instead of leaving it floating, and a Wi-Fi client's device page says which FortiAP it is on, the SSID and the signal. DENIS only sends `GET` requests, with the same API token, address, VDOM and certificate setting as the rest of this connector. A read-only administrator profile (read access to Wireless, Switch controller and System) is enough. Every statement about FortiOS below carries a label:
+
+* `documented` (checked 2026-11-02): the switch configuration object `GET /api/v2/cmdb/switch-controller/managed-switch` and its fields `switch-id`, `name`, `sn` and `fsw-wan1-peer` (the FortiGate interface the switch is attached through), and the answer envelope with `results`. Fortinet's own answer reference for the monitor calls sits behind a Fortinet developer login that was not available.
+* `best guess` (from field reports, **not checked**): the monitor calls `GET /api/v2/monitor/wifi/managed_ap` (`wtp_id`, `name`, `connecting_from`, `connecting_interface`, `mesh_uplink`), `GET /api/v2/monitor/switch-controller/managed-switch/status` (`serial`, `name`, `connecting_from`, `fgt_peer_port_name`, `peer_device_name`, `peer_port_name`) and `GET /api/v2/monitor/wifi/client` (`mac`, `ip`, `ssid`, `wtp_id`, `wtp_name`, `signal`, `vlan`), and that a FortiAP's interface is named by `connecting_interface`.
+* `verified`: nothing yet. No FortiGate has answered these calls for DENIS.
+
+What the map shows, and what it does not:
+
+* A unit is drawn under the FortiGate only when the answer names an interface for it. A FortiSwitch whose answer names another managed switch as its peer is drawn under that switch, with the peer's port. A FortiAP that says it is on a mesh link is not drawn under anything (its parent access point is not named).
+* The answer names the interface a unit connects through, not the cable behind it: a FortiAP plugged into a FortiSwitch is still drawn under the FortiGate until DENIS learns the port from the switch itself: when that FortiSwitch is also one of the switches DENIS reads over SNMP, the port is filled in by the [port join](../switches.md#port-join-the-port-of-an-access-point-or-switch-a-controller-did-not-name) (the line then says *port learned from ... by LLDP* or *by the MAC table*); otherwise the line says *reported by the controller*.
+* Wired clients behind a FortiSwitch are not read in this version. If one of the three lists is not answered, what was answered is shown and the read counts as partial.
+* The FortiGate's own hardware address is not known, so it is the connector's box on the map that the units hang under.
 
 ## Credentials
 

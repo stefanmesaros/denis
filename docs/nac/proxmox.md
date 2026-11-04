@@ -1,8 +1,8 @@
-# Enforcement: Proxmox VE
+# Enforcement: Proxmox Virtual Environment (VE)
 
-Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from Proxmox VE's published API reference and checked against a fake Proxmox cluster in DENIS's own tests. It has never been run against a real cluster. Nothing here is listed as validated on hardware.
+Status: **Experimental.** Everything below was built from Proxmox VE's published API reference and checked against a fake Proxmox cluster in DENIS's own tests. It has never been run against a real cluster. Nothing here is listed as validated on hardware.
 
-Lab use: the guest isolation (the block that existed before 4.1) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The actions new in 4.1 (flow block, quarantine, link down) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
+Lab use: the guest isolation (the block that existed before 4.1) is allowed only while an administrator has switched on *Allow Experimental connectors (lab use)* under *Settings → Response policy*. The actions new in 4.1 (flow block, quarantine, link down) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
 
 Besides the connector's own refusals, every action through it is refused for a loopback, unspecified, broadcast or multicast address, for DENIS itself and for the gateway, for the addresses on this connector's protected list, for a guest that holds such an address, for a guest on the **Never quarantine these guests** list and for an address in an open `arp_conflict` alert (unless the administrator ticks a box to accept that), before anything is sent. Releasing is never refused for these reasons.
 
@@ -83,6 +83,21 @@ A Proxmox API token: *token user* and *token id* (plain) and the *token secret*,
 ## Existing instances
 
 Instances from earlier versions keep working and nothing changes for them: the same guest address (`node/qemu/ID`), the same API calls in the same order (read the options, write them, read them back), the same ledger row with the options as they were, and the old *Block…* and *Unblock…* buttons act as before. The connection test only checks that the configuration is complete: there is no harmless request that does not name a guest, so the cluster is first contacted when you plan a block. Records the old routes made are released through the old *Unblock…*; records of the new actions are released through the new action list. What changed is only who writes the record: the ledger row is now written by the enforcement orchestrator, which also applies the hourly cap and the kill switch and stamps the row with the connector instance.
+
+## Where is it plugged in (4.4)
+
+With **Read the virtual machines of this host (read only)** ticked (ticked for a new connector; a connector made before 4.4 stays off until you tick it), DENIS reads the virtual machines and containers of the cluster and draws each one under the host (node) it runs on, with the bridge of its network device as the port. Only `GET` requests are sent, with the same token, address and certificate setting as the rest of this connector. A token with the role PVEAuditor on `/` (read only) is enough. Evidence labels:
+
+* `documented` (checked 2026-11-02): `GET /api2/json/cluster/resources?type=vm` and its fields `node`, `vmid`, `name`, `status`, `type` (`qemu` or `lxc`) and `template`, read from the generated API schema client (the official API viewer page was too large to read whole); the `{"data": ...}` answer envelope and the `PVEAPIToken=user@realm!tokenid=secret` header (Proxmox wiki); the network device line `netN: virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0,tag=10` and the cloud-init `ipconfigN: ip=10.1.2.3/24` (Proxmox `qm.conf` manual).
+* `best guess` (not checked on a cluster): the container form `netN: name=eth0,bridge=vmbr0,hwaddr=...,ip=...`, and that `GET /api2/json/nodes/{node}/{qemu|lxc}/{vmid}/config` answers it to that token.
+* `verified`: nothing yet. No Proxmox cluster has answered these calls for DENIS.
+
+Limits and what is left out:
+
+* At most 200 guest configurations are read in one pass, one request at a time, inside a time limit; running guests come first. If the list is longer or the limit is reached, the read counts as partial: guests not read keep what was read before, and the connector's notes say so.
+* Templates are skipped. A stopped guest is listed from its configuration and shown as offline.
+* An address is shown only when the configuration holds a fixed one (`ip=` of a container, cloud-init `ipconfigN`). The guest agent is not asked (one more call per guest, and its answer was not checked). The cluster's name is not read either.
+* The host has no known hardware address, so it appears as a box named after the node, under the connector's box.
 
 ## Details from the console
 

@@ -305,9 +305,8 @@ administrator's decision, made for one device at a time.
   DENIS cannot read its alerts or devices, the block is refused with no box. Ticking is recorded in the audit log. VM and
   instance targets are not addresses, so only their protected list applies.
 
-**Verified vs. not verified.** Every connector except SNMP has been tested only against a local simulation of the vendor's documented
-interface, and the console says so next to each one: *Simulator only: not yet validated on real equipment*. None of those has been tried against real vendor hardware or a real
-cloud account. **Lab switch:** while *Allow connectors that are not validated on real equipment (lab use)* (Settings →
+**Experimental connectors.** The console marks a connector *Experimental* next to its name; what was verified, where and when is in
+[Validation](nac/validation.md). **Lab switch:** while *Allow Experimental connectors (lab use)* (Settings →
 Enforcement, administrators only, audited) is off, which is the default for a new install, DENIS refuses to block
 through such a connector, in the preview and again in the apply; testing, reading and unblocking still work. An install
 that already had a connector when it was upgraded gets the switch turned on once, with a notice in the console and an

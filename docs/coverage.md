@@ -15,9 +15,8 @@ is explicit about the cases where it cannot tell. That distinction is the point 
   *not* a gap and never raises a finding about a missing control; it is something to fix in your
   records.
 
-Every integration this page rests on is **unverified**: each has been tested against recorded
-samples of the tool's answers, not against a real installation (see the *unverified integration*
-tag on every source card).
+Every integration this page rests on is **Experimental** (see the *Experimental* tag on every
+source card). What was checked, and against what, is in [what was verified](nac/validation.md).
 
 ## Controls and sources
 
@@ -113,8 +112,7 @@ and when, what could manage it (which tools to connect, and whether the device c
 and its owner. Assign an owner to the selected devices from the list; it is the ordinary owner field. The list can be
 filtered by answer, text, owner (or no owner), site and reviewed, and exported to CSV for a ticket.
 
-Like every source here, the answers have been tested against fixtures and not yet against a real tenant: check a few
-before you rely on them.
+Like every source here, this is Experimental: check a few of the answers before you rely on them.
 
 ## Findings
 

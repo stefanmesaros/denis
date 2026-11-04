@@ -65,6 +65,14 @@
 #                       Without it the installer asks for it at the terminal (not shown, not in ps or the
 #                       shell history); DENIS_AGENT_TOKEN in the environment or --token-file FILE work too.
 #   --token-file FILE   read the token from the first line of FILE
+#   --enroll CODE       one-line enrolment instead of --master and --token: a code (dme1...) made on the master
+#                       (Sites -> Add agent -> One-line enrolment) that works once or N times and for 24 hours. It
+#                       carries the master's address and, for a master with its own certificate authority, a pin of
+#                       it; the program fetches that certificate, checks the pin and exchanges the code for this
+#                       agent's own token, which goes into the settings file. On a shared machine give the code in
+#                       the environment (DENIS_ENROLL_CODE) or with --enroll-file FILE instead: a command line is
+#                       visible to the other users of the machine while it runs.
+#   --enroll-file FILE  read the enrolment code from the first line of FILE
 #   --id ID             this agent's id: letters, digits . _ - (up to 64)
 #   --name NAME         display name (default: the id)
 #   --site SITE         site or location label
@@ -109,7 +117,7 @@ INIT=systemd                # systemd, openrc or none; decided by detect_init be
 VERSION="" PORT="" LOCAL_ONLY=0 DRY=0 NOSIG=0 UNINSTALL=0 PURGE=0 NOSERVICE=0 STATIC=0 POSTGRES=0 STANDARD=0 FLAVOUR=""
 POSTGRES_MIN_VERSION="4.2.1"  # the first release with the PostgreSQL build (denis-pg-*)
 AGENT=0 MASTER_URL="" AGENT_TOKEN="" AGENT_ID="" AGENT_NAME="" AGENT_SITE="" AGENT_FLOWS=0 CA_SRC="" ALLOW_MASTER=0
-CA_PEM="" ALLOW_HTTP=0 AGENT_KEEP_ENV=0 TOKEN_FILE="" TOKEN_PROMPT=1
+CA_PEM="" ALLOW_HTTP=0 AGENT_KEEP_ENV=0 TOKEN_FILE="" TOKEN_PROMPT=1 ENROLL_CODE="" ENROLL_FILE=""
 NAMES=()
 
 say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
@@ -400,11 +408,70 @@ agent_read_token() {  # the token without putting it on a command line, where ot
   return 0
 }
 
+agent_read_enroll() {  # the one-time enrolment code: --enroll, --enroll-file or DENIS_ENROLL_CODE; checks only its form
+  if [ -z "$ENROLL_CODE" ] && [ -n "$ENROLL_FILE" ]; then
+    [ -r "$ENROLL_FILE" ] || die "--enroll-file $ENROLL_FILE cannot be read"
+    IFS= read -r ENROLL_CODE < "$ENROLL_FILE" || true
+    ENROLL_CODE="${ENROLL_CODE%$'\r'}"
+  fi
+  if [ -z "$ENROLL_CODE" ] && [ -n "${DENIS_ENROLL_CODE:-}" ]; then ENROLL_CODE="$DENIS_ENROLL_CODE"; fi
+  if [ -n "$ENROLL_CODE" ]; then
+    { [ "${#ENROLL_CODE}" -ge 25 ] && [ "${#ENROLL_CODE}" -le 8000 ] && printf '%s' "$ENROLL_CODE" | grep -Eq '^dme1\.[A-Za-z0-9_-]+$'; } || die "--enroll: that is not an enrolment code (it starts with dme1. and has no spaces)"
+  fi
+  return 0
+}
+
+plain_value() {  # no control character at all (a newline would let a second line of the settings file in; grep -x checks per line)
+  [ "$(printf '%s' "$1" | LC_ALL=C tr -d '[:cntrl:]')" = "$1" ]
+}
+
+agent_validate_enrolled() {  # what the enrolment gave is written into a settings file: it must be exactly what it should be,
+  # whatever the program (or whoever is in the way) answered. The same strictness as for --master, --token and --id.
+  plain_value "$MASTER_URL" && plain_value "$AGENT_TOKEN" && plain_value "$AGENT_ID" || die "the enrolment gave a value with a control character in it"
+  printf '%s' "$MASTER_URL" | grep -Eq '^https?://[][A-Za-z0-9._:-]+$' || die "the enrolment gave a master address that is not valid"
+  case "$MASTER_URL" in
+    http://*) [ "$ALLOW_HTTP" = 1 ] || die "the enrolment gave a plain http address: add --allow-plain-http on a network you trust, or make the code with the https address" ;;
+  esac
+  printf '%s' "$AGENT_TOKEN" | grep -Eq '^dat_[A-Za-z0-9_-]{16,}$' || die "the enrolment gave a token that is not valid"
+  [ "${#AGENT_TOKEN}" -le 512 ] || die "the enrolment gave a token that is far too long"
+  printf '%s' "$AGENT_ID" | grep -Eq '^[A-Za-z0-9._-]{1,64}$' || die "the enrolment gave an agent id that is not valid"
+  if [ -n "$CA_PEM" ]; then
+    [ "${#CA_PEM}" -le 100000 ] || die "the enrolment gave a CA text that is far too long"
+    case "$CA_PEM" in *"PRIVATE KEY"*) die "the enrolment gave a private key instead of a certificate" ;; esac
+    case "$CA_PEM" in *"-----BEGIN CERTIFICATE-----"*"-----END CERTIFICATE-----"*) ;; *) die "the enrolment gave no certificate where one was expected" ;; esac
+  fi
+}
+
+agent_enroll() {  # exchange the one-time code for this agent's own token, with the program just installed and verified;
+  # the result goes through a private folder, never through a command line or the screen
+  local d out
+  d=$(mktemp -d) || die "cannot make a temporary folder"
+  chmod 700 "$d"
+  out="$d/out"
+  say "Enrolling with the master"
+  if ! DENIS_ENROLL_CODE="$ENROLL_CODE" "${ROOT:-}$BIN" agent-enroll --out "$out" ${AGENT_ID:+--id "$AGENT_ID"} ${AGENT_NAME:+--name "$AGENT_NAME"} ${ALLOW_HTTP:+$([ "$ALLOW_HTTP" = 1 ] && echo --allow-plain-http)}; then
+    rm -rf "$d"
+    die "the enrolment did not work (the lines above say why). Make a new code on the master: Sites -> Add agent -> One-line enrolment."
+  fi
+  IFS= read -r MASTER_URL < "$out/master" || true
+  IFS= read -r AGENT_TOKEN < "$out/token" || true
+  IFS= read -r AGENT_ID < "$out/id" || true
+  if [ -f "$out/ca.pem" ]; then CA_PEM=$(cat "$out/ca.pem"); fi
+  rm -rf "$d"
+  ENROLL_CODE=""
+  [ -n "$MASTER_URL" ] && [ -n "$AGENT_TOKEN" ] && [ -n "$AGENT_ID" ] || die "the enrolment gave no usable answer"
+  agent_validate_enrolled
+}
+
 agent_check_args() {  # validate everything given on the command line (and the CA text); changes nothing
   agent_read_token
+  agent_read_enroll
+  if [ -n "$ENROLL_CODE" ]; then
+    [ -z "$MASTER_URL$AGENT_TOKEN$TOKEN_FILE$CA_SRC" ] || die "--enroll brings the master's address, the token and its certificate: do not give --master, --token, --token-file or --master-ca-pem as well"
+  fi
   if [ "${#NAMES[@]}" -gt 1 ]; then die "--name was given more than once"; fi
   [ "${#NAMES[@]}" -eq 1 ] && AGENT_NAME="${NAMES[0]}"
-  if [ -z "$MASTER_URL" ] && [ -z "$AGENT_TOKEN" ] && [ -f "$ROOT$AGENT_ENVFILE" ]; then
+  if [ -z "$ENROLL_CODE" ] && [ -z "$MASTER_URL" ] && [ -z "$AGENT_TOKEN" ] && [ -f "$ROOT$AGENT_ENVFILE" ]; then
     # an update: the settings already on this machine stay as they are
     if [ -n "$AGENT_ID$AGENT_NAME$AGENT_SITE$CA_SRC" ] || [ "$AGENT_FLOWS" = 1 ]; then
       die "$AGENT_ENVFILE already exists. To change the agent's settings give --master and --token again (a new token from Sites -> Add agent), or edit the file and run: $(restart_hint denis-agent)"
@@ -412,16 +479,17 @@ agent_check_args() {  # validate everything given on the command line (and the C
     AGENT_KEEP_ENV=1
     return 0
   fi
-  [ -n "$MASTER_URL" ] || die "--agent needs --master URL: the master's agent address, for example https://192.168.1.10:8081 (Sites -> Add agent shows the whole command)"
-  [ -n "$AGENT_TOKEN" ] || die "--agent needs the agent token (dat_...): type it when asked, or give --token-file FILE or DENIS_AGENT_TOKEN. Issue one on the master (Sites -> Add agent, or: denis agent-token issue --id ID)"
-  [ -n "$AGENT_ID" ] || die "--agent needs --id: a short name for this agent, for example branch-1"
+  [ -n "$ENROLL_CODE" ] || [ -n "$MASTER_URL" ] || die "--agent needs --master URL: the master's agent address, for example https://192.168.1.10:8081 (Sites -> Add agent shows the whole command)"
+  [ -n "$ENROLL_CODE" ] || [ -n "$AGENT_TOKEN" ] || die "--agent needs the agent token (dat_...): type it when asked, or give --token-file FILE or DENIS_AGENT_TOKEN. Issue one on the master (Sites -> Add agent, or: denis agent-token issue --id ID)"
+  [ -n "$ENROLL_CODE" ] || [ -n "$AGENT_ID" ] || die "--agent needs --id: a short name for this agent, for example branch-1"
+  plain_value "$MASTER_URL" && plain_value "$AGENT_TOKEN" && plain_value "$AGENT_ID" || [ -n "$ENROLL_CODE" ] || die "--master, --token and --id must not contain a control character (a newline would add a line to the settings file)"
   MASTER_URL="${MASTER_URL%/}"
-  printf '%s' "$MASTER_URL" | grep -Eq '^https?://[][A-Za-z0-9._:-]+$' || die "--master must look like https://host:8081 (no path, no spaces)"
+  [ -n "$ENROLL_CODE" ] || printf '%s' "$MASTER_URL" | grep -Eq '^https?://[][A-Za-z0-9._:-]+$' || die "--master must look like https://host:8081 (no path, no spaces)"
   case "$MASTER_URL" in
     http://*) [ "$ALLOW_HTTP" = 1 ] || die "--master $MASTER_URL is plain http: the token and the inventory would cross the network unencrypted. Use the https:// address, or add --allow-plain-http on a network you trust (a VPN or tunnel)." ;;
   esac
-  printf '%s' "$AGENT_TOKEN" | grep -Eq '^dat_[A-Za-z0-9_-]{16,}$' || die "--token is not an agent token (it starts with dat_ and has no spaces)"
-  printf '%s' "$AGENT_ID" | grep -Eq '^[A-Za-z0-9._-]{1,64}$' || die "--id may use letters, digits, dot, underscore and dash only (up to 64)"
+  [ -n "$ENROLL_CODE" ] || printf '%s' "$AGENT_TOKEN" | grep -Eq '^dat_[A-Za-z0-9_-]{16,}$' || die "--token is not an agent token (it starts with dat_ and has no spaces)"
+  { [ -n "$ENROLL_CODE" ] && [ -z "$AGENT_ID" ]; } || printf '%s' "$AGENT_ID" | grep -Eq '^[A-Za-z0-9._-]{1,64}$' || die "--id may use letters, digits, dot, underscore and dash only (up to 64)"
   local label v
   for label in AGENT_NAME AGENT_SITE; do
     v="${!label}"
@@ -439,7 +507,7 @@ agent_check_args() {  # validate everything given on the command line (and the C
     if command -v openssl >/dev/null && ! printf '%s\n' "$CA_PEM" | openssl x509 -noout >/dev/null 2>&1; then
       die "--master-ca-pem: openssl cannot read that certificate; copy it again from the master"
     fi
-  elif [ "${MASTER_URL#https://}" != "$MASTER_URL" ]; then
+  elif [ -z "$ENROLL_CODE" ] && [ "${MASTER_URL#https://}" != "$MASTER_URL" ]; then
     warn "no --master-ca-pem: the master's certificate must be one that this machine already trusts (a public one). A master that made its own certificate needs it: Settings -> HTTPS certificate -> Copy for --master-ca-pem."
   fi
 }
@@ -493,6 +561,8 @@ while [ $# -gt 0 ]; do
     --master) MASTER_URL="${2:?--master needs a value}"; shift 2 ;;
     --token) AGENT_TOKEN="${2:?--token needs a value}"; shift 2 ;;
     --token-file) TOKEN_FILE="${2:?--token-file needs a file name}"; shift 2 ;;
+    --enroll) ENROLL_CODE="${2:?--enroll needs a code}"; shift 2 ;;
+    --enroll-file) ENROLL_FILE="${2:?--enroll-file needs a file name}"; shift 2 ;;
     --id) AGENT_ID="${2:?--id needs a value}"; shift 2 ;;
     --site) AGENT_SITE="${2:?--site needs a value}"; shift 2 ;;
     --flows) AGENT_FLOWS=1; shift ;;
@@ -547,8 +617,8 @@ if [ "$AGENT" = 1 ]; then
     fi
   fi
 else
-  [ -z "$MASTER_URL$AGENT_TOKEN$TOKEN_FILE$AGENT_ID$AGENT_SITE$CA_SRC" ] && [ "$AGENT_FLOWS" = 0 ] && [ "$ALLOW_MASTER" = 0 ] && [ "$ALLOW_HTTP" = 0 ] \
-    || die "--master, --token, --id, --site, --flows and --master-ca-pem are for a remote agent: add --agent"
+  [ -z "$MASTER_URL$AGENT_TOKEN$TOKEN_FILE$AGENT_ID$AGENT_SITE$CA_SRC$ENROLL_CODE$ENROLL_FILE" ] && [ "$AGENT_FLOWS" = 0 ] && [ "$ALLOW_MASTER" = 0 ] && [ "$ALLOW_HTTP" = 0 ] \
+    || die "--master, --token, --enroll, --id, --site, --flows and --master-ca-pem are for a remote agent: add --agent"
 fi
 
 port_in_use() {  # is something listening on TCP port $1?
@@ -753,7 +823,8 @@ if [ "$DRY" = 1 ] && [ "$AGENT" = 1 ]; then
   if [ "$AGENT_KEEP_ENV" = 1 ]; then echo "    It would keep your settings in $AGENT_ENVFILE."
   else
     echo "    It would write:"
-    echo "      $AGENT_ENVFILE (mode 600):  DENIS_MASTER=$MASTER_URL  DENIS_AGENT_ID=$AGENT_ID  DENIS_AGENT_TOKEN=(hidden)${AGENT_NAME:+  DENIS_AGENT_NAME=\"$AGENT_NAME\"}${AGENT_SITE:+  DENIS_AGENT_SITE=\"$AGENT_SITE\"}$([ "$AGENT_FLOWS" = 1 ] && echo '  DENIS_FLOWS=true')"
+    [ -z "$ENROLL_CODE" ] || echo "      (the master's address, this agent's token and, for a master with its own certificate authority, its certificate come from the enrolment code when it is run for real; the code is not used now)"
+    echo "      $AGENT_ENVFILE (mode 600):  DENIS_MASTER=${MASTER_URL:-(from the code)}  DENIS_AGENT_ID=${AGENT_ID:-(from the master)}  DENIS_AGENT_TOKEN=(hidden)${AGENT_NAME:+  DENIS_AGENT_NAME=\"$AGENT_NAME\"}${AGENT_SITE:+  DENIS_AGENT_SITE=\"$AGENT_SITE\"}$([ "$AGENT_FLOWS" = 1 ] && echo '  DENIS_FLOWS=true')"
     [ -z "$CA_PEM" ] || echo "      $AGENT_CA (the master's CA certificate, $(printf '%s\n' "$CA_PEM" | grep -c 'BEGIN CERTIFICATE') certificate(s))"
   fi
   case "$INIT" in
@@ -851,6 +922,7 @@ fi
 if [ "$AGENT" = 1 ]; then
   case "$INIT" in systemd) SVCFILE="$AGENT_UNIT" ;; openrc) SVCFILE="$OPENRC_AGENT_INIT" ;; *) SVCFILE="" ;; esac
   UPGRADE=0; [ -n "$SVCFILE" ] && [ -f "$SVCFILE" ] && UPGRADE=1
+  if [ -n "$ENROLL_CODE" ]; then agent_enroll; fi
   say "Writing the agent's settings${SVCFILE:+ and service} ($AGENT_ENVFILE${SVCFILE:+, $SVCFILE})"
   if [ "$AGENT_KEEP_ENV" = 1 ]; then write_agent_files keep; else write_agent_files; fi
   if [ "$INIT" = none ]; then
@@ -1018,6 +1090,7 @@ if [ "$UPGRADE" = 0 ]; then
   if [ -n "${PW:-}" ]; then echo "      $PW"
   elif [ "$INIT" = systemd ]; then echo "      (not found: run   sudo -u $SERVICE_USER $BIN user reset admin --db $DATA/denis.db   for a new one)"
   else echo "      (not found: run   su -s /bin/sh $SERVICE_USER -c '$BIN user reset admin --db $DATA/denis.db'   for a new one)"; fi
+  echo "    Open the address above and sign in: the Start page walks you through the first look at your network."
 else
   echo "    Updated. Your data and settings are as they were; the previous program is $BIN.previous."
 fi

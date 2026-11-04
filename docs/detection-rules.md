@@ -35,7 +35,7 @@ Rule names for `--rule-weight`: `new_device`, `new_destination`, `volume_anomaly
 `remote_access_tool`, `ot_recon`, `ot_cross_cell`, `ot_new_protocol`, `ot_remote_access_path`,
 `ot_write_rate`, `ot_offhours_command`, `ot_exception_burst`, `inbound_bruteforce`, `inbound_then_fetch`,
 `dns_nxdomain_burst`, `mining_pool`, `vpn_tunnel_start`, `anonymizer_contact`, `admin_spread`, `new_admin_listener`,
-`daily_upload_new_owner`, `gateway_changed`, `rogue_dhcpv6`, `lifecycle_device_seen`.
+`daily_upload_new_owner`, `gateway_changed`, `rogue_dhcpv6`, `lifecycle_device_seen`, `mac_flood`, `hostname_clone`, `rogue_network_device`, `dynamic_dns_first_use`, `new_domain_for_server`, `upload_to_file_share`, `inbound_new_country`, `slow_scan`, `cleartext_admin_use`, `llmnr_nbns_responder`, `ot_time_source_changed`, `ot_register_range`, `custom_rule`.
 
 Every alert carries **advice**: click an alert (Alerts or Events tab) to see its summary, *why* it scored what
 it did, and *what to do next*. The same advice is in `GET /api/meta/options` (`advice`).
@@ -85,6 +85,37 @@ A few of these need something besides the rule itself: traffic accounting (`--fl
 east-west accounting. The section of each rule says which, and the Rules page says how many rules cannot fire for want of
 traffic analysis. The list of remote-access tools and of mining pools ships with DENIS and is reviewed with each release;
 the port list of the remote-access tools has not been checked against the vendors' documentation.
+
+## The rules added in 4.4, at a glance
+
+DENIS 4.4 adds twelve detections. Each has its own section below. **On an installation that already existed they all arrive
+switched off**: nothing judges and nothing costs anything until you decide, on the Rules page under *New rules in this
+version* ([how that panel works](#new-rules-in-a-release)). A new installation gets the **Recommended** ones switched on.
+*Cost* is the detection cost class of the rule (*low*: at most 1 ms per unit of work, *medium*: at most 5 ms; the measured
+figures are in [Operations](operations.md#when-a-rule-is-paused-or-detection-is-overloaded)). *Noise* is how often a rule
+is expected to alert on a calm, ordinary network.
+
+| Rule | What it detects | Recommended? | Needs | Noise | Cost | Never quiet |
+|---|---|---|---|---|---|---|
+| [`mac_flood`](#mac_flood-a-flood-of-new-hardware-addresses-nothing-extra-needed) | more than 200 new hardware addresses on one capture source in a minute (a switch address table being flooded) | Recommended | nothing extra | low | low | **yes** |
+| [`hostname_clone`](#hostname_clone-two-devices-claim-one-name-nothing-extra-needed) | two devices with vendor hardware addresses claim one name at the same time | Optional | nothing extra | medium | low | no |
+| [`rogue_network_device`](#rogue_network_device-a-new-switch-router-or-access-point-nothing-extra-needed-switches-added-for-snmp-show-the-port) | a switch, router or access point appears where an end device was expected | Optional | nothing extra; polled switches show the port | medium | low | no |
+| [`dynamic_dns_first_use`](#dynamic_dns_first_use-a-dynamic-dns-name-used-for-the-first-time-needs-passive-dns) | a server, NAS, industrial device or workstation looks up a dynamic-DNS name for the first time | Optional | passive DNS | medium | low | no |
+| [`new_domain_for_server`](#new_domain_for_server-a-quiet-device-looks-up-a-new-domain-needs-passive-dns) | a quiet device looks up a domain nobody on the site has looked up | Optional | passive DNS | medium | medium | no |
+| [`upload_to_file_share`](#upload_to_file_share-a-large-upload-to-a-file-sharing-service-needs---flows-and-passive-dns) | 50 MB or more in a day to a public file-sharing service | Optional | `--flows`, passive DNS | medium | medium | no |
+| [`inbound_new_country`](#inbound_new_country-an-administration-port-reached-from-a-new-country-needs---flows-on-the-link-to-the-internet) | an administration or VPN port reached from a country that never connected | Optional | `--flows` on the internet link | medium | medium | no |
+| [`slow_scan`](#slow_scan-a-slow-scan-of-the-internal-network-needs-east-west-accounting-or-a-mirror-port) | one device reaches 50 or more others in a day, where it never reached more than 10 | Optional | east-west accounting or a mirror port | higher on servers (they are left out) | medium | no |
+| [`cleartext_admin_use`](#cleartext_admin_use-an-unencrypted-administration-protocol-used-needs-east-west-accounting-or-a-mirror-port) | Telnet, FTP, rlogin or plain VNC used for the first time | Optional | east-west accounting or a mirror port | medium (old equipment) | low | no |
+| [`llmnr_nbns_responder`](#llmnr_nbns_responder-a-device-answers-name-queries-for-other-names-needs---flows-ipv4-only-experimental) | one device answers name queries for five or more names that are not its own (a password-stealing tool) | Recommended | `--flows` on a link that carries the queries | low | low | **yes** |
+| [`ot_time_source_changed`](#ot_time_source_changed-an-industrial-device-takes-its-time-from-a-new-source-needs-east-west-accounting---flows-or-the-iec-104-decoder-experimental) | an industrial device takes its time from a new source | Optional | east-west accounting, `--flows` or the IEC 104 decoder | low to medium | low | no |
+| [`ot_register_range`](#ot_register_range-a-modbus-write-outside-the-usual-registers-needs-the-industrial-decoders-experimental) | a Modbus write to registers the path never wrote to | Optional | the industrial decoders | medium | medium | no |
+
+**Never quiet** means that no "This is normal" decision, noise profile or trial hides the rule's alerts and that the
+overload protection never pauses it. Only the two rules whose evidence has no everyday cause are on the list: a flooded
+switch address table and a poisoning responder. The other ten are the ones a site has ordinary reasons to see (a desk
+switch, a cloned virtual machine, a traveller, an old Telnet device), so you can tell DENIS that they are normal for a
+device. `llmnr_nbns_responder`, `ot_time_source_changed` and `ot_register_range` are **Experimental**. The data the three
+industrial ones need is listed in the [OT guide](ot-guide.md#the-44-rules-and-the-data-each-one-needs).
 
 ## Network rules
 
@@ -139,7 +170,8 @@ counted, and shown under "Show quiet". An owner the device has never used still 
 day; further addresses of it that day are quiet. The `new_port` churn budget (3) is now per owner, not per
 address. Nothing in these never-quiet kinds is ever quieted: threat-list hits, rogue DHCP/RA, DHCP option
 changes and starvation, resolver changes, outbound fan-out, ARP sweeps, industrial control and write commands,
-segmentation violations, watched-port arrivals, fingerprint changes, gateway ARP/NDP conflicts and a new device
+segmentation violations, watched-port arrivals, fingerprint changes, gateway ARP/NDP conflicts, a flood of new hardware
+addresses (`mac_flood`), a device answering name queries for other names (`llmnr_nbns_responder`) and a new device
 (except a recognised private-MAC rejoin). A flow that uses a remote-administration/database port, hits the
 threat list, or sends ≥10 MB in its first window to an owner the device never used stays raised whatever the
 owner. One switch turns all of it off: "Quiet routine alerts" (setting `noise`, `enabled`, on by default).
@@ -558,27 +590,33 @@ counts:
   switched on independently, each with its own refresh schedule (Daily / Weekly / Monthly):
   * **abuse.ch Feodo Tracker** — botnet command-and-control addresses.
   * **abuse.ch ThreatFox** — malware command-and-control addresses (`ip:port` indicators from the last 48 hours;
-    the port is dropped). Since 4.3 its **domain indicators** of the last 48 hours are fetched with them (a second
-    download, `threatfox.abuse.ch/export/csv/domains/recent/`, under the same switch) and matched by
+    the port is dropped). Since 4.3 its **domain indicators** of the last 48 hours come with them (since 4.4 in the
+    same answer of the ThreatFox API, `threatfox-api.abuse.ch/api/v1/`, `get_iocs`, under the same switch) and are
+    matched by
     [`dns_threat_domain`](#dns_threat_domain-a-known-bad-domain-looked-up-needs-passive-dns) against the names
-    devices look up, each name with its subdomains. **ThreatFox needs a free abuse.ch Auth-Key** (from your abuse.ch
-    account; abuse.ch describes the exports at <https://threatfox.abuse.ch/export/> — *unverified, from the vendor
-    page*). Since 4.3.0 an administrator enters it right there, under the ThreatFox line: **Save key**, **Replace key**
+    devices look up, each name with its subdomains. **ThreatFox needs a free abuse.ch Auth-Key** (from the abuse.ch
+    Authentication portal, <https://auth.abuse.ch/>; abuse.ch documents the API at <https://threatfox.abuse.ch/api/>).
+    abuse.ch switched its old CSV export addresses off in 2026 (they answer "410 gone"); a DENIS before 4.4 shows
+    that as a failed refresh, and the fix is to update DENIS. Since 4.3.0 an administrator enters it right there, under the ThreatFox line: **Save key**, **Replace key**
     and **Clear key**. It is stored encrypted like every other secret, never shown again (the console and the API say
     only whether a key is set), not settable with an API token or over the MSP channel, and its audit entry
     (`threat.abusech_key`) says only that it was set, replaced or cleared. The environment variable
     `DENIS_ABUSECH_AUTH_KEY` of the DENIS service still works as the fallback when no key is saved in the console (the
     installation's own console only: on a server with tenants, each tenant enters its own key). The key is sent only to
-    `threatfox.abuse.ch` over HTTPS, as the `Auth-Key` header, never along a redirect, and never logged, audited or
-    shown.
+    `threatfox-api.abuse.ch` and `urlhaus-api.abuse.ch` (exactly these two names) over HTTPS, as the `Auth-Key`
+    header, never along a redirect, and never logged, audited or shown.
     Without a key, or when the server refuses it, nothing is fetched, the previous lists stay, Health says which of
     the two it is (and when the kept list gets old), a ThreatFox list fetched more than 7 days ago is no longer
     matched at all until the next successful refresh (Health says so), and `dns_threat_domain`
-    keeps judging with the other lists (URLhaus hosts, your own list). *Unverified:* the two export addresses above and
-    whether the exports take the key as a header could not be checked against abuse.ch's current documentation for
-    this release; a refused or changed address shows as a failed refresh, never as an empty list.
+    keeps judging with the other lists (URLhaus hosts, your own list). A refused or changed address shows as a
+    failed refresh, never as an empty list. *Experimental:* the 4.4 request and answer follow abuse.ch's published
+    API description; it could not be tried with a real key before release.
   * **abuse.ch URLhaus** — addresses currently serving malware downloads (URLs whose host is an IP address); since
-    4.3 the host names of the other URLs feed `dns_threat_domain` (that exact host only).
+    4.3 the host names of the other URLs feed `dns_threat_domain` (that exact host only). Since 4.4 it comes from the
+    URLhaus API (`urlhaus-api.abuse.ch/v1/urls/recent/`: the newest 1000 URLs of the last 3 days, only the ones abuse.ch
+    marks `online`) and **needs the same free abuse.ch Auth-Key** as ThreatFox (one key for both); the old plain-text
+    download lists are gone ("410 gone"). The list is therefore shorter than the old "all online URLs" list. Without
+    a key, or when it is refused, the same Health warnings and the same 7-day rule apply as for ThreatFox.
   * **Spamhaus DROP** — hijacked and spammer networks.
   * **Spamhaus ASN-DROP** — whole autonomous systems run by or for criminals. The list names AS numbers, not
     addresses, so DENIS turns it into networks with the GeoIP ASN database already used for IP enrichment (*Settings*
@@ -831,6 +869,220 @@ retired device can be turned down or quieted like any other. Use `--rule-weight 
 *Investigate:* for lost or stolen, find where it is connected, block it at the switch or access point and change the
 passwords and keys it held; for retired, disconnect and wipe it or change its status.
 
+### `mac_flood`: a flood of new hardware addresses *(nothing extra needed)*
+*Added in 4.4. Recommended: on for a new installation; on an upgraded installation it arrives switched off until you turn it on (Rules page, "New rules in this version").*
+
+**What it detects.** More than 200 new hardware (MAC) addresses appearing on one capture source within a minute. A tool
+such as macof does this to fill a switch's address table: the switch then sends every frame out of every port, and the
+attacker can read traffic that was never meant for it. **What it needs.** Nothing beyond the capture itself: the inventory
+already creates a device for each new address (at most 2,000 a minute). **What it does not do.** It does not see the switch
+port (the capture does not know which port a frame came in on): the count is per capture source, so on a mirror port that
+carries a whole switch it counts the whole switch. Fewer than 200 in a minute is not a flood: 150 phones joining a venue's
+Wi-Fi in ten minutes is not reported by this rule (`new_device_burst` tells that story). It is silent while the site learns,
+so a first sync of hundreds of devices raises nothing, and only devices created in the last two minutes count.
+*Score:* 70 (high). *Cooldown:* one alert per site and capture source per hour, filed under the device that crossed the
+limit; the alert says how many new addresses had appeared. **Never quiet and never paused**: no "This is normal" decision, noise profile or trial hides it, and the overload protection never pauses it (switching the rule off, or lowering its weight, is still your choice; a lab that starts hundreds of virtual machines at once should do that).
+Use `--rule-weight mac_flood=<weight>`. *Typical false positive:* a large group of devices joining at once (a lab or a
+site switched on, a virtual-machine host starting hundreds of guests). *Investigate:* find the port with the most learned
+addresses on your switch, unplug the device behind it, and switch on port security (a limit of learned addresses per port).
+
+### `hostname_clone`: two devices claim one name *(nothing extra needed)*
+*Added in 4.4. Not recommended by default (it can raise on a computer with two network adapters): on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+
+**What it detects.** A new device announces, over DHCP, DHCPv6 or mDNS, the same hostname as a device that is already on the
+network, and both have vendor (globally administered) hardware addresses. Someone copying a machine's name to pass for it
+(to catch connections meant for a file server or a printer), or a machine cloned and not renamed, looks like this.
+**What it needs.** Nothing beyond the capture: the inventory notes the names devices announce and queues one whenever a
+device's name changes. **What it does not do.** It does not judge private (randomised) addresses, virtual machines (a
+hypervisor's address range, or the types virtual machine and hypervisor, where clones are normal), network equipment (a
+switch uses one name on every port), a default name many devices ship with (`localhost`, `raspberrypi`, `android`, ...) or a
+pair of devices that has existed for more than three days or from the learning period: a pair the network learned stays
+learned, also after a restart. The name is compared by its first label, so `PC-01.corp.example` and `pc-01.local` are one name.
+The established device must have been seen in the last hour, and the two devices' last sightings must lie within 15 minutes of each other (the two claims are at the same time: two adapters used in windows that did not overlap do not count). It does not see the
+claims of devices whose name never changes after a restart until they announce it again (the next lease renewal).
+*Score:* 45; 15 more when the established device is a server, a NAS, a printer or rated high or critical. *Cooldown:* one
+alert per newer device and name per 7 days, filed under the newer device. Not never-quiet; the breaker may pause it. Use
+`--rule-weight hostname_clone=<weight>`. *Known false alarm:* a laptop on a dock (cable) and Wi-Fi at the same time announces one name from two
+vendor hardware addresses and looks exactly like a clone when the second adapter joined the register in the last three days:
+mark it "This is normal". *Investigate:* compare the two hardware addresses and
+switch ports; ask whoever owns the original name.
+
+### `rogue_network_device`: a new switch, router or access point *(nothing extra needed; switches added for SNMP show the port)*
+*Added in 4.4. Not recommended by default (desk switches and access points are common): on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+
+**What it detects.** A device that announces bridge, router or wireless access-point capability (LLDP or CDP) appears where an
+end device was expected: somebody plugged in a desk switch or a cheap router, or an access point, which can bridge your network
+to an unmanaged or outside one. **What it needs.** Nothing extra for the first kind of evidence: the capture itself, where
+LLDP and CDP frames are visible (a mirror port or the segment of the DENIS computer). For the second kind, switches added
+for SNMP polling (Settings, Switches): a new LLDP neighbour on a port of a polled switch. **What it does not do.** It does
+not judge a switch that has always been there (the capture evidence applies only to a device that joined the register after
+the learning period and in the last three days), an uplink to another of your switches, a port toward the spanning-tree
+root, a link-aggregation member, a trunk or a management port, a telephone (a PC is usually plugged into it; a desk phone that announces bridge together with telephone, as Cisco and Polycom phones do, is a phone with a PC port, not a switch, unless it also announces router or access-point capability) or an end host.
+A switch tracked for less than the learning period is not judged (its first poll lists every neighbour). **Raised or only
+recorded.** It is raised on a port you marked **watched** (Switches page) or when the device announces **router** capability;
+otherwise the alert is stored with severity *info* and shows in the event log, not in the alert list. *Score:* 55; 15 more on a
+watched port; 10 more for router capability; 10 more when end devices were learned on that port before. *Cooldown:* one alert
+per device (capture) or chassis (switch) per 7 days. Not never-quiet; the breaker may pause it. Use
+`--rule-weight rogue_network_device=<weight>`. *Typical false positive:* an approved desk switch or access point.
+*Investigate:* the port in the alert; what is plugged in; unplug it if it is not yours.
+
+### `dynamic_dns_first_use`: a dynamic-DNS name used for the first time *(needs passive DNS)*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+
+**What it detects.** A server, NAS, hypervisor, virtual machine, industrial device or workstation looks up a name under a
+dynamic-DNS service (`my-box.duckdns.org`) for the first time. Dynamic DNS lets anyone give a changing address a free name; it
+is a common home for malware control servers and for remote-access back doors, and a business server rarely needs it.
+**What it needs.** Passive DNS (Settings, Network interfaces). **The list.** The providers come from a list that ships with
+DENIS (`data/ddns_suffixes.json`: a small versioned file with `version`, `updated` and `suffixes`; about 120 well-known
+providers, refreshed with each release and, only if you switch it on, automatically in between: see [Updating the shipped lists](#updating-the-shipped-lists); evidence: *best guess*, it is not complete). A name *under* a listed suffix matches; the
+provider's own site does not. The names a NAS maker gives its own devices (`synology.me`, `myqnapcloud.com`) are not on the
+list. **What it does not do.** It does not judge cameras, printers, TVs and other IoT devices, phones, computers with a private
+address, or a device that resolves names for others (a local DNS server: its lookups are its clients'). A device that used
+dynamic DNS while the network learned (the first `learning_secs` after passive DNS first reached DENIS) has learned it: the
+first use after that is reported once and learned. At most 16 devices are judged per 10-second window (a device that resolves
+such a name does so again within minutes, so the others follow); a device that is not judged by type is remembered for an hour
+so that it costs nothing. *Score:* 45; 15 more on a server, a NAS or an industrial device.
+*Cooldown:* one alert per device (the first use is the only one). Not never-quiet; the breaker may pause it. Use
+`--rule-weight dynamic_dns_first_use=<weight>`. *Typical false positive:* a remote-access name somebody set up on purpose.
+*Investigate:* what on the device asked for the name; block it at your DNS server if it is not wanted.
+
+### `new_domain_for_server`: a quiet device looks up a new domain *(needs passive DNS)*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+
+**What it detects.** A quiet device (a server, NAS, hypervisor, virtual machine, storage or database server, or an industrial
+device) looks up a registered domain (`vendor.co.uk`, not `update.vendor.co.uk`) that no device on the site has looked up
+before. Such devices talk to the same few services for years; a name that is new to the whole site is how the first call of
+malware, or the first step of a data transfer, looks from DNS. **What it needs.** Passive DNS. **How it knows what is new.** DENIS
+keeps a bounded set (40,000) of the registered domains any device looked up; everything looked up while the network learned
+is in it. The set lives in memory, so after a restart a candidate is first checked against the recorded passive-DNS names in the
+database (a few checks per window): a domain the site resolved before is never reported. **What it does not do.** It does not
+judge a device that looked up many new domains while the network learned (more than 24: a mail server, a crawler: it is "chatty"
+and never judged), a device newer in the register than the learning period, a device that resolves names for others, local-only
+names (`.local`, `.lan`, `.arpa`), dynamic-DNS names (their own rule) or failed lookups. *Score:* 45; 10 more on an industrial
+device. *Cooldown:* one alert per device per 24 hours; the domain is known from then on. Not never-quiet; the breaker may pause
+it. Use `--rule-weight new_domain_for_server=<weight>`. *Typical false positive:* a software vendor or cloud service added to a
+server. *Investigate:* what runs on the device that could have asked; look the domain up (who registered it, when).
+
+### `upload_to_file_share`: a large upload to a file-sharing service *(needs `--flows` and passive DNS)*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+
+**What it detects.** A device sends 50 MB or more in one day to a public file-sharing service (Dropbox, WeTransfer, Mega and
+others): the way data is copied out by hand or by malware. **What it needs.** Traffic analysis (`--flows`) for the volume and
+passive DNS for the service. **How it finds the service.** The device's own DNS answers name the address (the last three names
+it was told for each address), and the name is checked against a list that ships with DENIS (`data/file_share_domains.json`: a
+small versioned file with `version`, `updated` and `domains`; about 45 services, refreshed with each release and, if you switch it on, automatically in between; evidence: *best
+guess*, it is not complete; the large office suites are not on it). A flow to an address the device never looked up has no name
+and is not judged; nothing new is stored for the join. **What it does not do.** It does not judge servers, hypervisors, storage,
+NAS and network equipment, the DENIS host or the default gateway, nor a device that sent 50 MB or more in a day to such a
+service while the network learned (a regular user), nor anything while the site learns. The day total (24 hours from the first
+record) lives in the same bounded table as `daily_upload_new_owner`. *Score:* 45; 10 more at 500 MB; 15 more on an IoT or
+industrial device. *Cooldown:* one alert per device and service per 24 hours. Not never-quiet; the breaker may pause it. Use
+`--rule-weight upload_to_file_share=<weight>`. *Typical false positive:* a large file shared with a customer. *Investigate:* ask
+the device's user what was shared.
+
+### `inbound_new_country`: an administration port reached from a new country *(needs `--flows` on the link to the internet)*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+
+**What it detects.** A computer from a country that has not connected to the device for 180 days (the 30-day list shows the usual countries) completes a handshake to a login,
+remote-administration or VPN port that a device offers to the internet (the ports of `inbound_bruteforce`): what stolen VPN or
+remote-desktop credentials look like when used from abroad. **Where the country comes from.** The address enrichment cache the
+console already fills; the rule only reads that cache and makes **no lookup of its own**. An address the cache cannot place (or
+no cache) is not judged and not learned. At most 64 distinct (device, address) pairs are read per window. **Learning.** Each
+device keeps up to 6 countries with the day last seen (in its baseline, so a restart forgets nothing); every sighting refreshes
+the day and a country not seen for 30 days leaves that list. A longer memory of up to 8 country codes with the day last seen (180 days) sits behind it: a country that fell out of the six (scanner noise from many countries) or comes back after a pause is not new while it is in the longer memory, and a device whose six-country list has expired is not treated as a new exposure while the longer memory holds something. A network whose country is already known costs no further address-cache read, so known scanner addresses cannot use up the 64 reads a window allows. They are learned silently while the site learns, and always for a
+device that holds no country yet (a new exposure is `inbound_from_public`'s business). After that the first sighting of a
+country is reported and learned (taken back when the alert is lost). Ports allowed with "Allow this provider" are exempt. *Score:*
+60. *Cooldown:* one alert per device and country per 24 hours. Not never-quiet; the breaker may pause it. Use
+`--rule-weight inbound_new_country=<weight>`. *Typical false positive:* a colleague travelling. *Investigate:* who is meant to use
+the service; the account's login log.
+
+### `slow_scan`: a slow scan of the internal network *(needs east-west accounting or a mirror port)*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+
+**What it detects.** One device opens TCP connections to 50 or more different devices within a UTC day, where it never reached
+more than 10 in the last 14 days: the slow version of a scan that `lan_scan` (two minutes) misses. **What it needs.** East-west
+accounting or a mirror port; only connections whose opener the TCP handshake proved count. **How it counts.** Per source and
+day, a set of up to 64 sixteen-bit fingerprints of the peers (exact below 64, "64 or more" beyond), in memory, at most 4,000
+sources. The first day a device reaches 11 peers is written to its baseline (two bytes); a device with such a day among the previous
+14 is busy by nature and not judged, so a discovery tool that ran while the network learned is learned, and a device that
+scans every day is reported once. **What it does not do.** It does not judge servers, hypervisors, storage, NAS, virtual
+machines, network equipment, the DENIS host, the default gateway or devices tagged `admin-workstation`, `monitoring` or `backup`
+(each skip is recorded in "why it did not alert" as an excluded type), and nothing while the site learns. *Score:* 55; 10 more at
+64 devices or more; 10 more on an IoT or industrial device. *Cooldown:* one alert per device per 24 hours. Not never-quiet; the
+breaker may pause it. Use `--rule-weight slow_scan=<weight>`. *Typical false positive:* a new inventory or backup tool.
+*Investigate:* what runs on the device.
+
+### `cleartext_admin_use`: an unencrypted administration protocol used *(needs east-west accounting or a mirror port)*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+
+**What it detects.** A device opens a Telnet (23), FTP (21), rlogin/rsh/rexec (512 to 514) or VNC (5900 to 5903) session to
+another device, and the server answers with data, for the first time since the network was learned. These protocols send
+passwords and data unencrypted. The ports cannot tell plain VNC from VNC over an encrypted channel, so the rule says "VNC" and
+never claims that a password was seen. **Learning.** Which of the four a device used as the client is learned per device
+(one bit each, in its baseline), silently while the site learns; after that the first use of a protocol is reported and learned
+(taken back when the alert is lost). A connection the server did not answer, or whose client the handshake did not prove, is not a
+use. *Score:* 40; 10 less when the client is a server or an IoT or industrial device, or the server is industrial (old equipment
+is managed this way: scored lower, not skipped). *Cooldown:* one alert per device and protocol per 24 hours. Not never-quiet; the
+breaker may pause it. Use `--rule-weight cleartext_admin_use=<weight>`. *Typical false positive:* an old device that only speaks
+Telnet. *Investigate:* the program that opened the connection; move to SSH, SFTP or an encrypted VNC where possible.
+
+### `llmnr_nbns_responder`: a device answers name queries for other names *(needs `--flows`; IPv4 only; Experimental)*
+*Added in 4.4. Recommended: on an upgraded installation it waits in "New rules in this version" and can be turned on from there; a new installation has it on.*
+
+**What it detects.** One device answers LLMNR (UDP 5355) or NetBIOS name service (UDP 137) name queries for five or more different
+names within five minutes, none of them its own. Windows computers that cannot resolve a name through DNS ask the whole link and
+believe the first answer; a tool such as Responder answers every question with its own address, so the asking computer sends its
+user name and password hash to it. A real computer answers only for itself. **What it needs.** Traffic analysis (`--flows`) on a
+link that carries the queries (a mirror port, or the segment itself); a plain discovery capture does not see these ports. IPv4 only:
+the IPv6 form of LLMNR (`ff02::1:3`) is not read. **How it works.** The capture thread reads only the *answer* of a name query and
+the name it answers for (no address, no payload is kept) and keeps at most 32 names per device per 5 seconds; the inventory
+queues it as a claim when the name changes. The detector keeps, per answering device, up to 8 fingerprints of the names answered in
+the 5-minute window, at most 4,000 devices. Names the device is registered under do not count. **What it does not do.** It does not
+judge the DENIS host, devices typed domain controller, DNS server, DHCP server or WINS server (a name server answers by design),
+a device that already answered for that many names while the site learned (recorded in its baseline), and nothing while the site
+learns (each skip is recorded in "why it did not alert"). *Score:* 75; 10 more when the names include `wpad` or `isatap`.
+*Cooldown:* one alert per device per 24 hours. **Never quiet and never paused**: nothing but switching the rule off hides it, and a device that must answer for many names (a WINS server) is handled by giving it the type "WINS server". Use `--rule-weight llmnr_nbns_responder=<weight>`.
+*Typical false positive:* a WINS or old file server that answers for many names and was not on the network while DENIS learned;
+give it the type "WINS server" or use "This is normal". *Investigate:* the device in the alert: disconnect it, find the program, then
+change the passwords of users active in the last hours and switch off LLMNR and NetBIOS name resolution on your computers (group
+policy). *Evidence:* the message formats are documented (RFC 4795, RFC 1002); the packets of the Responder tool were reproduced from its
+published behaviour, not captured from a running tool (best guess).
+
+### `ot_time_source_changed`: an industrial device takes its time from a new source *(needs east-west accounting, `--flows` or the IEC 104 decoder; Experimental)*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+
+**What it detects.** An industrial device (typed as such, or recognised by its vendor and protocols) takes its time from a source it
+did not use before. A moved clock breaks the correlation of logs and the meaning of sequence-of-events records. **Evidence.** Three
+kinds: an NTP exchange (UDP port 123) between the device and another device in the east-west records (the source is the other
+device; which side asked is a guess from the ports, because UDP has no handshake, so the rule judges the record's client side
+when that side is industrial: best guess); an NTP flow from the device to an address outside your network (IPv4, one source per /24, so a pooled NTP name that answers with a new address each time is one source; from the flow
+records); and an IEC 60870-5-104 clock synchronisation command (type 103) towards an outstation (the controlling station that sent
+it is the source). **Learning.** Per device, up to four source fingerprints (4 bytes each) in its baseline, learned silently while
+the site learns and for the protocol's decoder grace period; a device with no learned source learns its first one silently after
+that too, because there is nothing to compare with. After that a source not on the list is reported and learned (taken back when
+the alert is lost); a fifth source pushes the oldest out. *Score:* 45; 15 more for a source outside your network; 10 more for a
+device rated high or critical. *Cooldown:* one alert per device per 24 hours. Not never-quiet; the breaker may pause it with the
+industrial opt-in. Use `--rule-weight ot_time_source_changed=<weight>`. *Typical false positive:* a replaced time server or a
+new SCADA master. *Investigate:* who changed the time server; keep the time source on your own network.
+
+### `ot_register_range`: a Modbus write outside the usual registers *(needs the industrial decoders; Experimental)*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+
+**What it detects.** A Modbus/TCP write request addresses registers that the path (client, server, port) never wrote to while DENIS
+learned it. **What changed in the decoder.** The Modbus decoder now reads the start address and the count of a write request
+(functions 5, 6, 15, 16, 22 and 23) and the conversation window carries them as at most four merged intervals (a classification field
+of the conversation record; nothing else of the request is kept, and a read carries none). **Learning.** Per path, up to four
+intervals (16 bytes) in memory and in the settings store (up to 10,000 paths; the path idle longest goes after a day when the map is
+full, else a new path is not tracked and the refusal is counted), merged silently while the path is not mature. A path that never
+wrote while the site learned learns its first interval silently (a read-only path that starts writing is `ot_write_escalation`'s). A
+write that overlaps a learned interval is inside, even when it reaches past it; an interval that did not fit was merged with its
+nearest neighbour, which can only hide a write. The interval is learned when the alert is raised (taken back when the alert is
+lost). *Score:* 55; 10 more when the write is 100 registers or more beyond the nearest learned one; 10 more when the writer is not
+an engineering or operator station. *Cooldown:* one alert per path per 24 hours. Not never-quiet; the breaker may pause it with the
+industrial opt-in. Use `--rule-weight ot_register_range=<weight>`. Modbus only: coils and registers share one number space here, and
+other protocols address memory in ways that need their own readers. *Typical false positive:* a new setpoint after a program change.
+*Investigate:* ask the integrator; look at the controller's values.
+
 ### Your own rules: IT rules and OT rules
 
 Besides the built-in rules, administrators write **their own rules** on the Rules page, under **Your IT rules** and
@@ -939,6 +1191,132 @@ Each of these is one IT rule, added from *Rules* → **Your IT rules** → **New
 
 The **except**-style rules (1, 2) are the ones worth learning first: instead of listing every bad destination (which
 you cannot know in advance), you list the *few good ones* and let the rule catch everything else.
+
+<a id="custom_rule-your-rules-with-several-conditions"></a>
+### `custom_rule`: your rules with several conditions
+
+An IT rule looks at traffic to the internet and an OT rule at industrial commands, and each is a flat list of
+conditions that must all hold. A **rule** in the second model (format `denis.rule/1`) can say more, on five kinds of
+evidence, and is judged the same way as every built-in rule: it can be tried first (a trial), its effect on past alerts
+can be calculated before it is changed (*What would this change*), and *Why it alerted, and why it did not* explains it.
+Rules of this kind are written on the Rules page (**+ New rule**, then **Rule with several conditions**, administrators) or
+through the API and the rules file (below); their alerts appear like any other alert.
+The editor is a sentence that is also the form: you choose what to watch, add conditions (each valid only for that kind of
+evidence) in groups of *all of*, *any of*, *none of* or *not all of* (one group level inside the rule, at most 12
+conditions), and say how serious a match is, how often it may repeat and whether it counts only the first time. While you
+write, DENIS checks the rule, shows its cost (cheap, moderate or expensive, in words) and what it would have done in the
+last 7 days (counted for industrial, east-west and name rules, estimated for flows; for connections coming in and for
+rules with a count or a sequence the preview is unavailable and the editor offers a trial instead, which gives exact
+numbers). Save stays off until the rule is valid, and a refusal is said in a sentence. A new rule can start in a trial.
+The older IT and OT rules appear on the same page in the new form, read only, with a button to their own forms.
+Alerts of all such rules are the one kind `custom_rule`; each alert names its rule, and counts, trials and judgements are
+kept per rule as `custom_rule:<id>`. The IT and OT rules above are unchanged and keep running as they were; they can be
+read in the same model (`GET /api/rules/v2` shows them, read only), and their conversion is exact.
+
+**What a rule reads (`source`):**
+
+| Source | Evidence | The device the alert is about (`subject`) | The other side (`peer`) |
+| --- | --- | --- | --- |
+| `flow` | traffic of a monitored device to an address outside your networks (`--flows`) | the device | the remote address |
+| `edge` | a connection between two monitored devices whose client the handshake proved (east-west accounting or a mirror port) | the device that opened it | the device that answered |
+| `ot` | decoded industrial conversations | the device that receives the commands | the sender |
+| `dns` | names a device looked up (passive DNS) | the device that asked | (none) |
+| `inbound` | completed connections from a public address to a monitored device (`--flows` on the link to the internet) | the device that answered | the remote address |
+
+**Conditions** are grouped as *all of* / *any of* with *not*, one level of nesting, at most 12 conditions and 200 entries
+in a list. A condition is a field and its values:
+
+* the device: `subject` (devices, types, tags, networks, zones, Purdue levels), `subject_type`, `subject_vendor`, `criticality`; and for `edge` and `ot`
+  the other device: `peer`, `peer_type`, `peer_vendor`, `peer_criticality`;
+* the traffic: `proto` (tcp, udp, icmp), `port`, `bytes_kb` (at least), and for `flow` and `inbound` the address: `remote`
+  (`private`, `public`, an address or a network), `peer_country`, `peer_asn`;
+* the name: `name_suffix` (a domain and its subdomains);
+* the time, on the site's clock: `days` (0 is Monday) and `hours` (ranges like `08:00-17:00`, which may pass midnight);
+* industrial: `ot_proto`, `ot_writes`, `ot_controls`, `ot_any_traffic`, `ot_command` (words in a function name).
+
+`first_seen` makes a rule raise only the first time for each device (`device`), device and peer (`peer`), device and port
+(`port`) or device and name (`name`). The memory is in the running program: after a restart each can raise once more.
+A country or network is read from the address cache the console already fills; an address the cache does not know is not
+judged (a miss never raises, also not under *not*), and no lookup is ever sent for a rule. A rule that names a zone that
+no longer exists is suspended, not widened. At most 25 alerts per rule and 200 in all are raised from one window of
+evidence; the rest are noted as held back.
+
+A rule has a score (1 to 100, scaled by the weight of `custom_rule` on the Rules page) and a gap (1 to 1440 minutes: at
+most one alert per device, peer, port and name in that time). Its cost is reported as cheap, moderate or expensive from what
+it asks for; all such rules together are one row of the detection meter, budgeted like the IT and OT rules (50 ms per
+window), and paused by the setting *Your own IT rules* when they overload detection. Like those, an alert of an own rule
+cannot be hidden with *This is normal*, and an incident opens on it.
+
+**What a rule remembers.** A rule with *only the first time* remembers what it raised for (90 days); the gap is remembered
+too. A hit that was held back after it was raised (a rule in a trial, an exception, a minimum score) does **not** use up
+the first time, so the rule still raises when it is On; the gap stays, so a trial does not store a record for every match.
+What a rule remembers is tied to the rule and its revision: editing, deleting and re-creating a rule, or ending its trial,
+starts it with a clean memory. A *follows* rule is only fed by alerts that were really raised.
+
+**Exceptions of your own rules.** All rules of this kind share the alert kind `custom_rule`, so an exception is made for **one**
+rule as `custom_rule:<id>` (the alert's *Add exception* and the Rules page do this): it silences that rule and no other. An
+exception made before on the kind `custom_rule` itself keeps working and covers **all your own rules** (the Exceptions list
+names it by the kind).
+
+**Counts and sequences (Experimental, off by default, use more memory).** A rule can wait for more than one match:
+
+* a **count** (`count: {what, min, window_minutes}`): raise only when the device matched the rule with at least `min`
+  different peers, ports or names (`what` is `peers`, `ports`, `names` for name rules, or `events` to count matches
+  themselves; 2 to 50 different ones, up to 1,000 events) within `window_minutes` (1 to 1440). The window starts at the
+  first match; the count starts over after the rule raises and when a window ends. Different items are told apart by a
+  16-bit fingerprint, so two items can be taken for one (a count can be one short, never one too many);
+* a **sequence** (`follows: {alert, within_minutes}`): raise only when the same device already had the alert named by
+  `alert` (a built-in kind such as `lan_scan`, or one of your rules as `custom_rule:<id>`, `it_watch:<id>` or
+  `ot_command_watch:<id>`) at most `within_minutes` (1 to 1440) before. Only alerts raised by the detector are
+  remembered, and only ones that some sequence names; an alert is remembered from the end of the processing step that
+  raised it, so the matching evidence has to come in a later step.
+
+Both are **Experimental** and need the setting **Sequences and counts (Experimental)** (`rule_sequences` in
+`PUT /api/rules`, administrators; off by default and not part of an exported rules file). Why a setting: they keep a small
+record in memory for every device they follow. With the setting **off** nothing is allocated and the rules that use them do
+nothing (*Why it did not alert* says "Needs Sequences and counts (Experimental), which is not switched on"); the rules are
+still saved and exported. With it **on** DENIS holds at most about 4.4 MB more: 896 devices per counting rule, 25 such rules
+at most, and 1,792 remembered alerts; when a table is full the entries that end soonest are dropped, so a flood of
+different devices can neither grow it nor fill another rule's table. Switching the setting off frees the memory at once.
+A rule with a count or a sequence cannot be previewed (a trial gives exact numbers) and costs more points in the cost light.
+
+**Storage and the API.** Each rule is one saved item with a revision and a history. `GET /api/rules/v2` (everybody signed
+in) lists the rules with their state, cost and alerts of the last 7 days, and describes the fields and limits;
+`POST /api/rules/v2/validate` checks a rule and returns its canonical form, its cost and warnings; `POST /api/rules/v2/preview`
+says what a rule would have done over the last 7 days of stored data (counted for `ot`, `edge` and `dns`, estimated for
+`flow`, not available for `inbound`, whose connections are not stored; a trial gives exact numbers); `PUT` and `DELETE`
+`/api/rules/v2/{id}` (administrators) create, replace and delete. The rules are also in the rules file (`rules_v2`), and
+importing a file checks every rule and refuses a newer format. A rule saved while *Start new rules in a trial* is on starts
+in one. An id is one name across IT rules, OT rules and these.
+
+**Export, import and templates.** The unit is one rule. *Export rules* (or *Export* on a row) writes a file `denis.rules/1` that holds
+the rules and nothing else: no settings, no trial state, no exceptions, no token or password; a zone a rule names travels with its
+name. *Import rules* reads such a file (or a whole rules file of an earlier version, from which only the rules are read) and first
+shows a **plan** with one row per rule: *New*, *Already here, the same*, *Already here, different* (with the revision it would
+replace), *Conflict* (the id belongs to one of your IT or OT rules) or *Cannot be imported*, each refusal with its reason: more than 12
+conditions, a list with more than 200 entries, a zone or a device that does not exist here (or a zone number that is another zone
+here), more than 25 rules with a count or a sequence, more than 500 rules. Nothing is changed until you choose Import. A rule that is
+already here is **never replaced unless you choose it** (replace it, import it as a copy, or leave it out); an import never switches an
+existing rule on or off and never switches *Sequences and counts (Experimental)* on (a rule that needs it is imported and says so).
+Every rule that is on starts in a **trial** of 14 days (you can change the days): it is judged as usual and counted, nothing is sent
+and nothing turns on by itself. Replacing a rule that is on puts it into a trial too, so its alerts are only counted meanwhile; the
+plan says so. Device conditions name a device by its number, which is different in another installation, so the plan warns about them
+and refuses a number that does not exist here. *Templates* is a library of ready rules (versioned `name@n`, for example *Remote
+desktop to the internet*, *Controller talks to the internet*, *Industrial write at night*, and, Experimental, *Admin sessions spread,
+then a big upload*): each opens the editor filled in, with a draft that has conditions and no name of its own yet. Imports and
+exports are audited (`rules.import`, `rules.export`, ids only), and over a management link they are the same class as the other
+rule changes (Configure; a dry run too).
+
+**Rules your MSP sends.** An MSP that manages this installation can send a `denis.rules/1` file (4.4; see [MSP management](msp-management.md#sending-rules-to-customers)).
+It is **off by default**: under Settings, MSP management you choose *Not allowed*, *Ask me* (every set waits for an administrator
+here, with the plan of the import) or *New rules go straight into a trial* (new rules only; anything that would replace a rule or
+is in conflict still waits). The rules arrive in their **own category on the Rules page, "Managed by <MSP>"**, apart from your own,
+each tagged with who sent it. They start in a trial of the number of days you chose and never turn themselves on. You can switch each
+one on or off, look at it and delete it, and **Take back all** deletes everything of one delivery; the history of each rule is kept.
+They cannot be edited in place (export one and import it as a copy to make your own). A delivered rule never carries a response or an
+enforcement action, never names a device or a site by number, and names its zones by name (the zone of that name here is used;
+none or two of that name is a refusal). The audit trail names the technician (`rules.import` by `msp:<MSP>:<technician>`, or the
+administrator who accepted an offer).
 
 ### `segmentation_violation`: traffic your zones and policies do not allow
 
@@ -1218,23 +1596,58 @@ On the **Rules** page (administrators):
 * **Weight, minimum score and thresholds**, as before. Every rule also has **Alert only from score**: below it that
   rule is only logged, whatever the global minimum is. New settings include the burst size and window of
   `new_device_burst`, the repeat gaps of the OT rules and how many Purdue levels apart count as skipping.
-* **Exceptions**, per rule: devices (by name), **device types**, **tags** and **networks** (`10.0.5.0/24`) that
-  the rule stays quiet about. Typical uses: "never tell me about new destinations for the printers", "the lab VLAN
-  may do anything", "this HMI is allowed to write". For industrial alerts the **sending** device counts too, so
-  excepting the engineering station silences its control commands. An excepted alert is not stored at all; the
-  audit log records who set the exception. A device-kind exception shows as a row — its name, MAC and IP, and,
-  when it was added the quick way below, why.
+* **Exceptions**, per rule: see [Exceptions](#exceptions) below.
 * **Add exception**, on an alert itself (its row on the *Alerts* page, or its own detail dialog; administrators):
   one click adds the right exception for that exact alert, without a trip to the Rules page, and acknowledges the
   alert in the same step. What it adds depends on the rule: a device-scope exception for an ordinary rule; the
   alerting device added to that IT rule's own exceptions (`it_watch`); or the **sender** (who sent the
   command, found by MAC — not necessarily the device the alert is filed under) added to that OT rule's
-  allowed senders (`ot_command_watch`).
+  allowed senders (`ot_command_watch`). It is a full exception: the reason is the alert itself and it ends in 90 days.
 * **OT rules** ([OT guide](ot-guide.md#ot-rules)): tell DENIS which commands to alert on, for
   which targets, and from which senders never.
 
 *Reset everything to defaults* returns weights, thresholds and minimum scores to their defaults and **keeps** your
 exceptions and rules (they are your content, not tuning).
+
+## Exceptions
+
+An exception tells one rule to stay quiet about something. Since 4.4 every exception has an expiry, a reason, a scope and a
+"last matched" figure, and all of them are in one list (**Rules → Exceptions**, with filters).
+
+* **Scope.** A **device** (by name), a **device type**, a **tag**, a **network** (`10.0.5.0/24`) or a **site** (every device
+  of one site; the local network counts as a site). Any of the first four can also be **limited to a site**, so "cameras" can
+  mean the cameras of one branch. For industrial alerts the **sending** device counts too, so excepting the engineering
+  station silences its control commands. An excepted alert is not stored at all.
+* **Reason.** Required for every new exception, up to 200 characters (what makes this normal?). The quick way from an alert
+  fills it with the alert itself.
+* **Expiry.** The form offers **30 days**, **90 days** (the default), **1 year** or **no expiry**. An exception stops
+  applying **at** its expiry second. It is then **shown, greyed, as "expired on ..."**, and **never deleted by DENIS**:
+  you renew it (a new expiry counted from now, one audit entry) or delete it (the only way it goes, one audit entry).
+  While it is expired, an alert it would have covered is raised as usual and the judgements say **exception expired**,
+  naming it, instead of saying nothing. The Rules page shows a small line when exceptions end within 14 days or have ended.
+* **Who and when.** The exception records who made it and when. Creating one keeps the authorization it always had (the
+  administrator; a remote link needs the Configure class); the expiry choices add no extra step. An administrator limited
+  to some sites can add, renew and delete only exceptions of the sites they may change (a site exception, or a device on
+  such a site) and sees only those of the sites they may read; one that names no site is for a reader of every site.
+* **Last matched.** Each exception shows when it last silenced an alert and how many it has silenced. DENIS counts in memory
+  and writes the figures to the database **at most once a minute**, in one row for all exceptions (never one write per
+  alert and never the rules themselves), so a restart can lose at most the last minute of counting.
+* **What an exception does not change.** An administrator's exception still drops the alerts of its rule as it always did.
+  "This is normal" ([below](#this-is-normal-and-how-useful-each-rule-is)) can still never quiet the rules that must never be quiet, whatever the scope
+  or the expiry. Those decisions are listed beside the exceptions, read only.
+* **Old files.** A rules file, an export or a stored setting from before 4.4 imports unchanged: its exceptions have no
+  expiry and no reason, are shown as **no expiry**, and apply exactly as before. Importing does not ask for a reason of an
+  exception of the old shape (a file that carries a `format_version` this DENIS reads is an import, and an exception in it
+  with only a kind, a value and a note, or with a reason of its own, is kept as it is); any other *new* exception sent to
+  `PUT /api/rules` without a reason is refused, and without an `expires_at` it gets the 90 days. An export carries every new field, the last-matched figures included, and
+  they come back on import.
+* **API.** `GET /api/rules/exceptions?rule=&kind=&site=&state=&text=` (`state` is `active`, `expiring` for the next 14 days,
+  `expired` or `no_expiry`; `site=local` is the local network; an exception that names no site applies to every site and is listed for each) lists every exception the caller may read, with `id`, `rule`,
+  `kind`, `value`, `site`, `reason`, `expires_at`, `state`, `created_by`, `created_at`, `last_matched_at` and `match_count`,
+  and a `summary` of how many are ending or expired. `POST /api/rules/exceptions` creates one (`rule`, `kind`, `value`, optional
+  `site` and `note`, required `reason`, and `expires_in_days`, `expires_at` or `no_expiry: true`);
+  `POST /api/rules/exceptions/{id}/renew` renews; `DELETE /api/rules/exceptions/{id}` deletes. Each writes the audit entry
+  `rules.exception_add`, `rules.exception_renew` or `rules.exception_delete`.
 
 ## Verifying a fix and accepting a risk
 
@@ -1298,7 +1711,7 @@ industrial network, so DENIS pauses one only if you choose that, after a strong 
 **Some rules are never paused**, whatever you choose, only warned about: every rule that is never kept quiet (threat list,
 rogue DHCP and router advertisements, DHCP changes, sweeps, segmentation, fingerprint changes, a changed gateway,
 and the industrial command and write rules), the safety-critical industrial rules (`ot_program_upload`,
-`ot_concurrent_masters`, `ot_identity_changed`), `dns_threat_domain`, `inbound_then_fetch` and the rules they are built
+`ot_concurrent_masters`, `ot_identity_changed`), `dns_threat_domain`, `inbound_then_fetch`, `mac_flood`, `llmnr_nbns_responder` and the rules they are built
 from, and every built-in rule of 4.2 and earlier. The complete list, the numbers and the metrics are in
 [Operations](operations.md#when-a-rule-is-paused-or-detection-is-overloaded). Packet loss from overload is reported:
 Health shows it, and a high notice is sent when traffic was lost while detection was far behind.
@@ -1338,6 +1751,155 @@ API: `POST /api/alerts/{id}/normal`, `GET /api/rules/normal/suppressed`, `GET /a
 [API reference](api.md). The settings that keep routine alerts quiet on their own are in
 [Alerting](alerting.md#what-denis-keeps-quiet).
 
+## Trying a rule first (trial)
+
+A new or changed rule can be tried before it speaks up. A rule in a **trial** is judged exactly as usual (the same
+checks, the same cost counters, the same overload protection), but what it raises is only counted: it is stored as an
+ordinary record marked *would have raised*, and nothing else happens. No notification and no channel message, no
+incident, no Autopilot decision, no prepared response, no enforcement action, and the alert does not appear in the Alerts
+list. A trial alert is not counted among the raised alerts of the rule either; it has its own number.
+
+A trial is an **option and a recommendation, and it is off by default**. A new rule, a rule you change and a rule you
+switch on all start live, as before, unless you choose a trial:
+
+* **For one rule**: in the rule's details, *Try it first* (7, 14 or 30 days; the server accepts 1 to 90), or the box *Try it
+  first* in the rule dialog when you save your own rule. Nothing else changes.
+* **For every new rule**: *Rules → Global settings → Start new rules in a 14-day trial*. Off by default. When it is on, an
+  own rule you create, or a rule you switch from off to on, starts in a trial of the days you set. Switching the setting on
+  starts nothing by itself, and rules you merely edit are not put in a trial.
+
+The rule's row and details show its **state**: *Off*, *Trial · day 3 of 14 · would have raised 5*, or *On*. *Show what it
+would have raised* lists the newest would-have-raised alerts with the device, the score and severity they would have had,
+and the count per day. A person ends the trial with *Turn on now*, or gives it *7 more days*; when the planned days are
+over the row says so, and **nothing changes by itself**. Only if you ticked *Turn on by itself when the days are over*
+for that rule (or in the global setting) does the rule go on at the end of the days, once, with a notice in the
+notification centre. A rule that is switched off cannot be tried (turn it on first), and deleting your own rule ends its
+trial. A rule you mark off while it is in a trial is Off.
+
+A trial hides an alert from everyone, including alerts that are never kept quiet: that is the point of an explicit trial,
+so use it for rules whose noise you want to see first. The per-day counts are kept 400 days with the other rule counts
+(*How useful is each rule*, the column `trial` of the CSV). The trial list reads the stored events, so it reaches back as
+far as event retention. The trial of a rule is this installation's live state and is not part of a rules export.
+
+API: `GET /api/rules/trial?rule=` (viewer), `PUT /api/rules/trial/{rule}` and `PUT /api/rules/trial-default`
+(administrator); also `trial` and `trial_default` in `PUT /api/rules`. See the [API reference](api.md).
+
+## New rules in a release
+
+A release can bring new rules. On an installation that already existed, **a rule that is new in a release arrives
+switched off**: it does not judge anything and it is not counted as an enabled detection until you decide. This is on
+purpose: a new rule never starts raising alerts, or taking cost, by surprise.
+
+* **The panel.** *Rules → New rules in this version* lists every new rule with a one-line description, whether it is
+  **Recommended** (a low-noise rule) or **Optional**, a **cost light** (*Cost: low*, *medium* or *high*, from the
+  detection cost table, shown when the rule has a row there) and its state: *Waiting for you*, *On*, *In a trial, day 3 of
+  14* or *Off*. *Turn on all* switches every waiting rule on; *Turn on all as a 14-day trial* starts each one in a
+  [trial](#trying-a-rule-first-trial) (judged, only counted, nothing sent); on each rule *Turn on*, *Try 14 days first* or
+  *Keep off* decide one by one. A rule you keep off stops counting as waiting and stays off until you turn it on on the
+  Rules page. Under each waiting rule the panel says *Would have raised about N alerts in the last 7 days*, counted from
+  the stored events of the rule's kind (see [What would this change](#what-would-this-change)); a rule whose kind has left
+  nothing in the history yet says *No history yet*, never 0.
+* **The notice.** The overview shows *N new rules are waiting* with a link to the panel, and the daily digest says it too.
+  Both disappear when nothing waits.
+* **A new installation** gets the *Recommended* new rules switched on; the *Optional* ones wait in the panel like on an
+  upgrade. A database counts as new when it was created by a build that knows this rule set (its install record carries
+  `rule_set` 4.4 or newer, also in a pre-release build that is still versioned 4.3.0); every other database is an upgrade.
+  The first start writes that decision once (setting `rules.intake`), so it cannot change later.
+* **Turn on new low-noise rules automatically** (*Rules → New rules in this version*, **off by default**). When it is on,
+  the *Recommended* rules a version brings are switched on by themselves, once, with an audit entry (`rules.new_auto`);
+  the *Optional* ones always wait. Without this setting **nothing is switched on for you**.
+* **In a trial a rule raises no alerts, also not for serious findings.** A trial stores a rule's alerts as
+  *would have raised* records, including the kinds that are never kept quiet; the console says so in plain words next to
+  the trial choices of such a rule.
+
+Under the hood a waiting rule has the weight 0 (the same as switching it off), and the rule is not run at all when it has a
+detection cost row of its own (it is not metered, not skipped by the overload protection and not shown as running in
+Health). Accepting a rule only records the decision (setting `rules.intake`, and `rules.accepted_version` once nothing
+waits); the rule starts at the next refresh of the rules, within seconds. A rule you had already set to weight 0 yourself
+stays off. Rules that are not new are not touched in any way.
+
+API: `GET /api/rules/new` (any signed-in reader), `POST /api/rules/new/accept` with
+`{mode: all|trial|ids|off, ids?}` and `PUT /api/rules/new/auto` with `{enabled}` (administrator; Configure class on a
+remote master). Audited as `rules.new_accept` and `rules.new_auto_setting`. See the [API reference](api.md).
+
+## What would this change
+
+Before you save a **weight**, a **minimum score**, an **exception** or a rule's **state** (on, trial, off), DENIS can say
+what the same change would have done to the alerts of the last 30 days, for example: *Over the last 30 days this would have
+raised 12 alerts instead of 40 alerts (28 fewer, 2 of them ones you acted on).* It is a read: it changes nothing and never
+blocks saving.
+
+* **Where it appears.** A small *What would this change?* box under the weight and *Alert only from score* of a rule (also
+  when you use the *Quieter / Normal / Louder* buttons), under the general minimum score, under the form that adds an
+  exception (as soon as you have picked what to except, before you press *Add*), and in the rule dialog of a saved rule of
+  yours when you pause it or tick *Try it first*. It waits a moment after the last keystroke, asks one question at a time,
+  shows *Checking the last 30 days…* while it works, and says *Could not check what this would change* if it fails.
+* **What it counts.** The alerts raised in the window and the alerts there would have been, the difference, how many of the
+  removed ones **you acted on** (acknowledged by a person, part of an incident, or part of an incident that got a response;
+  an alert closed by the clock is not counted as acted on), the three devices that change most, and a figure per day.
+* **Why it is exact.** An alert is stored with its rule, its device, its time and its score after the rule's weight, and the
+  minimum scores and exceptions are applied at the one place where an alert is stored. So the stored score, scaled by the
+  new weight over the weight in force, and judged against the new minimum or exception exactly as the alert path does it,
+  gives what would have been raised. Two caveats, said in the console: the weight in force at the time of an old alert is
+  taken to be the weight saved today (the settings keep no history), so a score can be off by one point at a boundary; and a
+  stored event that today's settings do not explain (for example the general minimum was changed since) is **counted as it
+  was** and reported as *do not fit today's settings*, so a change that changes nothing always gives the stored counts.
+* **What it does not claim.** It cannot see what was never stored. A change that **raises** alerts (a higher weight, a lower
+  minimum, taking an exception away, turning a rule on) can only count events that were stored, so it says *at least* and
+  that it is a lower bound. **Removing an exception** cannot be simulated at all (what it hid was never stored), and
+  neither can a **parameter** of a detector (a threshold, a window): that depends on what DENIS has learned about each
+  device, which is not kept with each alert. For those the answer says so plainly and gives **no number**. A rule that is off
+  and has nothing in the history says so instead of showing 0.
+* **Bounds.** At most 30 days and 50,000 stored events are read, newest first, in pages; if the cap stops the scan the box
+  says how far back the numbers reach. Only the alerts of the sites you may read are counted (a viewer limited to some sites
+  sees only those), and the call writes nothing (a test runs it on a database opened read only).
+
+API: `POST /api/rules/what-if` with `{change, days?, site?}` where `change` is one of
+`{kind: "weight", rule, value}`, `{kind: "min_score", rule?, value}` (no `rule`: the general minimum; `value: null` removes a
+rule's own minimum), `{kind: "exception", rule, scope: {kind, value}}`, `{kind: "exception_remove", rule}`,
+`{kind: "mode", rule, state: "on"|"trial"|"off"}` or `{kind: "param"}`. Any signed-in reader may call it (viewer role;
+API tokens in the *alerts* area; the Configure class on a remote master, like the dry run). See the
+[API reference](api.md).
+
+## Why it alerted, and why it did not
+
+Two questions people ask about a rule: *why did I get this?* and *why did this not alert?* DENIS answers both from what it
+decided, without adding work for every packet. The work is done where a decision is made, never per packet or per record.
+
+* **Why you got this.** An alert raised in 4.4 or later carries, in its details, the settings that applied to it: the weight
+  of the rule, the minimum score and where it came from (the rule's own, the one for all rules, or the standard one), whether
+  quiet alerts were on and the noise profile of the device, the exceptions that were checked (named, at most eight, with the
+  count of the rest) and how many *This is normal* decisions were checked. The alert window shows them under **Why you got
+  this**, with a link to the rule. An alert stored before 4.4 has no such block and shows nothing there. It is written where an
+  alert is stored, and only for an alert that is raised; the rules themselves are not changed.
+* **Why it did not alert.** When a rule decides not to raise something it was about to, DENIS notes it: the rule, the device, the
+  time and the reason. The last 64 such decisions of each rule are kept, and a count per reason. The same decision about the same
+  device is merged into one line with a count, so a device held by a cooldown does not push the others out. The list is **kept in
+  memory only**: it starts empty after a restart, and the console says *since the last restart*. It never holds more than 64
+  lines for a rule or lines for more than 96 rules at once (the rule used least recently is dropped first); its memory is declared
+  in the same budget as the new rules (about 0.7 MB at most).
+* **The reasons.** `learning` (the device, or the whole network after *Restart learning mode*, is still learning; with the days
+  left), `below_min_score` (the score was under the minimum), `exception` (an exception you set covers the device; which one and when it ends), `expired` (an exception you set would cover the device but has expired, so the alert was raised),
+  `cooldown` (the same alert was raised a short while ago), `quiet` (recorded as a quiet entry; which quiet reason),
+  `normal` (you marked it as normal), `trial` (the rule is in a trial), `held` (a new rule waiting for you to turn it on),
+  `paused_by_meter` (the rule took too long and the meter paused it), `needs_traffic_analysis` (the rule needs a source that is
+  not switched on), `excluded_type` (the rule leaves this kind of device out) and `off` (the rule is switched off). The last
+  five, and `learning` for a device, are states rather than events: they are worked out when you ask, not recorded while
+  detection runs. `excluded_type` is reserved for the rules that leave a device type out; until a rule reports it, it does not appear.
+* **Where it appears.** On a rule's row, a small *N not raised* tag (with the counts per reason on hover), and in its details a
+  section **Why it did not raise** with the states that keep it from raising now and its last decisions. On a device, the list
+  **Rules that looked at this device** (the latest decision of each rule, for example *Cooldown, 10:42, not raised*), whether
+  the device is still learning, and the rules that are not judging at all (off, on hold, paused, missing a source).
+* **What it does not claim.** It does not list every candidate a rule looked at: a rule that finds nothing unusual decides
+  nothing, and leaves no line. A few built-in rules note a cooldown where they hold one back; the others show the reasons that
+  are decided at the one place where alerts are stored (minimum score, exceptions, quiet, *This is normal*, trial, learning
+  restarted by hand). Counters and lists are for the whole installation; a person limited to some sites sees only the devices of
+  their sites and their share of the counts.
+
+API: `GET /api/rules/{rule}/judgements?asset=` (the rule's last decisions, the counts, the states, and with `asset` that device's
+learning) and `GET /api/assets/{id}/judgements` (the device panel). Any signed-in reader may call them (viewer role; API tokens
+in the *alerts* and *inventory* areas; read class on a remote master). See the [API reference](api.md).
+
 ## Learning mode, and forgetting a baseline
 
 Besides the initial learning period, an administrator can **continue learning mode** for the whole network for 1
@@ -1364,3 +1926,24 @@ Rule settings can be **exported as a file and imported** on another install (*Ru
 Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
 * Off by default. When on, traffic between two of your own devices (a laptop and the file server, an HMI and a PLC) is recorded as relationships: who talks to whom, over which service, and since when. That is internal behaviour DENIS otherwise does not see, so switch it on only where that is acceptable. Takes effect at once, no restart. Needs traffic accounting (--flows) or a mirror interface; remote agents are switched with --east-west. The limits and what they cut are on the Health page.
+
+## Updating the shipped lists
+
+Two rules, `dynamic_dns_first_use` and `upload_to_file_share`, read lists that ship with DENIS (`data/ddns_suffixes.json`,
+`data/file_share_domains.json`). They are refreshed with each release. **Settings, Data, "Update the shipped lists automatically"**
+(4.4) lets DENIS also fetch a newer copy between releases. It is **off by default, and while it is off DENIS makes no call for
+this**: the lists in use are the ones that came with the version, whatever was fetched before.
+
+* **Where from.** The place DENIS gets its own updates from: the repository's latest release (`lists.json`), and `usedenis.com`
+  only when GitHub cannot be reached and you allow the fallback host under Software updates. A build started with
+  `--no-update-check` never fetches. Nothing about your network is sent, and the request goes through the outbound policy like the
+  program's own update.
+* **When.** At once when you switch it on, once after DENIS itself was updated, and then once a week; a failed try waits six hours.
+  *Update now* is available only while it is on.
+* **Signed.** The file is signed with the release key, like the program; a copy whose signature does not verify is not read.
+* **The previous list stays.** A copy that is older than the list in use, much smaller (less than half), has too many invalid names or
+  does not read is refused whole, and the reason is shown. Only a newer, valid list is used.
+* **Health** shows the last good update and the last failure, and warns when it has not worked for two weeks.
+* It does not change the **threat list sources** (abuse.ch, Spamhaus, the Tor exit list), which stay off until switched on one by
+  one, and it does not touch the abuse.ch Auth-Key (kept only for ThreatFox and URLhaus, shown under Settings, Data, Threat list
+  sources).

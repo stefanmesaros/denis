@@ -81,7 +81,7 @@ maintainer's honest reading; "partial" means a named part is missing.
 |---|---|---|---|
 | Identify and document components (SBOM) | CycloneDX and SPDX bills of materials from `Cargo.lock` plus the static libpcap and musl, attached to each release | [SBOM.md](SBOM.md), `tools/sbom.sh`, `tools/sbom-extra.json` | partial: written by hand on the source tree; the release job has not run yet |
 | Fix without delay; security updates | Fixes are released as patch releases of the affected minor line through the signed update path, and install automatically where automatic security updates are on; a release that fixes a security problem is marked (`SECURITY-RELEASE`, listed in its signed checksum list; on usedenis.com in the signed manifest; a label for the console only, RELEASING.md) and announced with a high notice where it is not installed by itself | `CHANGELOG.md`, [docs/updates.md](../updates.md#automatic-security-updates), RELEASING.md | done; no separate security-only release stream |
-| Regular tests and reviews | About 4,700 automated tests, fuzz targets for the untrusted-input parsers, clippy with warnings as errors, a pre-release script that stops at the first failure, code reviews before releases | `tools/pre-release.sh`, `.github/workflows/ci.yml`, `fuzz/`, RELEASING.md | partial: **no independent penetration test yet** |
+| Regular tests and reviews | About 6,500 automated tests, fuzz targets for the untrusted-input parsers, clippy with warnings as errors, a pre-release script that stops at the first failure, code reviews before releases | `tools/pre-release.sh`, `.github/workflows/ci.yml`, `fuzz/`, RELEASING.md | partial: **no independent penetration test yet** |
 | Disclose fixed vulnerabilities publicly | GitHub security advisories for confirmed problems; reporters credited unless they prefer not | [SECURITY.md](../../SECURITY.md) | process exists; no advisory has been published yet from this process |
 | Coordinated vulnerability disclosure policy | Private reporting through GitHub; acknowledgement within 3 working days; assessment and a fix or mitigation plan within 30 days for serious issues; up to 90 days before publication | [SECURITY.md](../../SECURITY.md) | done |
 | Contact address for reports | GitHub private vulnerability reporting on the repository's Security tab, or mail@usedenis.com | [SECURITY.md](../../SECURITY.md) | done: GitHub private vulnerability reporting, or e-mail to mail@usedenis.com for reporters without a GitHub account |
@@ -163,7 +163,6 @@ and in the console, and decide what "supported" covers beyond security fixes.
 | What | Where |
 |---|---|
 | Product description, features, edition limits | [README.md](../../README.md), [docs/index.md](../index.md), [docs/licensing.md](../licensing.md) |
-| What is verified, and how | [Enforcement validation](../nac/validation.md) |
 | Threat model, controls, known limitations, verification performed | [docs/security.md](../security.md) |
 | Enforcement safety model | NAC.md, [docs/enforcement.md](../enforcement.md) |
 | Hardware validation status | NAC_HARDWARE_VALIDATION.md, the generated matrix in [docs/enforcement.md](../enforcement.md) |
@@ -172,7 +171,7 @@ and in the console, and decide what "supported" covers beyond security fixes.
 | Vulnerability reporting policy | [SECURITY.md](../../SECURITY.md) |
 | Update mechanism and signing | [docs/updates.md](../updates.md), RELEASING.md, `SHA256SUMS` and `SHA256SUMS.sig` on each release |
 | Software bill of materials | [SBOM.md](SBOM.md); the files are attached to each release from the first release that includes the SBOM job |
-| Third-party licences | THIRD-PARTY-LICENSES.md, `deny.toml` |
+| Third-party licences | [THIRD-PARTY-LICENSES.md](../../THIRD-PARTY-LICENSES.md), `deny.toml` |
 | Dependency checks | `.github/workflows/dependency-audit.yml`, `.github/workflows/ci.yml`, `.cargo/audit.toml` |
 | Release process and pre-release checks | RELEASING.md, `tools/pre-release.sh`, `.github/workflows/release.yml` |
 | Tests | `src/` (unit tests next to the code), `tests/` (integration tests), `fuzz/` (fuzz targets) |

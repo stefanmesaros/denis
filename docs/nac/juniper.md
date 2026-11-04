@@ -1,8 +1,8 @@
 # Enforcement: Juniper SRX
 
-Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from Juniper's NETCONF and Junos XML API documentation and checked against a fake SRX in DENIS's own tests. It has never been run against a real SRX. Nothing here is listed as validated on hardware.
+Status: **Experimental.** Everything below was built from Juniper's NETCONF and Junos XML API documentation and checked against a fake SRX in DENIS's own tests. It has never been run against a real SRX. Nothing here is listed as validated on hardware.
 
-Lab use: the host block (address set) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The actions new in 4.1 (flow block, quarantine, ending sessions) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
+Lab use: the host block (address set) is allowed only while an administrator has switched on *Allow Experimental connectors (lab use)* under *Settings → Response policy*. The actions new in 4.1 (flow block, quarantine, ending sessions) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
 
 Besides the connector's own refusals, every action through it is refused for a loopback, unspecified, broadcast or multicast address, for DENIS itself and for the gateway, for the addresses on this connector's protected list, for an address in an open `arp_conflict` alert (unless the administrator ticks a box to accept that) and for any address that belongs to the SRX itself, before anything is sent. Releasing is never refused for these reasons.
 

@@ -71,6 +71,7 @@ altogether. The port scan and the ping can also be switched off in the console, 
 |---|---|
 | Send nothing at all | `--passive-only`. DENIS then only listens: ARP, DHCP, mDNS, SSDP, LLDP/CDP and the like. Devices that never announce themselves, port lists, banners and the certificate probe are then missing from the inventory |
 | Listen only on an industrial or sensitive network | `--profile ot` (no sweep, no ping, no port scan, no banner reads). `--active` adds back a slow, paced ARP sweep |
+| Send nothing, from the console | Settings → Capture → Active probing, **ARP sweep** off (4.4; the quick start's *No, only listen* does the same). The ping and the port scan follow the sweep, so they stop too. Devices then appear when they talk. Takes effect at the next sweep, without a restart |
 | Stop the port scan, keep the ARP sweep and the ping | Settings → Capture → Active probing, **Port scan** off, or `--no-port-scan`. The banner reads stop with it. Port lists and banners are then no longer refreshed |
 | Stop the ping, keep the ARP sweep | **Ping** off in the same place, or `--no-ping` |
 | Stop either for one network only | Settings → Capture → Monitored networks, **Probing…** on that network: port scan and ping each *as the global setting*, *on* or *off* |
@@ -85,6 +86,8 @@ For the systemd service put the flags in the service's arguments or `/etc/denis/
 [Deployment](deployment.md). The flags set the starting values; they are applied when DENIS starts.
 
 ### Port scan and ping switches
+
+A brand-new installation of 4.4 or later starts with the **port scan off**: the quick start asks first, and the port check is on only if the administrator ticks it. ARP and ping are on from the start. An installation that existed before is not changed.
 
 Two switches, each on by default (an install that never changes them sends exactly what it sent before 4.2):
 
@@ -141,7 +144,7 @@ test then reports an empty WAN leg and rates the browser leg alone.
 
 ### What cannot be switched off separately
 
-* The ARP sweep cannot be switched off while DENIS probes at all; only `--passive-only` (or the OT profile) stops it.
+* The ARP sweep is switched off as a whole (**ARP sweep** in Settings → Capture, or `--passive-only`, or the OT profile): there is no setting that keeps the ping and the port scan but drops the sweep, because they work on the hosts the sweep found. A rescan you ask for (**Scan again**, a fix confirmation) is still sent.
 * The list of scanned ports and the connection limit (64 at a time) and timeout (800 ms) are fixed in the program.
 * The ARP sweep pacing is fixed (2 ms, or 50 ms in the OT profile) and cannot be changed.
 * Banner reads of the always-on kinds (SSH, FTP, SMTP and HTTP) cannot be disabled on their own while the port scan

@@ -1,8 +1,27 @@
 # Changelog
 
-This is a customer-facing summary of what changed release to release — grouped by what it means
-for you, not by internal implementation detail. Every release's full technical notes ship inside
-the binary and the GitHub Release page for that version.
+<!-- Each "## <version>" section has two parts. Above its "<!-- details -->" line is the release
+     notes: they appear in every customer's update window (plain text, so no markdown markup) and on
+     the GitHub release, so keep them short, in plain language, with no ROADMAP/step numbers, API
+     paths, rule or file names, or internal groundwork. Below it is the full technical record, kept
+     here only. tools/pre-release.sh checks this. -->
+
+## 4.4.0
+
+Before you update: back up the DENIS database and the file secrets.key. At the first start 4.4 changes the format of stored passwords and keys in one step, and 4.3 cannot read it. The way back (a command, or your backup) is described in the High availability page.
+
+- Connectors: DENIS shows where a device is plugged in (access points and switches under their controller, virtual machines under their host). New: TP-Link Omada, MikroTik Wi-Fi and Cisco Catalyst 9800 wireless controller (all Experimental, not yet tried on real equipment). UniFi Wi-Fi blocking, the Cisco FDM and FMC firewalls and AWS were tested in a lab and carry no label. Azure stays Experimental.
+- Respond is one dialog that names the few responses that can work for this device and why one is recommended.
+- Address spaces: the same address in two routing domains is no longer taken for one network. A shared hardware address can be split by an administrator.
+- Twelve new detections (three, for name poisoning and industrial networks, are Experimental). After an upgrade they arrive switched off and wait on the Rules page. New: a trial mode for rules, exceptions with an expiry, a view of what a change would have done over the last days, and the reason a rule alerted or did not.
+- Write your own rules with several conditions, try them, export, import or start from a template. Counts and sequences are Experimental and off by default.
+- An MSP can send you rules. You stay in charge: not allowed (the default), ask me, or into a trial. MSP management is no longer marked Experimental.
+- Shipped lists can update themselves; off by default. The abuse.ch feeds use the current ThreatFox and URLhaus interfaces.
+- Alerts and notices go through a durable queue: a receiver that is down, a restart or a failover no longer loses a message.
+- Every customer has its own data key. You can rotate it and the master key while DENIS runs and keep a passphrase copy of the master key.
+- Two servers on one PostgreSQL database are safer, and customers can live in PostgreSQL (both Experimental; tested in containers and a local fault lab, not on a managed service).
+- Easier start: a Start page, one-line enrolment of agents, single-use invitations for MSP customers. Licensing counts devices seen in the last 30 days (tiers DENIS 500, DENIS 5000, DENIS 20000).
+- Security fixes from the code review and patch updates of libraries, among them certificate verification.
 
 ## 4.3.0: more than 40 new detections, a redesigned Network section, site administrators and read-only UniFi and Meraki clients
 

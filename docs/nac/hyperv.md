@@ -1,8 +1,8 @@
 # Enforcement: Microsoft Hyper-V
 
-Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from the Hyper-V PowerShell reference and the WS-Management wire format and checked against a fake WinRM server in DENIS's own tests, which interprets the scripts DENIS sends. It has never been run against a real Hyper-V host. Nothing here is listed as validated on hardware.
+Status: **Experimental.** Everything below was built from the Hyper-V PowerShell reference and the WS-Management wire format and checked against a fake WinRM server in DENIS's own tests, which interprets the scripts DENIS sends. It has never been run against a real Hyper-V host. Nothing here is listed as validated on hardware.
 
-Lab use: the VM isolation (the block that existed before 4.1) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The actions new in 4.1 (flow block, quarantine VLAN, disconnect) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
+Lab use: the VM isolation (the block that existed before 4.1) is allowed only while an administrator has switched on *Allow Experimental connectors (lab use)* under *Settings → Response policy*. The actions new in 4.1 (flow block, quarantine VLAN, disconnect) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
 
 Besides the connector's own refusals, every action through it is refused for a loopback, unspecified, broadcast or multicast address, for DENIS itself and for the gateway, for the addresses on this connector's protected list, for a VM that holds such an address, for the Hyper-V host's own address, for a VM on the **Never quarantine these VM names** list (by name or by id) and for an address in an open `arp_conflict` alert (unless the administrator ticks a box to accept that), before anything is sent. Releasing is never refused for these reasons.
 
@@ -85,6 +85,22 @@ The WinRM password is stored only in the encrypted secret store (`nac.hyperv.pas
 ## Existing instances
 
 Instances from earlier versions keep working and nothing changes for them: the same VM name as the target, the same cmdlets in the same order (read the ACL list, add both entries in one script, read it back), the same ledger row with the ACL list as found, and the old *Block…* and *Unblock…* buttons act as before. The connection test only checks that the configuration is complete: there is no harmless WinRM request that does not name a VM, so the host is first contacted when you plan a block. Records the old routes made are released through the old *Unblock…*; records of the new actions are released through the new action list. What changed is only who writes the record: the ledger row is now written by the enforcement orchestrator, which also applies the hourly cap and the kill switch and stamps the row with the connector instance.
+
+## Where is it plugged in (4.4)
+
+With **Read the virtual machines of this host (read only)** ticked (ticked for a new connector; a connector made before 4.4 stays off until you tick it), DENIS runs one fixed, read-only PowerShell command through this connector's own WinRM channel (same host, user, password, HTTPS rule and outbound policy) and draws each virtual machine under the host, with the virtual switch of each network adapter as the port and its VLAN when it is a single access VLAN. The command contains no cmdlet that writes and no text from a user or a device. An account that may run `Get-VM` and `Get-VMNetworkAdapter` (the Hyper-V Administrators group, or a delegated read right) is enough. Evidence labels:
+
+* `documented` (checked 2026-11-02, Microsoft Learn, Get-VMNetworkAdapter): the pipeline `Get-VM | Get-VMNetworkAdapter` (the VM is accepted from the pipeline) and `ConvertTo-Json`.
+* `best guess` (the Learn page does not list the output properties; the connector's earlier scripts rely on the same names): `VMId`, `VMName`, `Name`, `MacAddress` as 12 hex digits without separators, `SwitchName`, `Connected`, `IPAddresses`, `VlanSetting.OperationMode` and `VlanSetting.AccessVlanId`, and the VM's `State`. That `ConvertTo-Json` writes one object, not an array, for one element: the command wraps the list in one object and the parser accepts both.
+* `verified`: nothing yet. No Hyper-V host has answered this command for DENIS.
+
+Limits and what is left out:
+
+* At most 2000 adapters, an answer of at most 8 MB, every text cut. Read every 5 minutes. A longer list makes the read partial (what was not read keeps what was read before).
+* Only the host this connector talks to: a VM on another cluster node is not seen, and the cluster is not read.
+* An address is shown only for a running VM with integration services, only an IPv4 address that is not link-local; a VM without integration services shows none. An adapter that has no hardware address yet (dynamic, VM never started) is left out.
+* A trunk, private-VLAN or untagged adapter shows no VLAN. The management operating system's own adapters are not read.
+* The host has no known hardware address; it appears as a box named after the host (`COMPUTERNAME`).
 
 ## Details from the console
 

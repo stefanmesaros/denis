@@ -82,7 +82,11 @@ before saving it.
   * **Audit log** — who changed what in the console.
   * **Incidents** — one record per [incident](incidents.md) opened, escalated, acknowledged, resolved or re-opened,
     each with its `status` after the change (and, when resolved, its `disposition`); never a repeat for
-    every alert already sent above through **Events and alerts**.
+    every alert already sent above through **Events and alerts**. Since 4.4 this stream goes through the same
+    delivery queue as the notification channels ([Alerting](alerting.md#what-happened-to-a-notification)): a SIEM that
+    is down for a while gets the records when it returns (for up to 24 hours), and a record that cannot be sent is
+    listed under *Settings → Notifications → Deliveries*. Delivery is at least once: after a crash between sending
+    and noting it, a record can arrive twice, so de-duplicate on `incidentId` together with the action and time.
 
 A CEF message looks like this (LEEF and JSON carry the same fields, in their own format):
 

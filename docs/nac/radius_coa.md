@@ -1,8 +1,8 @@
-# Enforcement: RADIUS CoA / Disconnect (RFC 5176)
+# Enforcement: RADIUS Change of Authorization / Disconnect, RFC 5176 (CoA)
 
-Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from RFC 2865, 2866, 2869 and 5176 and checked against a fake access device on UDP in DENIS's own tests. It has never been run against a real wireless controller, switch, Cisco ISE, Aruba ClearPass or FreeRADIUS. Nothing here is listed as validated on hardware.
+Status: **Experimental.** Everything below was built from RFC 2865, 2866, 2869 and 5176 and checked against a fake access device on UDP in DENIS's own tests. It has never been run against a real wireless controller, switch, Cisco ISE, Aruba ClearPass or FreeRADIUS. Nothing here is listed as validated on hardware.
 
-Lab use: ending a session (the pre-4.1 action of this connector) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. It is the pre-4.1 "block" under a new name, so the second switch for new actions is not needed. Releasing always works.
+Lab use: ending a session (the pre-4.1 action of this connector) is allowed only while an administrator has switched on *Allow Experimental connectors (lab use)* under *Settings → Response policy*. It is the pre-4.1 "block" under a new name, so the second switch for new actions is not needed. Releasing always works.
 
 Besides this connector's own refusals, every action through it goes through DENIS's common guards before anything is sent: loopback, unspecified, broadcast and multicast addresses, DENIS itself, the gateway, and an address or MAC in an open `arp_conflict` alert are refused, and a list DENIS cannot read refuses the action.
 
@@ -14,7 +14,7 @@ Besides this connector's own refusals, every action through it goes through DENI
 |---|---|---|
 | **End sessions** (`radius_disconnect`) | Sends one **Disconnect-Request** over UDP to the access device that authenticated the session, and reads its answer. | It ends **one session** and leaves nothing on the device. The device may sign in again at once, and what the access device's own policy gives it then is not decided by DENIS. **It is not a block.** |
 | Block device | **Unsupported.** A RADIUS Disconnect ends a session. It is not a block. | |
-| Block a flow | **Unsupported.** RADIUS cannot filter traffic. | |
+| Block a connection | **Unsupported.** RADIUS cannot filter traffic. | |
 | Quarantine | **Unsupported.** A CoA quarantine is applied again by the RADIUS server at the next sign-in. Real quarantine belongs in your policy server (ISE, ClearPass, FreeRADIUS). | |
 | Disable port | **Unsupported.** RADIUS controls no switch port. | |
 
@@ -80,6 +80,7 @@ Behaviours that are unproven vendor facts (marked **[verify]**):
 * Transient: it ends one session; the device may sign in again at once.
 * One access device per connector instance.
 * A MAC address in a format the access device does not recognise names no session; the NAK says so.
+* For a Cisco Catalyst 9800 wireless controller this is also the way to keep a client out for good (the [Catalyst 9800 connector](../nac/ciscowlc.md) only ends a session and writes no block).
 
 ## Credentials
 

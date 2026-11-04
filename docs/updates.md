@@ -130,6 +130,50 @@ console cannot change it). A customer's agents follow it the same way as the ins
 customer's administrator saves a mode in their console; their saved mode always wins, and the console shows which
 mode they inherit while none is saved.
 
+## Upgrading to 4.4
+
+Back up the DENIS database and the file `secrets.key` before you update; the update makes its own backup too, but take
+yours. At the first start 4.4 changes the format of stored passwords and keys in one step, and 4.3 cannot read it, so
+the usual way back (restoring the backup the update made) is the safe one. Commands for the other ways back, and the
+order of the steps for a PostgreSQL pair, are in [High availability](high-availability.md#upgrading-a-pair-to-44) and
+[Operations](operations.md); `denis secrets migrate --dry-run` shows what would be converted without doing it. Read these
+before you update a production installation:
+
+* **Stored secrets change format (one way).** Each customer gets its own data key under the master key; see
+  [Key management](key-management.md). Rotating the data key or the master key, and keeping a passphrase copy of the
+  master key, work while DENIS runs.
+* **The database schema goes to version 60.** An older program refuses a database it has not been built for.
+* **New detections arrive switched off.** After the upgrade the new rules wait on the Rules page for you to decide; nothing
+  new alerts until you switch it on ([detection rules](detection-rules.md)). Counts and sequences in your own rules are Experimental and off by default.
+* **Licensing counts devices seen in the last 30 days**, in the tiers DENIS 500, DENIS 5000 and DENIS 20000
+  ([Licensing](licensing.md)).
+* **MSP management is no longer marked Experimental.** Rules an MSP sends you are *not allowed* until you change the
+  setting (the other choices are *ask me* and *into a trial*) ([MSP management](msp-management.md)).
+* **Shipped lists can update themselves; this is off by default.** The abuse.ch lists use the current ThreatFox and
+  URLhaus interfaces with your Auth-Key.
+* **Alerts and notices go through a durable queue.** A receiver that is down, a restart or a failover no longer loses a
+  message; it can arrive twice, never zero times ([High availability](high-availability.md#delivery-is-at-least-once-not-exactly-once)).
+* **Address spaces are declared by you.** Nothing changes until you declare them under *Settings → Capture*
+  ([concepts](concepts.md#what-a-device-is-site-vlan-mac)).
+
+## Known limits in 4.4.0
+
+What 4.4.0 does not do, or has not proven, so that nothing here comes as a surprise:
+
+* **PostgreSQL and high availability are Experimental.** The pair, the write fence and tenants on PostgreSQL were tested with
+  PostgreSQL 16 in containers, with two processes on one machine and in a local fault lab. They were not run on a managed
+  PostgreSQL service, not over many hours, and nothing was measured with 10, 50 or 100 tenants. Two lab scenarios (a
+  half-open link to the database) are fixed but not yet confirmed in the lab ([details](high-availability.md#where-things-stand-in-44)).
+* **New connectors are Experimental:** TP-Link Omada, MikroTik Wi-Fi and Cisco Catalyst 9800 were not tried on real
+  equipment. Azure stays Experimental. UniFi Wi-Fi blocking, the Cisco FDM and FMC firewalls (virtual) and AWS were tested in
+  a lab and carry no label ([validation](nac/validation.md)). Hyper-V and NSX are read only.
+* **Three new detections are Experimental** (name poisoning and industrial networks), and so are counts and sequences in
+  your own rules.
+* **A split of one hardware address** is confirmed by an administrator; alerts, baselines and flows per split device are not
+  done yet.
+* **Sizing:** there is no measured sizing table yet; any number is an estimate.
+* **The Start page** has not been timed by outside testers, so no claim is made about how long it takes.
+
 ## Upgrading to 4.3
 
 DENIS makes the usual backup first and migrates the database forward when it starts; a database that 4.3 has upgraded may
@@ -181,7 +225,7 @@ What 4.3.0 does not do, or has not proven, so that nothing here comes as a surpr
   moving it to the quarantine VLAN on a switch that is not a Cisco Catalyst are off by default, need a write test first,
   and have been tried only against simulated switches. No switch model is validated.
 * **Enforcement validation is unchanged:** what was tried on real equipment is on the
-  [validation page](nac/validation.md); every other connector is simulator only.
+  [validation page](nac/validation.md); every other connector is Experimental.
 * **PostgreSQL:** the PostgreSQL code of 4.3 (the new tables and settings on a shared database) is compiled and reviewed,
   not yet run against a production database. Try 4.3.0 on a test pair before a production one
   ([High availability](high-availability.md)).

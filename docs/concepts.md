@@ -256,6 +256,22 @@ has not changed in 4.1, and nothing about a VLAN is part of it:
   with the default of one network per site, a gateway claim is weighted and never quiet, as before. None of this
   hands the gateway's address over to the other device or lowers its protection: enforcement still refuses to
   act on the gateway and checks every device at the site that holds the address.
+- **Address space (4.4).** An administrator may declare that some VLANs (of one network or of several) share
+  **one routing table**, a VRF: Settings → Capture → *Address spaces*, per site (`GET` and `PUT
+  /api/network/address-spaces`, see [API](api.md)). By default nothing is declared and DENIS judges every VLAN
+  as its own network, exactly as in 4.3: the same address claimed in two VLANs is annotated as two networks using
+  one range. Once VLANs are declared as one space, the same address claimed in two of them is an ordinary address
+  conflict (one network), as inside one VLAN. Across two spaces nothing is dropped: the claim stays annotated, the
+  two devices stay two devices (a device is never merged or split by a space), and DENIS remembers who holds the
+  address in each space, so a lookup that says which VLAN it comes from finds the right device while a lookup that
+  cannot say still refuses to guess. A VLAN that is in no space stays its own network. A device's spaces are worked
+  out when it is shown, from the VLANs and interfaces it was seen through (`spaces` in the device list, `spaces` and
+  `space` in `GET /api/assets/{id}/l2`). Address spaces never loosen an enforcement guard; they add one: an
+  action that names an **address** held by devices of two different spaces of one site is refused, and the sentence
+  says which spaces. Name the device by its hardware address, or act on a switch port. A site that declared no
+  space is judged exactly as before. An agent receives its site's spaces with the answer to its next report.
+  The declaration is checked (a VLAN belongs to one space, at most 32 spaces and 4,096 VLANs per site), changed with
+  the version that was read (someone else's change is a conflict, not an overwrite) and written to the audit log.
 - **Shared hardware address (4.3).** One hardware address seen at the same time (within 24 hours) in two
   separate networks of a site, or at two sites, is marked "shared hardware address" in the device list and the
   device panel, with the reason. It is a mark to check (a copied virtual machine, a factory default address):
@@ -272,6 +288,31 @@ has not changed in 4.1, and nothing about a VLAN is part of it:
   like setting it. A mark at any site counts for every site's equipment (stricter, never looser), so an administrator
   limited to some sites can set it only when no device at a site it cannot change has the same hardware address. At most 1000
   marks per site.
+- **Split into separate devices (4.4, confirmed).** The mark above leaves the devices on one row. When an
+  administrator knows that a second device really lives in one of the site's **separate networks** (Settings →
+  Capture → *Separate networks*), the device panel offers *Split into separate devices…*: the networks the second
+  device is in are picked from the site's own list (with what this row saw in each), a reason is required, and a
+  fingerprint of what was shown has to come back, so a change in between is a conflict, not an overwrite. DENIS then
+  keeps **one row per listed network** besides the original row. Only an address the administrator confirmed ever
+  gets a second row, never automatically: every other hardware address stays one device however many VLANs it is
+  seen in. What is heard in a listed network goes to that network's row: an address claim (ARP, DHCP, a flow's
+  source address) carries its network, and a name, a service or a fingerprint that carries no network follows the
+  network of the address's latest claim (within 15 minutes), else it goes to the original row, which also keeps
+  everything seen before the split (events, history, baseline) and every network that is not listed. That is a best
+  guess for the names and fingerprints, and the panel says so. The two devices can hold the same IP address in their
+  two networks without a conflict between them.
+  What stays strict: the address is also marked as used by more than one device, and the mark stays when the split
+  is undone. Every action that names a device by that hardware address is refused, and a switch table has no
+  network, so a hardware address seen on a port is attached to neither row (the port facts of a split address are
+  ambiguous and a port action for it is refused). Detection is still kept per hardware address: the alerts
+  (including those raised from an address claim, such as an address conflict), the learned normal behaviour (what the
+  device talks to), the flows and the industrial conversations stay on the original row. What the second device gets
+  is its own row with its own addresses, names, services, open ports, fingerprint and layer-2 evidence. *Undo the split* (or *Merge this device back* on
+  an extra row) folds the extra rows into the original one: history, names, addresses and alerts of the extra row
+  are kept on it; the entry goes, the mark stays. A remote site's collector receives the split with the answer to its
+  next report; a joined collector's extra rows move into the local site with the device and bring the split and the
+  mark with them. At most 200 split addresses per site and 8 extra networks per address; every change is audited
+  (`identity.mac_split`, `identity.mac_unsplit`).
 
 ## Timezones
 

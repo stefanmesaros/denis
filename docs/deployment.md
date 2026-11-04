@@ -338,6 +338,26 @@ sudo bash install.sh --version v4.1.3 --agent --master https://MASTER:8081 \
 PEM_7Q2K9XWA
 ```
 
+**One-line enrolment (4.4).** Instead of an agent id and a token, make a code: **Sites, One-line enrolment**. Choose which of the
+master's addresses goes into the code (the one on your network, or the public one), how many agents it may enrol (1, or a
+number for a fleet) and press *Create code*. The code works for 24 hours and only for that many agents; each agent gets its own
+token. The dialog shows the command and the same for cloud-init, EC2 user-data, Docker, Ansible and systemd, and a live
+*Waiting for the agent to enrol... Connected: <id>* state while you run it:
+
+```
+curl -fsSL https://github.com/stefanmesaros/denis/releases/latest/download/install.sh | sudo bash -s -- --agent --enroll dme1.…
+```
+
+The code carries the master's address and, for a master with its own certificate authority, the SHA-256 of that certificate.
+`install.sh` (which still checks the release's signature and checksum) fetches the certificate from the master's console, uses
+it only if its SHA-256 is the pinned one, exchanges the code for the agent's permanent token and writes it into
+`/etc/denis/agent.env` (mode 600). The code is on the command line of the one-liner, so on a shared machine give it in the
+environment (`sudo -E`, `DENIS_ENROLL_CODE`) or in a file (`--enroll-file FILE`) instead. The agent program does the same by
+itself when it starts with `DENIS_ENROLL_CODE` and no token (Docker, systemd, Ansible): it keeps the result under
+`<data folder>/enrolled/` and ignores the code afterwards. `denis agent-enroll` is the step on its own. **Revoke the code** in
+the dialog (or `DELETE /api/enroll-codes/{id}`) to stop it early; agents already enrolled keep their tokens. An agent older than
+4.4 simply keeps using Add agent. Add agent is unchanged.
+
 `install.sh --agent` downloads the same signed release as the master install and checks its signature and
 checksum before changing anything. It then installs the program the same way, writes `/etc/denis/agent.env` (mode
 600, because the token is in it), puts the CA at `/etc/denis/ca.pem`, installs the `denis-agent` service and starts
@@ -497,7 +517,7 @@ large, constant stream of traffic:
 
 ## MSP: remote management of a customer's own master
 
-The relay above only mirrors. With [MSP management](msp-management.md) (experimental), your technicians can also
+The relay above only mirrors. With [MSP management](msp-management.md), your technicians can also
 **open the customer's console from yours and work in it**, at the level the customer allows. A summary of what you have to
 provide; the page linked has the steps and the limits.
 
@@ -734,8 +754,10 @@ denis run --webhook https://hooks.slack.com/services/… --webhook-min-score 60
 ```
 
 The payload is JSON with `text` (Slack) and `content` (Discord) plus the full event, so standard incoming-webhook
-URLs work. Delivery is retried three times and never blocks detection. Only alerts at or above
-`--webhook-min-score` are sent. (Keep the URL in the environment variable; command-line arguments are visible
+URLs work. Since 4.4 the alerts wait in the database and are retried for up to 24 hours (they survive a restart);
+each request carries an `Idempotency-Key` and an `X-Denis-Event-Id` header. It never blocks detection. Only alerts at or
+above `--webhook-min-score` are sent, and not during maintenance mode or for a muted device. `--webhook-volatile`
+(*env* `DENIS_WEBHOOK_VOLATILE`) keeps the old behaviour (three tries from memory, lost on a restart) for one more release. (Keep the URL in the environment variable; command-line arguments are visible
 to other local users.)
 
 ## Data, backup and retention
@@ -789,14 +811,21 @@ nodes share that database with one of them as leader and the other on standby. I
   within about three seconds and the process within about ten. The defaults and the `DENIS_PG_*` variables that change them
   are in [High availability](high-availability.md#postgresql-connection-settings). Delivery of notifications and exports across a failover is **at least once**: after a
   failover a message can arrive twice; the design does not promise exactly once.
-* **Known limit (until 4.1.4):** only side effects are tied to the leader's lease. Database writes carry no leader epoch,
-  so in the few seconds after a failover the old leader can still write a row the new one also writes.
-* **Not together with tenants.** An install with tenants besides `default` refuses to start with `--database-url`:
-  tenants keep their data in SQLite files on one node.
+* **Database writes are fenced since 4.4 (Experimental).** A write from a node that is no longer the leader is refused by
+  the database itself ([The write fence](high-availability.md#the-write-fence-44)). Alerts and exports still leave the
+  database at least once, so a duplicate stays possible. Before 4.4 only side effects were tied to the leader's lease.
+* **Tenants together with a pair (Experimental, 4.4).** With `--database-url` the tenants and the MSP data are kept in the
+  database too (one schema and one database role per tenant); an install whose tenants are still in SQLite files
+  refuses to start until `denis tenant move-to-postgres` has copied them. They stay Experimental until measured with
+  10, 50 and 100 tenants on a managed service, which has not been done.
+* **Updating a pair, backups and going back** (the schema, the one-way change of the secret format, `denis secrets
+  downgrade-envelope`, `denis db undo-v58`, stopping both nodes for a command-line tool) are in one place:
+  [Upgrading a pair to 4.4](high-availability.md#upgrading-a-pair-to-44). Take your own `pg_dump` first.
 * Speed is not a reason to choose it: for one site SQLite is faster ([Operations](operations.md#how-big-can-one-installation-be)).
 
-The full guide, with a load-balancer example and a failover test, is [High availability](high-availability.md). It has
-been tried with PostgreSQL 16 in a test container, not on managed or clustered PostgreSQL in production.
+The full guide, with a load-balancer example, a failover test and a table of what is and is not covered, is
+[High availability](high-availability.md). It has been tried with PostgreSQL 16 in a test container and in a local fault
+lab, not on managed or clustered PostgreSQL and not in production; high availability stays Experimental in 4.4.
 
 ## Command reference
 
@@ -814,7 +843,7 @@ been tried with PostgreSQL 16 in a test container, not on managed or clustered P
 | `denis demo load\|remove` | built-in demo data (a fictional company) |
 | `denis erase --yes` | empty the database of devices and history (DENIS stopped; take a backup first) |
 | `denis tenant …`, `denis operator …` | tenants and MSP operator accounts, see [Multi-tenancy](multi-tenancy.md) |
-| `denis msp …`, `denis msp-link …` | experimental: an MSP's remote customers and key, a customer's link to its MSP; see [MSP management](msp-management.md) |
+| `denis msp …`, `denis msp-link …` | an MSP's remote customers and key, a customer's link to its MSP; see [MSP management](msp-management.md) |
 
 ### Flags of `denis run` and `denis agent`
 
@@ -864,6 +893,7 @@ stays out of the process list).
 | `--retention-days` | run | 90 | delete trend samples older than this |
 | `--threat-list` | run | none | text file of known-bad IPv4 addresses and networks; needs `--flows` (*env* `DENIS_THREAT_LIST`) |
 | `--webhook`, `--webhook-min-score` | run | none, 60 | post alerts as JSON (*env* `DENIS_WEBHOOK`) |
+| `--webhook-volatile` | run | off | keep `--webhook` in memory as before 4.4 (*env* `DENIS_WEBHOOK_VOLATILE`); removed in 4.5 |
 | `--syslog` | run | none | send alerts as syslog/CEF; only seeds the console setting (*env* `DENIS_SYSLOG`) |
 | `--openobserve-url`, `-org`, `-prefix`, `-interval` | run | none, `default`, `denis`, 15 | export to OpenObserve; credentials from `DENIS_OPENOBSERVE_USER` and `DENIS_OPENOBSERVE_PASSWORD` |
 | `--license-file` | run | none | signed commercial license (*env* `DENIS_LICENSE_FILE`) |
@@ -874,7 +904,7 @@ stays out of the process list).
 | `--update-mirror` | run | `https://usedenis.com` | the fallback host tried only when GitHub cannot be reached; an empty value removes the fallback (*env* `DENIS_UPDATE_MIRROR`); see [Updates](updates.md#if-github-cannot-be-reached) |
 | `--backup-upstream`, `--backup-upstream-token-env` | run | none, `DENIS_BACKUP_TOKEN` | push this install's backups to an MSP; see above |
 | `--report-to`, `--report-to-token-env`, `--report-to-interval`, `--report-to-ca`, `--report-to-allow-plain-http` | run | none, `DENIS_REPORT_TOKEN`, 60, none, off | relay devices and alerts to an MSP; see above. A refused address is logged and the relay skipped |
-| `--no-msp-management` | run | off (`DENIS_NO_MSP_MANAGEMENT`) | experimental: no remote management by an MSP in this process, whatever the console says; see [MSP management](msp-management.md) |
+| `--no-msp-management` | run | off (`DENIS_NO_MSP_MANAGEMENT`) | no remote management by an MSP in this process, whatever the console says; see [MSP management](msp-management.md) |
 | `--master`, `--token`, `--master-ca`, `--master-ca-pem`, `--allow-plain-http`, `--id`, `--name`, `--site`, `--report-interval` | agent | `--report-interval` 15 | where and how an agent reports; see [Multiple sites](#multiple-sites-agents). `--token` can come from `DENIS_AGENT_TOKEN` |
 | `--no-self-update` | agent | off | never take an update from the master's command; the agent still reports its version (*env* `DENIS_AGENT_NO_SELF_UPDATE`); see [Updating remote agents](updates.md#updating-remote-agents) |
 

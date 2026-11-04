@@ -58,13 +58,13 @@ Any scanner that reads CycloneDX or SPDX works. Examples (install the scanner fr
 
 ```sh
 # Grype
-grype sbom:./denis-4.2.0.cdx.json
+grype sbom:./denis-4.4.0.cdx.json
 
 # Trivy
-trivy sbom ./denis-4.2.0.cdx.json
+trivy sbom ./denis-4.4.0.cdx.json
 
 # OSV-Scanner
-osv-scanner --sbom=denis-4.2.0.cdx.json
+osv-scanner --sbom=denis-4.4.0.cdx.json
 ```
 
 (Replace the version with the one you downloaded.) A hit is a crate version that matches an advisory. It is not

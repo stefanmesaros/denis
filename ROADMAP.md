@@ -1,7 +1,7 @@
 # Roadmap and known gaps
 
 DENIS aims to be an honest, self-hostable alternative to the asset-visibility products that cost six figures a
-year. This is what is still missing, in order. Pull requests welcome.
+year. This is what is still missing, in order. Pull requests welcome. The current release is 4.4.0.
 
 ## 4.1.0: delivered; what is in, what is experimental, what is not built
 
@@ -54,8 +54,8 @@ the program, checked against the code, not against plans:
   (see 4.1.4 below).
 * MSP management: the one-click "Allow management" for a customer that already relays with `--report-to`, fleet
   templates, queued changes for offline customers, several MSPs per customer.
-* High-availability fencing, per-tenant encryption keys and tenants on PostgreSQL are planned (see "After 4.1" below; start-up
-  refuses `--database-url` while tenants exist). IP fragments are reassembled for OT decoding since 4.1.2.
+* High-availability fencing, per-tenant encryption keys and tenants on PostgreSQL were planned here; they are built in 4.4.0
+  (see "4.4.0: delivered"; up to 4.3 start-up refuses `--database-url` while tenants exist). IP fragments are reassembled for OT decoding since 4.1.2.
 * Smaller findings of the internal code reviews, fixed in the next releases.
 
 **Next:** 4.2 and 4.3.0 have shipped (below). What comes after 4.3.0 is under "Next after 4.3.0".
@@ -175,21 +175,88 @@ controllers, address spaces and VRF, the layer-2 card of a device, and a hardwar
 code of 4.3 is compiled and reviewed, not yet run against a production database. Generic SNMP control and everything about
 Meraki are Experimental.
 
-## Next after 4.3.0 (in this order; nothing here has a date)
+## 4.4.0: delivered (the release notes are in CHANGELOG.md)
 
-* **Controllers and wireless (W1 to W4).** Cisco Catalyst 9800 and other wireless controllers, in four steps, reading first.
-* **Address spaces (VRF), the layer-2 card of a device, and the hardware-address split.** The same address in two routing
-  domains, the layer-2 view in a device's panel, and an administrator-confirmed split of a shared hardware address (4.3
-  only marks it).
-* **PostgreSQL to the standard of SQLite.** Fencing of the old leader in the database, per-tenant encryption keys, tenants on
-  PostgreSQL, and the high-availability tests on a real managed cluster.
-* **More detections (a third pack, P3) and Rules v2.**
+4.4.0 holds what was planned for 4.3.1 and 4.3.2 as well (there is no 4.3.1 or 4.3.2). What is in the program, checked against the
+code and the release notes:
+
+* **Where a device is plugged in.** One shared model of what a device hangs on (access points and switches under their controller,
+  switch or gateway, virtual machines under their host) with an adapter per connector: UniFi, Cisco Meraki, FortiGate (FortiAP,
+  FortiSwitch, Wi-Fi clients), Proxmox, Hyper-V and NSX (read only), TP-Link Omada and MikroTik.
+* **New connectors, Experimental:** TP-Link Omada, MikroTik Wi-Fi (block by hardware address, disconnect, read the Wi-Fi clients) and the
+  Cisco Catalyst 9800 wireless controller; none was tried on real equipment. Azure stays Experimental.
+* **Verified in a lab:** UniFi Wi-Fi blocking (a client of an access point), the Cisco Secure Firewall Device Manager (FDM) and Management
+  Center (FMC), both in the Cisco DevNet sandbox on virtual devices (29 October 2026), and AWS in a lab account (3 November 2026).
+  They carry no label. Details: [docs/nac/validation.md](docs/nac/validation.md).
+* **One Respond dialog.** It names the few responses that can work for this device and why one is recommended; equipment that is not on
+  the device's path is kept in one closed group; a Wi-Fi client the controller shows gets the controller's client block.
+* **Address spaces (VRF).** The same address in two routing domains is no longer taken for one network; an administrator can split a
+  hardware address shared by two devices (schema V60). Alerts, baselines and flows per split device are not done yet.
+* **Twelve new detections and Rules v2.** Three of the detections (name poisoning, a changed time source and writes outside the learned
+  registers of an industrial device) are Experimental. New rules arrive switched off. Trial mode, exceptions with an expiry, what a change
+  would have done over the last days, and why a rule alerted or did not. Your own rules with several conditions, an editor, export,
+  import and templates; counts and sequences are Experimental and off by default.
+* **MSP.** Rules an MSP sends (not allowed by default, ask me, or into a trial), single-use invitations for customers with a spoken phrase,
+  one-line enrolment of agents. MSP management is no longer marked Experimental.
+* **Shipped lists** can update themselves (off by default); the abuse.ch feeds use the current ThreatFox and URLhaus interfaces.
+* **Durable delivery.** Alerts and notices go through a queue in the database (schema V59): at least once, never exactly once.
+* **Keys.** A data key per customer under the master key, rotation of both while DENIS runs, a passphrase copy of the master key
+  ([docs/key-management.md](docs/key-management.md)).
+* **PostgreSQL (Experimental).** A write fence for the old leader (schema V58), two servers on one database, customers in PostgreSQL, a
+  local fault lab with a Patroni cluster. The lab run of 2026-11-04 passed 13 of 15 scenarios; the two that did not (a half-open link
+  to the database) are fixed but still to confirm in the lab.
+* **Easier start and licensing.** A Start page, first-look numbers and a weekly summary mail. Licensing counts devices seen in the last
+  30 days (tiers DENIS 500, DENIS 5000, DENIS 20000).
+* **Review fixes and dependencies.** Fixes from the code review and patch updates of five libraries, among them certificate verification.
+
+## Not done in 4.4.0, moves on (owner-approved list of 2026-11-04)
+
+* **Managed-service high availability (step P13):** the run on a managed PostgreSQL service with a soak of many hours and the 10, 50 and
+  100 tenant measurement (4.4.1, see below); a re-run of the two local lab scenarios s3b and s3c.
+* **Azure, AWS and Omada tests** on real systems, then removing the Experimental labels that are verified (4.4.1).
+* **Capacity measurement and the sizing table** (500, 5,000 and 20,000 devices, and the 50,000 check).
+* **Full fuzz and Linux performance runs.**
+* **Real-hardware checks:** MikroTik Wi-Fi access point, Omada with an EAP110, Cisco Catalyst 9800, Meraki.
+* **Split of one hardware address, follow-ups:** detection per split device (alerts, baseline, flows), stamping the network on every
+  observation, an engine channel for the undo.
+* **Console database calls off the async workers.**
+* **Command-line tools on PostgreSQL installs without stopping both nodes:** tenant suspend and resume live, `denis msp` and
+  `msp-link` on PostgreSQL, moving the default tenant.
+* **Rules follow-ups:** an advanced JSON drawer, what-if for a score change, server refusals translated through error codes, a
+  persistent first_seen.
+* **The quick-start time claim** ("about ten minutes") stays out until three outside testers have timed it; container timing.
+* **Notifications:** `--webhook-volatile` and the warning `W_NOTIFY_DROPPED` are removed in 4.5.
+* **AWS:** VPC Traffic Mirroring (VXLAN) was never verified on a real mirror, and there is no AWS inventory read mode.
+
+## Next release: 4.4.1 (tested on real systems after 4.4.0 is released; no date)
+
+*Evidence labels: documented / best guess / verified. A verified feature carries no label; only Experimental is labelled.*
+
+After 4.4.0 is released, the owner and the assistant test the following on real systems, in this order:
+
+* **High availability on a managed PostgreSQL service** (for example AWS RDS Multi-AZ, step P13 of the plan): the pair, the
+  write fence and tenants on PostgreSQL, with the managed service's DNS switch, proxies, TLS chain, maintenance events and
+  latency between zones, a soak of many hours, and the 10, 50 and 100 tenant measurement. This run happens after the 4.4.0
+  release, not before it.
+* **The Azure connector** on a real Azure subscription.
+* **AWS once more.** The AWS connector is already verified in a lab account; this is a second pass.
+* **TP-Link Omada**, on a real controller with a gateway and an access point.
+
+Then 4.4.1 removes the Experimental label from whatever is verified by then. AWS is already verified in a lab account. MikroTik
+Wi-Fi, Cisco Catalyst 9800, Azure, TP-Link Omada and high availability on PostgreSQL keep the label unless their result is
+verified; each one is judged on its own result, and a feature that is not verified stays Experimental.
+
+## Next after 4.4.0 (in this order; nothing here has a date)
+
 * **Block by domain or URL**, not only by address.
-* **Read what the endpoint tools know**: the device lists of EDR and MDM products (first ESET PROTECT and Microsoft Intune), next
+* **Read what more endpoint tools know**: the device lists of further EDR and MDM products (ESET PROTECT first; Intune, Jamf, Entra ID and Defender are already read, see CMDB.md), next
   to what is seen on the network.
 * **802.1X, RADIUS accounting and CoA.** Who is behind an address, durable quarantine through your own RADIUS server,
   session-exact disconnect; with the first customer who runs 802.1X.
-* **Sandbox validations** of connectors that are simulator-only: Cisco Catalyst 9300, Cisco FTD and FMC, and Meraki.
+* **Sandbox validations.** Done in the Cisco DevNet sandbox on 29 October 2026: Catalyst 9300 and 9200CX, Cisco Secure Firewall
+  Device Manager (FDM) and Management Center (FMC). Still open: Meraki (when its sandbox is available), and a Cisco Modeling
+  Labs run with a layer-2 switch image (IOSvL2) to verify client isolation (a quarantine VLAN move on a switch with real
+  client traffic), started only when it is wanted.
 
 ## Next: what customers asked for (planned, in this order)
 
@@ -299,40 +366,42 @@ review (fixed, or deferred to the items below); the stretch items remain open.
 - An OpenAPI specification of the API and narrower API tokens (limited scopes and expiry).
 - Removing code repeated across the connectors and splitting the largest source files, with no change of behaviour.
 
-- A PostgreSQL-enabled release binary (`--features postgres`) next to the standard one, so high availability does not need a self-built program.
+- A PostgreSQL-enabled release binary (`--features postgres`) next to the standard one, so high availability does not need a self-built program. (Shipped in 4.2.1.)
 
 - Leader-epoch fencing of every PostgreSQL write, cursor and NAC intent row; DB-side fencing of the old leader [§5.3]
-  (audit F2-1).
+  (audit F2-1). *Moved to 4.4.0 and merged there (Experimental); see "4.4.0: delivered".*
 - Per-tenant data keys under the master key, tenant id in the associated data, tenant stamp, rotation, export with
-  passphrase [§5.5] (audit F6-5 / T6-7).
+  passphrase [§5.5] (audit F6-5 / T6-7). *Moved to 4.4.0 and merged there.*
 - Enforcement orchestrator: snapshot and undo before the write, pending row and audit in one transaction; PAN-OS
   partial commit, SonicWall without override, Juniper commit confirmed, NSX revisions [§5.4]. (Already in 4.1:
   server-side plans stored in the database and spent once, device I/O on a thread of its own that a disconnecting
   client cannot cancel, and one central target guard, see `src/nac_orchestrator.rs`.)
 - Real-equipment validation with a compatibility matrix (data file, API, UI, generated doc), live harness, fault
   proxy, recorded fixtures: SNMP (Cisco, HPE/Aruba), FortiGate, UniFi first [§5.1].
-- Two-machine HA fault-injection suite, 24 h soak and load, tenant measurement at 10/50/100 [§5.3, §5.9, §6].
+- Two-machine HA fault-injection suite, 24 h soak and load, tenant measurement at 10/50/100 [§5.3, §5.9, §6]. *Moved: the
+  local fault lab is merged in 4.4.0; the run on a managed service, the soak and the 10/50/100 measurement are still open.*
 - OT visibility counters (fragments, undecodable segments, IPv6 when `--ipv6` is off), GRO guidance [§5.10].
 
 **4.4 Network identity** (30-40 d)
 
 - Address spaces (VRF), L2 domains, capture source registry, per-device L2 evidence table, admin-confirmed split of
   one MAC into two devices (the mirror of join) [§4 Part A].
-- Mirror deduplication: aligned windows, max-merge per source role, optional packet digest; OT commands never lost
-  to dedup [§5.6].
+- ~~Mirror deduplication~~ Shipped in 4.3 (`src/capture_dedup.rs`: modes off, observe and on per capture source, merging across
+  interfaces, industrial frames never removed, a safety valve).
 - Site-limited administrators may act on their site's switches and connectors; Palo Alto and Meraki validation;
   COTP fragment carry; CSV import site column [§5.1, §5.10].
 
 **4.5 Delivery and tenancy hardening** (25-35 d)
 
 - Delivery records with idempotency keys where receivers support them, `--webhook` made durable; stated plainly:
-  at least once, never exactly once [§5.7].
+  at least once, never exactly once [§5.7]. *Moved to 4.4.0 and merged there.*
 - Suspend that stops ingest and jobs, tenant hot-add and delete, per-tenant quotas, egress policy for
   tenant-configured targets [§5.9].
 
 **5.0 MSP scale** (30-45 d, only if an MSP customer needs it)
 
-- Tenants in PostgreSQL, one schema per tenant; multi-tenant HA; 100+ tenants with measured limits [§5.8, §5.9].
+- 100+ tenants with measured limits on PostgreSQL [§5.8, §5.9]. (Tenants in PostgreSQL, one schema per tenant, and
+  multi-tenant HA are in 4.4.0 as Experimental; only the measurement at scale stays here.)
 
 **Not planned:** general TCP stream reassembly (4.1's bounded framing plus visibility counters instead) [§5.11];
 validating all nineteen simulator-only connectors (on demand; the rest stay "simulator only") [§3.2].
