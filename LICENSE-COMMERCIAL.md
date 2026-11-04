@@ -8,6 +8,11 @@ period, continued use needs a commercial license.
 A commercial license is a small signed file that raises the device cap (or removes it) for your
 installation. It is issued individually; there is no self-service purchase yet.
 
+**Sizes.** DENIS 500, DENIS 5000 and DENIS 20000 (devices counted), above that on request; the Community edition
+counts 100. A device is one physical device (merged identities), and it counts while it was seen in the last 30 days.
+Every license can also act as an MSP license: your customers' own masters that are linked to you are covered by it and
+their active devices are added to your count; see `docs/licensing.md`.
+
 **To get one, contact the author:** open an issue at
 <https://github.com/stefanmesaros/denis/issues> titled "Commercial license", or see the contact
 details on the project's GitHub profile. Include roughly how many devices you expect to monitor,

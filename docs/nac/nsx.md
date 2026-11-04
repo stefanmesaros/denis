@@ -1,8 +1,8 @@
-# Enforcement: VMware NSX-T
+# Enforcement: VMware NSX-T Data Center (NSX-T)
 
-Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from VMware's published NSX-T Policy API reference and checked against a fake NSX Manager in DENIS's own tests. It has never been run against a real NSX Manager. Nothing here is listed as validated on hardware.
+Status: **Experimental.** Everything below was built from VMware's published NSX-T Policy API reference and checked against a fake NSX Manager in DENIS's own tests. It has never been run against a real NSX Manager. Nothing here is listed as validated on hardware.
 
-Lab use: the host block (group) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The actions new in 4.1 (quarantine, flow block) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
+Lab use: the host block (group) is allowed only while an administrator has switched on *Allow Experimental connectors (lab use)* under *Settings → Response policy*. The actions new in 4.1 (quarantine, flow block) additionally need *Allow experimental actions (lab use)*. Releasing an action and removing what DENIS made always work.
 
 Besides the connector's own refusals, every action through it is refused for a loopback, unspecified, broadcast or multicast address, for DENIS itself and for the gateway, for the addresses on this connector's protected list, for an address in an open `arp_conflict` alert (unless the administrator ticks a box to accept that) and for the address of NSX Manager itself, before anything is sent. Releasing is never refused for these reasons.
 
@@ -87,6 +87,21 @@ The user name is plain configuration. The password is stored only in the encrypt
 ## Existing instances
 
 Instances from earlier versions keep working and nothing changes for them: the same block group, the same read and `PATCH` of its `expression`, the same realization poll that is only a note, the same ledger rows. The old *Block…* and *Unblock…* buttons act as before. Records the old routes made are released through the old *Unblock…*; records of the new actions are released through the new action list.
+
+## Where is it plugged in (4.4)
+
+With **Read the virtual machines of this host (read only)** ticked (ticked for a new connector; a connector made before 4.4 stays off until you tick it), DENIS reads the virtual machines, their virtual interfaces, the logical ports and the segments from NSX Manager and draws each virtual machine under the host (transport node) it runs on, with its segment as the port. Only `GET` requests are sent, with the same address, user, password and certificate setting as the rest of this connector. A read-only account (Auditor) is enough. Evidence labels:
+
+* `documented` (checked 2026-11-02, Broadcom NSX API guide): a list answer is paged with a `cursor` that is passed back for the next page, with `result_count`. HTTP Basic is what this connector already uses.
+* `best guess` (the endpoint paths are named by third-party tools, for example IP Fabric's NSX-T matrix; the field lists could not be fetched, they sit in the OpenAPI file of a running manager at `/api/v1/spec/openapi/nsx_api.json`): `GET /api/v1/fabric/virtual-machines` (`external_id`, `display_name`, `host_id`, `power_state` = `VM_RUNNING`), `GET /api/v1/fabric/vifs` (`owner_vm_id`, `mac_address`, `lport_attachment_id`), `GET /api/v1/logical-ports` (`attachment.id`, `logical_switch_id`, `address_bindings[]` with `ip_address` and `vlan`), `GET /policy/api/v1/infra/segments` (`unique_id`, `display_name`, `vlan_ids`), and the links between them (VM `external_id` = interface `owner_vm_id`; interface `lport_attachment_id` = port `attachment.id`; port `logical_switch_id` = segment `unique_id`).
+* `verified`: nothing yet. No NSX Manager has answered these calls for DENIS.
+
+Limits and what is left out:
+
+* At most 20 pages of 1000 rows per list, one request at a time, inside a time limit; read every 5 minutes. A longer list, a page that is missing or the time limit makes the read partial.
+* The virtual machine and interface lists are needed; if the ports or segments list is missing, the read is partial and shows no address and no segment.
+* The host is shown by its NSX `host_id` (its display name is not read). Only the first IPv4 address binding of a port is shown; a VLAN is shown from that binding, else from a segment with exactly one VLAN id.
+* Only the Local Manager's inventory; Federation, containers (Kubernetes), physical servers and Edge nodes are not read.
 
 ## Details from the console
 

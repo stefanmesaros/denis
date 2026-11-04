@@ -344,7 +344,10 @@ that mean DENIS is working but part of what it should see is missing:
 | The capture's signal buffer was full N times | More ARP and DHCP signals arrived between two checks than the buffer holds (for example a DHCP flood or a sweep). Address conflicts and forged ARP or DHCP servers are kept ahead of routine requests, so what was dropped was mostly routine. |
 | Packet capture had to wait N times | The queue of observations waiting to be stored filled up, so the capture stopped reading packets for a moment and the network card may have dropped some. The database or disk is too slow: see [When the database cannot keep up](#when-the-database-cannot-keep-up). Shown for an hour. |
 | N traffic windows were dropped | Ten-second traffic summaries were thrown away because the part that stores traffic was behind; those flows are missing from the traffic views. Same cause and same section. Shown for an hour. |
-| N alert notifications were not sent | The delivery queue was full, usually because a webhook or channel is slow or down. The alerts are still stored and shown in the console; check Settings → Notifications. Shown for an hour after the last dropped notification. |
+| N alert notifications were not sent | Only with `--webhook-volatile` (the old in-memory queue was full). The alerts are still stored and shown in the console; check Settings → Notifications. Shown for an hour after the last dropped notification. |
+| N notifications could not be delivered in the last hour | The receiver refused them, or the alert was too old by the time it could be sent. They are given up on, listed under Settings → Notifications → Deliveries, and can be sent again from there. |
+| Notifications for a channel have been waiting for N | A channel's oldest message has waited more than 15 minutes because the receiver cannot be reached or does not accept it. They are sent again automatically. |
+| N notifications were not queued because too many were waiting | A channel that has been down for a long time reached 1,000 waiting messages (20,000 for all channels); the alerts are still in the console. |
 | Agent reports (a service line) | Agents are enrolled but none has reported for 6 hours. Advisory. |
 
 These warnings clear when the cause stops. A restart clears the counters (not the cause).
@@ -415,6 +418,117 @@ first, and can update its remote agents from the console ([Updates](updates.md))
 
 The database is upgraded in place, in small transactional steps; a crash mid-upgrade leaves it at a consistent
 older version. A database newer than the program is refused with a clear message (never silently downgraded).
+
+**Going back from 4.4.** Schema V57 (4.4, trial mode of rules) adds one column, `rule_outcomes_daily.trial`
+(`INTEGER`/`BIGINT NOT NULL DEFAULT 0`, on SQLite and PostgreSQL alike), and nothing else; the trial records themselves
+live in the saved rules (`rules` setting, field `rule_modes`), which needs no migration. Rolling back to 4.3 therefore means
+restoring the backup taken before the update (the update does this by itself when it fails); a database already at V57 is
+refused by 4.3 ("newer than this build") rather than opened. If you must run 4.3 on a V57 database without a backup, the
+column is harmless to 4.3 and can stay; to bring the schema back by hand, stop DENIS and set it to 56: SQLite
+`PRAGMA user_version = 56;`, PostgreSQL `UPDATE schema_version SET version = 56;`. Nothing else changes, and the trial
+records in the rules are ignored by 4.3 (it would reject a rules file that carries them, which is why a rules export never
+does). Rules that were in a trial then simply raise their alerts as usual: nothing stays hidden.
+
+**Back up before you update 4.4; two more changes cannot be read by 4.3.** Besides V57 and V59 (below), 4.4 adds V58 on
+PostgreSQL (the write fence; `denis db undo-v58`) and changes the format of the stored secrets at the first start
+(`enc1:` to `enc2:`, one way; `denis secrets downgrade-envelope` converts back). The order of the steps for a PostgreSQL
+pair, the backup commands and how to stop both nodes are in
+[High availability](high-availability.md#upgrading-a-pair-to-44); the secrets are in
+[Security](security.md#upgrading-the-secret-format-44). The simplest way back stays the same: restore the copy taken
+before the update, together with its `secrets.key`.
+
+### Rolling back V59
+
+Schema V59 (4.4, durable delivery of alerts) adds two tables and nothing else: `deliveries` (one row per message to one
+channel: its state, retries, and the text that is sent, never a URL, key or token) and `delivery_events` (which alerts a
+row carries). It changes no existing table, so it can be taken back on its own. A build that does not know V59 refuses
+the database ("newer than this build"); restoring the backup taken before the update is the simple way back. To go back
+by hand, stop DENIS on every node first (on a database that is already at V60, take V60 back first, "Rolling back V60"
+below), then:
+
+```sql
+-- PostgreSQL (one transaction)
+BEGIN;
+DROP TABLE delivery_events;
+DROP TABLE deliveries;
+UPDATE schema_version SET version = 58 WHERE version = 59;
+COMMIT;
+```
+
+```sql
+-- SQLite (sqlite3 denis.db)
+PRAGMA foreign_keys = ON;
+DROP TABLE delivery_events;
+DROP TABLE deliveries;
+PRAGMA user_version = 58;
+```
+
+What is lost: the messages that were still waiting to be sent (queued or being retried) and the history of what was
+delivered, failed or given up. Alerts, incidents, devices and settings are not touched, and neither are the channel
+cursors, so a build without the outbox resumes from them and sends what is newer than the cursor. A message that was
+waiting for a receiver that was down is not sent after the rollback unless its alert is still newer than the cursor. The
+next start of a 4.4 build with V59 creates the two tables again, empty. On PostgreSQL, `denis db undo-v58` refuses a
+database that is at version 59: do the steps above first. The commands were run against a real SQLite file and a real
+PostgreSQL 16 in the tests (`store/sqlite/tests_v59.rs`, `store/pg/tests/deliveries_tests.rs`).
+
+### Rolling back V60
+
+Schema V60 (4.4, the real split of one hardware address) adds one column, `assets.l2_domain` (every existing row gets
+the empty value), and replaces the unique key of a device row, `(site, hardware address)`, by `(site, network, hardware
+address)`. Nothing else changes. A build that does not know V60 refuses the database ("newer than this build");
+restoring the backup taken before the update is the simple way back. To go back by hand, stop DENIS on every node first.
+If an administrator split a hardware address, there are extra rows (`l2_domain` is not empty) and the old key would
+refuse them: undo every split in the console first (device panel, *Undo the split*), or check that none is left:
+
+```sql
+SELECT COUNT(*) FROM assets WHERE l2_domain <> '';   -- must be 0
+```
+
+```sql
+-- PostgreSQL (one transaction)
+BEGIN;
+DROP INDEX assets_agent_dom_mac;
+ALTER TABLE assets DROP COLUMN l2_domain;
+CREATE UNIQUE INDEX assets_agent_mac ON assets ((COALESCE(agent_id, '')), mac);
+UPDATE schema_version SET version = 59 WHERE version = 60;
+COMMIT;
+```
+
+```sql
+-- SQLite (sqlite3 denis.db)
+DROP INDEX assets_agent_dom_mac;
+ALTER TABLE assets DROP COLUMN l2_domain;
+CREATE UNIQUE INDEX assets_agent_mac ON assets (COALESCE(agent_id, ''), mac);
+PRAGMA user_version = 59;
+```
+
+What is lost: nothing but the network of the rows (all of them are the original rows again). The setting
+`identity.mac_split` stays in the settings table and is ignored by a build without V60. The next start of a 4.4 build
+with V60 adds the column again, empty. On PostgreSQL, `denis db undo-v58` refuses a database that is at version 60: do
+the steps above first, then undo V59 as described there. The steps were run against a real SQLite file in the tests
+(`store/sqlite/tests_v60.rs`); the PostgreSQL migration is covered by the shared store conformance cases.
+
+### The delivery outbox has no switch
+
+From 4.4 the channel messages (the alert stream, grouped incidents) are written to the outbox in the same database
+step that moves the channel's cursor, and a sender sends them with retries; a receiver that is down, a restart or a
+failover no longer loses a message, and a message is sent at least once, never exactly once (after a crash between the
+send and the note that it was sent, the receiver may get it twice, with the same `Idempotency-Key` on a generic webhook).
+There is no setting to turn the outbox off and no second, inline sending path: a switch that only stopped the sender
+would leave messages piling up unsent. The way back is the rollback above (the cursors are not touched, so an older
+build resumes from them). Notices (enforcement actions, MSP sessions, connector and capture problems) go through the
+same outbox, one row per channel, so a channel that is down is retried on its own and the others are not held up.
+Enforcement and MSP messages are sent in their own lane per channel, ahead of the alert stream: an alert that keeps
+failing never delays them, and they are never folded into a summary. The figures are on
+`/metrics` (`denis_delivery_queued`, `denis_delivery_oldest_seconds`, `denis_delivery_dead_total`,
+`denis_delivery_dropped_total`, `denis_delivery_attempts_total`) and as Health warnings.
+
+In the console, *Settings → Notifications* shows the same figures per channel (messages waiting and the age of the
+oldest, delivered and given up on in 24 hours, the last success and error, from the database so they survive a
+restart). **Send again those not delivered** on a channel, and **Send again** on a row of the *Deliveries* list, queue
+a given-up message once more (alerts up to 7 days old); both are audited. The SIEM incidents stream and the command-line
+webhook are channels of the same queue. A message is kept 30 days after it was delivered and 90 days after it was given
+up on; waiting messages are never pruned by count.
 
 ## Refreshing the threat list
 

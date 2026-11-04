@@ -1,10 +1,10 @@
 # Enforcement: Ubiquiti UniFi
 
-Status: **Verified on UniFi Network 10.6.106 / UniFi OS 5.1.33, UCG Ultra: block device through the firewall policy, block a flow and their release (also automatic expiry); not verified: block by client MAC (did not hold for a wired client behind another switch), Wi-Fi client disconnect, port actions (no Wi-Fi device or UniFi switch in the lab).** The verified actions are the two firewall policy actions of the API key path (*Block device: firewall policy on the gateway* and *Block a flow*), with their release by hand, early and at expiry: they carry no *Experimental* mark and need neither lab setting (4.2). Everything else below was built from the controller's behaviour as publicly known (the UniFi Network API for these calls is not officially documented, and it changes between Network versions), checked against a simulated controller in DENIS's own tests, and stays *Experimental*. Sign-in is either a **local account with a user name and a password** (the controller's session cookie) or, new in 4.2, an **API key**; see *The controller kinds* and *With an API key (4.2)* below.
+Status: **Verified on UniFi Network 10.6.106 / UniFi OS 5.1.33, UCG Ultra: block device through the firewall policy, block a flow and their release (also automatic expiry). Verified for wireless clients only (UCG Ultra with a nanoHD access point, in the owner's lab, 29 October 2026): block device by client MAC address and disconnecting the wireless client. Not verified: the block by MAC of a wired client (it did not hold for a client behind another switch) and the port actions.** The verified actions carry no *Experimental* mark and need neither lab setting. The wireless tests: *Disconnect the wireless client* (the controller's events showed the client disconnected at 15:56:46 and connected again at 15:56:47: a phone usually rejoins at once, which is normal); *Block device* by MAC (the phone could not rejoin with the right password, also after switching its Wi-Fi off and on); release by hand (it rejoined at once); and the automatic end after 5 minutes (it rejoined without any action). Everything else below was built from the controller's behaviour as publicly known and checked against a fake console in DENIS's own tests.
 
 DENIS signs in to UniFi in one of two ways, chosen per connector under *How DENIS signs in*: a **local account** (user name and password, the way every version before 4.2 worked) or an **API key** of the Network application (new in 4.2), or **both**. What each one can do is in the table below. The API key path was built from the official Integration API documents and read-only answers of a Cloud Gateway Ultra (Network 10.6.106), and checked against a fake console in DENIS's own tests; it has not blocked anything on a real console yet.
 
-Lab use: the two firewall policy actions (API key) are validated on real equipment and need no lab setting. The client block by MAC (the pre-4.1 action) did not hold for a wired client behind another switch on the real console, so it stays *Experimental* and is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The actions new in 4.1 (disconnect a wireless client, disable a switch port, quarantine a switch port) additionally need *Allow experimental actions (lab use)*. Releasing an action always works.
+Lab use: the two firewall policy actions (API key), the block by MAC of a **wireless** client and the disconnect of a wireless client are verified and need no lab setting. The block by MAC of a client that the controller does not show as wireless (a wired client) did not hold behind another switch, so it stays *Experimental*: DENIS refuses it while an administrator has not switched on both *Allow Experimental connectors (lab use)* and *Allow experimental actions (lab use)* under *Settings → Response policy*, and it asks for the ticked warning. Disabling and quarantining a switch port additionally stay behind both switches. Releasing an action always works.
 
 Besides this connector's own refusals, every action through it goes through DENIS's common guards before anything is sent: loopback, unspecified, broadcast and multicast addresses, DENIS itself, the gateway, and an address or MAC in an open `arp_conflict` alert are refused, and a list DENIS cannot read refuses the action.
 
@@ -16,9 +16,9 @@ know the client (it has connected once). A **wired** client is the open question
 an adopted access point. DENIS must reach the controller's address directly over HTTPS (not through `unifi.ui.com`).
 Since 4.2 a UniFi connector is a firewall on the path like the others: fill in **Networks this firewall routes
 between** with the networks of the gateway (for example `192.168.14.0/24`). Only a device with a current address in
-one of them gets the UniFi responses in the main part of the Respond menu; for any other device they are listed under
-*Other firewalls* or *Path not verified*, and automation never uses them. The port actions act only on a port of a
-UniFi switch: the Respond menu never offers them for a port of a switch DENIS reads over SNMP (a Cisco, for example).
+one of them gets the UniFi responses in the answer of the Respond dialog; for any other device they are listed under
+*Other equipment*, and automation never uses them. The port actions act only on a port of a
+UniFi switch: the Respond dialog never offers them for a port of a switch DENIS reads over SNMP (a Cisco, for example).
 
 1. **A local account for DENIS.** In UniFi OS: *Admins & Users → Create New Admin*, tick *Restrict to Local Access Only*, give it a
    user name (for example `denis`) and a long random password, and the Network application role *Site Admin* for the one site
@@ -35,8 +35,7 @@ UniFi switch: the Respond menu never offers them for a port of a switch DENIS re
    *Setup*), and **Never block these MAC addresses**: DENIS's own adapter, the gateway, the controller and any access point or
    switch you rely on. **Verify TLS certificate** stays ticked if the console's certificate is trusted; the console's own
    certificate is self-signed, so in a lab you may untick it. Press **Test connection**.
-4. **Settings → Response policy:** tick *Allow administrators to block devices from DENIS*, *Allow connectors that are not
-   validated on real equipment (lab use)* and, for the actions new in 4.1, *Allow experimental actions (lab use)*.
+4. **Settings → Response policy:** tick *Allow administrators to block devices from DENIS*, *Allow Experimental connectors (lab use)* and, for the actions new in 4.1, *Allow experimental actions (lab use)*.
 5. **First test, on a harmless device:** *Respond → Block device* on a test client for **5 minutes**. A target with only an IP
    address is refused; the plan needs the client's MAC. Expect: a wireless client is disconnected at once;
    the controller shows the client as *Blocked*; at the end of the time (or on **Release**) DENIS unblocks it. **On a real
@@ -51,7 +50,7 @@ short name is wrong; a client "the controller has no record of" has never connec
 uplink, a link aggregation member, a trunk, or because another UniFi device or a listed MAC is behind it.
 
 **What each action does and how it is verified:** *Block device* sends `block-sta` for the MAC and reads the client back
-(`blocked`); **Release** sends `unblock-sta` only while the client is still blocked. **Extend** sets the new end from now, not
+(`blocked`); *Disconnect the wireless client* sends `kick-sta`, then looks once at the controller's client list and records whether the client is gone or has connected again (a client that reconnects at once is a normal result, not a failure); **Release** sends `unblock-sta` only while the client is still blocked. **Extend** sets the new end from now, not
 added to the old end, and needs your password. The port actions change **one field of one port entry** and are read back.
 Nothing is created on the controller that has a name, so there is nothing to clean up by hand.
 
@@ -64,7 +63,7 @@ Nothing is created on the controller that has a name, so there is nothing to cle
 | **Disable port** (`port_disable`) | `PUT rest/device/{id}` with the device's port override list, in which the one port's entry uses the controller's built in **Disabled** port profile. The port is read back from the controller. | It never changes any other port, any other field, or any profile or network. A controller with no profile named Disabled refuses. |
 | **Quarantine** (`port_profile`) | The same write, with the one port's entry on the **port profile you made** for quarantine. | DENIS never creates or edits a port profile or a network, and never writes a firewall rule: what the quarantine network allows is your own definition. The profile must carry its native network only (no tagged networks), or DENIS refuses. |
 | **Block device: firewall policy on the gateway** (`fw_policy`, API key) | One zone-based **firewall policy** per pair of zones: from the zone of the device's network to every zone of the site, the device's own zone included, except the **Gateway** zone (unless you tick that). Each policy has action **BLOCK** (dropped silently, never REJECT), a source filter of exactly one item, the device's address as `a.b.c.d/32` (IPv4 only: DENIS cannot tell the network of an IPv6 address yet, and refuses it), and is put **first** in the order of its zone pair; the order is read back. A later block puts its own policy first, so an earlier one of DENIS stands behind DENIS's own policies only, which still counts as in force; a policy of anyone else ahead of it does not. The read-back compares the whole policy with what DENIS wrote (action, zones, the one address, the address family, `matchOpposite`, and for a flow the protocol and the port): a policy changed in the console is *not confirmed*. Released by deleting the policies. | It matches the device's **IP address**, not its MAC address: another address of the device (IPv6, another network) is not blocked, and the plan says so. **Traffic inside the device's own network is switched and never reaches the gateway: it is not blocked.** The device can still reach the gateway itself (DHCP, DNS), so it keeps its address and stays visible. **Whether connections already open are cut has not been tested.** A device on the protected list, the gateway's own address, and an address in no network of the site are refused. |
-| **Block a flow** (`fw_flow`, API key) | One firewall policy from the source's zone to the destination's zone (`External` for an address on the internet), with the destination address as one `/32` item, and the port and protocol of the flow when it has them **[verify the port and protocol filter shape on the console]**. Placed first in its pair, read back, deleted on release. | Only traffic that passes the gateway. With the local account only, it is not offered. |
+| **Block a connection** (`fw_flow`, API key) | One firewall policy from the source's zone to the destination's zone (`External` for an address on the internet), with the destination address as one `/32` item, and the port and protocol of the flow when it has them **[verify the port and protocol filter shape on the console]**. Placed first in its pair, read back, deleted on release. | Only traffic that passes the gateway. With the local account only, it is not offered. |
 
 ### What the two port actions refuse (and cannot be told otherwise)
 
@@ -124,7 +123,7 @@ The firewall policies of the API key path are named `denis-<install tag>-<action
 
 ## What is verified
 
-**On a real UniFi console** (UniFi Cloud Gateway Ultra, UniFi Network 10.6.106, UniFi OS 5.1.33, API key, zone-based firewall, 2026-10): *Block device* with the firewall policy, *Block a flow*, and their release by hand, early and at expiry. Not tested on real equipment: the Wi-Fi client disconnect (needs an access point), the port actions (need a UniFi switch); they stay *Experimental*. The client block by MAC (sign-in *Both*) was tried on a wired client behind another switch and **did not hold**: the controller showed the client as blocked and DENIS read that back, but the traffic came back before the time was up; it stays *Experimental*. In DENIS's own tests, against a simulated controller: the old routes make the same calls and ledger row as the pre-4.1 code on a console and on a classic controller; block and release; refusal of an unknown, already blocked or protected client and of an IP address; the CSRF token rotation; a site the controller does not have; lost answers, refused writes and server errors; disabling and quarantining a port with every override left as it was, every hard refusal of the table above, a port that changes between the plan and the apply, a release that leaves a changed port alone, a release the controller refuses; the wireless disconnect and its refusals; expiry ignoring the kill switch, the cap and both lab switches; lab refusals sending zero requests; the flow block refused with zero requests. A Cloud Gateway Ultra has no radio and no UniFi switch ports: a real test of the disconnect needs an access point, and of the port actions a UniFi switch. The API key path (one firewall policy per zone pair) was built against a fake console made from synthetic data of the same shape as a real Cloud Gateway Ultra answers; nothing of it has been run on the real console yet.
+**On a real UniFi console** (UniFi Cloud Gateway Ultra, UniFi Network 10.6.106, UniFi OS 5.1.33, API key, zone-based firewall, 2026-10): *Block device* with the firewall policy, *Block a connection*, and their release by hand, early and at expiry. Not tested on real equipment: the Wi-Fi client disconnect (needs an access point), the port actions (need a UniFi switch); they stay *Experimental*. The client block by MAC (sign-in *Both*) was tried on a wired client behind another switch and **did not hold**: the controller showed the client as blocked and DENIS read that back, but the traffic came back before the time was up; it stays *Experimental*. In DENIS's own tests, against a simulated controller: the old routes make the same calls and ledger row as the pre-4.1 code on a console and on a classic controller; block and release; refusal of an unknown, already blocked or protected client and of an IP address; the CSRF token rotation; a site the controller does not have; lost answers, refused writes and server errors; disabling and quarantining a port with every override left as it was, every hard refusal of the table above, a port that changes between the plan and the apply, a release that leaves a changed port alone, a release the controller refuses; the wireless disconnect and its refusals; expiry ignoring the kill switch, the cap and both lab switches; lab refusals sending zero requests; the flow block refused with zero requests. A Cloud Gateway Ultra has no radio and no UniFi switch ports: a real test of the disconnect needs an access point, and of the port actions a UniFi switch. The API key path (one firewall policy per zone pair) was built against a fake console made from synthetic data of the same shape as a real Cloud Gateway Ultra answers; nothing of it has been run on the real console yet.
 
 Behaviours that are unproven vendor facts (marked **[verify]** in the code):
 
@@ -191,6 +190,28 @@ SNMP keeps its place on the map, and port actions, plans and guards never use wh
   fields no hardware has confirmed yet. In DENIS's own tests (a simulated console): wired and wireless clients, 800 clients over four
   pages, a list longer than the bound, roaming between two access points, a console that is down, malformed answers, and
   that nothing but a read is ever sent.
+
+### Where is it plugged in (4.4)
+
+With the client read on, DENIS also reads what each access point and switch hangs on, so the map no longer leaves an access
+point floating: it is drawn under its gateway or switch, with the port on that switch when the console says it, or marked
+*Wi-Fi mesh* when it hangs on another access point over the air. A Wi-Fi client's device page says it in words: *Wi-Fi
+'Unifi' on Nano HD, signal -54 dBm*, and under it *Nano HD is connected to Ubiquiti Cloud Gateway Ultra*. A device the console
+places this way has no "Place it manually…" button: a person has no reason to place it by hand.
+
+* **Local account:** `stat/device` gives each access point or switch an `uplink` (the parent's MAC `uplink_mac`, the
+  medium `type`, the parent's port `uplink_remote_port`), or a `last_uplink` when it is offline now. The shape is
+  **unverified** on hardware beyond the fields seen in the lab; the gateway's own `uplink` is its internet side and is
+  ignored.
+* **API key only:** the Integration API's `uplinkDeviceId` (or `uplink.deviceId`) is used when the device list carries it;
+  if it does not, nothing is drawn.
+* **Never guessed:** when the console does not name a parent, or names one DENIS does not know, the device stays where it
+  was (under the connector's box or the gateway). A parent loop is cut. A switch DENIS reads over SNMP keeps its own place.
+* **Port missing:** when the console names the parent but not the port (`uplink_remote_port` absent), and the parent is a
+  switch DENIS reads over SNMP, the [port join](../switches.md#port-join-the-port-of-an-access-point-or-switch-a-controller-did-not-name)
+  fills it in from that switch, only when exactly one port fits.
+* The line on the map says *reported by the controller*: it is the console's word, not a cable DENIS saw, and nothing
+  decides or loosens a response because of it. `GET /api/topology/controller-clients` carries it as `infra[].uplink`.
 
 ## Details from the console
 

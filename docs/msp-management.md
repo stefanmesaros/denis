@@ -1,8 +1,8 @@
-# MSP management (experimental)
+# MSP management
 
-> **Experimental in 4.1.** Remote management of a customer master by its MSP is new. It is off until a customer
-> administrator pairs with an MSP, and it is built so that the customer stays in charge. Keep it at the lowest level
-> that does the job, read [What an MSP can never do](#what-an-msp-can-never-do), and tell us what you find.
+> Remote management of a customer master by its MSP is off until a customer administrator pairs with an MSP, and it is
+> built so that the customer stays in charge. Keep it at the lowest level that does the job, and read
+> [What an MSP can never do](#what-an-msp-can-never-do).
 
 An MSP (a company that looks after networks for others) runs a master DENIS. Each of its customers runs a master of
 its own, with its own agents in its own segments and zones. With MSP management a technician of the MSP opens the
@@ -24,18 +24,38 @@ lists, as the customer sees them, in the customer's own version.
 
 ### Pairing
 
+**With an invitation (4.4).** Your MSP sends you a **link** (or a code that starts with `dml2.`, or a QR code of the link) and
+reads you **four words** by phone. Open the link in your DENIS console: it lands on *Settings, MSP management* with the code
+already in place and shows the MSP's name and its address. **Type the four words** the MSP read to you (the console shows none),
+choose the level (the MSP's suggestion is filled in, you decide), what the MSP may do with rules it sends, type your password
+and press *Pair*. The words are a random secret the MSP made for this one invitation; they are in no code, link or record. The code
+carries only a commitment to them, so your console can check what you typed against the code: a code that was changed on its
+way (another MSP key, another link, another commitment) cannot match the words the real MSP read out, and a leaked code cannot be
+claimed by anyone who did not hear them (the MSP allows five wrong tries and then revokes the invitation). The link works **once**, for **24
+hours**. Without a link: *Start, I have a code from my MSP*, or paste the code under *Settings, MSP management*. The code is in
+the link's fragment (`#join=`), which no server, proxy log or Referer ever sees; the console moves it out of the address bar at
+once. The invitation holds only a one-time token: your console's own relay token is handed out when the invitation is used,
+not before, and an invitation that was used, revoked or has expired is worth nothing. A sentence that does not
+match (wrong words, an expired or used invitation) stops before anything is stored. From a shell:
+`DENIS_LINK_CODE=<code> denis msp-link connect --phrase "<the four words, typed>"` (without `--phrase` it only shows who the code
+is from and stores nothing; for an invitation the fingerprint alone is not enough).
+
+**With a link code (`dml1.`, as before).**
+
 1. Your MSP gives you a **link code** (it starts with `dml1.`) and tells you its **key fingerprint** by phone or in
    person.
 2. In your console open **Settings, MSP management**, paste the code and press *Check the code*. The page shows the MSP's
    name, its address and the key fingerprint **read from the code**.
 3. Compare that fingerprint with the one the MSP told you. If they differ, stop: somebody else may have sent you the code.
-4. Choose the level (see below), tick that the fingerprints are identical, type your password and press *Pair*.
+4. Choose the level (see below) and what the MSP may do with **rules it sends** (*Not allowed*, *Ask me*, the default, or *New rules
+   go straight into a trial*; see [Sending rules to customers](#sending-rules-to-customers)), tick that the fingerprints are
+   identical, type your password and press *Pair*.
 
 The MSP's key is pinned. From then on every request must be signed with it. The relay token inside the code is stored
 sealed with this installation's secret key and is never shown again.
 
 From a shell, without the console: `DENIS_LINK_CODE=<code> denis msp-link connect` prints the fingerprint and stores
-nothing; run it again with `--fingerprint "<what you compared>"` to pair (`--level read|configure|full`, `--replace` to pair
+nothing; run it again with `--fingerprint "<what you compared>"` to pair (`--level read|configure|full`, `--rule-push off|ask|trial`, `--replace` to pair
 again). A running master picks the link up within a few seconds.
 
 A new link starts at **Read and write** (`configure`). Enforcement boxes start **unticked**. Co-approval starts **off**.
@@ -85,7 +105,65 @@ Remotely, at any level (the request is refused before it runs, whatever the MSP 
     starts from your network and goes to a device address, so it is made only by one of your own administrators, never
     remotely and never with an API token.
 
+13. Take back the rules it sent. (Your choice about which rules it may send is yours, but a technician with the administrator
+    role, through a link at *Read and write* or above, may answer an offer and change that choice for a customer that has no
+    administrator of its own, with a fresh second factor for a more permissive one, and it is in your audit log; keep the link at *Read
+    only* to keep every decision with your own people. See [Sending rules to customers](#sending-rules-to-customers).)
+
 These stay with you so that you can always see what happened, take the access away and recover.
+
+### Sending rules to customers
+
+An MSP can send **one file of rules** (`denis.rules/1`, the file *Export rules* makes) to several of its customers. The MSP only
+sends; **every decision is the customer's** (the one exception is a customer with no administrator of its own: see below).
+
+**What the customer decides** (Settings, MSP management, *Rules from your MSP*). The choice is made **when the link is made**: the
+pairing dialog (and `denis msp-link connect --rule-push off|ask|trial`) has a choice, and for a customer paired with an MSP the default is
+*Ask me*. Afterwards it is changed by an administrator signed in on the customer's console, or by an MSP technician (see below):
+
+| Choice | What happens |
+| --- | --- |
+| *Not allowed* (the default) | A push is refused, even as a check. Nothing is stored. |
+| *Ask me* | The push waits as an **offer**. An administrator opens it on the Rules page, sees the plan of the import (new, already here, different, in conflict, refused, each with its reason), picks per rule, chooses the days of the trial and accepts, or declines. |
+| *New rules go straight into a trial* | New rules are taken at once into a trial of the customer's own number of days. A rule that would **replace** one, or is in conflict, still waits as an offer: nothing is replaced silently. |
+
+* **A customer without an administrator of its own.** A fully MSP-managed customer has nobody to accept an offer. A technician who
+  holds the **administrator** role on that customer at the MSP, through a link at *Read and write* or *Full* (the level the customer
+  granted), may **accept or decline an offer for the customer** and acts as its administrator: the audit names
+  `msp:<MSP>:<technician>` (`rules.push.offered`, `rules.push.accepted` and `rules.import` with `by_msp_technician`). The same technician
+  may change the choice above, and **making it more permissive** (Ask me, or straight into a trial) needs his fresh second factor from the
+  last 10 minutes, as the password does for the customer's own administrator; a more careful choice needs nothing. A technician below
+  the administrator role, and a link below *Read and write*, can do neither. **Taking back a delivery** stays with the customer's own
+  administrators. To keep every decision with your own people, keep the link at *Read only*: at *Read and write* an administrator
+  technician can allow the MSP to send rules to a customer.
+* **Raising the choice asks for the password.** In the customer's console, changing *Rules from your MSP* to a more permissive choice
+  (*Not allowed* to *Ask me* or to a trial, or *Ask me* to a trial) asks for the administrator's password, like raising the access level;
+  lowering asks for nothing.
+* **The MSP is told.** The MSP's notification channels (through the delivery outbox) get one notice when a push is **delivered**,
+  **offered** or **refused**, and one when the customer **accepts**, **declines** or **takes back** rules: counts and names, never a
+  rule. The customer's answers travel with the next poll of the management channel (seconds). The customer's administrators get a
+  notice (`msp_rules_offer`) when an offer arrives.
+* **Their own category.** Delivered rules are shown under **"Managed by <MSP>"** on the Rules page, apart from the customer's own,
+  each tagged with who sent it (the MSP's name from the pinned link, never from a request). They can be switched on and off, looked at
+  and deleted by the customer, but not edited in place. **Take back all** deletes everything of one delivery; the revision history of
+  each rule is kept. A delivered rule runs like any rule.
+* **Staged rollout.** A rule that is on starts in a **trial** (judged and counted, nothing sent) and is never turned on by itself.
+* **No enforcement.** A delivered rule never carries a response or an enforcement action: a file that has one is refused.
+* **Fit for every customer.** A rule that names a device or a site by number is refused (numbers differ per customer); a zone is
+  matched by its **name** (the zone of that name at the customer; none, or two, is a refusal). The MSP's console checks this before it
+  sends anything to anybody; the customer checks again with its own zones and limits.
+* **Roles.** The technician needs the **administrator** role on the customer at the MSP (the customer's rule routes are the
+  administrator's) and the customer must have granted at least *Read and write*. A real push needs a second-factor proof from the
+  last 10 minutes; a check needs the factor and a proof in the session. A customer whose master is not connected is answered
+  *not connected*: nothing is queued.
+* **Audit.** On the customer, a pushed import is written as `rules.import` by `msp:<MSP>:<technician>` (ids only), an accepted offer by
+  the administrator who accepted it, with `push` and `managed_by`; offers, declines and consent changes are `rules.push.offered`,
+  `rules.push.declined`, `rules.push.consent`. On the MSP, `msp.rules.push` per customer, with a short hash of the file and never its
+  rules.
+
+On the MSP's operator page, below the customers: **Send rules to customers**: choose the file, the customers and an optional note, **Check**
+(nothing is sent or changed) and **Send**. The answer has one line per customer. The same from the API:
+`POST /api/operator/msp/rules/push` ([API](api.md)).
 
 ### Notifications
 
@@ -129,6 +207,17 @@ throws it away. It is off by default; switching it off asks for your password.
 Only the leader of a pair dials the MSP and answers its requests; the standby never does. A request in flight during a
 failover fails and is retried by the technician.
 
+### Licensing
+
+A master that is linked to an MSP needs no license of its own while the MSP's license is valid: Settings, License
+shows **Licensed through <MSP>**. Every 15 minutes (and also when the level is Off) your master sends its MSP a number,
+how many devices were active in the last 30 days, and gets a signed statement back that it is covered. Nothing about
+your devices is sent. If the MSP cannot be reached the statement holds for 14 days. After that, or when you unlink, or
+when the MSP ends the coverage, the console becomes a Community edition with a 30-day trial (the device list is not
+shortened during it, a banner counts the days), after which the list is capped at 100; detection continues and your
+data is kept. If you hold a license of your own, it is used and the MSP does not count your devices. Details:
+[Licensing](licensing.md#msp-customers-covered-by-the-msp-license).
+
 ## For MSPs
 
 ### What you need
@@ -166,8 +255,33 @@ a technician out of your console. Use a separate domain if you can.
 
 ### Adding a customer
 
-On the operator page (`/operator.html`), as an administrator of the default tenant with a second factor proven in the
-last 10 minutes: *Administer your customers, Add a customer*; or from a shell:
+**In the console (4.4).** *Settings, MSP customers* (administrators). It uses the same operator sign-in as the operator page
+(name, password; the second factor when a change needs it), so a small *Sign in as MSP operator* panel sits at the top. First
+set the address your customers connect to and, if your agent listener uses a private CA, its SHA-256 and the address of this
+console, which publishes the certificate at `/tls/ca.pem` (*Addresses for invitations*; they go into every invitation). The
+customer's console fetches the certificate from that address after the four words matched and uses it only if its SHA-256 is
+exactly the one in the invitation; the pairing and every later connection are then checked against that certificate alone. Then *Add customer*: the name, the customer's own console address (optional: used only
+to make the link), the access level you suggest (*Read only* by default), what you may send as rules, and the technicians who may
+open the customer. The result is shown once: the **four words** to read to the customer by phone (do not send them with the
+link; they are shown only now and kept nowhere, so if they are lost make a new invitation), the **link**, the **QR code** and
+the code, valid for **24 hours** and good **once**. Making an invitation changes nothing that already works: a customer that is
+already linked keeps its link until the new invitation is used (it asks for *replace*), and an invitation that is never used,
+expires or is revoked leaves everything as it was. The customers table shows each
+customer's invitation (pending, expired, revoked), whether it is paired and when it was last seen, the level it reported, its
+licence (covered, own, not covered) and its active devices (numbers only). *New invitation* revokes a pending one and makes a
+new one; *Revoke invitation* ends it at once. The operator page keeps working as before.
+
+From a shell, with the same effect:
+
+```
+denis msp customer add acme --name "Acme" --host acme.portal.example --url https://msp.example:9000 --invite
+denis msp customer invite acme [--replace] [--address https://denis.acme.example:8443]
+```
+
+Both print the four words, the long fingerprint, the code (and a link when `--address` is given).
+
+**The earlier code, still available.** On the operator page (`/operator.html`), as an administrator of the default tenant with a
+second factor proven in the last 10 minutes: *Administer your customers, Add a customer*; or from a shell:
 
 ```
 denis msp customer add acme --name "Acme" --host acme.portal.example --url https://msp.example:9000
@@ -175,12 +289,23 @@ denis msp customer add acme --name "Acme" --host acme.portal.example --url https
 
 Both print the **link code** once, and the **key fingerprint**. Give the code to the customer's administrator (it
 contains a secret), and **read them the fingerprint by phone or in person**: they compare it before they pair.
-`--ca-sha256` names a private CA the customers must trust. If the customer already relays with `--report-to` and you
+`--ca-sha256` names a private CA the customers must trust; the address that publishes it is the saved *Addresses for invitations* setting. If the customer already relays with `--report-to` and you
 reuse its relay id, no new code is made (its token is kept); give the management link its own id instead
 (`--relay-id acme-link`) so that the relay and the channel each keep their token.
 
 Then give each technician a role on the customer (`denis msp customer grant alex acme editor`, or *Who may open it* on
 the operator page): `viewer`, `editor` or `admin`. The role only narrows what the customer granted.
+
+### Your license covers your customers
+
+Every license can act as an MSP license; there is no separate edition. Your customers' masters that are linked to you
+are covered by your license (they need none of their own) and their active devices are added to your pool: your own
+active devices, your covered customers' reported numbers (numbers only: no device data) and your tenants'. Each
+customer's number is on the operator page under *Customers*, with whether it is covered, has a license of its own
+(then it is not in your pool) or is not covered. A customer's mirror (`--report-to`) is counted as the larger of the
+reported number and the mirror's own count, and is not part of your own list. Over the cap, only your own list is
+shortened (never below 100 devices); customers are never affected. An MSP on the Community edition cannot cover
+customers. See [Licensing](licensing.md#msp-customers-covered-by-the-msp-license).
 
 ### Opening a customer
 
@@ -265,7 +390,7 @@ previous version are understood). A customer older than 4.1 has no management an
 * If a customer's master is taken over, it can lie to the MSP (as it always could) and serve hostile pages to the technician,
   which the separate portal domain, the `__Host-` cookies and the proxy's content policy contain.
 
-See also [Security](security.md#msp-management-experimental) and [Deployment](deployment.md#msp-remote-management-of-a-customers-own-master).
+See also [Security](security.md#msp-management) and [Deployment](deployment.md#msp-remote-management-of-a-customers-own-master).
 
 ## Commands
 

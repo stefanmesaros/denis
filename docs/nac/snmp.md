@@ -1,4 +1,4 @@
-# Port control: SNMP switches (Cisco Catalyst, D-Link and others)
+# Port control: SNMP v2c & v3 (port shutdown & quarantine VLAN) on switches (Cisco Catalyst, D-Link and others)
 
 Status, by switch:
 
@@ -113,7 +113,7 @@ through another switch needs that switch added too. Traffic does not have to pas
   include `1.3.6.1.4.1.9.9.68.1.2.2.1.2` (`vmVlan`, `vmMembershipEntry.2`) as well as `ifAdminStatus`
   (`1.3.6.1.2.1.2.2.1.7`). A write view with only `ifAdminStatus` switches ports off but fails every quarantine move.
   Check `show snmp group` (which view the write group uses) and `show snmp view | include DENIS`.
-* *Disable port and the quarantine move are missing from the Respond menu:* the switch has no write credential in DENIS.
+* *Disable port and the quarantine move are missing from the Respond dialog:* the switch has no write credential in DENIS.
   With SNMPv2c the port actions need the **SNMP write community**; without it they simply do not appear, with no error.
 * *"The switch rejected the authentication":* the authentication protocol on the switch and in DENIS must be the same. IOS
   15.x: SHA-1 and AES-128 only. A wrong **privacy** password usually gives no answer at all rather than an error.

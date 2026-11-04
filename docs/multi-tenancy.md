@@ -27,7 +27,7 @@ Once added, a tenant has its own:
   `denis agent-token issue --tenant acme`, and reporting into that tenant only, through the same
   ingest port as every other tenant.
 
-**Install-wide settings** (updates, restart, TLS, capture interfaces, the license, KEV/GeoIP data,
+**Install-wide settings** (updates, restart, TLS, capture interfaces, the license (one per installation: the active devices of all tenants are summed against it, see [Licensing](licensing.md#tenants-inside-one-installation)), KEV/GeoIP data,
 single sign-on) are refused in a tenant's console — they answer "managed by the operator of this
 installation". Port control (NAC) is configured per tenant.
 
@@ -93,6 +93,17 @@ installation's `denis.db`, a backup, another installation's export) in as a new 
 file is never changed. An imported customer's agents need their existing token rewritten with the
 tenant's prefix (`dat_<id>_…` instead of `dat_…`) — tokens are stored hashed, so DENIS cannot do
 this for you.
+
+**Removing a tenant.** `denis tenant delete acme --yes` removes the registration (console host names, limits, operator
+memberships) and renames the tenant's database file to `acme.db.deleted`; delete that file yourself when you are sure.
+On a PostgreSQL installation (`--database-url`, Experimental) it drops the tenant's schema and role with everything in
+them, for good. `default` cannot be deleted.
+
+**Tenants in PostgreSQL (Experimental).** `denis tenant move-to-postgres --database-url ...` copies the control store
+and the tenants' SQLite files into the database of an installation that runs with `--database-url`, so a pair of nodes
+can run the same tenants. Stop DENIS first; `--dry-run` shows what would happen. The SQLite files stay untouched, every
+table is checked afterwards, and the command can be run again after an interruption. See
+[High availability](high-availability.md#the-control-schema-and-tenant-schemas-on-postgresql-44).
 
 **Secrets from another installation are not carried over.** Sealed secrets (connector credentials,
 channel webhooks and passwords, AI keys) can only be read with the key of the installation that
@@ -162,11 +173,12 @@ installation; more works but these limits start to matter.
   source address) are shared, so one tenant's sign-in storm or token guessing can slow or lock out
   another's. Agent ingest itself has per-tenant apply locks, concurrency, request rate and backup
   quota (above).
-* **One secrets key for the whole installation.** Sealed secrets (connector credentials, channel
-  webhooks) of every tenant are encrypted with the one installation key, so anyone who can read that
-  key can read every tenant's sealed secrets. A ciphertext copied from one tenant's database into
-  another's would decrypt (the key is shared); the tenant stamp and the import rules above are what
-  keep databases in their own slots. A tenant imported from **another installation** brings secrets
+* **One master key for the whole installation, one data key per tenant (4.4).** Each tenant's sealed secrets are encrypted
+  with a data key of that tenant, which the one installation key (`secrets.key`) opens, so anyone who holds that key and
+  the database can still read every tenant's secrets. A ciphertext copied from one tenant's database into another's
+  does not open (the tenant is part of what is authenticated). The data key can be changed per tenant and the master key
+  on request ([Key management](key-management.md)). Installations that have not yet started 4.4 still have the one key
+  for all; the first start of 4.4 moves them ([Security](security.md#upgrading-the-secret-format-44)). A tenant imported from **another installation** brings secrets
   sealed under that installation's key: connector credentials are removed and listed to be entered
   again, and authenticator apps (which are never removed: that would switch the second step off) do
   not open here, so those people's codes are refused. The import's audited notice
@@ -176,16 +188,15 @@ installation; more works but these limits start to matter.
   growth is limited by its retention settings, not by a size cap, so one tenant can still fill the
   disk for all.
 * **A new tenant, and a resumed one that was suspended at start, need a restart** to start their
-  jobs and console (tenants are loaded when DENIS starts). There is no tenant deletion.
+  jobs and console (tenants are loaded when DENIS starts). `denis tenant delete` removes a tenant (above).
 * **Shared enrichment data.** Reverse DNS and GeoIP lookups are installation-wide, by design.
 * **No link to a tenant's console in mails.** `--public-url` is the `default` tenant's address. A
   tenant's scheduled report emails and automatic enforcement notices carry no console link; the
   notice says where to find the action instead.
-* **No high availability with tenants.** DENIS refuses to start with `--database-url` while tenants
-  besides `default` exist: their data lives in SQLite files on one node, so the combination is refused
-  at start rather than left to diverge. Start without `--database-url`, or move the tenants to their
-  own installs.
-* **One data key for all tenants** (planned for 4.4): see "One secrets key" above.
+* **High availability with tenants is Experimental (4.4).** With `--database-url` the tenants live in the database
+  (a schema and a database role each) and both nodes of a pair run them; tenants still in SQLite files are refused at
+  start until `denis tenant move-to-postgres` has copied them. Not measured with many tenants yet. See
+  [High availability](high-availability.md#the-control-schema-and-tenant-schemas-on-postgresql-44).
 * **Reverse proxies must pass the host name through** (`proxy_set_header Host $host;`). A proxy that
   rewrites the host to `127.0.0.1` sends every tenant's traffic to the default console, where the
   credentials do not match (it fails closed, but nobody can sign in).
@@ -193,13 +204,11 @@ installation; more works but these limits start to matter.
 ## Not yet built
 
 * Single sign-on and passkeys inside a tenant's own console.
-* The license's device cap is not yet counted across every tenant.
 * A tenant's console shows install-wide controls as "managed by the operator of this
   installation" rather than hiding them outright.
 
-* Tenants on PostgreSQL. PostgreSQL and an active-passive pair exist since 4.0.0 (see
-  [High availability](high-availability.md)), but only for an installation without tenants: the tenants' data
-  still lives in SQLite files on one node.
+* Tenants on PostgreSQL are built but **Experimental** (4.4): see the limit above. Not done: measuring 10, 50 and 100
+  tenants and a run on a managed PostgreSQL service. No number of tenants per server is promised on PostgreSQL.
 
 ## Details from the console
 

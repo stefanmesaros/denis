@@ -40,13 +40,44 @@ so that channel quietly behaves like "individually" until incidents are back on.
   listing the most serious. An alert storm never floods a chat room. (This individual-alert behaviour; a channel set
   to deliver grouped incidents instead follows the rule above.)
 * A channel that is down does not lose alerts: it retries with a growing pause (up to 15 minutes) and catches up
-  when it returns. Alerts older than 24 hours are dropped rather than sent late.
+  when it returns, also after DENIS restarted or another node took over. Alerts older than 24 hours are not sent late:
+  they are marked as not delivered, counted, and listed under *Deliveries* (below). **Delivery is at least once, never
+  exactly once.**
 * A new channel starts from *now*; it does not replay history.
 * **Maintenance mode** (*Settings → Notifications*): silence *all* channels for 30 minutes to 7 days during planned work. A
   banner shows on every screen while it is on, and alerts raised meanwhile are **not** sent afterwards.
 * **Silence one device**: in a device's edit form, *Silence notifications until* a date (to the end of that day).
   The device's alerts still show in the console.
 * Every change to channels and maintenance mode is in the audit log.
+
+## What happened to a notification
+
+Every message to a channel (an alert, a summary, an incident, an enforcement or system notice) is written to a queue in
+the database and sent from there, so you can see where it stands.
+
+* **On an alert or an incident** the dialog has a **Notifications** block: one line per channel with the state in words
+  (*Delivered 12:03*, *Waiting, next try in 4 minutes*, *Not delivered: too old by the time it could be sent*, *In a
+  summary of 7 alerts, delivered 12:05*), the number of attempts and the ticket key when the receiver gave one. A channel
+  that is not listed did not take the alert: its minimum score, its *Which alerts* setting, maintenance mode or a muted
+  device kept it out. Everyone who can read the alert sees the channel and the state; the receiver's error text is
+  for administrators.
+* **Settings → Notifications** shows, for each channel, how many messages wait and for how long, how many were
+  delivered and how many were given up on in the last 24 hours, the last success and the last error. These figures come
+  from the database, so they survive a restart. **Send again those not delivered** tries a channel's given-up messages
+  again (alerts up to 7 days old). The **Deliveries** list below shows the queue, newest first, filtered by channel and
+  state, and each waiting or given-up row has **Send again**. **Test** still sends one message at once and is not in the
+  queue.
+* **Retries:** a failed send is tried again after 15 seconds, then with a doubling pause up to 15 minutes. A receiver
+  that says *try later* (HTTP 429 or 503 with `Retry-After`) is obeyed up to 15 minutes. A refusal that more
+  attempts will not cure (a wrong key or URL: 400, 401, 403, 404, 413) is given up on after three tries; editing the
+  channel gives its recent given-up messages another try.
+* **A flood:** when a channel already has 50 messages waiting, new alerts for it are folded into one summary that counts
+  them; at 1,000 waiting messages for one channel (20,000 for all) new ones are refused and counted. Enforcement and
+  MSP messages are never folded and are sent first, in their own lane, ahead of the alert stream.
+* **Health** warns when something was given up on in the last hour, when a channel's oldest message has waited more than
+  15 minutes, and when messages were refused because too many were waiting.
+* The SIEM **incidents** stream (see [SIEM export](export.md)) uses the same queue as a channel called *Incident stream
+  to the SIEM*, shown read-only once it has had a record.
 
 ## Which alerts a channel gets: every alert, or important only
 
@@ -116,6 +147,9 @@ to a channel.
   acknowledged as resolved, false or expected, closed automatically or put in an incident, and how many nobody
   reviewed after a week. These are counts only (no addresses), kept 400 days whatever the event retention is.
   Your own rules are counted one by one. `GET /api/rules/outcomes` (and `.csv`) reads them.
+* **Rules in a trial** (4.4): a rule an administrator is trying first is judged as usual but only counted: it sends
+  nothing, opens no incident and prepares no response, so none of your channels hears about it. Off by default; see
+  [Trying a rule first](detection-rules.md#trying-a-rule-first-trial).
 * **Close low alerts automatically** (*Settings → Notifications → Quiet routine alerts*, off by default): a low alert that
   has not happened again (same device, kind and provider) for 3 to 30 days (7 by default) is acknowledged by the system.
   The alert's history says so, and it can be undone. Medium and high alerts, the kinds above and alerts in an open
@@ -208,6 +242,27 @@ If you set a **signing secret** (16+ characters) each request carries `X-Denis-S
 HMAC-SHA256 of the exact request body. Verify it with a constant-time comparison before trusting the message,
 and use `sent_at` to reject old replays.
 
+A message that is retried (the receiver was down, or DENIS restarted before it knew the message arrived) is sent again
+with the same **`Idempotency-Key`** header, and its body carries `delivery_id` (the same value) and `event_id` (the id
+of the alert or incident it is about), both inside the signed body. `sent_at` changes with every attempt, so to ignore
+a repeat, remember `delivery_id` for a day and drop a message whose `delivery_id` you have already handled; do not
+compare bodies.
+
+### Tickets and mail on a retry
+
+* **Jira:** each issue gets a label `denis-` plus 16 characters of the delivery's key. When a message is retried, DENIS
+  first searches the project for an issue with that label and, if it finds one, does not file another. The search needs
+  the "Browse projects" permission; if it is refused or finds nothing, the issue is filed. Jira's search can lag a few
+  seconds behind a new issue, so a very quick retry may still produce a second one. Experimental until tried
+  against Jira Cloud.
+* **ServiceNow:** the description ends with a line `DENIS delivery: <key>`. On a retry DENIS first looks for an incident
+  with the same correlation id and that line, and files nothing if it finds one. The account needs read access to
+  `incident`; without it the incident is filed again. Experimental until tried on a real instance.
+* **E-mail:** the `Message-ID` is fixed for the message, so a retry carries the same one; a mail system that drops
+  repeated ids drops the repeat.
+* Slack, Teams, Discord, Pushover, ntfy and Telegram have no way to recognise a repeat: after a crash between sending
+  and noting it, the same message can appear twice.
+
 ## Security
 
 * Webhook URLs, integration keys, SMTP passwords and signing secrets are **secrets**. They are stored in the
@@ -222,7 +277,11 @@ and use `sent_at` to reject old replays.
 ## Also available
 
 * `--webhook <url>` on the command line: a simple Slack/Discord-compatible text webhook (older; the channels
-  above are more capable and can be edited without a restart).
+  above are more capable and can be edited without a restart). Since 4.4 it is kept in the database like every
+  channel: alerts survive a restart and an outage of up to 24 hours, and each request carries an `Idempotency-Key` and
+  an `X-Denis-Event-Id` header (the body is unchanged). Like the channels, it is silent during maintenance mode and
+  for a muted device. `--webhook-volatile` (or `DENIS_WEBHOOK_VOLATILE=1`) brings back the old in-memory behaviour for
+  one more release.
 * [SIEM export (CEF/LEEF/JSON) and OpenObserve](export.md) for SIEMs and log platforms — it has its own, separate
   **Incidents** stream, alongside the per-channel grouping above.
 * [Incidents](incidents.md): how related alerts get grouped in the first place, and what the priority on a grouped

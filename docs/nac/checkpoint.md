@@ -1,8 +1,8 @@
 # Enforcement: Check Point Management API
 
-Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from Check Point's published Management API reference and checked against a fake Management Server in DENIS's own tests. It has never been run against a real Security Management Server. The vendor behaviours that are still unproven are listed under *Verified and not verified* below.
+Status: **Experimental.** Everything below was built from Check Point's published Management API reference and checked against a fake Management Server in DENIS's own tests. It has never been run against a real Security Management Server. The vendor behaviours that are still unproven are listed under *Verified and not verified* below.
 
-Lab use: the old block (*Block device*, the address group) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. Quarantine and flow blocks are new in 4.1 and need that switch and also *Allow experimental enforcement actions*. A flow block also needs *Allow DENIS to create deny rules on this firewall* ticked on this connector. Testing, reading and releasing always work.
+Lab use: the old block (*Block device*, the address group) is allowed only while an administrator has switched on *Allow Experimental connectors (lab use)* under *Settings → Response policy*. Quarantine and flow blocks are new in 4.1 and need that switch and also *Allow experimental enforcement actions*. A flow block also needs *Allow DENIS to create deny rules on this firewall* ticked on this connector. Testing, reading and releasing always work.
 
 Besides the connector's own refusals, every action through it is refused for a loopback, unspecified, broadcast or multicast address, for DENIS itself and for the gateway, for DNS and directory servers, for anything in *Never block these IP addresses*, and for the address you are using to reach the console. Release is never refused for these reasons.
 

@@ -1,8 +1,8 @@
-# Enforcement: Cisco ASA
+# Enforcement: Cisco Adaptive Security Appliance (ASA)
 
-Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from Cisco's published ASA command reference and checked against a scripted fake ASA in DENIS's own tests. It has never been run against a real ASA. The vendor behaviours that are still unproven are listed under *Verified and not verified* below.
+Status: **Experimental.** Everything below was built from Cisco's published ASA command reference and checked against a scripted fake ASA in DENIS's own tests. It has never been run against a real ASA. The vendor behaviours that are still unproven are listed under *Verified and not verified* below.
 
-Lab use: every action of this connector is allowed only while an administrator has switched on both *Allow connectors that are not validated on real equipment (lab use)* and *Allow experimental enforcement actions* under *Settings → Response policy*. This connector is new in 4.1 and has no older block button. Everything goes through the Respond menu: a plan you read, a confirmation, a time limit (one hour by default), and a release that DENIS also makes on its own when the time is up.
+Lab use: every action of this connector is allowed only while an administrator has switched on both *Allow Experimental connectors (lab use)* and *Allow experimental enforcement actions* under *Settings → Response policy*. This connector is new in 4.1 and has no older block button. Everything goes through the Respond dialog: a plan you read, a confirmation, a time limit (one hour by default), and a release that DENIS also makes on its own when the time is up.
 
 Besides the connector's own refusals, every action through it is refused for a loopback, unspecified, broadcast or multicast address, for DENIS itself and for the gateway, for DNS and directory servers, for anything in the connector's *protected networks* and in *Never block these IP addresses*, for the address you are using to reach the console, and for every address of the ASA itself (its interfaces, the management interface and the standby address of a failover pair, which DENIS reads from the ASA each time).
 

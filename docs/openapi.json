@@ -129,7 +129,7 @@
     }
   },
   "info": {
-    "description": "Generated from the tables that enforce access. The x-denis-* fields on each operation state the lowest role, whether an API token may call it, the MSP remote class (and the class its body can raise it to) and whether it is refused on a customer console of a multi-customer install. Request and response bodies are generic in this version; docs/api.md is the prose reference.",
+    "description": "Generated from the tables that enforce access. The x-denis-* fields on each operation state the lowest role, whether an API token may call it and the area and level a scoped token needs for it (x-denis-scope), the MSP remote class (and the class its body can raise it to) and whether it is refused on a customer console of a multi-customer install. Request and response bodies are generic in this version; docs/api.md is the prose reference.",
     "title": "DENIS API",
     "version": "VERSION"
   },
@@ -183,6 +183,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -589,6 +590,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "status:read",
         "x-denis-token": true
       },
       "put": {
@@ -764,6 +766,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       }
     },
@@ -1383,6 +1386,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "ai:read",
         "x-denis-token": true
       }
     },
@@ -1449,6 +1453,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "ai:write",
         "x-denis-token": true
       }
     },
@@ -1515,6 +1520,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "ai:write",
         "x-denis-token": true
       }
     },
@@ -1581,6 +1587,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "ai:write",
         "x-denis-token": true
       }
     },
@@ -1647,6 +1654,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "ai:write",
         "x-denis-token": true
       }
     },
@@ -1713,6 +1721,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "ai:write",
         "x-denis-token": true
       }
     },
@@ -1779,6 +1788,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "ai:write",
         "x-denis-token": true
       }
     },
@@ -1830,6 +1840,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -1957,6 +1968,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "ai:write",
         "x-denis-token": true
       }
     },
@@ -2008,6 +2020,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "ai:read",
         "x-denis-token": true
       }
     },
@@ -2074,6 +2087,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "ai:write",
         "x-denis-token": true
       }
     },
@@ -2125,6 +2139,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "ai:read",
         "x-denis-token": true
       }
     },
@@ -2176,6 +2191,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
         "x-denis-token": true
       }
     },
@@ -2242,6 +2258,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "alerts:write",
         "x-denis-token": true
       }
     },
@@ -2308,6 +2325,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "alerts:write",
         "x-denis-token": true
       }
     },
@@ -2374,6 +2392,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "alerts:write",
         "x-denis-token": true
       }
     },
@@ -2448,6 +2467,82 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "alerts:write",
+        "x-denis-token": true
+      }
+    },
+    "/api/alerts/{id}/normal": {
+      "post": {
+        "operationId": "post_api_alerts_id_normal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/alerts/{id}/normal",
+        "tags": [
+          "alerts"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "editor",
+        "x-denis-scope": "alerts:write",
         "x-denis-token": true
       }
     },
@@ -2522,6 +2617,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "alerts:write",
         "x-denis-token": true
       }
     },
@@ -2634,6 +2730,69 @@
         "x-denis-token": false
       }
     },
+    "/api/api-tokens/apply-max-lifetime": {
+      "post": {
+        "operationId": "post_api_api_tokens_apply_max_lifetime",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/api-tokens/apply-max-lifetime",
+        "tags": [
+          "api-tokens"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
     "/api/api-tokens/{id}": {
       "delete": {
         "operationId": "delete_api_api_tokens_id",
@@ -2687,6 +2846,75 @@
           }
         ],
         "summary": "DELETE /api/api-tokens/{id}",
+        "tags": [
+          "api-tokens"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      },
+      "patch": {
+        "operationId": "patch_api_api_tokens_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PATCH /api/api-tokens/{id}",
         "tags": [
           "api-tokens"
         ],
@@ -2756,6 +2984,77 @@
         "x-denis-token": false
       }
     },
+    "/api/api-tokens/{id}/rotate": {
+      "post": {
+        "operationId": "post_api_api_tokens_id_rotate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/api-tokens/{id}/rotate",
+        "tags": [
+          "api-tokens"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
     "/api/assets": {
       "get": {
         "operationId": "get_api_assets",
@@ -2804,6 +3103,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       },
       "post": {
@@ -2868,6 +3168,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "inventory:write",
         "x-denis-token": true
       }
     },
@@ -2934,6 +3235,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "inventory:write",
         "x-denis-token": true
       }
     },
@@ -3000,6 +3302,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "inventory:write",
         "x-denis-token": true
       }
     },
@@ -3073,6 +3376,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "inventory:write",
         "x-denis-token": true
       }
     },
@@ -3139,6 +3443,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "inventory:write",
         "x-denis-token": true
       }
     },
@@ -3259,6 +3564,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -3320,6 +3626,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -3450,6 +3757,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -3511,6 +3819,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -3572,6 +3881,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -3633,6 +3943,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -3694,6 +4005,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -3755,6 +4067,131 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/assets/{id}/judgements": {
+      "get": {
+        "operationId": "get_api_assets_id_judgements",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/assets/{id}/judgements",
+        "tags": [
+          "assets"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/assets/{id}/l2": {
+      "get": {
+        "operationId": "get_api_assets_id_l2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/assets/{id}/l2",
+        "tags": [
+          "assets"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -3816,6 +4253,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -3877,6 +4315,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -3952,6 +4391,7 @@
         "x-denis-msp-class": "configure",
         "x-denis-msp-class-max": "admin",
         "x-denis-role": "editor",
+        "x-denis-scope": "inventory:write",
         "x-denis-token": true
       }
     },
@@ -4084,6 +4524,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -4145,6 +4586,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -4206,6 +4648,69 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/assets/{id}/timeline": {
+      "get": {
+        "operationId": "get_api_assets_id_timeline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/assets/{id}/timeline",
+        "tags": [
+          "assets"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -4490,6 +4995,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "any",
+        "x-denis-scope": "status:read",
         "x-denis-token": true
       }
     },
@@ -5705,6 +6211,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "status:read",
         "x-denis-token": true
       }
     },
@@ -7099,6 +7606,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "status:read",
         "x-denis-token": true
       }
     },
@@ -7332,6 +7840,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -7507,6 +8016,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -8100,6 +8610,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -8643,6 +9154,77 @@
         "x-denis-token": false
       }
     },
+    "/api/channels/{id}/retry-dead": {
+      "post": {
+        "operationId": "post_api_channels_id_retry_dead",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/channels/{id}/retry-dead",
+        "tags": [
+          "channels"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
     "/api/channels/{id}/test": {
       "post": {
         "operationId": "post_api_channels_id_test",
@@ -8762,6 +9344,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -8813,6 +9396,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -8988,6 +9572,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "exposure:read",
         "x-denis-token": true
       }
     },
@@ -9054,6 +9639,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "viewer",
+        "x-denis-scope": "diagnostics:read",
         "x-denis-token": true
       }
     },
@@ -9105,6 +9691,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "diagnostics:read",
         "x-denis-token": true
       }
     },
@@ -9156,6 +9743,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -9283,6 +9871,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "viewer",
+        "x-denis-scope": "diagnostics:read",
         "x-denis-token": true
       }
     },
@@ -9344,6 +9933,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "diagnostics:read",
         "x-denis-token": true
       }
     },
@@ -9418,6 +10008,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "viewer",
+        "x-denis-scope": "diagnostics:read",
         "x-denis-token": true
       }
     },
@@ -9479,6 +10070,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "diagnostics:read",
         "x-denis-token": true
       }
     },
@@ -9553,6 +10145,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "viewer",
+        "x-denis-scope": "diagnostics:read",
         "x-denis-token": true
       }
     },
@@ -9604,6 +10197,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       }
     },
@@ -9655,6 +10249,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "exposure:read",
         "x-denis-token": true
       }
     },
@@ -9706,6 +10301,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -9818,6 +10414,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "exposure:read",
         "x-denis-token": true
       }
     },
@@ -9932,6 +10529,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -10059,6 +10657,173 @@
         "x-denis-token": false
       }
     },
+    "/api/deliveries": {
+      "get": {
+        "operationId": "get_api_deliveries",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/deliveries",
+        "tags": [
+          "deliveries"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/deliveries/stats": {
+      "get": {
+        "operationId": "get_api_deliveries_stats",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/deliveries/stats",
+        "tags": [
+          "deliveries"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/deliveries/{id}/retry": {
+      "post": {
+        "operationId": "post_api_deliveries_id_retry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/deliveries/{id}/retry",
+        "tags": [
+          "deliveries"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
     "/api/demo": {
       "delete": {
         "operationId": "delete_api_demo",
@@ -10158,6 +10923,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "status:read",
         "x-denis-token": true
       },
       "post": {
@@ -10280,6 +11046,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -10331,6 +11098,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
         "x-denis-token": true
       }
     },
@@ -10387,6 +11155,176 @@
         "x-denis-token": false
       }
     },
+    "/api/enroll-codes": {
+      "get": {
+        "operationId": "get_api_enroll_codes",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/enroll-codes",
+        "tags": [
+          "enroll-codes"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      },
+      "post": {
+        "operationId": "post_api_enroll_codes",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/enroll-codes",
+        "tags": [
+          "enroll-codes"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/enroll-codes/{id}": {
+      "delete": {
+        "operationId": "delete_api_enroll_codes_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "DELETE /api/enroll-codes/{id}",
+        "tags": [
+          "enroll-codes"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
     "/api/events": {
       "get": {
         "operationId": "get_api_events",
@@ -10435,6 +11373,69 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/events/{id}/deliveries": {
+      "get": {
+        "operationId": "get_api_events_id_deliveries",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/events/{id}/deliveries",
+        "tags": [
+          "events"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
         "x-denis-token": true
       }
     },
@@ -10496,6 +11497,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
         "x-denis-token": true
       }
     },
@@ -10557,6 +11559,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
         "x-denis-token": true
       }
     },
@@ -10611,6 +11614,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
         "x-denis-token": true
       }
     },
@@ -10665,6 +11669,62 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/export/unmanaged.csv": {
+      "get": {
+        "operationId": "get_api_export_unmanaged_csv",
+        "responses": {
+          "2XX": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/export/unmanaged.csv",
+        "tags": [
+          "export"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -10716,6 +11776,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "exposure:read",
         "x-denis-token": true
       }
     },
@@ -10767,6 +11828,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
         "x-denis-token": true
       }
     },
@@ -10841,6 +11903,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "alerts:write",
         "x-denis-token": true
       }
     },
@@ -10892,6 +11955,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -11320,6 +12384,310 @@
         "x-denis-token": false
       }
     },
+    "/api/identity/mac-split": {
+      "post": {
+        "operationId": "post_api_identity_mac_split",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/identity/mac-split",
+        "tags": [
+          "identity"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/identity/mac-split/{asset_id}": {
+      "delete": {
+        "operationId": "delete_api_identity_mac_split_asset_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "DELETE /api/identity/mac-split/{asset_id}",
+        "tags": [
+          "identity"
+        ],
+        "x-denis-msp-class": "admin",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      },
+      "get": {
+        "operationId": "get_api_identity_mac_split_asset_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/identity/mac-split/{asset_id}",
+        "tags": [
+          "identity"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/identity/shared-mac": {
+      "post": {
+        "operationId": "post_api_identity_shared_mac",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/identity/shared-mac",
+        "tags": [
+          "identity"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/identity/shared-mac/{asset_id}": {
+      "delete": {
+        "operationId": "delete_api_identity_shared_mac_asset_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "DELETE /api/identity/shared-mac/{asset_id}",
+        "tags": [
+          "identity"
+        ],
+        "x-denis-msp-class": "admin",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
     "/api/identity/suggestions": {
       "get": {
         "operationId": "get_api_identity_suggestions",
@@ -11558,6 +12926,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
         "x-denis-token": true
       }
     },
@@ -11609,6 +12978,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -11731,6 +13101,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
         "x-denis-token": true
       }
     },
@@ -11805,6 +13176,69 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "alerts:write",
+        "x-denis-token": true
+      }
+    },
+    "/api/incidents/{id}/deliveries": {
+      "get": {
+        "operationId": "get_api_incidents_id_deliveries",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/incidents/{id}/deliveries",
+        "tags": [
+          "incidents"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
         "x-denis-token": true
       }
     },
@@ -11866,6 +13300,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
         "x-denis-token": true
       }
     },
@@ -11940,6 +13375,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "alerts:write",
         "x-denis-token": true
       }
     },
@@ -12014,6 +13450,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "alerts:write",
         "x-denis-token": true
       }
     },
@@ -12066,6 +13503,7 @@
         "x-denis-install-wide": true,
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       },
       "put": {
@@ -12180,7 +13618,72 @@
         "x-denis-install-wide": true,
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
+      }
+    },
+    "/api/interfaces/capture/dedup": {
+      "put": {
+        "operationId": "put_api_interfaces_capture_dedup",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/interfaces/capture/dedup",
+        "tags": [
+          "interfaces"
+        ],
+        "x-denis-install-wide": true,
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
       }
     },
     "/api/interfaces/capture/grace": {
@@ -12238,6 +13741,70 @@
           }
         ],
         "summary": "PUT /api/interfaces/capture/grace",
+        "tags": [
+          "interfaces"
+        ],
+        "x-denis-install-wide": true,
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/interfaces/capture/l2-domains": {
+      "put": {
+        "operationId": "put_api_interfaces_capture_l2_domains",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/interfaces/capture/l2-domains",
         "tags": [
           "interfaces"
         ],
@@ -12375,6 +13942,7 @@
         "x-denis-install-wide": true,
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "network:write",
         "x-denis-token": true
       }
     },
@@ -12491,6 +14059,7 @@
         "x-denis-install-wide": true,
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       },
       "put": {
@@ -12556,6 +14125,70 @@
         "x-denis-token": false
       }
     },
+    "/api/interfaces/expected-vlans": {
+      "put": {
+        "operationId": "put_api_interfaces_expected_vlans",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/interfaces/expected-vlans",
+        "tags": [
+          "interfaces"
+        ],
+        "x-denis-install-wide": true,
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
     "/api/interfaces/monitored-subnets": {
       "get": {
         "operationId": "get_api_interfaces_monitored_subnets",
@@ -12605,6 +14238,7 @@
         "x-denis-install-wide": true,
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       },
       "put": {
@@ -12847,6 +14481,7 @@
         "x-denis-install-wide": true,
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       },
       "put": {
@@ -12961,6 +14596,7 @@
         "x-denis-install-wide": true,
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       },
       "put": {
@@ -13075,6 +14711,7 @@
         "x-denis-install-wide": true,
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       },
       "put": {
@@ -13189,6 +14826,7 @@
         "x-denis-install-wide": true,
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       },
       "put": {
@@ -13302,6 +14940,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -13417,6 +15056,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -13540,6 +15180,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -13591,6 +15232,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -14070,6 +15712,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "status:read",
         "x-denis-token": true
       },
       "put": {
@@ -14135,6 +15778,236 @@
         "x-denis-token": false
       }
     },
+    "/api/list-updates": {
+      "get": {
+        "operationId": "get_api_list_updates",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/list-updates",
+        "tags": [
+          "list-updates"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
+        "x-denis-token": true
+      },
+      "put": {
+        "operationId": "put_api_list_updates",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/list-updates",
+        "tags": [
+          "list-updates"
+        ],
+        "x-denis-install-wide": true,
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/list-updates/refresh": {
+      "post": {
+        "operationId": "post_api_list_updates_refresh",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/list-updates/refresh",
+        "tags": [
+          "list-updates"
+        ],
+        "x-denis-install-wide": true,
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/lookup/address": {
+      "get": {
+        "operationId": "get_api_lookup_address",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/lookup/address",
+        "tags": [
+          "lookup"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
+        "x-denis-token": true
+      }
+    },
     "/api/maintenance": {
       "get": {
         "operationId": "get_api_maintenance",
@@ -14183,6 +16056,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "status:read",
         "x-denis-token": true
       },
       "put": {
@@ -14295,6 +16169,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -14864,6 +16739,7 @@
         ],
         "x-denis-msp-class": "never",
         "x-denis-role": "viewer",
+        "x-denis-scope": "status:read",
         "x-denis-token": true
       }
     },
@@ -15490,6 +17366,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       }
     },
@@ -17831,9 +19708,9 @@
         "x-denis-token": false
       }
     },
-    "/api/network/discover": {
+    "/api/network/address-spaces": {
       "get": {
-        "operationId": "get_api_network_discover",
+        "operationId": "get_api_network_address_spaces",
         "responses": {
           "2XX": {
             "content": {
@@ -17867,21 +19744,23 @@
         },
         "security": [
           {
+            "bearer": []
+          },
+          {
             "cookie": []
           }
         ],
-        "summary": "GET /api/network/discover",
+        "summary": "GET /api/network/address-spaces",
         "tags": [
           "network"
         ],
         "x-denis-msp-class": "read",
-        "x-denis-role": "admin",
-        "x-denis-token": false
-      }
-    },
-    "/api/network/equipment-order": {
+        "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
+        "x-denis-token": true
+      },
       "put": {
-        "operationId": "put_api_network_equipment_order",
+        "operationId": "put_api_network_address_spaces",
         "parameters": [
           {
             "$ref": "#/components/parameters/XDenis"
@@ -17933,11 +19812,111 @@
             "cookie": []
           }
         ],
-        "summary": "PUT /api/network/equipment-order",
+        "summary": "PUT /api/network/address-spaces",
         "tags": [
           "network"
         ],
-        "x-denis-msp-class": "configure",
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/network/capture-sources": {
+      "get": {
+        "operationId": "get_api_network_capture_sources",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/network/capture-sources",
+        "tags": [
+          "network"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/network/discover": {
+      "get": {
+        "operationId": "get_api_network_discover",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/network/discover",
+        "tags": [
+          "network"
+        ],
+        "x-denis-msp-class": "read",
         "x-denis-role": "admin",
         "x-denis-token": false
       }
@@ -18242,9 +20221,59 @@
         "x-denis-token": false
       }
     },
-    "/api/network/hub-defaults": {
+    "/api/network/map-layout": {
+      "get": {
+        "operationId": "get_api_network_map_layout",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/network/map-layout",
+        "tags": [
+          "network"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
+        "x-denis-token": true
+      },
       "put": {
-        "operationId": "put_api_network_hub_defaults",
+        "operationId": "put_api_network_map_layout",
         "parameters": [
           {
             "$ref": "#/components/parameters/XDenis"
@@ -18296,11 +20325,74 @@
             "cookie": []
           }
         ],
-        "summary": "PUT /api/network/hub-defaults",
+        "summary": "PUT /api/network/map-layout",
         "tags": [
           "network"
         ],
         "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/network/probe": {
+      "post": {
+        "operationId": "post_api_network_probe",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/network/probe",
+        "tags": [
+          "network"
+        ],
+        "x-denis-msp-class": "never",
         "x-denis-role": "admin",
         "x-denis-token": false
       }
@@ -18353,6 +20445,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -18518,6 +20611,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "notifications:read",
         "x-denis-token": true
       }
     },
@@ -18569,6 +20663,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "notifications:read",
         "x-denis-token": true
       }
     },
@@ -18620,6 +20715,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "notifications:read",
         "x-denis-token": true
       },
       "put": {
@@ -18795,6 +20891,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "docs:read",
         "x-denis-token": true
       }
     },
@@ -19583,6 +21680,138 @@
         "x-denis-token": false
       }
     },
+    "/api/operator/msp/customers/{id}/invitation": {
+      "delete": {
+        "operationId": "delete_api_operator_msp_customers_id_invitation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "operator": []
+          }
+        ],
+        "summary": "DELETE /api/operator/msp/customers/{id}/invitation",
+        "tags": [
+          "operator"
+        ],
+        "x-denis-install-wide": true,
+        "x-denis-msp-class": "never",
+        "x-denis-role": "operator",
+        "x-denis-token": false
+      },
+      "post": {
+        "operationId": "post_api_operator_msp_customers_id_invitation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "operator": []
+          }
+        ],
+        "summary": "POST /api/operator/msp/customers/{id}/invitation",
+        "tags": [
+          "operator"
+        ],
+        "x-denis-install-wide": true,
+        "x-denis-msp-class": "never",
+        "x-denis-role": "operator",
+        "x-denis-token": false
+      }
+    },
     "/api/operator/msp/customers/{id}/members": {
       "put": {
         "operationId": "put_api_operator_msp_customers_id_members",
@@ -19646,6 +21875,70 @@
           }
         ],
         "summary": "PUT /api/operator/msp/customers/{id}/members",
+        "tags": [
+          "operator"
+        ],
+        "x-denis-install-wide": true,
+        "x-denis-msp-class": "never",
+        "x-denis-role": "operator",
+        "x-denis-token": false
+      }
+    },
+    "/api/operator/msp/defaults": {
+      "put": {
+        "operationId": "put_api_operator_msp_defaults",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "operator": []
+          }
+        ],
+        "summary": "PUT /api/operator/msp/defaults",
         "tags": [
           "operator"
         ],
@@ -19774,6 +22067,70 @@
           }
         ],
         "summary": "PUT /api/operator/msp/portal",
+        "tags": [
+          "operator"
+        ],
+        "x-denis-install-wide": true,
+        "x-denis-msp-class": "never",
+        "x-denis-role": "operator",
+        "x-denis-token": false
+      }
+    },
+    "/api/operator/msp/rules/push": {
+      "post": {
+        "operationId": "post_api_operator_msp_rules_push",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "operator": []
+          }
+        ],
+        "summary": "POST /api/operator/msp/rules/push",
         "tags": [
           "operator"
         ],
@@ -20236,6 +22593,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -20370,6 +22728,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "alerts:write",
         "x-denis-token": true
       }
     },
@@ -20421,6 +22780,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "post": {
@@ -20800,6 +23160,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       }
     },
@@ -21066,6 +23427,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "exposure:read",
         "x-denis-token": true
       }
     },
@@ -21325,6 +23687,289 @@
         "x-denis-token": false
       }
     },
+    "/api/quickstart": {
+      "get": {
+        "operationId": "get_api_quickstart",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/quickstart",
+        "tags": [
+          "quickstart"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      },
+      "put": {
+        "operationId": "put_api_quickstart",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/quickstart",
+        "tags": [
+          "quickstart"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/quickstart/controller": {
+      "get": {
+        "operationId": "get_api_quickstart_controller",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/quickstart/controller",
+        "tags": [
+          "quickstart"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      },
+      "post": {
+        "operationId": "post_api_quickstart_controller",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/quickstart/controller",
+        "tags": [
+          "quickstart"
+        ],
+        "x-denis-msp-class": "enforce",
+        "x-denis-person": true,
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/quickstart/controller/test": {
+      "post": {
+        "operationId": "post_api_quickstart_controller_test",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/quickstart/controller/test",
+        "tags": [
+          "quickstart"
+        ],
+        "x-denis-msp-class": "enforce",
+        "x-denis-person": true,
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
     "/api/quiet/counters": {
       "get": {
         "operationId": "get_api_quiet_counters",
@@ -21373,6 +24018,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
         "x-denis-token": true
       }
     },
@@ -21424,6 +24070,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -21475,6 +24122,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "reports:read",
         "x-denis-token": true
       },
       "post": {
@@ -21539,6 +24187,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "reports:write",
         "x-denis-token": true
       }
     },
@@ -21590,6 +24239,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -22112,6 +24762,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
         "x-denis-token": true
       },
       "post": {
@@ -22336,6 +24987,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -22392,6 +25044,69 @@
           }
         ],
         "summary": "PUT /api/rules",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/breaker": {
+      "put": {
+        "operationId": "put_api_rules_breaker",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/rules/breaker",
         "tags": [
           "rules"
         ],
@@ -22526,6 +25241,251 @@
         "x-denis-token": false
       }
     },
+    "/api/rules/exceptions": {
+      "get": {
+        "operationId": "get_api_rules_exceptions",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/rules/exceptions",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
+        "x-denis-token": true
+      },
+      "post": {
+        "operationId": "post_api_rules_exceptions",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/rules/exceptions",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/exceptions/{id}": {
+      "delete": {
+        "operationId": "delete_api_rules_exceptions_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "DELETE /api/rules/exceptions/{id}",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/exceptions/{id}/renew": {
+      "post": {
+        "operationId": "post_api_rules_exceptions_id_renew",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/rules/exceptions/{id}/renew",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
     "/api/rules/export": {
       "get": {
         "operationId": "get_api_rules_export",
@@ -22574,7 +25534,476 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
+      }
+    },
+    "/api/rules/new": {
+      "get": {
+        "operationId": "get_api_rules_new",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/rules/new",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/rules/new/accept": {
+      "post": {
+        "operationId": "post_api_rules_new_accept",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/rules/new/accept",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/new/auto": {
+      "put": {
+        "operationId": "put_api_rules_new_auto",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/rules/new/auto",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/normal/suppressed": {
+      "get": {
+        "operationId": "get_api_rules_normal_suppressed",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/rules/normal/suppressed",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/rules/outcomes": {
+      "get": {
+        "operationId": "get_api_rules_outcomes",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/rules/outcomes",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/rules/outcomes.csv": {
+      "get": {
+        "operationId": "get_api_rules_outcomes_csv",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/rules/outcomes.csv",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/rules/overload-policy": {
+      "put": {
+        "operationId": "put_api_rules_overload_policy",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/rules/overload-policy",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/paused/{rule}/resume": {
+      "post": {
+        "operationId": "post_api_rules_paused_rule_resume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/rules/paused/{rule}/resume",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
       }
     },
     "/api/rules/preview": {
@@ -22638,6 +26067,1302 @@
         "x-denis-msp-class": "configure",
         "x-denis-role": "admin",
         "x-denis-token": false
+      }
+    },
+    "/api/rules/quiet-exceptions/{origin}": {
+      "delete": {
+        "operationId": "delete_api_rules_quiet_exceptions_origin",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "origin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "DELETE /api/rules/quiet-exceptions/{origin}",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/trial": {
+      "get": {
+        "operationId": "get_api_rules_trial",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/rules/trial",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/rules/trial-default": {
+      "put": {
+        "operationId": "put_api_rules_trial_default",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/rules/trial-default",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/trial/{rule}": {
+      "put": {
+        "operationId": "put_api_rules_trial_rule",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/rules/trial/{rule}",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/v2": {
+      "get": {
+        "operationId": "get_api_rules_v2",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/rules/v2",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/rules/v2/export": {
+      "get": {
+        "operationId": "get_api_rules_v2_export",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/rules/v2/export",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/rules/v2/import": {
+      "post": {
+        "operationId": "post_api_rules_v2_import",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/rules/v2/import",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/v2/managed": {
+      "get": {
+        "operationId": "get_api_rules_v2_managed",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/rules/v2/managed",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/rules/v2/managed/consent": {
+      "put": {
+        "operationId": "put_api_rules_v2_managed_consent",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/rules/v2/managed/consent",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/v2/managed/offers/{id}": {
+      "get": {
+        "operationId": "get_api_rules_v2_managed_offers_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/rules/v2/managed/offers/{id}",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/rules/v2/managed/offers/{id}/accept": {
+      "post": {
+        "operationId": "post_api_rules_v2_managed_offers_id_accept",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/rules/v2/managed/offers/{id}/accept",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/v2/managed/offers/{id}/decline": {
+      "post": {
+        "operationId": "post_api_rules_v2_managed_offers_id_decline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/rules/v2/managed/offers/{id}/decline",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/v2/managed/rollback": {
+      "post": {
+        "operationId": "post_api_rules_v2_managed_rollback",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/rules/v2/managed/rollback",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/v2/preview": {
+      "post": {
+        "operationId": "post_api_rules_v2_preview",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/rules/v2/preview",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/v2/push": {
+      "post": {
+        "operationId": "post_api_rules_v2_push",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/rules/v2/push",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/v2/templates": {
+      "get": {
+        "operationId": "get_api_rules_v2_templates",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/rules/v2/templates",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/rules/v2/validate": {
+      "post": {
+        "operationId": "post_api_rules_v2_validate",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/rules/v2/validate",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/v2/{id}": {
+      "delete": {
+        "operationId": "delete_api_rules_v2_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "DELETE /api/rules/v2/{id}",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      },
+      "put": {
+        "operationId": "put_api_rules_v2_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/rules/v2/{id}",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/rules/what-if": {
+      "post": {
+        "operationId": "post_api_rules_what_if",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/rules/what-if",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/rules/{rule}/judgements": {
+      "get": {
+        "operationId": "get_api_rules_rule_judgements",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/rules/{rule}/judgements",
+        "tags": [
+          "rules"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "alerts:read",
+        "x-denis-token": true
       }
     },
     "/api/scan": {
@@ -22704,6 +27429,7 @@
         "x-denis-install-wide": true,
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "inventory:write",
         "x-denis-token": true
       }
     },
@@ -22912,6 +27638,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       }
     },
@@ -22963,6 +27690,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       }
     },
@@ -23123,6 +27851,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -23298,6 +28027,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -23350,6 +28080,7 @@
         "x-denis-install-wide": true,
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -23463,7 +28194,180 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "status:read",
         "x-denis-token": true
+      }
+    },
+    "/api/summary-mail": {
+      "get": {
+        "operationId": "get_api_summary_mail",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/summary-mail",
+        "tags": [
+          "summary-mail"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      },
+      "put": {
+        "operationId": "put_api_summary_mail",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/summary-mail",
+        "tags": [
+          "summary-mail"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/summary-mail/test": {
+      "post": {
+        "operationId": "post_api_summary_mail_test",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/summary-mail/test",
+        "tags": [
+          "summary-mail"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
       }
     },
     "/api/svcprobe/settings": {
@@ -23514,6 +28418,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -23626,6 +28531,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       },
       "put": {
@@ -23749,6 +28655,150 @@
           "switches"
         ],
         "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/switches/{id}/generic-control": {
+      "put": {
+        "operationId": "put_api_switches_id_generic_control",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/switches/{id}/generic-control",
+        "tags": [
+          "switches"
+        ],
+        "x-denis-msp-class": "enforce",
+        "x-denis-person": true,
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/switches/{id}/generic-write-test": {
+      "post": {
+        "operationId": "post_api_switches_id_generic_write_test",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/switches/{id}/generic-write-test",
+        "tags": [
+          "switches"
+        ],
+        "x-denis-msp-class": "enforce",
+        "x-denis-person": true,
         "x-denis-role": "admin",
         "x-denis-token": false
       }
@@ -24284,6 +29334,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "status:read",
         "x-denis-token": true
       }
     },
@@ -24463,6 +29514,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "exposure:read",
         "x-denis-token": true
       },
       "put": {
@@ -24523,6 +29575,120 @@
           "threat"
         ],
         "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/threat/abusech-key": {
+      "delete": {
+        "operationId": "delete_api_threat_abusech_key",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "DELETE /api/threat/abusech-key",
+        "tags": [
+          "threat"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      },
+      "put": {
+        "operationId": "put_api_threat_abusech_key",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/threat/abusech-key",
+        "tags": [
+          "threat"
+        ],
+        "x-denis-msp-class": "never",
         "x-denis-role": "admin",
         "x-denis-token": false
       }
@@ -24811,6 +29977,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       }
     },
@@ -24877,6 +30044,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "network:write",
         "x-denis-token": true
       }
     },
@@ -24928,6 +30096,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       }
     },
@@ -24979,6 +30148,59 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/topology/controller-clients": {
+      "get": {
+        "operationId": "get_api_topology_controller_clients",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/topology/controller-clients",
+        "tags": [
+          "topology"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       }
     },
@@ -25217,6 +30439,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
         "x-denis-token": true
       }
     },
@@ -25445,6 +30668,59 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
+        "x-denis-token": true
+      }
+    },
+    "/api/unmanaged": {
+      "get": {
+        "operationId": "get_api_unmanaged",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/unmanaged",
+        "tags": [
+          "unmanaged"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "inventory:read",
         "x-denis-token": true
       }
     },
@@ -25497,6 +30773,7 @@
         "x-denis-install-wide": true,
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "status:read",
         "x-denis-token": true
       }
     },
@@ -26816,6 +32093,58 @@
         "x-denis-token": false
       }
     },
+    "/api/visibility": {
+      "get": {
+        "operationId": "get_api_visibility",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/visibility",
+        "tags": [
+          "visibility"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
+        "x-denis-token": true
+      }
+    },
     "/api/vulndata": {
       "get": {
         "operationId": "get_api_vulndata",
@@ -26864,6 +32193,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "exposure:read",
         "x-denis-token": true
       },
       "put": {
@@ -27169,6 +32499,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "exposure:read",
         "x-denis-token": true
       }
     },
@@ -27220,6 +32551,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -27395,6 +32727,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "work_items:read",
         "x-denis-token": true
       },
       "post": {
@@ -27459,6 +32792,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "work_items:write",
         "x-denis-token": true
       }
     },
@@ -27510,6 +32844,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "put": {
@@ -27622,6 +32957,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "editor",
+        "x-denis-scope": "work_items:write",
         "x-denis-token": true
       }
     },
@@ -27755,6 +33091,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "work_items:write",
         "x-denis-token": true
       }
     },
@@ -27819,6 +33156,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "work_items:write",
         "x-denis-token": true
       },
       "post": {
@@ -27891,6 +33229,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "work_items:write",
         "x-denis-token": true
       },
       "put": {
@@ -27963,6 +33302,7 @@
         ],
         "x-denis-msp-class": "configure",
         "x-denis-role": "editor",
+        "x-denis-scope": "work_items:write",
         "x-denis-token": true
       }
     },
@@ -28014,6 +33354,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       },
       "post": {
@@ -28266,6 +33607,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "settings:read",
         "x-denis-token": true
       }
     },
@@ -28438,6 +33780,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "docs:read",
         "x-denis-token": true
       }
     },
@@ -28492,6 +33835,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "docs:read",
         "x-denis-token": true
       }
     },
@@ -28556,6 +33900,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "docs:read",
         "x-denis-token": true
       }
     },
@@ -28620,6 +33965,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "docs:read",
         "x-denis-token": true
       }
     },
@@ -28674,6 +34020,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "docs:read",
         "x-denis-token": true
       }
     },
@@ -28738,6 +34085,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "docs:read",
         "x-denis-token": true
       }
     },
@@ -28792,6 +34140,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "metrics:read",
         "x-denis-token": true
       }
     },
@@ -28846,6 +34195,7 @@
         ],
         "x-denis-msp-class": "read",
         "x-denis-role": "viewer",
+        "x-denis-scope": "reports:read",
         "x-denis-token": true
       }
     },
@@ -28891,7 +34241,6 @@
         "tags": [
           "tls"
         ],
-        "x-denis-install-wide": true,
         "x-denis-msp-class": "never",
         "x-denis-role": "public",
         "x-denis-token": false
@@ -28902,5 +34251,59 @@
     {
       "url": "/"
     }
-  ]
+  ],
+  "x-denis-token-areas": {
+    "ai": {
+      "read": true,
+      "write": true
+    },
+    "alerts": {
+      "read": true,
+      "write": true
+    },
+    "diagnostics": {
+      "read": true,
+      "write": false
+    },
+    "docs": {
+      "read": true,
+      "write": false
+    },
+    "exposure": {
+      "read": true,
+      "write": false
+    },
+    "inventory": {
+      "read": true,
+      "write": true
+    },
+    "metrics": {
+      "read": true,
+      "write": false
+    },
+    "network": {
+      "read": true,
+      "write": true
+    },
+    "notifications": {
+      "read": true,
+      "write": false
+    },
+    "reports": {
+      "read": true,
+      "write": true
+    },
+    "settings": {
+      "read": true,
+      "write": false
+    },
+    "status": {
+      "read": true,
+      "write": false
+    },
+    "work_items": {
+      "read": true,
+      "write": true
+    }
+  }
 }

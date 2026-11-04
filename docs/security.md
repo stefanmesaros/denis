@@ -19,32 +19,32 @@ important, what it does **not** do, so you can assess it honestly.
 administrator password is random and shown once.
 
 **Outbound connections.** Besides the ones you configure yourself (notification channels, exports, a master URL,
-CMDB/cloud imports, an AI provider), a default install makes four kinds of outbound request on its own, none of
-which carries anything about your network, and each of which can be switched off:
+CMDB/cloud imports, an AI provider), a default install makes five kinds of outbound request on its own. The first four carry nothing about your network; the
+fifth, name lookups of outside addresses, carries the one address being looked up. Each can be switched off. DENIS has
+no usage reporting: none of them tells anyone how you use it.
 
 | What | Where to | How often | Off with |
 |---|---|---|---|
-| update check | `api.github.com`; `usedenis.com` only if GitHub cannot be reached | every 6 hours (with automatic security updates on, also the release list when the newest release starts a new minor line, and the download of an eligible release) | `--no-update-check` / `DENIS_NO_UPDATE_CHECK=1` (the fallback alone, or the automatic install alone: *Settings → System → Updates*) |
+| update check | `api.github.com` | every 6 hours (with automatic security updates on, also the release list when the newest release starts a new minor line, and the download of an eligible release) | `--no-update-check` / `DENIS_NO_UPDATE_CHECK=1` (the automatic install alone: *Settings → System → Updates*) |
+| update check, fallback | `usedenis.com`, only when GitHub cannot be reached; it sees your address and the version asked for, nothing else | with the update check, only while GitHub fails | *Settings → System → Updates → If GitHub is unreachable, try usedenis.com* (on by default), or `--no-update-check` |
 | GeoIP database (DB-IP Lite) | `db-ip.com` | monthly | *Settings → Capture → Network Intelligence* (auto-update off, or your own MMDB file) |
 | end-of-support dates | `endoflife.date` | weekly | *Settings → Data → Software versions* |
 | known-exploited vulnerabilities | CISA, NVD, FIRST.org (EPSS) | weekly | *Settings → Data → Software versions* |
+| name lookups of outside addresses (reverse DNS) | the resolver you set (`1.1.1.1` by default); it learns the address being looked up | when a device talks to a public address not looked up before | *Settings → Capture → Network Intelligence* (off, or your own resolver) |
 
-Six more are **opt-in**, off by default rather than on-by-default like the four above: the blocklists that
+Six more are **opt-in**, off by default rather than on-by-default like the five above: the blocklists that
 `threat_list_match` checks contacted addresses against — **abuse.ch Feodo Tracker**, **ThreatFox** and **URLhaus**,
 **Spamhaus DROP** and **ASN-DROP**, and **the Tor Project's exit-node list** — each switched on and
 scheduled (Daily/Weekly/Monthly) independently under *Settings → Data → Threat list sources*
 ([details](detection-rules.md#threat_list_match-contact-with-a-known-bad-address-needs---flows-and-a-threat-list)).
-Each download is a plain GET of the publisher's public file; nothing about your network is sent (ASN-DROP's AS numbers
-are resolved to networks offline, with the local GeoIP database). Since 4.3 ThreatFox is two such downloads (its
-address and its domain indicators; both carry your free abuse.ch Auth-Key, entered under *Settings → Data → Threat list sources* and stored
-encrypted, or `DENIS_ABUSECH_AUTH_KEY` as the fallback, sent only to `threatfox.abuse.ch` over HTTPS), and the domain indicators of ThreatFox and URLhaus are matched locally against
+Each download is a plain GET of the publisher's public file (ThreatFox and URLhaus, since 4.4, are API calls with your free abuse.ch Auth-Key); nothing about your network is sent (ASN-DROP's AS numbers
+are resolved to networks offline, with the local GeoIP database). ThreatFox (its addresses and its domain
+indicators) and URLhaus carry your free abuse.ch Auth-Key, entered under *Settings → Data → Threat list sources* and stored
+encrypted, or `DENIS_ABUSECH_AUTH_KEY` as the fallback, sent only to `threatfox-api.abuse.ch` and `urlhaus-api.abuse.ch` over HTTPS, never along a redirect), and the domain indicators of ThreatFox and URLhaus are matched locally against
 the names devices look up (`dns_threat_domain`); no name a device looks up ever leaves your network. Since 4.3 a hit
 on the Tor exit list alone is reported by its own policy rule, `anonymizer_contact` (medium), not as a
 `threat_list_match`. Turning any of them on is the one deliberate exception to "nothing fetched unless you asked for it" — not a silent
 default.
-
-Reverse-DNS lookups of public addresses go to the resolver you set (`1.1.1.1` by default) and do carry the
-address being looked up; switch them off or point them at your own resolver under *Network Intelligence*.
 
 ## What DENIS does not protect (be aware)
 
@@ -220,7 +220,7 @@ does is hidden.
   `autopilot.apply`, `autopilot.pause`, `autopilot.phone.*` and `autopilot.quiet_exception.remove`
   entries, none of which holds a token or a key.
 
-## MSP management (experimental)
+## MSP management
 
 [MSP management](msp-management.md) lets a company that looks after your network open your console remotely. It is off
 until one of your administrators pairs with it, and the properties that matter:
@@ -228,6 +228,18 @@ until one of your administrators pairs with it, and the properties that matter:
 * **You stay the authority.** The MSP's requests run through your own console, under your own checks, as the user
   `msp:<MSP>:<technician>`. The level you choose (Off, Read only, Read and write, Full) is read from your database for
   every request, so lowering it or pressing Disconnect acts on the next one. The technician's role at the MSP can only narrow it.
+* **Invitations are single-use and short-lived (4.4).** An MSP invites you with a link that works once and for 24 hours. The
+  invitation holds only a one-time token that can do nothing but claim it: your relay token is handed out by the claim, not
+  before, and every refusal (used, expired, revoked, wrong link) looks the same. The code is in the link's fragment, which is
+  never sent to a server and is taken out of the address bar at once. You **type four words** the MSP reads to you by phone
+  (random, from the 2,048-word BIP-39 English list, 44 bits, different for every invitation, in no code or record). The
+  code carries only a commitment: `SHA-256` of the key that Argon2id (19 MiB, 2 passes) makes from the words, salted with the
+  MSP key's fingerprint and the link id. Your console checks what you typed against it before anything is stored, which
+  authenticates the code and the MSP's key (a forged code cannot match words it never heard), and sends the key with the claim; the
+  MSP checks it in constant time, allows five wrong claims and then revokes the invitation. The long fingerprint stays one click away.
+  One-line agent enrolment ([Deployment](deployment.md)) uses the same mechanism: a code for 1 to N agents, 24 hours, each
+  agent gets its own token, an existing agent's id can never be taken over, and a private CA is fetched and checked against the
+  SHA-256 in the code before any token is sent.
 * **Signed, bound, not replayable.** Every request is signed with the Ed25519 key you pinned when you compared its
   fingerprint, carries your link id, a timestamp (two minutes), a nonce and a hash of its body. Anything that fails is
   never executed.
@@ -348,9 +360,84 @@ types a correct first code. Ten **recovery codes** are shown once.
   check value of its key in the shared database (an HMAC of a fixed text under the key, which reveals nothing about
   it); a node whose key differs refuses to start, before it seals or opens anything, and the running node's Health
   page names it. See [High availability](high-availability.md#what-both-nodes-must-share).
+* **Tenant data keys (4.4, groundwork).** The key hierarchy has two levels. The master key is `secrets.key`, a file
+  outside every database. Each tenant gets its own random data key, stored in that tenant's own database as the
+  setting `secrets.dek`, **encrypted with the master key**; it cannot be read without `secrets.key`. Secrets are then
+  stored as `enc2:` values, encrypted with the tenant's data key, with the tenant and the setting name bound into the
+  encryption: a value copied to another tenant or to another setting does not open. Existing `enc1:` values keep
+  opening. DENIS moves an existing installation to this format by itself at the first start of this version, in one
+  step, all values or none (see [Upgrading the secret format](#upgrading-the-secret-format-44)). Both keys can be
+  changed on request without losing a secret, and a copy of the master key can be kept under a passphrase you type
+  (see [Key management](key-management.md)). What this
+  protects against: a tenant export or backup opening another tenant's secrets, and a value copied between tenants in
+  one database. What it does not protect against: someone with root on the DENIS host, a memory dump of the running
+  process, or someone holding both the database and `secrets.key`. **What to back up:** `secrets.key` (separately from
+  database backups) and the database, which contains the encrypted data key row. A backup that leaves the secrets out
+  still contains the encrypted data key row. **If `secrets.key` is lost**, the data keys cannot be opened, so every
+  integration credential and authenticator app of every tenant has to be entered again; the inventory and history are
+  not affected. `secrets.key` is the one file you must never lose.
 * **MSP operators.** The authenticator secrets of MSP console operators were already stored sealed the same way. Since
   4.2 the last code step accepted for each operator authenticator is kept in the control store, so an operator's code
   works once also across a restart and when two requests carry it at the same time.
+
+## Upgrading the secret format (4.4)
+
+Every secret DENIS stores (integration credentials, notification channel passwords, AI keys, SNMP communities, the
+authenticator apps of your users, the Autopilot keys and the push subscriptions) is encrypted. Up to 4.3 all of them
+were encrypted directly with the key file `secrets.key` (the format `enc1:`). From 4.4 each tenant has a data key of its
+own, stored in that tenant's database and itself encrypted with `secrets.key`; the secrets are encrypted with the data
+key (the format `enc2:`). `secrets.key` stays the one file you must never lose.
+
+**What happens at the first start of 4.4.** DENIS makes the data key of the tenant and re-encrypts every secret of that
+database in **one transaction**: all of them or none. You do not have to do anything, and nothing is asked. The start is not
+slowed noticeably: it reads every secret once, encrypts it again and writes them in one go (best guess: well under a
+second for a normal installation, a few seconds with thousands of authenticator apps; not measured on large ones). A second start finds
+nothing left to do. On a PostgreSQL pair only the node that holds leadership does it, never the node that waits; an
+agent migrates its own database and a tenant its own. The log says what was moved ("sealed values moved to per-tenant
+data keys: ...", counts only) and the audit trail has an entry `secrets.migrate`.
+
+**Take a backup first.** Before updating, run `denis backup` (or copy the database file together with `secrets.key`,
+into a place that is not the same archive). The update itself also keeps a copy of the database from before the update.
+That copy is what you restore to go back to an older version; it was made before the move, so it is in the old format.
+
+**See it before it happens.** `denis secrets migrate --dry-run` (with the same `--db`, `--data-dir` and, on PostgreSQL,
+`--database-url` as `denis run`) counts what would change per kind and writes nothing, not even the data key.
+`denis secrets migrate` does the move by hand (stop DENIS first); running it twice is harmless.
+
+**If it cannot move.** One secret that does not open (for example the authenticator app of an account whose secret
+another installation's `secrets.key` sealed, or a connector secret left behind by an imported tenant) stops the whole
+move: nothing is changed, not even the data key. DENIS then **starts anyway, in the old format**, which every earlier
+version reads, writes the reason to the log and the audit trail, and shows a warning on the Health page until a start
+succeeds. This is deliberate. The store is then entirely in the old format, a complete and supported state, and the
+reasons that can stop the move are things earlier versions only warned about; refusing to start for them would turn a
+warning into an outage. What would make reading unsafe still refuses the start as before (a data key that
+`secrets.key` cannot open, a connector secret or a field that does not open, a secret in a format this version does not
+know). Fix the cause (reset that account's authenticator app, or enter that credential again) and restart.
+
+**Going back to an older version.** An older version cannot read `enc2:`. Evidence: verified in the source of 4.3.0,
+which takes a value that does not start with `enc1:` for plain text and encrypts it once more, so the stored secret
+would become the text of the new format and every integration using it would fail. Two ways back are safe:
+
+1. **Restore the copy** DENIS made before the update (or your own backup from before it) together with its
+   `secrets.key`, and start the older version on it. Nothing else is needed.
+2. **Convert in place.** Stop DENIS, take a backup, then run `denis secrets downgrade-envelope` (same options as above;
+   `--dry-run` shows the counts). In one transaction it encrypts every `enc2:` value as `enc1:` again and deletes the data key, and says so on
+   screen. Start the older version afterwards. Do **not** start 4.4 again on it unless you want the move made again.
+
+**Backups and tenant import.** A backup that leaves the secrets out (the default) is returned to the old format
+inside the copy, so it can be restored on any installation, as before; the authenticator apps in it open only with the
+`secrets.key` they were sealed with. A copy of a PostgreSQL database made with `pg_dump` is not converted: it holds
+the data key and opens only with the `secrets.key` of its installation, and a start with another one refuses with a
+message naming the file. A tenant import first returns the copy to the old format while it still carries the old
+tenant name, then gives it its new name; its secrets are encrypted again under the new tenant's data key at the next
+start. A copy from another installation (another `secrets.key`) keeps the rule it always had: what cannot be opened is
+removed and listed under "enter again".
+
+**Not moved to the data key.** The relay token of the MSP link and the authenticator secrets and link keys of MSP
+console operators (the control store) stay in the old format, sealed directly by the master key, and keep working.
+Changing the data key of a tenant, changing `secrets.key`, a passphrase-protected copy of the master key and moving a
+tenant with its secrets are described in [Key management](key-management.md). The master key change covers these
+values too.
 
 ## Hardening checklist
 

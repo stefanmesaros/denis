@@ -6,6 +6,15 @@ A small round **i** after a heading, a label or a checkbox opens a short explana
 Space); Escape or a second click closes it, and opening another one closes the first. Where there is more to say, the
 explanation ends with *More in the docs*.
 
+## Start (new installations)
+
+For an administrator of a new installation, **Start** is the first menu entry and the first screen. It asks where DENIS
+should get your network from (a controller or firewall it reads, this machine's own network, a mirror port, example data),
+can read a controller with a read-only key, sets up one e-mail address with an optional **weekly summary** (English only, counts
+without addresses), and then shows a first look: devices, unknown devices, the next things to do, what DENIS is not
+seeing and what is on and off. **I am done with the quick start** removes it from the menu. Details:
+[Quick start](quickstart.md#2a-the-start-page-your-first-look-at-the-network).
+
 ## MSP view (optional)
 
 Off by default. An administrator turns it on under **Settings → Branding & MSP → MSP view** for installs that
@@ -287,9 +296,8 @@ With the keyboard, Tab to a box and press Enter to select it, then the arrow key
 
 **Equipment** is one table: every switch DENIS reads and every firewall, controller or cloud platform it acts through, with its state
 in words, when it was last read and what DENIS can do with it. Open a row for the ports as a grid; a controller row (UniFi, Meraki)
-opens into the access points and switches it manages, read only, with the number of clients each one carries. The tags say how far
-a product was tested: *Simulator only* and *Experimental* mean it was tried against a simulated device, not a real one
-([what was verified](nac/validation.md)).
+opens into the access points and switches it manages, read only, with the number of clients each one carries. The *Experimental* tag marks a
+product DENIS cannot yet act through without the lab settings ([what was verified](nac/validation.md)).
 
 ![Equipment](img/equipment.png)
 
@@ -478,7 +486,7 @@ Everything about the installation that is not about people, in eleven categories
 * **AI** — the optional bring-your-own-key AI features, each with its own switch, grouped by when they call the provider (only when you click, or in the background), and their usage counters.
 * **Autopilot** (marked *Experimental*) — the mode (off by default, shadow, active), the shadow report, what it may do on
   its own, answering from a phone, and the optional AI model ([Autopilot](autopilot.md)).
-* **MSP management** (marked *Experimental*) — pairing this installation with an MSP using a link code, the level the MSP
+* **MSP management** — pairing this installation with an MSP using a link code, the level the MSP
   gets, co-approval, *What the MSP did*, *Disconnect* and *Unlink*; on an MSP's own console, its customers
   ([MSP management](msp-management.md)).
 * **Branding & MSP** — name, logo, colour, default theme and language; the MSP view.
@@ -492,9 +500,9 @@ the name empty means *the same network as the other interfaces of the site*; it 
 
 ![Settings → Capture → Separate networks](img/settings-capture-networks.png)
 
-**The abuse.ch key.** The ThreatFox list (malware server addresses and, since 4.3, domain names) needs a free Auth-Key from your
-abuse.ch account. Paste it under *Settings → Data → Threat list sources*: it is stored encrypted, sent only to threatfox.abuse.ch,
-and never shown again (the box shows only whether one is saved). Without a key ThreatFox is simply not fetched, and the box says so.
+**The abuse.ch key.** The ThreatFox list (malware server addresses and, since 4.3, domain names) and, since 4.4, the URLhaus list need a free Auth-Key from your
+abuse.ch account (one key for both). Paste it under *Settings → Data → Threat list sources*: it is stored encrypted, sent only to threatfox-api.abuse.ch and urlhaus-api.abuse.ch,
+and never shown again (the box shows only whether one is saved). Without a key neither is fetched, and the box says so.
 The picture shows the box with no key.
 
 ![Settings → Data → Threat list sources: the abuse.ch key box with no key](img/settings-abusech.png)

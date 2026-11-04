@@ -2,7 +2,7 @@
 
 Status: **Verified on MikroTik E50UG, RouterOS 7.21.4: block device (address list), block a flow, quarantine by address, End sessions (needs loose TCP tracking off and drop-invalid rules, see the setup notes) and their release; not tested: disabling a port.** Tested on a real MikroTik E50UG (hEX family, RouterOS 7.21.4) with a laptop behind it: block flow (rule created, traffic stopped, the router's counters confirm the drops, expiry removed the rule); block device (pings stopped within 3 s, DENIS read the entry back and confirmed it, manual release within 3 s, and the automatic expiry released it too; the 4.2 read-back fix works); quarantine by address (in force within 3 s, release within 3 s, extending the time, a repeated quarantine refused as a conflict, expiry); End sessions (an established SSH session was cut, but only with loose TCP tracking switched off and a drop-invalid rule in the input and forward chains; the plan warns when they are missing); and the refusal of flow blocks while *Allow DENIS to create deny rules* is off. Not tested: disabling a port, removing connections of an IPv6 address, lost answers, a reboot, a concurrent edit by another administrator, a 24 hour hold, repeated cycles, other RouterOS versions or models. The verified actions carry no *Experimental* mark and need neither lab setting; disabling a port stays *Experimental* and needs the lab switches below.
 
-Lab use: *Block device*, *Block a flow*, the quarantine by address and *End sessions* are validated on real equipment and need no lab setting. Disabling a port is allowed only while an administrator has switched on both *Allow connectors that are not validated on real equipment (lab use)* and *Allow experimental actions (lab use)* under *Settings → Response policy*. Releasing an action and removing what DENIS made always work.
+Lab use: *Block device*, *Block a connection*, the quarantine by address and *End sessions* are validated on real equipment and need no lab setting. Disabling a port is allowed only while an administrator has switched on both *Allow Experimental connectors (lab use)* and *Allow experimental actions (lab use)* under *Settings → Response policy*. Releasing an action and removing what DENIS made always work. Reading the Wi-Fi clients and access points, *Block Wi-Fi client by MAC* and *Disconnect Wi-Fi client* are *Experimental* (see *Wi-Fi* below); the two actions need both lab settings.
 
 Besides the connector's own refusals, every block through it is refused for a loopback, unspecified, broadcast or multicast address, for DENIS itself and for the gateway, for DNS and directory servers, for anything in the connector's *protected networks*, and for an address in an open `arp_conflict` alert unless the administrator ticks a box to accept that, before anything is sent. Unblock is never refused for any of these reasons.
 
@@ -48,7 +48,7 @@ that a mistake reverts itself; know the DENIS server's IP address; make a backup
    connection**: it reads the identity, the version and the router's own addresses, and writes nothing.
    Then under *Settings → Response policy* tick *Allow administrators to block devices from DENIS*. Block device,
    block flow, the quarantine by address and End sessions are validated and need no lab setting; disabling a port needs
-   both lab switches (*Allow connectors that are not validated on real equipment (lab use)* and *Allow experimental
+   both lab switches (*Allow Experimental connectors (lab use)* and *Allow experimental
    actions (lab use)*). For End sessions to cut running TCP sessions, set up the router as in *End sessions: what the
    router must have* below (loose TCP tracking off, drop-invalid rules in input and forward).
 4. **Try it on a harmless device:** *Respond → Block device* for 5 minutes on a test client behind the MikroTik. The client must
@@ -89,7 +89,7 @@ These were seen on the E50UG with a build before 4.2. 4.2 changes the code for e
   above DENIS's drop rules. 4.2 counts only forward-chain rules that can let the traffic through. The fix was confirmed on the E50UG (RouterOS 7.21.4): DENIS read the entry back and reported the block as confirmed. If you still see a failed
   read-back, check the router (*Address Lists* and the packet counters of the rules) and the action's steps before you
   repeat it.
-* **Quarantine by hardware address** from the Respond menu was refused when an old address of the device lies in a network
+* **Quarantine by hardware address** from the Respond dialog was refused when an old address of the device lies in a network
   listed under *Never block addresses in these networks*. In 4.2 an address the device left more than a day ago, with a
   fresh address outside those networks since, is a warning you tick (the plan names the old address); a recent one still
   refuses.
@@ -105,6 +105,8 @@ These were seen on the E50UG with a build before 4.2. 4.2 changes the code for e
 | **Block flow** (drop rule) | One filter rule `chain=forward action=drop` for exactly one source host, destination host, protocol and port, placed at the top of the filter table (above any fast-track rule), its comment `denis-<tag>-<id> DENIS managed; owner <tag>; ...`; the flow's open connections are removed. | Only with the per-instance switch *Allow DENIS to create deny rules on this firewall*. Drop only: no code path builds an accept, fast-track or other rule. Never a network, a list or a name. Never the `input` or `output` chain, so the router's own management cannot be cut. |
 | **Disable port** (Ethernet) | `PATCH interface/ethernet/<id>` with `disabled=true` for one Ethernet port, after the typed confirmation of its name; released with `disabled=false`. | Never an uplink, a trunk, a link aggregation member, a routed port, the port DENIS is reached through, the gateway's port, or a link to other network equipment (see below). When DENIS cannot tell, it refuses. |
 | **End sessions** (connection removal) | Removes the connection-table entries of one address, at most 2000. | It cannot be undone. The device can open new connections at once. Never the router's own addresses. |
+| **Block Wi-Fi client by MAC** (`block_client_mac`, *Experimental*) | One entry in the router's Wi-Fi access list that refuses the client's MAC address, first in the list, its comment led by `denis-<tag>-<id>`; then the client's row is removed from the registration table so it is disconnected. | It never edits another entry. Wi-Fi clients only; a wired device, a CAPsMAN access point, a neighbour and the router itself are refused. See *Wi-Fi* below. |
+| **Disconnect Wi-Fi client** (`disconnect_client`, *Experimental*) | Removes the client's row from the Wi-Fi registration table. | Blocks nothing: the client can join again at once. |
 | Move to quarantine VLAN | Not built in this version. | |
 
 Every object DENIS makes on the new path carries `denis-<tag>-<id> DENIS managed; owner <tag>; action <id>; by <login>; expires <time or never>` in its comment (RouterOS has no name field on a rule or a list entry, so the comment is the name). Text you typed as a reason is never sent to the router. DENIS deletes only objects whose comment starts with its own name and owner tag. An object with a DENIS-style name that does not carry the marker is never touched, and the action is refused.
@@ -160,7 +162,7 @@ DENIS reports what it did: "removed N of M connection records" in the steps, and
 
 ## What it does not do
 
-* **No MAC blocking.** A MAC-only target is refused. Blocking by MAC at layer 2 (`/interface/bridge/filter`, bridge hosts, wireless access lists) is not part of this connector.
+* **No MAC blocking of wired devices.** The address-list actions refuse a MAC-only target. Blocking by MAC at layer 2 (`/interface/bridge/filter`, bridge hosts) is not part of this connector. The Wi-Fi actions below use the MAC address, for Wi-Fi clients only.
 * **Only traffic that passes through the router's `forward` chain is stopped.** Two devices talking inside one bridge or switch without bridge-firewall (`use-ip-firewall`) never reach it, and traffic that the router's switch chip forwards in hardware (hardware offload) never reaches the CPU firewall at all. The block follows the address: a DHCP lease can move the address to another device later, so confirm the address is still the right one just before blocking.
 * **It does not manage the router's other firewall rules, NAT, DHCP or users.**
 * **It does not create the user, group or certificate** (below), and does not enable the `www-ssl` service.
@@ -208,6 +210,7 @@ The router's **own addresses** (IPv4 from `/ip/address`, IPv6 from `/ipv6/addres
 * Entries: `/ip firewall address-list remove [find comment~"^DENIS"]` and `... [find comment~"^denis-"]` (and `/ipv6 firewall address-list ...`).
 * Rules: `/ip firewall filter remove [find comment~"^DENIS managed"]` and `... [find comment~"^denis-"]` (and `/ipv6 firewall filter ...`).
 * A port: `/interface ethernet enable ether3`.
+* Wi-Fi entries: `/interface wifi access-list remove [find comment~"^denis-"]`, `/interface wireless access-list remove [find comment~"^denis-"]` and `/caps-man access-list remove [find comment~"^denis-"]`.
 
 ## Verified and not verified
 
@@ -238,6 +241,60 @@ Behaviours that are unproven vendor facts (marked **[verify]** in the code):
 * Port classification reads IPv4 routes and addresses always, IPv6 only where the router has the IPv6 package. A router whose only way out is something DENIS cannot resolve is refused for every port that might be on the path.
 * The access VLAN move is not built.
 * IPv4 and IPv6 are supported for host blocks, quarantine, flow blocks and ending sessions.
+
+## Wi-Fi: clients, access points, block and disconnect (Experimental)
+
+Since 4.4 the connector can read the Wi-Fi clients and access points of a RouterOS router, and block or disconnect a Wi-Fi client. All of it is *Experimental*: the block and the disconnect need both lab switches (*Allow Experimental connectors (lab use)* and *Allow experimental actions (lab use)* under *Settings → Response policy*), and the read is behind its own tick. Where this page says "documented" the source is MikroTik's help pages (RouterOS WiFi, REST API and CAPsMAN pages); where it says "assumed" the point comes from the console commands or from forum answers and has to be checked on a router.
+
+### The two Wi-Fi stacks
+
+RouterOS 7 has two Wi-Fi stacks, and DENIS supports both:
+
+| | New `wifi` package | Legacy `wireless` package |
+|---|---|---|
+| Interfaces | `/interface/wifi` | `/interface/wireless` |
+| Registered clients | `/interface/wifi/registration-table` (documented: `mac-address`, `interface`, `ssid`, `signal`, `uptime`, `tx-rate`, `rx-rate`) | `/interface/wireless/registration-table` (assumed to carry the same fields; the signal may be written `-62dBm@5GHz`) |
+| Access list | `/interface/wifi/access-list`, `action=reject` (documented: `accept`, `reject`, `query-radius`; the first matching rule wins; there is no implicit reject) | `/interface/wireless/access-list`, `authentication=no` and `forwarding=no` (from forum answers, valid while the interface has `default-authentication=yes`) |
+| CAPsMAN | In the same package: `/interface/wifi/capsman/remote-cap` (documented: `identity`, `base-mac`, `address`, `board-name`) | Legacy CAPsMAN: `/caps-man/remote-cap`, `/caps-man/registration-table`, `/caps-man/access-list` (documented: `accept`, `reject`, `query-radius`) |
+| Package names DENIS looks for | `wifi-qcom`, `wifi-qcom-ac`, `wifiwave2` (assumed) | `wireless` |
+
+DENIS finds out which stack the router has from `/system/package` (a disabled package does not count). A router can have both. When the package list cannot be read, the read tries both and ignores the one that is absent; the actions refuse, because they must know where the client is.
+
+### Reading the clients and access points
+
+Tick *Read the Wi-Fi clients and access points of this router (read only, Experimental)* in the connector's form (it is off for a connector made before 4.4 and on for a new one). DENIS then reads every 120 seconds, with `GET` requests only, with the same user and password as the other actions. It lists:
+
+* **Clients:** MAC address, IP address (from the router's ARP table and DHCP leases when it has them), host name (the lease), SSID, signal, the Wi-Fi interface and the access point (the router itself, or the CAP). Wired clients are not listed, and nothing is invented: a field the router did not give stays empty.
+* **Access points:** the CAPsMAN's CAPs (identity, base MAC, address, board) hanging under the router that manages them; and, when the router has radios and no CAPs, the router itself as an access point. A standalone access point hangs on the neighbour from `/ip/neighbor` (a switch or router with a MAC address) when exactly one such neighbour is seen on a port that is not a Wi-Fi interface; with none or several, no parent is drawn.
+* Which CAP a client of the new CAPsMAN is on is assumed from the row's `radio-name` or from the radio MAC of its interface against the CAP's base MAC (the first five octets); a client DENIS cannot place is shown on the router.
+
+The read needs the `read` policy for the user. The data uses the same connection settings (certificate pin or *Verify TLS*) as the actions. The read is bounded: at most 5000 clients and 1000 access points, a time limit per read, a size limit per answer, and a partial read never concludes a client has gone.
+
+### Block a Wi-Fi client by MAC
+
+1. DENIS finds the client in the registration tables (the router's own radios and, through CAPsMAN, its CAPs). An IP-only request is resolved to a MAC through the ARP table and the DHCP leases only when exactly one MAC is found; otherwise it is refused.
+2. It adds one entry to the access list that governs the client, as the first entry (`place-before` the first entry; this is documented for firewall rules and assumed for access lists): new stack and legacy CAPsMAN `action=reject`, legacy local radios `authentication=no forwarding=no`. The comment starts `denis-<tag>-<id> DENIS managed; owner <tag>; ...`, as for the address-list entries. DENIS checks that the entry is first; if the router ignored `place-before`, one move is tried (`POST .../move`, assumed); if the entry is still not first it is removed and the action fails.
+3. It removes the client's row from the registration table, so the client is disconnected (documented). A new entry alone does not drop a station that is already associated, which is why this step is part of the block.
+4. **Read-back:** the entry is in the list and the MAC is no longer in the registration tables. **Release** (or the end of the time) removes only the entries that carry DENIS's marker for that action; any other entry, even one with a DENIS-like name, is left alone.
+
+The reject entry always takes effect: the new stack has no implicit reject rule and the first matching rule wins, and DENIS puts its entry first. If the access list already has any entry for that MAC that DENIS did not make, the plan is refused. A phone with a private (randomised) MAC address gets a warning that you tick: it can join again with another address.
+
+**Refused** (the plan says why, and nothing is written): a MAC on the connector's *Never block these MAC addresses (Wi-Fi clients)* list, one of the router's own interfaces, a CAPsMAN access point or a neighbour the router sees, a client with an address of DENIS or of the router, a MAC that is not a connected Wi-Fi client (a wired client, or one that is not there), an IP address with no single MAC, and anything DENIS could not read.
+
+### Disconnect a Wi-Fi client
+
+Removes the client's row from the registration table (`DELETE /rest/interface/wifi/registration-table/<id>`, the REST form of the documented `remove`). It blocks nothing. A look afterwards is written in the steps: the client is gone, or it has joined again at once (normal for many devices; not a failure).
+
+### Setting up the router user
+
+The Wi-Fi read and actions use the same REST user as the rest of this page: group policies `read,write,rest-api`. `read` reads the tables, `write` adds and removes the access-list entries and the registration rows, `rest-api` is needed for any REST call. Nothing else is needed (assumed; if the router answers HTTP 403, check the user's *address* first, as above, then tell us which further policy was needed). For a read-only account the read works and every action is refused by the router.
+
+### Limits
+
+* Only traffic that the router's own radios or its CAPsMAN access points carry. An access point that is not managed by CAPsMAN is not seen from the router (add it as its own connector if it runs RouterOS).
+* A client that is on a CAP of the *new* package is assumed to appear in the manager's `/interface/wifi/registration-table`, and the manager's access list is assumed to apply to it; this has to be checked on a CAPsMAN setup.
+* A block by MAC does not stop a device that joins with another MAC address, and a wired connection of the same device is not affected.
+* DENIS's entry is first, so no earlier rule (a `query-radius` or `ssid-regexp` rule, say) can let the client in; rules below it are not read or changed.
 
 ## Existing instances
 

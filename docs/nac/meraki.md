@@ -1,8 +1,8 @@
 # Enforcement: Cisco Meraki
 
-Status: **Experimental. Simulator only: not yet validated on real equipment.** Everything below was built from Meraki's published Dashboard API documentation and checked against a fake Dashboard in DENIS's own tests. It has never been run against a real organization. Nothing here is listed as validated on hardware.
+Status: **Experimental.** Everything below was built from Meraki's published Dashboard API documentation and checked against a fake Dashboard in DENIS's own tests. It has never been run against a real organization. Nothing here is listed as validated on hardware.
 
-Lab use: the client block (the pre-4.1 action) is allowed only while an administrator has switched on *Allow connectors that are not validated on real equipment (lab use)* under *Settings → Response policy*. The actions new in 4.1 (quarantine by group policy, switching off a switch port) additionally need *Allow experimental actions (lab use)*. Releasing an action always works.
+Lab use: the client block (the pre-4.1 action) is allowed only while an administrator has switched on *Allow Experimental connectors (lab use)* under *Settings → Response policy*. The actions new in 4.1 (quarantine by group policy, switching off a switch port) additionally need *Allow experimental actions (lab use)*. Releasing an action always works.
 
 Besides this connector's own refusals, every action through it goes through DENIS's common guards before anything is sent: loopback, unspecified, broadcast and multicast addresses, DENIS itself, the gateway, and an address or MAC in an open `arp_conflict` alert are refused, and a list DENIS cannot read refuses the action.
 
@@ -89,9 +89,20 @@ or changed in the Dashboard, and nothing it reads decides or loosens a response.
   online or offline). Both lists are paged by the `Link` header (`rel=next`); a link to another host is never followed.
   `GET /devices/{serial}/clients` is not needed and not used; `GET /networks/{id}/devices` is deprecated by Cisco and not
   used.
+* **Where an access point is plugged in (4.4):** for each access point (at most 30 per read, one request at a time)
+  `GET /api/v1/devices/{serial}/lldpCdp` gives the LLDP or CDP neighbour on its wired port. When that neighbour is exactly
+  one other device of the network (by management address first, then by name), the access point is drawn under it on the
+  map, with the neighbour's port. An unknown neighbour or an ambiguous name draws nothing.
+  For each switch (at most 20 per read, after the access points) `GET /api/v1/devices/{serial}/switch/ports/statuses` is read
+  and only the port with `isUplink` true is used: its LLDP or CDP neighbour is the parent, when it is exactly one other device
+  of the network. No port flagged, two or more flagged (an aggregation, a dual uplink) or an unknown neighbour draws nothing;
+  DENIS never takes a downlink for the uplink. Documented: the answer has `isUplink`, `lldp` and `cdp` per port (it has no
+  field named `uplink`). Best guess: that the neighbour of the flagged port is always filled in. If a switch could not be
+  asked (call limit, time budget, refused answer) the snapshot carries a note saying the read was partial.
+  **Unverified** on a real organization.
 * **Permissions:** an API key of an organization administrator with **read-only** access is enough for the read.
 * **Rate limits:** the Dashboard allows about ten requests a second per organization, shared with every other tool of the
-  organization. A read of 2,000 clients takes three requests. A `429` is waited out for the `Retry-After` it gives (at
+  organization. A read of 2,000 clients takes three requests, plus one per access point (at most 30). A `429` is waited out for the `Retry-After` it gives (at
   most 10 s, at most three times per request); then the read fails and the next one waits longer (up to 30 minutes).
 * **Bounds:** at most 6 pages and 5,000 clients, 1,000 devices, 8 MB per answer, 20 s per request, every text cut to 96
   characters. A list cut by a bound is *partial* and never used to conclude that a client is gone. After three missed

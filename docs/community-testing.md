@@ -7,8 +7,9 @@ report what you find so that it is useful to the developer. You do not need prog
 
 **What you are signing up for.** DENIS Community is free for personal networks of up to 100 devices.
 It is self-hosted: it runs on your machine and your network traffic stays on your network. It has no
-telemetry. The one routine outgoing request is an update check (`api.github.com`, every 6 hours, and
-`usedenis.com` only if GitHub cannot be reached), which you can turn off with `--no-update-check`. See [Security](security.md).
+telemetry. Besides the update check (`api.github.com` every 6 hours, and `usedenis.com` only if GitHub cannot be reached;
+`--no-update-check` turns it off), it fetches a few data lists and looks up names of outside addresses; none of them reports
+how you use DENIS. See [Security](security.md#threat-model).
 
 **Honest status.** The [README's integration status table](https://github.com/stefanmesaros/denis/blob/main/README.md#integration-status-what-is-validated-and-what-is-not) says what is validated and what is not. The integrations with firewalls, switches, cloud and directory services were built
 against vendor documentation and test fixtures. None of them has been independently validated against a

@@ -58,7 +58,7 @@ Passively decoded (nothing is ever sent):
 
 | Protocol | Port | Reads / writes / control detected | Identity learned |
 |---|---|---|---|
-| Modbus/TCP | 502 | read, write, diagnostics (restart/listen-only); refused requests (exception responses) counted per path | vendor, product code, revision per unit id (the answer to read device identification, 43/14) |
+| Modbus/TCP | 502 | read, write (with the registers a write addresses, 4.4), diagnostics (restart/listen-only); refused requests (exception responses) counted per path | vendor, product code, revision per unit id (the answer to read device identification, 43/14) |
 | Siemens S7comm (S7-300/400, S7-1200/1500 with PUT/GET) | 102 | read/write variable, **program download**, **program upload**, **PLC start/stop**, system status list (SZL) read | – |
 | Siemens S7comm-plus (S7-1200/1500: TIA Portal, most HMIs) | 102 | session set-up, read, write. **Stop/start and program download are not reported as control commands** (see below). Marked `s7plus` | engineering or HMI client |
 | EtherNet/IP + CIP | 44818 | CIP read/write, reset/start/**stop** | vendor, product, serial, revision (ListIdentity) |
@@ -174,6 +174,8 @@ tab, the matrix and reports, so you can spot, for example, an office-level (L4) 
 | `ot_write_rate` | a path **writes more than five times its largest hour** of the last 14 days (and at least 100 in the hour) | 55; +10 at 20 times. Once per path per 6 h |
 | `ot_offhours_command` | a write or control command to an industrial device **outside the site's declared operating schedule** (site time). No schedule: inactive | 60; +15 control. Once per pair per hour |
 | `ot_exception_burst` | a device **refuses 20 or more requests on one path within ten minutes** (Modbus exception responses), more than three times the path's learned maximum | 45; +10 at 200 or more. Once per path per hour |
+| `ot_time_source_changed` (4.4) | an industrial device **takes its time from a source it did not use before**: another device answering its NTP requests (east-west), a server outside the network (NTP flow, IPv4), or a controlling station that sends it IEC 104 clock synchronisation. A device's first source after learning is learned without an alert | 45; +15 a source outside the network; +10 a device rated high or critical. Once per device per day |
+| `ot_register_range` (4.4) | a **Modbus write request addresses registers the path never wrote to** while it was learned (the start address and count are read from the request). A write that overlaps a learned range is inside | 55; +10 a hundred registers or more beyond; +10 the writer is not an engineering or operator station. Once per path per day |
 
 *Learning:* for the first 24 hours (`--learning-minutes`), normal paths are recorded silently. Run DENIS through a
 **representative production period** (including maintenance windows if engineers download programs) before
@@ -205,9 +207,32 @@ own time (set the site's time zone on the Sites page). A night shift is written 
 `{"ot_schedules": {"local": {"days": ["mon","tue","wed","thu","fri"], "start": "06:00", "end": "22:00"}}}`
 (`local` is this server's own site, an agent's site is its id; `null` removes a schedule).
 
+*Learning in the 4.4 pack 3 rules:* `ot_time_source_changed` keeps up to four time sources per device in its baseline (a
+fingerprint of the NTP server's device or address, or of the IEC 104 controlling station) and learns them silently while the
+site learns; it judges only devices that are industrial and, for NTP between devices, only the side that DENIS takes for the
+client (UDP has no handshake, so this is a guess from the port numbers). `ot_register_range` keeps up to four register
+intervals per Modbus path, saved every ten minutes; the decoder reads the address and the count of write requests
+(functions 5, 6, 15, 16, 22, 23) and nothing else of them is kept. Both rules are Experimental: they were tested against
+synthetic traffic and the noise scenarios, not against a long recording of a plant. They are not recommended by default: on an
+upgrade they wait in *New rules in this version*.
+
 *Overload:* none of the 4.3 pack 2 rules is on the never-quiet or the never-paused list. Under the default industrial
 overload setting (*warn only*) they are never paused; with the advanced opt-in a pack 2 rule that keeps exceeding its
 budget may be paused like any other non-critical industrial rule.
+
+### The 4.4 rules and the data each one needs
+
+Two of the twelve 4.4 rules are industrial (`ot_time_source_changed`, `ot_register_range`, both Experimental); the other ten
+are in the [detection rules overview](detection-rules.md#the-rules-added-in-44-at-a-glance). On an upgrade they arrive switched off.
+Neither is on the never-quiet list, so "This is normal" and a quiet profile may silence them; with the default industrial
+overload setting (*warn only*) neither is paused, and with the advanced opt-in the breaker may pause them.
+
+| Rule | Data it needs | Where it comes from | If the data is missing |
+|---|---|---|---|
+| `ot_time_source_changed` | an NTP exchange (UDP 123) between two of your devices, or an NTP flow from an industrial device to an outside address, or an IEC 104 clock synchronisation command (type 103) | east-west accounting or a mirror port that carries traffic between devices; traffic analysis (`--flows`); the IEC 104 decoder | the kind of evidence that is missing is not judged; the rule stays silent for it. A device's first source is learned without an alert |
+| `ot_register_range` | the start address and the number of registers of Modbus/TCP write requests (functions 5, 6, 15, 16, 22, 23) | the industrial decoders (Settings → Network interfaces), on a mirror port or tap that sees the Modbus traffic | no decoder, no judgement; a path that never wrote while the site learned learns its first range silently |
+
+Everything else of a request stays unread (no values are kept).
 
 *Engineering workstations* legitimately download programs. After the first alert, an alert for the same source
 and target scores 45 instead of 85 and is held for 10 minutes; if it is routine for you, lower
