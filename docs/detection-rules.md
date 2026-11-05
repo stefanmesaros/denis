@@ -1,26 +1,34 @@
 # Detection rules
 
-**See and change them in the console:** the **Rules** tab shows **IT · network** first and **OT · industrial**
-after it. In each, **Your IT rules** (or **Your OT rules**) come first, with their own **+ New** button, then the
-built-in rules in themed groups (*Devices and presence*, *Traffic to the outside*, *Inside the network*, *DHCP and
-DNS*, *Switches*; *Commands to controllers*, *Paths and boundaries*). A group is closed unless one of its rules raised
-an alert in the last 7 days; its heading counts the rules, how many are on, the alerts, the changed ones and those
-that need data. The bar at the top counts the same for the whole page, finds a rule by name, id or words (the `/`
-key), filters (*All*, *On*, *Off*, *Alerted in 7 days*, *Changed*, *Needs data*) and has one **+ New rule** menu
-(IT rule or OT rule). The global settings (minimum score, learning mode, noise profiles) are folded into one line.
+**See and change them in the console:** the **Rules** tab is one list with one model. At the top: the toolbar (a summary,
+a search that finds a rule by name, id or words with the `/` key, the filters *All*, *On*, *Off*, *New in 4.4.0* (only while
+a rule still carries that mark), *Alerted in 7 days*, *Changed*, *Needs data*, and one **+ New rule** menu), then **Settings
+for all rules** folded into one line (minimum score, learning mode, Performance protection, noise profiles; inside are also the
+setting for the recommended rules of a new version and *Sequences and counts (Experimental)*). Next comes **one card, Your
+rules**: everything you wrote (IT rules, OT rules, rules with several conditions) and, in a group *Sent by <MSP>*, the rules
+your MSP delivered, each with a mark that says which kind it is. Below it the built-in rules, by what they detect: **IT ·
+network** (*Devices and presence*, *Traffic to the outside*, *Inside the network*, *DHCP and DNS*, *Switches*) and **OT ·
+industrial** (*Commands to controllers*, *Paths and boundaries*). A group is closed unless one of its rules raised an alert in
+the last 7 days; its heading counts the rules, how many are on, the alerts, the changed ones, the new ones and those that need
+data. At the end of the page are the folds *Accepted as normal by Autopilot*, *Suppressed by "This is normal"* and *How
+useful is each rule*.
 
-Each rule is one row: its switch, name, id, tags (*changed*, *noisy*, *needs traffic analysis*, exceptions), a
-one-line description, **Quieter / Normal / Louder** (half, once and twice its default weight; any other weight shows
-as `×1.5`) and **n alerts / 7 d**, which opens those alerts on the Alerts page. The arrow opens the details: what the
-rule needs, the weight (`0` = off, `0.5` = half as loud, `2` = twice, scores are capped at 100), *Alert only from
-score*, the thresholds (for example how many standard deviations count as an unusual transfer, or how long a device
-must be silent) and the exceptions. **The switch saves at once** (since 4.1.2; one audit log entry each, with Undo
-in the notice; on again goes back to the default weight). Weights and thresholds collect in a bar at the bottom,
-"n unsaved changes · Discard · Save changes". When traffic analysis (`--flows`) is off, one strip at the top says how
-many rules cannot fire. Changes apply within seconds, survive restarts, are limited to sane ranges on the server and
-are written to the audit log; *Reset everything* returns to the defaults. Command-line options (`--min-score`, `--rule-weight`,
-`--silent-minutes`, …) set the starting values; a value saved in the console wins over them. The console tunes the reviewed rules below and adds three things of your own, described in
-[Making the rules fit your network](#making-the-rules-fit-your-network). API: `GET/PUT/DELETE /api/rules`.
+**Every rule is one row, and every row has the same switch with the same meaning: on = the rule judges and raises alerts;
+off = it does nothing** (it is not run and not counted). The row shows the switch, the name, the id, small marks
+(*New in 4.4.0*, *Recommended*, *Experimental*, *Paused: too slow*, *changed*, *noisy*, *needs traffic analysis*, exceptions,
+*n not raised*), the [processing impact](#processing-impact) of the rule, **Quieter / Normal / Louder** (half, once and twice
+its default weight; any other weight shows as `×1.5`; on a phone one choice) and **n alerts / 7 d**, which opens those alerts
+on the Alerts page. The arrow opens the details: what the rule needs, a line *Always alerts.* when the rule can never be kept
+quiet, *Paused: too slow* with the button **Run it again** when the overload protection paused it, the weight (`0` = off,
+`0.5` = half as loud, `2` = twice, scores are capped at 100), *Alert only from score*, the thresholds (for example how many
+standard deviations count as an unusual transfer, or how long a device must be silent), *Why it did not raise* and the
+exceptions. **The switch saves at once** (one audit log entry each, with Undo in the notice, for every kind of rule; on again
+goes back to the default weight). Weights and thresholds collect in a bar at the bottom, "n unsaved changes · Discard · Save
+changes". When traffic analysis (`--flows`) is off, one strip at the top says how many rules cannot fire. Changes apply within
+seconds, survive restarts, are limited to sane ranges on the server and are written to the audit log; *Reset everything*
+returns to the defaults. Command-line options (`--min-score`, `--rule-weight`, `--silent-minutes`, …) set the starting values;
+a value saved in the console wins over them. The console tunes the reviewed rules below and adds three things of your own,
+described in [Making the rules fit your network](#making-the-rules-fit-your-network). API: `GET/PUT/DELETE /api/rules`.
 
 All rules are **rule-based and explainable**: each alert shows the factors that produced its score. Scores are
 0–100; below `--min-score` (default 30) an event is only logged. Each rule can be scaled or disabled:
@@ -89,28 +97,28 @@ the port list of the remote-access tools has not been checked against the vendor
 ## The rules added in 4.4, at a glance
 
 DENIS 4.4 adds twelve detections. Each has its own section below. **On an installation that already existed they all arrive
-switched off**: nothing judges and nothing costs anything until you decide, on the Rules page under *New rules in this
-version* ([how that panel works](#new-rules-in-a-release)). A new installation gets the **Recommended** ones switched on.
-*Cost* is the detection cost class of the rule (*low*: at most 1 ms per unit of work, *medium*: at most 5 ms; the measured
-figures are in [Operations](operations.md#when-a-rule-is-paused-or-detection-is-overloaded)). *Noise* is how often a rule
-is expected to alert on a calm, ordinary network.
+switched off**: nothing judges and nothing is run until you turn them on. On the Rules page each carries the mark **New in
+4.4.0** among the other rules of its group, and the filter *New in 4.4.0* with its strip collects them
+([how that works](#new-rules-in-a-release)). A new installation gets the ones that are **recommended** switched on. *Noise* is
+how often a rule is expected to alert on a calm, ordinary network. How much of its time budget a rule uses on your machine
+is its [processing impact](#processing-impact).
 
-| Rule | What it detects | Recommended? | Needs | Noise | Cost | Never quiet |
-|---|---|---|---|---|---|---|
-| [`mac_flood`](#mac_flood-a-flood-of-new-hardware-addresses-nothing-extra-needed) | more than 200 new hardware addresses on one capture source in a minute (a switch address table being flooded) | Recommended | nothing extra | low | low | **yes** |
-| [`hostname_clone`](#hostname_clone-two-devices-claim-one-name-nothing-extra-needed) | two devices with vendor hardware addresses claim one name at the same time | Optional | nothing extra | medium | low | no |
-| [`rogue_network_device`](#rogue_network_device-a-new-switch-router-or-access-point-nothing-extra-needed-switches-added-for-snmp-show-the-port) | a switch, router or access point appears where an end device was expected | Optional | nothing extra; polled switches show the port | medium | low | no |
-| [`dynamic_dns_first_use`](#dynamic_dns_first_use-a-dynamic-dns-name-used-for-the-first-time-needs-passive-dns) | a server, NAS, industrial device or workstation looks up a dynamic-DNS name for the first time | Optional | passive DNS | medium | low | no |
-| [`new_domain_for_server`](#new_domain_for_server-a-quiet-device-looks-up-a-new-domain-needs-passive-dns) | a quiet device looks up a domain nobody on the site has looked up | Optional | passive DNS | medium | medium | no |
-| [`upload_to_file_share`](#upload_to_file_share-a-large-upload-to-a-file-sharing-service-needs---flows-and-passive-dns) | 50 MB or more in a day to a public file-sharing service | Optional | `--flows`, passive DNS | medium | medium | no |
-| [`inbound_new_country`](#inbound_new_country-an-administration-port-reached-from-a-new-country-needs---flows-on-the-link-to-the-internet) | an administration or VPN port reached from a country that never connected | Optional | `--flows` on the internet link | medium | medium | no |
-| [`slow_scan`](#slow_scan-a-slow-scan-of-the-internal-network-needs-east-west-accounting-or-a-mirror-port) | one device reaches 50 or more others in a day, where it never reached more than 10 | Optional | east-west accounting or a mirror port | higher on servers (they are left out) | medium | no |
-| [`cleartext_admin_use`](#cleartext_admin_use-an-unencrypted-administration-protocol-used-needs-east-west-accounting-or-a-mirror-port) | Telnet, FTP, rlogin or plain VNC used for the first time | Optional | east-west accounting or a mirror port | medium (old equipment) | low | no |
-| [`llmnr_nbns_responder`](#llmnr_nbns_responder-a-device-answers-name-queries-for-other-names-needs---flows-ipv4-only-experimental) | one device answers name queries for five or more names that are not its own (a password-stealing tool) | Recommended | `--flows` on a link that carries the queries | low | low | **yes** |
-| [`ot_time_source_changed`](#ot_time_source_changed-an-industrial-device-takes-its-time-from-a-new-source-needs-east-west-accounting---flows-or-the-iec-104-decoder-experimental) | an industrial device takes its time from a new source | Optional | east-west accounting, `--flows` or the IEC 104 decoder | low to medium | low | no |
-| [`ot_register_range`](#ot_register_range-a-modbus-write-outside-the-usual-registers-needs-the-industrial-decoders-experimental) | a Modbus write to registers the path never wrote to | Optional | the industrial decoders | medium | medium | no |
+| Rule | What it detects | Recommended? | Needs | Noise | Never quiet |
+|---|---|---|---|---|---|
+| [`mac_flood`](#mac_flood-a-flood-of-new-hardware-addresses-nothing-extra-needed) | more than 200 new hardware addresses on one capture source in a minute (a switch address table being flooded) | yes | nothing extra | low | **yes** |
+| [`hostname_clone`](#hostname_clone-two-devices-claim-one-name-nothing-extra-needed) | two devices with vendor hardware addresses claim one name at the same time | no | nothing extra | medium | no |
+| [`rogue_network_device`](#rogue_network_device-a-new-switch-router-or-access-point-nothing-extra-needed-switches-added-for-snmp-show-the-port) | a switch, router or access point appears where an end device was expected | no | nothing extra; polled switches show the port | medium | no |
+| [`dynamic_dns_first_use`](#dynamic_dns_first_use-a-dynamic-dns-name-used-for-the-first-time-needs-passive-dns) | a server, NAS, industrial device or workstation looks up a dynamic-DNS name for the first time | no | passive DNS | medium | no |
+| [`new_domain_for_server`](#new_domain_for_server-a-quiet-device-looks-up-a-new-domain-needs-passive-dns) | a quiet device looks up a domain nobody on the site has looked up | no | passive DNS | medium | no |
+| [`upload_to_file_share`](#upload_to_file_share-a-large-upload-to-a-file-sharing-service-needs---flows-and-passive-dns) | 50 MB or more in a day to a public file-sharing service | no | `--flows`, passive DNS | medium | no |
+| [`inbound_new_country`](#inbound_new_country-an-administration-port-reached-from-a-new-country-needs---flows-on-the-link-to-the-internet) | an administration or VPN port reached from a country that never connected | no | `--flows` on the internet link | medium | no |
+| [`slow_scan`](#slow_scan-a-slow-scan-of-the-internal-network-needs-east-west-accounting-or-a-mirror-port) | one device reaches 50 or more others in a day, where it never reached more than 10 | no | east-west accounting or a mirror port | higher on servers (they are left out) | no |
+| [`cleartext_admin_use`](#cleartext_admin_use-an-unencrypted-administration-protocol-used-needs-east-west-accounting-or-a-mirror-port) | Telnet, FTP, rlogin or plain VNC used for the first time | no | east-west accounting or a mirror port | medium (old equipment) | no |
+| [`llmnr_nbns_responder`](#llmnr_nbns_responder-a-device-answers-name-queries-for-other-names-needs---flows-ipv4-only-experimental) | one device answers name queries for five or more names that are not its own (a password-stealing tool) | yes | `--flows` on a link that carries the queries | low | **yes** |
+| [`ot_time_source_changed`](#ot_time_source_changed-an-industrial-device-takes-its-time-from-a-new-source-needs-east-west-accounting---flows-or-the-iec-104-decoder-experimental) | an industrial device takes its time from a new source | no | east-west accounting, `--flows` or the IEC 104 decoder | low to medium | no |
+| [`ot_register_range`](#ot_register_range-a-modbus-write-outside-the-usual-registers-needs-the-industrial-decoders-experimental) | a Modbus write to registers the path never wrote to | no | the industrial decoders | medium | no |
 
-**Never quiet** means that no "This is normal" decision, noise profile or trial hides the rule's alerts and that the
+**Never quiet** means that no "This is normal" decision or noise profile hides the rule's alerts and that the
 overload protection never pauses it. Only the two rules whose evidence has no everyday cause are on the list: a flooded
 switch address table and a poisoning responder. The other ten are the ones a site has ordinary reasons to see (a desk
 switch, a cloned virtual machine, a traveller, an old Telnet device), so you can tell DENIS that they are normal for a
@@ -870,7 +878,7 @@ retired device can be turned down or quieted like any other. Use `--rule-weight 
 passwords and keys it held; for retired, disconnect and wipe it or change its status.
 
 ### `mac_flood`: a flood of new hardware addresses *(nothing extra needed)*
-*Added in 4.4. Recommended: on for a new installation; on an upgraded installation it arrives switched off until you turn it on (Rules page, "New rules in this version").*
+*Added in 4.4. Recommended: on for a new installation; on an upgraded installation it arrives switched off until you turn it on (Rules page, the mark "New in 4.4.0").*
 
 **What it detects.** More than 200 new hardware (MAC) addresses appearing on one capture source within a minute. A tool
 such as macof does this to fill a switch's address table: the switch then sends every frame out of every port, and the
@@ -881,13 +889,13 @@ carries a whole switch it counts the whole switch. Fewer than 200 in a minute is
 Wi-Fi in ten minutes is not reported by this rule (`new_device_burst` tells that story). It is silent while the site learns,
 so a first sync of hundreds of devices raises nothing, and only devices created in the last two minutes count.
 *Score:* 70 (high). *Cooldown:* one alert per site and capture source per hour, filed under the device that crossed the
-limit; the alert says how many new addresses had appeared. **Never quiet and never paused**: no "This is normal" decision, noise profile or trial hides it, and the overload protection never pauses it (switching the rule off, or lowering its weight, is still your choice; a lab that starts hundreds of virtual machines at once should do that).
+limit; the alert says how many new addresses had appeared. **Never quiet and never paused**: no "This is normal" decision or noise profile hides it, and the overload protection never pauses it (switching the rule off, or lowering its weight, is still your choice; a lab that starts hundreds of virtual machines at once should do that).
 Use `--rule-weight mac_flood=<weight>`. *Typical false positive:* a large group of devices joining at once (a lab or a
 site switched on, a virtual-machine host starting hundreds of guests). *Investigate:* find the port with the most learned
 addresses on your switch, unplug the device behind it, and switch on port security (a limit of learned addresses per port).
 
 ### `hostname_clone`: two devices claim one name *(nothing extra needed)*
-*Added in 4.4. Not recommended by default (it can raise on a computer with two network adapters): on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+*Added in 4.4. Not recommended by default (it can raise on a computer with two network adapters): on an upgraded installation it arrives switched off, and on a new one it is off too (the mark "New in 4.4.0" on the Rules page).*
 
 **What it detects.** A new device announces, over DHCP, DHCPv6 or mDNS, the same hostname as a device that is already on the
 network, and both have vendor (globally administered) hardware addresses. Someone copying a machine's name to pass for it
@@ -908,7 +916,7 @@ mark it "This is normal". *Investigate:* compare the two hardware addresses and
 switch ports; ask whoever owns the original name.
 
 ### `rogue_network_device`: a new switch, router or access point *(nothing extra needed; switches added for SNMP show the port)*
-*Added in 4.4. Not recommended by default (desk switches and access points are common): on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+*Added in 4.4. Not recommended by default (desk switches and access points are common): on an upgraded installation it arrives switched off, and on a new one it is off too (the mark "New in 4.4.0" on the Rules page).*
 
 **What it detects.** A device that announces bridge, router or wireless access-point capability (LLDP or CDP) appears where an
 end device was expected: somebody plugged in a desk switch or a cheap router, or an access point, which can bridge your network
@@ -927,7 +935,7 @@ per device (capture) or chassis (switch) per 7 days. Not never-quiet; the breake
 *Investigate:* the port in the alert; what is plugged in; unplug it if it is not yours.
 
 ### `dynamic_dns_first_use`: a dynamic-DNS name used for the first time *(needs passive DNS)*
-*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it is off too (the mark "New in 4.4.0" on the Rules page).*
 
 **What it detects.** A server, NAS, hypervisor, virtual machine, industrial device or workstation looks up a name under a
 dynamic-DNS service (`my-box.duckdns.org`) for the first time. Dynamic DNS lets anyone give a changing address a free name; it
@@ -947,7 +955,7 @@ so that it costs nothing. *Score:* 45; 15 more on a server, a NAS or an industri
 *Investigate:* what on the device asked for the name; block it at your DNS server if it is not wanted.
 
 ### `new_domain_for_server`: a quiet device looks up a new domain *(needs passive DNS)*
-*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it is off too (the mark "New in 4.4.0" on the Rules page).*
 
 **What it detects.** A quiet device (a server, NAS, hypervisor, virtual machine, storage or database server, or an industrial
 device) looks up a registered domain (`vendor.co.uk`, not `update.vendor.co.uk`) that no device on the site has looked up
@@ -964,7 +972,7 @@ it. Use `--rule-weight new_domain_for_server=<weight>`. *Typical false positive:
 server. *Investigate:* what runs on the device that could have asked; look the domain up (who registered it, when).
 
 ### `upload_to_file_share`: a large upload to a file-sharing service *(needs `--flows` and passive DNS)*
-*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it is off too (the mark "New in 4.4.0" on the Rules page).*
 
 **What it detects.** A device sends 50 MB or more in one day to a public file-sharing service (Dropbox, WeTransfer, Mega and
 others): the way data is copied out by hand or by malware. **What it needs.** Traffic analysis (`--flows`) for the volume and
@@ -981,7 +989,7 @@ industrial device. *Cooldown:* one alert per device and service per 24 hours. No
 the device's user what was shared.
 
 ### `inbound_new_country`: an administration port reached from a new country *(needs `--flows` on the link to the internet)*
-*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it is off too (the mark "New in 4.4.0" on the Rules page).*
 
 **What it detects.** A computer from a country that has not connected to the device for 180 days (the 30-day list shows the usual countries) completes a handshake to a login,
 remote-administration or VPN port that a device offers to the internet (the ports of `inbound_bruteforce`): what stolen VPN or
@@ -997,7 +1005,7 @@ country is reported and learned (taken back when the alert is lost). Ports allow
 the service; the account's login log.
 
 ### `slow_scan`: a slow scan of the internal network *(needs east-west accounting or a mirror port)*
-*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it is off too (the mark "New in 4.4.0" on the Rules page).*
 
 **What it detects.** One device opens TCP connections to 50 or more different devices within a UTC day, where it never reached
 more than 10 in the last 14 days: the slow version of a scan that `lan_scan` (two minutes) misses. **What it needs.** East-west
@@ -1013,7 +1021,7 @@ breaker may pause it. Use `--rule-weight slow_scan=<weight>`. *Typical false pos
 *Investigate:* what runs on the device.
 
 ### `cleartext_admin_use`: an unencrypted administration protocol used *(needs east-west accounting or a mirror port)*
-*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it is off too (the mark "New in 4.4.0" on the Rules page).*
 
 **What it detects.** A device opens a Telnet (23), FTP (21), rlogin/rsh/rexec (512 to 514) or VNC (5900 to 5903) session to
 another device, and the server answers with data, for the first time since the network was learned. These protocols send
@@ -1027,7 +1035,7 @@ breaker may pause it. Use `--rule-weight cleartext_admin_use=<weight>`. *Typical
 Telnet. *Investigate:* the program that opened the connection; move to SSH, SFTP or an encrypted VNC where possible.
 
 ### `llmnr_nbns_responder`: a device answers name queries for other names *(needs `--flows`; IPv4 only; Experimental)*
-*Added in 4.4. Recommended: on an upgraded installation it waits in "New rules in this version" and can be turned on from there; a new installation has it on.*
+*Added in 4.4. Recommended: on an upgraded installation it arrives off with the mark "New in 4.4.0" and you turn it on with its switch; a new installation has it on.*
 
 **What it detects.** One device answers LLMNR (UDP 5355) or NetBIOS name service (UDP 137) name queries for five or more different
 names within five minutes, none of them its own. Windows computers that cannot resolve a name through DNS ask the whole link and
@@ -1049,7 +1057,7 @@ policy). *Evidence:* the message formats are documented (RFC 4795, RFC 1002); th
 published behaviour, not captured from a running tool (best guess).
 
 ### `ot_time_source_changed`: an industrial device takes its time from a new source *(needs east-west accounting, `--flows` or the IEC 104 decoder; Experimental)*
-*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it is off too (the mark "New in 4.4.0" on the Rules page).*
 
 **What it detects.** An industrial device (typed as such, or recognised by its vendor and protocols) takes its time from a source it
 did not use before. A moved clock breaks the correlation of logs and the meaning of sequence-of-events records. **Evidence.** Three
@@ -1066,7 +1074,7 @@ industrial opt-in. Use `--rule-weight ot_time_source_changed=<weight>`. *Typical
 new SCADA master. *Investigate:* who changed the time server; keep the time source on your own network.
 
 ### `ot_register_range`: a Modbus write outside the usual registers *(needs the industrial decoders; Experimental)*
-*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it waits in "New rules in this version".*
+*Added in 4.4. Not recommended by default: on an upgraded installation it arrives switched off, and on a new one it is off too (the mark "New in 4.4.0" on the Rules page).*
 
 **What it detects.** A Modbus/TCP write request addresses registers that the path (client, server, port) never wrote to while DENIS
 learned it. **What changed in the decoder.** The Modbus decoder now reads the start address and the count of a write request
@@ -1085,8 +1093,9 @@ other protocols address memory in ways that need their own readers. *Typical fal
 
 ### Your own rules: IT rules and OT rules
 
-Besides the built-in rules, administrators write **their own rules** on the Rules page, under **Your IT rules** and
-**Your OT rules** (each first in its part of the page; with none yet, the section offers the common templates). There
+Besides the built-in rules, administrators write **their own rules** on the Rules page, in the one card **Your rules** (first on
+the page, with one **+ New rule** menu; with none yet, it offers the common templates; each rule carries a mark *IT rule*, *OT rule*
+or *Several conditions*, and is saved **on** unless you switch it off with **Rule is on** in the editor). There
 are two kinds. An **IT rule** (id `it_watch`) watches when a device talks to an address outside your networks. An
 **OT rule** (id `ot_command_watch`) watches for industrial commands such as stop, start or write. (Before 4.1 they were
 called network watches and OT command watches. Only the words changed: the ids, the settings, the API fields and
@@ -1118,7 +1127,7 @@ The two kinds are described below, with their ids.
 <a id="it_watch-your-own-network-watches-needs---flows"></a>
 ### `it_watch`: your IT rules *(needs `--flows`)*
 
-*Rules* → **Your IT rules** (administrators): be told when devices you choose talk to addresses or ports
+*Rules* → **Your rules** (administrators): be told when devices you choose talk to addresses or ports
 you did not allow. An IT rule is a set of conditions; traffic matches when it passes **all** the conditions that are set:
 
 * **Devices**: for these devices (a device, a device type, a tag, a network, a Purdue level, a register "Zone / cell"
@@ -1167,7 +1176,7 @@ after changing a zone. The alert of a rule that matched through a zone records h
 
 #### Five worked examples
 
-Each of these is one IT rule, added from *Rules* → **Your IT rules** → **New IT rule**. All of them need `--flows`
+Each of these is one IT rule, added from *Rules* → **Your rules** → **+ New rule** → **IT rule**. All of them need `--flows`
 (traffic analysis) actually running — the page tells you plainly when it is not.
 
 1. **"Does this device talk to other devices on the network when it shouldn't?"** — an IoT gadget, a smart TV, a badge
@@ -1197,8 +1206,8 @@ you cannot know in advance), you list the *few good ones* and let the rule catch
 
 An IT rule looks at traffic to the internet and an OT rule at industrial commands, and each is a flat list of
 conditions that must all hold. A **rule** in the second model (format `denis.rule/1`) can say more, on five kinds of
-evidence, and is judged the same way as every built-in rule: it can be tried first (a trial), its effect on past alerts
-can be calculated before it is changed (*What would this change*), and *Why it alerted, and why it did not* explains it.
+evidence, and is judged the same way as every built-in rule: its effect on past alerts can be calculated before it is changed
+(*What would this change*), and *Why it alerted, and why it did not* explains it.
 Rules of this kind are written on the Rules page (**+ New rule**, then **Rule with several conditions**, administrators) or
 through the API and the rules file (below); their alerts appear like any other alert.
 The editor is a sentence that is also the form: you choose what to watch, add conditions (each valid only for that kind of
@@ -1206,10 +1215,10 @@ evidence) in groups of *all of*, *any of*, *none of* or *not all of* (one group 
 conditions), and say how serious a match is, how often it may repeat and whether it counts only the first time. While you
 write, DENIS checks the rule, shows its cost (cheap, moderate or expensive, in words) and what it would have done in the
 last 7 days (counted for industrial, east-west and name rules, estimated for flows; for connections coming in and for
-rules with a count or a sequence the preview is unavailable and the editor offers a trial instead, which gives exact
-numbers). Save stays off until the rule is valid, and a refusal is said in a sentence. A new rule can start in a trial.
-The older IT and OT rules appear on the same page in the new form, read only, with a button to their own forms.
-Alerts of all such rules are the one kind `custom_rule`; each alert names its rule, and counts, trials and judgements are
+rules with a count or a sequence the preview is unavailable). Save stays off until the rule is valid, and a refusal is said in a sentence.
+A new rule is **saved on**; the switch **Rule is on** in the *Then* section of the editor saves it off instead (listed, judging nothing until
+you turn it on). The older IT and OT rules can be seen in the new form, read only: *Show in the new form* in the details of their row.
+Alerts of all such rules are the one kind `custom_rule`; each alert names its rule, and counts and judgements are
 kept per rule as `custom_rule:<id>`. The IT and OT rules above are unchanged and keep running as they were; they can be
 read in the same model (`GET /api/rules/v2` shows them, read only), and their conversion is exact.
 
@@ -1250,9 +1259,9 @@ window), and paused by the setting *Your own IT rules* when they overload detect
 cannot be hidden with *This is normal*, and an incident opens on it.
 
 **What a rule remembers.** A rule with *only the first time* remembers what it raised for (90 days); the gap is remembered
-too. A hit that was held back after it was raised (a rule in a trial, an exception, a minimum score) does **not** use up
-the first time, so the rule still raises when it is On; the gap stays, so a trial does not store a record for every match.
-What a rule remembers is tied to the rule and its revision: editing, deleting and re-creating a rule, or ending its trial,
+too. A hit that was held back after it was raised (an exception, a minimum score) does **not** use up
+the first time, so the rule still raises when it is On.
+What a rule remembers is tied to the rule and its revision: editing, deleting and re-creating a rule
 starts it with a clean memory. A *follows* rule is only fed by alerts that were really raised.
 
 **Exceptions of your own rules.** All rules of this kind share the alert kind `custom_rule`, so an exception is made for **one**
@@ -1280,19 +1289,18 @@ nothing (*Why it did not alert* says "Needs Sequences and counts (Experimental),
 still saved and exported. With it **on** DENIS holds at most about 4.4 MB more: 896 devices per counting rule, 25 such rules
 at most, and 1,792 remembered alerts; when a table is full the entries that end soonest are dropped, so a flood of
 different devices can neither grow it nor fill another rule's table. Switching the setting off frees the memory at once.
-A rule with a count or a sequence cannot be previewed (a trial gives exact numbers) and costs more points in the cost light.
+A rule with a count or a sequence cannot be previewed and costs more points in the cost light.
 
 **Storage and the API.** Each rule is one saved item with a revision and a history. `GET /api/rules/v2` (everybody signed
 in) lists the rules with their state, cost and alerts of the last 7 days, and describes the fields and limits;
 `POST /api/rules/v2/validate` checks a rule and returns its canonical form, its cost and warnings; `POST /api/rules/v2/preview`
 says what a rule would have done over the last 7 days of stored data (counted for `ot`, `edge` and `dns`, estimated for
-`flow`, not available for `inbound`, whose connections are not stored; a trial gives exact numbers); `PUT` and `DELETE`
+`flow`, not available for `inbound`, whose connections are not stored); `PUT` and `DELETE`
 `/api/rules/v2/{id}` (administrators) create, replace and delete. The rules are also in the rules file (`rules_v2`), and
-importing a file checks every rule and refuses a newer format. A rule saved while *Start new rules in a trial* is on starts
-in one. An id is one name across IT rules, OT rules and these.
+importing a file checks every rule and refuses a newer format. An id is one name across IT rules, OT rules and these.
 
 **Export, import and templates.** The unit is one rule. *Export rules* (or *Export* on a row) writes a file `denis.rules/1` that holds
-the rules and nothing else: no settings, no trial state, no exceptions, no token or password; a zone a rule names travels with its
+the rules and nothing else: no settings, no exceptions, no token or password; a zone a rule names travels with its
 name. *Import rules* reads such a file (or a whole rules file of an earlier version, from which only the rules are read) and first
 shows a **plan** with one row per rule: *New*, *Already here, the same*, *Already here, different* (with the revision it would
 replace), *Conflict* (the id belongs to one of your IT or OT rules) or *Cannot be imported*, each refusal with its reason: more than 12
@@ -1300,9 +1308,11 @@ conditions, a list with more than 200 entries, a zone or a device that does not 
 here), more than 25 rules with a count or a sequence, more than 500 rules. Nothing is changed until you choose Import. A rule that is
 already here is **never replaced unless you choose it** (replace it, import it as a copy, or leave it out); an import never switches an
 existing rule on or off and never switches *Sequences and counts (Experimental)* on (a rule that needs it is imported and says so).
-Every rule that is on starts in a **trial** of 14 days (you can change the days): it is judged as usual and counted, nothing is sent
-and nothing turns on by itself. Replacing a rule that is on puts it into a trial too, so its alerts are only counted meanwhile; the
-plan says so. Device conditions name a device by its number, which is different in another installation, so the plan warns about them
+**Every imported rule arrives off** and nothing turns on by itself: you turn it on when you are ready. A rule that replaces one of
+yours **keeps the state of the rule it replaces** (a rule that is on stays on, so a detection is never lost by an import); the
+plan says so for each row (*Arrives off*, *Stays on*) and in one sentence under the rows. A rule of a file whose condition this DENIS does not
+know (a newer DENIS, or a file edited by hand) is shown as *This entry is not a rule* **with the reason in plain words**, for example the
+name of the condition it does not know. Device conditions name a device by its number, which is different in another installation, so the plan warns about them
 and refuses a number that does not exist here. *Templates* is a library of ready rules (versioned `name@n`, for example *Remote
 desktop to the internet*, *Controller talks to the internet*, *Industrial write at night*, and, Experimental, *Admin sessions spread,
 then a big upload*): each opens the editor filled in, with a draft that has conditions and no name of its own yet. Imports and
@@ -1311,13 +1321,13 @@ rule changes (Configure; a dry run too).
 
 ![The templates: ready-made rules, each opening the editor filled in](img/rule-templates.png)
 
-![The import plan: three rules that can be imported and one that cannot, with the trial that every imported rule starts in](img/rule-import.png)
+![The import plan: three rules that can be imported and one that cannot, and the sentence that every imported rule arrives off](img/rule-import.png)
 
 **Rules your MSP sends.** An MSP that manages this installation can send a `denis.rules/1` file (4.4; see [MSP management](msp-management.md#sending-rules-to-customers)).
 It is **off by default**: under Settings, MSP management you choose *Not allowed*, *Ask me* (every set waits for an administrator
-here, with the plan of the import) or *New rules go straight into a trial* (new rules only; anything that would replace a rule or
-is in conflict still waits). The rules arrive in their **own category on the Rules page, "Managed by <MSP>"**, apart from your own,
-each tagged with who sent it. They start in a trial of the number of days you chose and never turn themselves on. You can switch each
+here, with the plan of the import) or *Take new rules at once; they arrive off* (new rules only; anything that would replace a rule or
+is in conflict still waits). The rules arrive in a **group "Sent by <MSP>" inside the card Your rules**, apart from your own,
+each marked with who sent it. They arrive **off** and never turn themselves on. You can switch each
 one on or off, look at it and delete it, and **Take back all** deletes everything of one delivery; the history of each rule is kept.
 They cannot be edited in place (export one and import it as a copy to make your own). A delivered rule never carries a response or an
 enforcement action, never names a device or a site by number, and names its zones by name (the zone of that name here is used;
@@ -1702,14 +1712,14 @@ reason) and accepted risks appear in the **saved reports** and as `denis_accepte
 
 Every rule is timed. When one rule is much slower than its budget (more than four times, in three of its last six
 runs), it makes all detection late, and after that the capture can drop packets. What DENIS does then is **your choice**
-(Rules page, **Performance protection**; administrators change it and it is audited):
+(Rules page, **Settings for all rules**, **Performance protection**; administrators change it and it is audited):
 
 * **Pause the rule that overloads detection** (the default for the newer built-in IT rules and for your own IT rules): the
   one slow rule is skipped, every other rule keeps running, and nothing is silent: Health says which rule was paused and
-  why, the Rules page marks it **paused**, the administrators get a notice (at most one per rule every six hours), and the
+  why, the Rules page marks it **Paused: too slow**, the administrators get a notice (at most one per rule every six hours), and the
   audit log records it. After 30 minutes DENIS tries the rule again on a little work, and when three runs in a row are fast
   enough it **resumes by itself** (audited too); a rule that is slow again waits longer. An administrator can re-enable it
-  at any time under Health, Detection rules.
+  at any time with **Run it again** in the details of the rule, or under Health, Detection rules.
 * **Keep every rule running and accept that packets may be dropped:** nothing is paused, the rule is only warned about,
   and packet loss is reported on Health and by a notice.
 
@@ -1759,82 +1769,88 @@ API: `POST /api/alerts/{id}/normal`, `GET /api/rules/normal/suppressed`, `GET /a
 [API reference](api.md). The settings that keep routine alerts quiet on their own are in
 [Alerting](alerting.md#what-denis-keeps-quiet).
 
-## Trying a rule first (trial)
+## Trials (removed in 4.4.1)
 
-A new or changed rule can be tried before it speaks up. A rule in a **trial** is judged exactly as usual (the same
-checks, the same cost counters, the same overload protection), but what it raises is only counted: it is stored as an
-ordinary record marked *would have raised*, and nothing else happens. No notification and no channel message, no
-incident, no Autopilot decision, no prepared response, no enforcement action, and the alert does not appear in the Alerts
-list. A trial alert is not counted among the raised alerts of the rule either; it has its own number.
+DENIS 4.4.0 could put a rule in a *trial*: judged as usual, its alerts only counted. Since 4.4.1 there is **no trial**: a rule is on
+or off, with one switch on every row, and what is on judges and raises alerts. This keeps one meaning for the switch.
 
-![A rule in a trial: day 5 of 14, what it would have raised, and why it did not raise for other devices](img/rule-trial.png)
-
-A trial is an **option and a recommendation, and it is off by default**. A new rule, a rule you change and a rule you
-switch on all start live, as before, unless you choose a trial:
-
-* **For one rule**: in the rule's details, *Try it first* (7, 14 or 30 days; the server accepts 1 to 90), or the box *Try it
-  first* in the rule dialog when you save your own rule. Nothing else changes.
-* **For every new rule**: *Rules → Global settings → Start new rules in a 14-day trial*. Off by default. When it is on, an
-  own rule you create, or a rule you switch from off to on, starts in a trial of the days you set. Switching the setting on
-  starts nothing by itself, and rules you merely edit are not put in a trial.
-
-The rule's row and details show its **state**: *Off*, *Trial · day 3 of 14 · would have raised 5*, or *On*. *Show what it
-would have raised* lists the newest would-have-raised alerts with the device, the score and severity they would have had,
-and the count per day. A person ends the trial with *Turn on now*, or gives it *7 more days*; when the planned days are
-over the row says so, and **nothing changes by itself**. Only if you ticked *Turn on by itself when the days are over*
-for that rule (or in the global setting) does the rule go on at the end of the days, once, with a notice in the
-notification centre. A rule that is switched off cannot be tried (turn it on first), and deleting your own rule ends its
-trial. A rule you mark off while it is in a trial is Off.
-
-A trial hides an alert from everyone, including alerts that are never kept quiet: that is the point of an explicit trial,
-so use it for rules whose noise you want to see first. The per-day counts are kept 400 days with the other rule counts
-(*How useful is each rule*, the column `trial` of the CSV). The trial list reads the stored events, so it reaches back as
-far as event retention. The trial of a rule is this installation's live state and is not part of a rules export.
-
-API: `GET /api/rules/trial?rule=` (viewer), `PUT /api/rules/trial/{rule}` and `PUT /api/rules/trial-default`
-(administrator); also `trial` and `trial_default` in `PUT /api/rules`. See the [API reference](api.md).
+* **A rule that was in a trial when 4.4.1 started is switched off** (a built-in rule gets weight 0, an own rule is saved off), once,
+  with one entry in the audit log (`rules.trial_ended_by_update`) and **one notice in the notification centre that names the rules**.
+  It is off, not on, because a trial rule never sent an alert: turning it on silently would start notifications, incidents and
+  responses nobody agreed to. Turn it on with its switch when you want it. Nothing is lost: the would-have-raised records stay
+  stored as ordinary records and the per-day counts stay in the counts of *How useful is each rule* (the column `trial` of its CSV
+  stays, with the values of the days before 4.4.1).
+* **The API.** `PUT /api/rules/trial/{rule}` and `PUT /api/rules/trial-default` answer `410 Gone` (*Trials were removed in 4.4.1; turn
+  the rule on or off instead.*); `GET /api/rules/trial` answers an empty list. The keys `trial` and `trial_default` of `PUT
+  /api/rules` are accepted and **ignored** (the answer lists them as `ignored`), so a rules file exported by 4.4.0 still imports.
+  The judged reason `trial` stays as a word for the history of old data (*trial (before 4.4.1)*).
 
 ## New rules in a release
 
 A release can bring new rules. On an installation that already existed, **a rule that is new in a release arrives
-switched off**: it does not judge anything and it is not counted as an enabled detection until you decide. This is on
-purpose: a new rule never starts raising alerts, or taking cost, by surprise.
+switched off**: it does not judge anything and it is not counted as an enabled detection until you turn it on. This is on
+purpose: a new rule never starts raising alerts by surprise. A new rule has no section of its own and no waiting state: it sits
+in its group among the other rules, **off**, and carries a small mark.
 
-* **The panel.** *Rules → New rules in this version* lists every new rule with a one-line description, whether it is
-  **Recommended** (a low-noise rule) or **Optional**, a **cost light** (*Cost: low*, *medium* or *high*, from the
-  detection cost table, shown when the rule has a row there) and its state: *Waiting for you*, *On*, *In a trial, day 3 of
-  14* or *Off*. *Turn on all* switches every waiting rule on; *Turn on all as a 14-day trial* starts each one in a
-  [trial](#trying-a-rule-first-trial) (judged, only counted, nothing sent); on each rule *Turn on*, *Try 14 days first* or
-  *Keep off* decide one by one. A rule you keep off stops counting as waiting and stays off until you turn it on on the
-  Rules page. Under each waiting rule the panel says *Would have raised about N alerts in the last 7 days*, counted from
-  the stored events of the rule's kind (see [What would this change](#what-would-this-change)); a rule whose kind has left
-  nothing in the history yet says *No history yet*, never 0.
-* **The notice.** The overview shows *N new rules are waiting* with a link to the panel, and the daily digest says it too.
-  Both disappear when nothing waits.
-* **A new installation** gets the *Recommended* new rules switched on; the *Optional* ones wait in the panel like on an
-  upgrade. A database counts as new when it was created by a build that knows this rule set (its install record carries
-  `rule_set` 4.4 or newer, also in a pre-release build that is still versioned 4.3.0); every other database is an upgrade.
-  The first start writes that decision once (setting `rules.intake`), so it cannot change later.
-* **Turn on new low-noise rules automatically** (*Rules → New rules in this version*, **off by default**). When it is on,
-  the *Recommended* rules a version brings are switched on by themselves, once, with an audit entry (`rules.new_auto`);
-  the *Optional* ones always wait. Without this setting **nothing is switched on for you**.
-* **In a trial a rule raises no alerts, also not for serious findings.** A trial stores a rule's alerts as
-  *would have raised* records, including the kinds that are never kept quiet; the console says so in plain words next to
-  the trial choices of such a rule.
+![The filter New in 4.4.0 with its strip: Turn on all, Turn on the recommended, Mark all as reviewed, and the mark on each new rule among the others of its group](img/rules-new.png)
 
-Under the hood a waiting rule has the weight 0 (the same as switching it off), and the rule is not run at all when it has a
-detection cost row of its own (it is not metered, not skipped by the overload protection and not shown as running in
-Health). Accepting a rule only records the decision (setting `rules.intake`, and `rules.accepted_version` once nothing
-waits); the rule starts at the next refresh of the rules, within seconds. A rule you had already set to weight 0 yourself
-stays off. Rules that are not new are not touched in any way.
+* **The mark.** **New in 4.4.0** (the release you installed, as the changelog says it) after the name of the rule, with
+  **Recommended** next to it when the rule has few false alarms. The mark goes when you **turn the rule on** (its switch, or
+  *Turn on all*) or **mark it as reviewed** (*Mark as reviewed* in its details, or *Mark all as reviewed*), and it never comes
+  back; a rule you switched off again does not get it again. A rule that arrives in a later release carries that release's mark.
+* **The filter and the strip.** The filter **New in 4.4.0 (n)** shows only the rules that still carry the mark, and one line
+  above the list says **n new rules came with 4.4.0 and are off** with three buttons: **Turn on all n**, **Turn on the m
+  recommended** and **Mark all as reviewed** (this only removes the marks; nothing is turned on). Each answers with a notice
+  that has **Undo**. The chip and the strip disappear with the last mark. A viewer sees the sentence without the buttons. On a new
+  installation the strip reads *The 2 recommended rules of 4.4.0 are on. 10 more are off.*
+* **The switch decides.** Turning a new rule on with its switch both turns it on and records the decision (audited as
+  `rules.new_accept` with `mode: "switch"`); in 4.4.0 the switch of a rule that was still waiting answered *on* and changed
+  nothing, which 4.4.1 fixes.
+* **The notice.** The overview shows *4.4.0 brought n new rules. They are off.* with the link *Review them* (to the filter, also
+  `#rules/new`), and the daily digest says *n new rules of 4.4.0 are off until you turn them on.* Both disappear with the last mark.
+* **A new installation** gets the *recommended* new rules switched on; the others are off like on an upgrade. A database counts
+  as new when it was created by a build that knows this rule set (its install record carries `rule_set` 4.4 or newer, also in a
+  pre-release build that is still versioned 4.3.0); every other database is an upgrade. The first start writes that decision
+  once (setting `rules.intake`), so it cannot change later.
+* **Turn on the recommended rules of a new version by itself** (*Settings for all rules*, **off by default**). When it is on, the
+  recommended rules a version brings are switched on by themselves, once, with an audit entry (`rules.new_auto`); the others
+  stay off. Without this setting **nothing is switched on for you**.
 
-API: `GET /api/rules/new` (any signed-in reader), `POST /api/rules/new/accept` with
-`{mode: all|trial|ids|off, ids?}` and `PUT /api/rules/new/auto` with `{enabled}` (administrator; Configure class on a
-remote master). Audited as `rules.new_accept` and `rules.new_auto_setting`. See the [API reference](api.md).
+Under the hood a new rule that nobody decided about has the weight 0 (the same as switching it off), and the rule is not run at
+all when it has a processing-impact row of its own (it is not metered and not shown as running in Health). Deciding only records
+the decision (setting `rules.intake`, and `rules.accepted_version` once nothing carries the mark); the rule starts at the next
+refresh of the rules, within seconds. A rule you had already set to weight 0 yourself stays off. Rules that are not new are not
+touched in any way.
+
+API: `GET /api/rules` carries `since`, `recommended`, `new`, `never_quiet`, `paused` and `impact` for every rule and
+`new_rules` (`{version, release, total, off, recommended_off, origin}`) at the top; `GET /api/rules/new` (any signed-in reader) lists
+the new rules with their state (`waiting`, `on`, `off`); `POST /api/rules/new/accept` with `{mode: all|recommended|ids|reviewed|undo, ids?}`
+(`all` turns every new rule on, `recommended` the recommended ones, `ids` the named ones, `reviewed` removes the marks and turns nothing on, `undo` takes
+a decision back: the rules are new and off again; `trial` is refused with 400 *trials are no longer offered*, `off` is the old name of
+`reviewed`) and `PUT /api/rules/new/auto` with `{enabled}` (administrator; Configure class on a remote master). Audited as
+`rules.new_accept`, `rules.new_reviewed` and `rules.new_auto_setting`. See the [API reference](api.md).
+
+## Processing impact
+
+![Rows of the Rules page: a rule paused by the overload protection with Run it again, a rule that always alerts, and a new rule with its mark and its details](img/rules-row.png)
+
+**Processing impact** is how much of its time budget a rule used at its last checks on this machine. Every rule has a budget per check
+(one traffic window or one inventory flush): *Low* means under a tenth of it, *Medium* under half, *High* half or more. *Not measured
+yet* means the rule has not run since DENIS started (a rule that is off is not run); *Not timed* is a rule that runs on a timer every few
+seconds, not on traffic, and costs almost nothing. The word is on **every** rule row, with a tooltip that gives the figures
+(*0.4 ms of 1 ms per check*) and says when the rule is timed together with others of the same pass (a rule of 4.2 or earlier shares a
+pass with its neighbours, and your own rules of one kind share one figure). It replaces the *Cost* column of 4.4.0, which was the
+cost *class* a rule was built to, shown only for the new rules; the figure is now measured and the same for all of them.
+
+A rule that is far over its budget makes all detection late; what DENIS does then is set under *Performance protection* in
+*Settings for all rules* (see [When detection is overloaded](#when-detection-is-overloaded)). A rule that the protection paused stays
+**on** in your settings, shows the mark **Paused: too slow** and, in its details, the button **Run it again**. The same figures, in
+milliseconds, are on Health under *Detection rules*; the server computes the word (`impact` of `GET /api/rules`:
+`{word: low|medium|high|not_measured|not_timed, budget_micros, measured_micros, shared_with}`).
 
 ## What would this change
 
-Before you save a **weight**, a **minimum score**, an **exception** or a rule's **state** (on, trial, off), DENIS can say
+Before you save a **weight**, a **minimum score**, an **exception** or a rule's **state** (on, off), DENIS can say
 what the same change would have done to the alerts of the last 30 days, for example: *Over the last 30 days this would have
 raised 12 alerts instead of 40 alerts (28 fewer, 2 of them ones you acted on).* It is a read: it changes nothing and never
 blocks saving.
@@ -1842,7 +1858,7 @@ blocks saving.
 * **Where it appears.** A small *What would this change?* box under the weight and *Alert only from score* of a rule (also
   when you use the *Quieter / Normal / Louder* buttons), under the general minimum score, under the form that adds an
   exception (as soon as you have picked what to except, before you press *Add*), and in the rule dialog of a saved rule of
-  yours when you pause it or tick *Try it first*. It waits a moment after the last keystroke, asks one question at a time,
+  yours when you switch it off. It waits a moment after the last keystroke, asks one question at a time,
   shows *Checking the last 30 days…* while it works, and says *Could not check what this would change* if it fails.
 * **What it counts.** The alerts raised in the window and the alerts there would have been, the difference, how many of the
   removed ones **you acted on** (acknowledged by a person, part of an incident, or part of an incident that got a response;
@@ -1867,7 +1883,7 @@ blocks saving.
 API: `POST /api/rules/what-if` with `{change, days?, site?}` where `change` is one of
 `{kind: "weight", rule, value}`, `{kind: "min_score", rule?, value}` (no `rule`: the general minimum; `value: null` removes a
 rule's own minimum), `{kind: "exception", rule, scope: {kind, value}}`, `{kind: "exception_remove", rule}`,
-`{kind: "mode", rule, state: "on"|"trial"|"off"}` or `{kind: "param"}`. Any signed-in reader may call it (viewer role;
+`{kind: "mode", rule, state: "on"|"off"}` (`"trial"` is no longer offered) or `{kind: "param"}`. Any signed-in reader may call it (viewer role;
 API tokens in the *alerts* area; the Configure class on a remote master, like the dry run). See the
 [API reference](api.md).
 
@@ -1893,8 +1909,8 @@ decided, without adding work for every packet. The work is done where a decision
 * **The reasons.** `learning` (the device, or the whole network after *Restart learning mode*, is still learning; with the days
   left), `below_min_score` (the score was under the minimum), `exception` (an exception you set covers the device; which one and when it ends), `expired` (an exception you set would cover the device but has expired, so the alert was raised),
   `cooldown` (the same alert was raised a short while ago), `quiet` (recorded as a quiet entry; which quiet reason),
-  `normal` (you marked it as normal), `trial` (the rule is in a trial), `held` (a new rule waiting for you to turn it on),
-  `paused_by_meter` (the rule took too long and the meter paused it), `needs_traffic_analysis` (the rule needs a source that is
+  `normal` (you marked it as normal), `trial` (only in records of 4.4.0: the rule was in a trial), `held` (*new rule, off*: a new rule that is off until you turn it on),
+  `paused_by_meter` (*paused: too slow*: the rule took too long and the overload protection paused it), `needs_traffic_analysis` (the rule needs a source that is
   not switched on), `excluded_type` (the rule leaves this kind of device out) and `off` (the rule is switched off). The last
   five, and `learning` for a device, are states rather than events: they are worked out when you ask, not recorded while
   detection runs. `excluded_type` is reserved for the rules that leave a device type out; until a rule reports it, it does not appear.
@@ -1904,7 +1920,7 @@ decided, without adding work for every packet. The work is done where a decision
   the device is still learning, and the rules that are not judging at all (off, on hold, paused, missing a source).
 * **What it does not claim.** It does not list every candidate a rule looked at: a rule that finds nothing unusual decides
   nothing, and leaves no line. A few built-in rules note a cooldown where they hold one back; the others show the reasons that
-  are decided at the one place where alerts are stored (minimum score, exceptions, quiet, *This is normal*, trial, learning
+  are decided at the one place where alerts are stored (minimum score, exceptions, quiet, *This is normal*, learning
   restarted by hand). Counters and lists are for the whole installation; a person limited to some sites sees only the devices of
   their sites and their share of the counts.
 

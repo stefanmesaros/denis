@@ -214,7 +214,7 @@ client (UDP has no handshake, so this is a guess from the port numbers). `ot_reg
 intervals per Modbus path, saved every ten minutes; the decoder reads the address and the count of write requests
 (functions 5, 6, 15, 16, 22, 23) and nothing else of them is kept. Both rules are Experimental: they were tested against
 synthetic traffic and the noise scenarios, not against a long recording of a plant. They are not recommended by default: on an
-upgrade they wait in *New rules in this version*.
+upgrade they arrive off, with the mark *New in 4.4.0*, until you turn them on.
 
 *Overload:* none of the 4.3 pack 2 rules is on the never-quiet or the never-paused list. Under the default industrial
 overload setting (*warn only*) they are never paused; with the advanced opt-in a pack 2 rule that keeps exceeding its
@@ -241,9 +241,9 @@ and target scores 45 instead of 85 and is held for 10 minutes; if it is routine 
 <a id="command-watches"></a>
 ## OT rules
 
-![The OT rules on the Rules page: two rules of your own, then the built-in groups](img/ot-watches.png)
+![The built-in OT rules on the Rules page, from the OT heading down (the OT rules of your own are in the card Your rules above)](img/ot-watches.png)
 
-*Rules → OT · industrial → Your OT rules.* An OT rule says: **when this command reaches that device, tell me**. **+ New OT rule** (or **+ New rule → OT rule** at the top of the page) opens the dialog described under [Your own rules](detection-rules.md#your-own-rules-it-rules-and-ot-rules), with a template for each common case and a preview of how often the rule would have fired.
+*Rules → Your rules.* An OT rule says: **when this command reaches that device, tell me**. **+ New rule → OT rule** (in the card *Your rules* or at the top of the page) opens the dialog described under [Your own rules](detection-rules.md#your-own-rules-it-rules-and-ot-rules), with a template for each common case and a preview of how often the rule would have fired.
 
 | Field | Meaning |
 |---|---|

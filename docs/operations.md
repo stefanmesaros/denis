@@ -269,14 +269,14 @@ A rule that trips is **paused** when the settings allow it: DENIS skips it from 
 cannot make all detection late, and every other rule keeps running. A paused rule finds nothing. That
 is why the pause is never silent: it is written to the log and the audit log (`rule.paused_performance`, by
 `denis`), the Health page warns ("The detection rule ... was paused automatically ...", with the time it took and
-its budget), the Rules page marks the rule as **paused**, and `denis_rule_paused{rule}` is 1. The pause is saved and
+its budget), the Rules page marks the rule **Paused: too slow** (it stays on in your settings) and offers **Run it again** in its details, and `denis_rule_paused{rule}` is 1. The pause is saved and
 survives a restart. After 30 minutes a paused rule is **tried again**: it runs for a few units of work, and when three
 in a row stay within the limit it runs again on its own (logged and audited as `rule.resumed_automatically`, by
 `denis`). A trial run with far fewer records than the run that paused it (a quiet window) does not count either way.
 One trial run over the limit pauses it again and doubles the wait before the next trial (1 hour, then 2 hours at
 most); a rule paused again within two hours of running again on its own waits longer in the same way. So a rule that
 is really too slow costs one run per trial and does not flap between paused and running. An administrator can re-enable it at any time with **Re-enable** in the rule's row under Health,
-Detection rules (`POST /api/rules/paused/{rule}/resume`, audited as `rule.resumed`); the rule then starts again with
+Detection rules, or **Run it again** in the details of the rule on the Rules page (both `POST /api/rules/paused/{rule}/resume`, audited as `rule.resumed`); the rule then starts again with
 a clean history. Before re-enabling it, find out why it was slow: for your own IT rules that is usually a very large number
 of rules or of listed networks and ports.
 
@@ -419,7 +419,7 @@ first, and can update its remote agents from the console ([Updates](updates.md))
 The database is upgraded in place, in small transactional steps; a crash mid-upgrade leaves it at a consistent
 older version. A database newer than the program is refused with a clear message (never silently downgraded).
 
-**Going back from 4.4.** Schema V57 (4.4, trial mode of rules) adds one column, `rule_outcomes_daily.trial`
+**Going back from 4.4.** Schema V57 (4.4, the counts of trial mode, which 4.4.1 removed: no rule can be put in a trial any more, the column stays) adds one column, `rule_outcomes_daily.trial`
 (`INTEGER`/`BIGINT NOT NULL DEFAULT 0`, on SQLite and PostgreSQL alike), and nothing else; the trial records themselves
 live in the saved rules (`rules` setting, field `rule_modes`), which needs no migration. Rolling back to 4.3 therefore means
 restoring the backup taken before the update (the update does this by itself when it fails); a database already at V57 is

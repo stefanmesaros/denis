@@ -93,7 +93,7 @@ through another switch needs that switch added too. Traffic does not have to pas
      **SNMP write community**.
    * Leave **Cisco: forwarding table per VLAN** on *Automatic*. Keep **Read this switch regularly** ticked (port control
      needs the switch to be read; DENIS could not notice a port coming back otherwise).
-   * For the quarantine: open **Quarantine by VLAN (experimental)**, enter the **Quarantine VLAN** (`99`) and tick **I tested
+   * For the quarantine: open **Quarantine by VLAN**, enter the **Quarantine VLAN** (`99`) and tick **I tested
      this VLAN** only after step 2 worked. Without the tick the switch offers no quarantine.
    * Save, then press **Read now**. It must report ports, neighbours and MAC addresses. If a VLAN other than 1 is missing,
      see *If something fails* below.
@@ -278,7 +278,7 @@ port that is already off).
 DENIS moves **one access port** into a quarantine VLAN **you** built, and moves it back. It never creates the VLAN, its
 DHCP scope, its gateway or any rule, and it never edits a VLAN list.
 
-Set up, per switch (*Network → Equipment* → edit the switch → *Quarantine by VLAN (experimental)*):
+Set up, per switch (*Network → Equipment* → edit the switch → *Quarantine by VLAN*):
 
 1. On the switch, create the VLAN (for example 99) and give it DHCP and the services a quarantined device needs (DNS,
    NTP, your remediation server), plus the rules you want on it. Nothing here is DENIS's business.

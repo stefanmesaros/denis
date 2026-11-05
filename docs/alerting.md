@@ -149,9 +149,9 @@ to a channel.
   acknowledged as resolved, false or expected, closed automatically or put in an incident, and how many nobody
   reviewed after a week. These are counts only (no addresses), kept 400 days whatever the event retention is.
   Your own rules are counted one by one. `GET /api/rules/outcomes` (and `.csv`) reads them.
-* **Rules in a trial** (4.4): a rule an administrator is trying first is judged as usual but only counted: it sends
-  nothing, opens no incident and prepares no response, so none of your channels hears about it. Off by default; see
-  [Trying a rule first](detection-rules.md#trying-a-rule-first-trial).
+* **Rules that are off** judge nothing, so they raise nothing and none of your channels hears about them: a rule new in a
+  release arrives off (see [New rules in a release](detection-rules.md#new-rules-in-a-release)). Trials, which 4.4.0 had, were
+  removed in 4.4.1 ([Trials (removed in 4.4.1)](detection-rules.md#trials-removed-in-441)).
 * **Close low alerts automatically** (*Settings → Notifications → Quiet routine alerts*, off by default): a low alert that
   has not happened again (same device, kind and provider) for 3 to 30 days (7 by default) is acknowledged by the system.
   The alert's history says so, and it can be undone. Medium and high alerts, the kinds above and alerts in an open

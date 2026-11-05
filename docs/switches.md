@@ -446,10 +446,10 @@ as before.
   DENIS enables the port again, and a release does the same. It is one action per physical port, you type the port's
   name to confirm, the port is read again right before the change, and a port that someone enabled in the meantime is
   recorded as *removed elsewhere* and not disabled again.
-* **Move the port to the quarantine VLAN** (experimental). In the switch form, under *Quarantine by VLAN*, enter the
+* **Move the port to the quarantine VLAN**. In the switch form, under *Quarantine by VLAN*, enter the
   VLAN you built for quarantine (2 to 4094, not 1002 to 1005) and tick *I tested this VLAN*. Without the tick the switch
   offers no quarantine. DENIS moves **one access port** into it and back (Cisco IOS: `vmVlan`; other switches:
-  `dot1qPvid`); it never creates the VLAN, its DHCP, its gateway or any rule. A device with a static address, and any
+  `dot1qPvid`, which is Experimental); it never creates the VLAN, its DHCP, its gateway or any rule. A device with a static address, and any
   OT device, is simply cut off until the port is restored. Refused, whatever you confirm: a trunk or an EtherChannel
   member (no single access VLAN to change: switch it off by hand instead), the management port, a mirror port, the port of
   the gateway or of DENIS itself, a port with more than one device or a neighbour (a phone, an access point; this covers
