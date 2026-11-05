@@ -47,15 +47,15 @@ is from and stores nothing; for an invitation the fingerprint alone is not enoug
 2. In your console open **Settings, MSP management**, paste the code and press *Check the code*. The page shows the MSP's
    name, its address and the key fingerprint **read from the code**.
 3. Compare that fingerprint with the one the MSP told you. If they differ, stop: somebody else may have sent you the code.
-4. Choose the level (see below) and what the MSP may do with **rules it sends** (*Not allowed*, *Ask me*, the default, or *New rules
-   go straight into a trial*; see [Sending rules to customers](#sending-rules-to-customers)), tick that the fingerprints are
+4. Choose the level (see below) and what the MSP may do with **rules it sends** (*Not allowed*, *Ask me*, the default, or *Take new rules at once; they arrive
+   off*; see [Sending rules to customers](#sending-rules-to-customers)), tick that the fingerprints are
    identical, type your password and press *Pair*.
 
 The MSP's key is pinned. From then on every request must be signed with it. The relay token inside the code is stored
 sealed with this installation's secret key and is never shown again.
 
 From a shell, without the console: `DENIS_LINK_CODE=<code> denis msp-link connect` prints the fingerprint and stores
-nothing; run it again with `--fingerprint "<what you compared>"` to pair (`--level read|configure|full`, `--rule-push off|ask|trial`, `--replace` to pair
+nothing; run it again with `--fingerprint "<what you compared>"` to pair (`--level read|configure|full`, `--rule-push off|ask|accept`, `--replace` to pair
 again). A running master picks the link up within a few seconds.
 
 A new link starts at **Read and write** (`configure`). Enforcement boxes start **unticked**. Co-approval starts **off**.
@@ -120,36 +120,36 @@ sends; **every decision is the customer's** (the one exception is a customer wit
 ![The customer's Rules page: an offer from the MSP that waits for a decision, and rules the MSP delivered, marked Managed by the MSP](img/rule-managed.png)
 
 **What the customer decides** (Settings, MSP management, *Rules from your MSP*). The choice is made **when the link is made**: the
-pairing dialog (and `denis msp-link connect --rule-push off|ask|trial`) has a choice, and for a customer paired with an MSP the default is
+pairing dialog (and `denis msp-link connect --rule-push off|ask|accept`) has a choice, and for a customer paired with an MSP the default is
 *Ask me*. Afterwards it is changed by an administrator signed in on the customer's console, or by an MSP technician (see below):
 
 | Choice | What happens |
 | --- | --- |
 | *Not allowed* (the default) | A push is refused, even as a check. Nothing is stored. |
-| *Ask me* | The push waits as an **offer**. An administrator opens it on the Rules page, sees the plan of the import (new, already here, different, in conflict, refused, each with its reason), picks per rule, chooses the days of the trial and accepts, or declines. |
-| *New rules go straight into a trial* | New rules are taken at once into a trial of the customer's own number of days. A rule that would **replace** one, or is in conflict, still waits as an offer: nothing is replaced silently. |
+| *Ask me* | The push waits as an **offer**. An administrator opens it on the Rules page, sees the plan of the import (new, already here, different, in conflict, refused, each with its reason), picks per rule and accepts, or declines. Every accepted rule arrives off. |
+| *Take new rules at once; they arrive off* | New rules are taken at once and **arrive off**: the customer turns each on when ready. A rule that would **replace** one, or is in conflict, still waits as an offer: nothing is replaced silently. |
 
 * **A customer without an administrator of its own.** A fully MSP-managed customer has nobody to accept an offer. A technician who
   holds the **administrator** role on that customer at the MSP, through a link at *Read and write* or *Full* (the level the customer
   granted), may **accept or decline an offer for the customer** and acts as its administrator: the audit names
   `msp:<MSP>:<technician>` (`rules.push.offered`, `rules.push.accepted` and `rules.import` with `by_msp_technician`). The same technician
-  may change the choice above, and **making it more permissive** (Ask me, or straight into a trial) needs his fresh second factor from the
+  may change the choice above, and **making it more permissive** (Ask me, or take new rules at once) needs his fresh second factor from the
   last 10 minutes, as the password does for the customer's own administrator; a more careful choice needs nothing. A technician below
   the administrator role, and a link below *Read and write*, can do neither. **Taking back a delivery** stays with the customer's own
   administrators. To keep every decision with your own people, keep the link at *Read only*: at *Read and write* an administrator
   technician can allow the MSP to send rules to a customer.
 * **Raising the choice asks for the password.** In the customer's console, changing *Rules from your MSP* to a more permissive choice
-  (*Not allowed* to *Ask me* or to a trial, or *Ask me* to a trial) asks for the administrator's password, like raising the access level;
+  (*Not allowed* to *Ask me* or to *Take new rules at once*, or *Ask me* to *Take new rules at once*) asks for the administrator's password, like raising the access level;
   lowering asks for nothing.
 * **The MSP is told.** The MSP's notification channels (through the delivery outbox) get one notice when a push is **delivered**,
   **offered** or **refused**, and one when the customer **accepts**, **declines** or **takes back** rules: counts and names, never a
   rule. The customer's answers travel with the next poll of the management channel (seconds). The customer's administrators get a
   notice (`msp_rules_offer`) when an offer arrives.
-* **Their own category.** Delivered rules are shown under **"Managed by <MSP>"** on the Rules page, apart from the customer's own,
-  each tagged with who sent it (the MSP's name from the pinned link, never from a request). They can be switched on and off, looked at
+* **Their own group.** Delivered rules are shown in a group **"Sent by <MSP>"** inside the card *Your rules* on the Rules page, apart from the customer's own,
+  each marked with who sent it (the MSP's name from the pinned link, never from a request). They can be switched on and off, looked at
   and deleted by the customer, but not edited in place. **Take back all** deletes everything of one delivery; the revision history of
   each rule is kept. A delivered rule runs like any rule.
-* **Staged rollout.** A rule that is on starts in a **trial** (judged and counted, nothing sent) and is never turned on by itself.
+* **Staged rollout.** A delivered rule arrives **off** and is never turned on by itself.
 * **No enforcement.** A delivered rule never carries a response or an enforcement action: a file that has one is refused.
 * **Fit for every customer.** A rule that names a device or a site by number is refused (numbers differ per customer); a zone is
   matched by its **name** (the zone of that name at the customer; none, or two, is a refusal). The MSP's console checks this before it

@@ -515,9 +515,10 @@ response, how long (1 hour unless the rule says otherwise) and through which con
 
 1. a firewall on the device's path (*verified*: it routes the device's network and is its gateway), the most specific
    network first;
-2. a connector that *controls this device directly* (a controller or a hypervisor), only when DENIS knows the device
-   is one of its own. In 4.2 DENIS keeps no list of a hypervisor's guests or a controller's clients, so such a
-   connector is never chosen for you; you can still choose it when you review the response, with its warning;
+2. a connector that *controls this device directly* (a controller or a hypervisor), only when it lists the device as one
+   of its own clients right now: DENIS reads the clients of the connectors that offer it (switch on *Read the clients*), matches
+   them by hardware address and trusts a read that is not stale and a client that is online. The card says how the controller sees it (on Wi-Fi at an access point, or wired behind a switch). That is evidence, not proof that the traffic stops: the result of the action is the controller's own read-back. A connector that does not
+   list the device is never chosen for you; you can still choose it when you review the response, with its warning;
 3. a firewall *set up to route this network (not checked)*;
 4. for a quarantine, *the switch port the device is on*, only when DENIS knows that port for certain and nothing else
    is behind it.

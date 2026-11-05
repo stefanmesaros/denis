@@ -212,8 +212,8 @@ code and the release notes:
 ## Not done in 4.4.0, moves on (owner-approved list of 2026-11-04)
 
 * **Managed-service high availability (step P13):** the run on a managed PostgreSQL service with a soak of many hours and the 10, 50 and
-  100 tenant measurement (4.4.1, see below); a re-run of the two local lab scenarios s3b and s3c.
-* **Azure, AWS and Omada tests** on real systems, then removing the Experimental labels that are verified (4.4.1).
+  100 tenant measurement (4.4.2, see below); a re-run of the two local lab scenarios s3b and s3c.
+* **Azure, AWS and Omada tests** on real systems, then removing the Experimental labels that are verified (4.4.2).
 * **Capacity measurement and the sizing table** (500, 5,000 and 20,000 devices, and the 50,000 check).
 * **Full fuzz and Linux performance runs.**
 * **Real-hardware checks:** MikroTik Wi-Fi access point, Omada with an EAP110, Cisco Catalyst 9800, Meraki.
@@ -228,23 +228,40 @@ code and the release notes:
 * **Notifications:** `--webhook-volatile` and the warning `W_NOTIFY_DROPPED` are removed in 4.5.
 * **AWS:** VPC Traffic Mirroring (VXLAN) was never verified on a real mirror, and there is no AWS inventory read mode.
 
-## Next release: 4.4.1 (tested on real systems after 4.4.0 is released; no date)
+## 4.4.1 (delivered)
 
 *Evidence labels: documented / best guess / verified. A verified feature carries no label; only Experimental is labelled.*
 
-After 4.4.0 is released, the owner and the assistant test the following on real systems, in this order:
+* **The Rules page is one list with one model.** One row and one switch for every rule (built-in, IT, OT, several conditions and rules
+  an MSP sent), *Processing impact* instead of *Cost*, new rules as a mark *New in 4.4.0* among the others, and no trial mode: a
+  rule is on or off. A rule that was in a trial when 4.4.1 started is switched off, with one notice.
+* **The Respond dialog:** equipment cards keep their width and the two information icons of "How long" are told apart.
+* **Cisco Catalyst stacks.** Verified on a Catalyst 9200L stack (two members, IOS XE 26.02.1, physical) in the Cisco DevNet sandbox on
+  5 November 2026, over SNMPv3: both members' ports, the write test, a port switched off and on, the quarantine VLAN on the
+  second member, and the stack ports and the management port refused. IOS XE is named from `[IOSXE]` descriptions and a stack's
+  model names every member. *Quarantine by VLAN* on Cisco carries no Experimental label any more; the move on other makes
+  (`dot1qPvid`) stays Experimental.
+* **TP-Link Omada on a real controller** (5.15.24.19, an ER605 gateway, an EAP110 access point): identity, sign-in, the site, the
+  devices and the clients are verified. A controller without the v2 client list now checks a block by the client's own
+  `blocked` flag. The controller's own block call disconnected a Wi-Fi client in about two seconds and the client could join again
+  right after the release. Through DENIS, a wired client and the traffic effect are not yet verified: Omada stays Experimental.
 
+## Next release: 4.4.2 (tested on real systems; no date)
+
+After 4.4.1 the owner and the assistant test the following on real systems, in this order:
+
+* **Omada through DENIS** with the 4.4.1 program: block and release of a Wi-Fi client and of a wired client, then the label.
+* **Respond path from the client list for UniFi.** A controller that acts at the endpoint (Omada, Meraki, Cisco Catalyst 9800)
+  is on a device's path when it lists the device as its online client (4.4.1). UniFi is judged by the networks its gateway routes;
+  the client list of its access points should count as well, and the dialog should say which of the two decides.
+* **The Azure connector** on a real Azure subscription, and **the MikroTik Wi-Fi access point.**
 * **High availability on a managed PostgreSQL service** (for example AWS RDS Multi-AZ, step P13 of the plan): the pair, the
   write fence and tenants on PostgreSQL, with the managed service's DNS switch, proxies, TLS chain, maintenance events and
-  latency between zones, a soak of many hours, and the 10, 50 and 100 tenant measurement. This run happens after the 4.4.0
-  release, not before it.
-* **The Azure connector** on a real Azure subscription.
-* **AWS once more.** The AWS connector is already verified in a lab account; this is a second pass.
-* **TP-Link Omada**, on a real controller with a gateway and an access point.
+  latency between zones, a soak of many hours, and the 10, 50 and 100 tenant measurement.
+* **AWS once more** (already verified in a lab account) and **Cisco Catalyst 9800.**
 
-Then 4.4.1 removes the Experimental label from whatever is verified by then. AWS is already verified in a lab account. MikroTik
-Wi-Fi, Cisco Catalyst 9800, Azure, TP-Link Omada and high availability on PostgreSQL keep the label unless their result is
-verified; each one is judged on its own result, and a feature that is not verified stays Experimental.
+Then 4.4.2 removes the Experimental label from whatever is verified by then; each one is judged on its own result, and a feature
+that is not verified stays Experimental.
 
 ## Next after 4.4.0 (in this order; nothing here has a date)
 

@@ -6,6 +6,17 @@
      paths, rule or file names, or internal groundwork. Below it is the full technical record, kept
      here only. tools/pre-release.sh checks this. -->
 
+## 4.4.1
+
+- The Rules page is one list with one model. Every rule has the same row and the same switch: on judges and raises alerts, off does nothing. It saves at once with Undo, for built-in, IT, OT, several-conditions and MSP rules alike. Your own rules and the rules your MSP sent are one card, Your rules. The settings for all rules (performance protection, the setting for new rules, learning mode, noise profiles) are folded into one place.
+- Processing impact replaces Cost: it shows how much of its time budget a rule used. A rule the overload protection paused stays on and says so, with a button to run it again.
+- New rules are a mark, not a section. A rule new in a release arrives off and carries New in 4.4.0 among the other rules of its group, with Turn on all, Turn on the recommended and Mark all as reviewed, each with Undo. Fixed: the switch of a rule that was still new answered on but changed nothing.
+- Trials are removed. A rule is on or off. A rule that was in a trial when 4.4.1 started is switched off, with one notice naming the rules. Imported rules and rules sent by an MSP now arrive off; old rule files with trial settings still import.
+- Respond: the equipment cards keep their width, long labels and method choices no longer run out of the card.
+- Respond now knows when a controller (for example TP-Link Omada) lists the device as its own online client: that controller counts as being on the device's path, is recommended and needs no path warning. A controller that does not list the device is still chosen by hand.
+- Cisco Catalyst stacks are read and controlled through one address, member by member, and a stack's model names every member. Verified on a physical Catalyst 9200L stack in the Cisco DevNet sandbox. Quarantine by VLAN on Cisco carries no Experimental label any more.
+- TP-Link Omada: the connection, the clients and the devices of a real controller (5.15) are verified. A controller without the newer client list now checks a block through the client's own record. Omada stays Experimental until a block through DENIS is verified.
+
 ## 4.4.0
 
 Before you update: back up the DENIS database and the file secrets.key. At the first start 4.4 changes the format of stored passwords and keys in one step, and 4.3 cannot read it. The way back (a command, or your backup) is described in the High availability page.

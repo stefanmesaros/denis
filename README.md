@@ -232,7 +232,7 @@ customers ([quick start](docs/quickstart.md), [detection rules](docs/detection-r
 | Network section | *Network* has a map (zoom, search, groups, cables that DENIS marks confirmed, best guess or set by hand), **Equipment** (one table of every switch, firewall and controller, with a product-first *Add equipment*), **Response** and a guided **Setup** in seven steps. UniFi and Meraki controllers can show the clients they see on the map, read only (Meraki is Experimental) |
 | What DENIS cannot see | A Health section: per capture interface what arrived and what was lost or unreadable, duplicate packets, networks and VLANs seen against the ones expected, traffic seen in one direction only; every row says measured, estimated or not measurable, and it never claims to see everything ([docs](docs/visibility.md)) |
 | Detection that measures itself | More than 40 detections added in 4.3 (industrial and office); every rule is timed and one that makes detection late can be paused, with a notice and an automatic resume; *This is normal* on any alert; per-rule counts of what was acted on ([docs](docs/detection-rules.md#the-rules-added-in-43-at-a-glance)) |
-| Your own rules | Write a rule with several conditions in an editor on the Rules page, check it against recent data before it is on, run it in a **trial mode** (alerts are marked, nothing else changes), give an exception an expiry, see what a change would have done over the last days and why a rule alerted or did not. Export, import and ten templates; counts and sequences are Experimental and off by default. An MSP can send you a set of rules: not allowed (the default), ask me, or into a trial ([docs](docs/detection-rules.md)) |
+| Your own rules | Write a rule with several conditions in an editor on the Rules page, check it against recent data before it is on, give an exception an expiry, see what a change would have done over the last days and why a rule alerted or did not. Export, import and ten templates; counts and sequences are Experimental and off by default. An MSP can send you a set of rules: not allowed (the default), ask me, or take new rules at once (they arrive off) ([docs](docs/detection-rules.md)) |
 | Address spaces | The same address in two routing domains (VRFs) is no longer taken for one network: the spaces are declared under Settings → Capture, and an administrator can split a hardware address shared by two devices ([docs](docs/concepts.md#what-a-device-is-site-vlan-mac)) |
 | Lists that update themselves | The shipped lists (known-bad domains, dynamic-DNS suffixes and others) can be refreshed from the update repository; off by default, signed and checked before use |
 | Not managed, and one history per device | *Not managed by any tool* lists what no management tool covers; each device has a timeline of its addresses, ports, alerts and responses, and DENIS can say who had an address at a given time |
@@ -260,7 +260,7 @@ customers ([quick start](docs/quickstart.md), [detection rules](docs/detection-r
 | Console looks | Three selectable looks — Triage (the default), Scope and Clipboard — each in light and dark, chosen under My account; new in 4.1: a refreshed palette, corner radius and fonts, the fonts shipped inside the program |
 | Documentation | Built into the console and served by the program itself, with a search box |
 | Language | Per-account, not per-browser: your chosen language follows you to any device you sign in from |
-| PostgreSQL & high availability | PostgreSQL as a complete, selectable backend (every store method ported) in addition to the default SQLite; with it, two DENIS nodes can share one database and fail over leadership in about two seconds if the active one goes down (measured on one machine and in a local fault lab). A write from a node that is no longer the leader is refused by the database, and channel messages go through a durable queue, at least once. Tenants can live on PostgreSQL too. The pair, the fence and tenants on PostgreSQL are Experimental in 4.4 and not yet run on a managed PostgreSQL service (that run happens after the 4.4.0 release). Off by default, for installations that specifically need it |
+| PostgreSQL & high availability | PostgreSQL as a complete, selectable backend (every store method ported) in addition to the default SQLite; with it, two DENIS nodes can share one database and fail over leadership in about two seconds if the active one goes down (measured on one machine and in a local fault lab). A write from a node that is no longer the leader is refused by the database, and channel messages go through a durable queue, at least once. Tenants can live on PostgreSQL too. The pair, the fence and tenants on PostgreSQL are Experimental in 4.4 and not yet run on a managed PostgreSQL service (that run is planned for 4.4.2). Off by default, for installations that specifically need it |
 | White-label | Your logo, colour, default theme |
 | Authentication | Roles, per-site access, passkeys (WebAuthn, optionally passkey-only), authenticator apps (TOTP), OIDC single sign-on, Argon2id, lock-outs, audit log, built-in HTTPS |
 | Data retention | Events, alerts and trend samples pruned after a period you set (Settings → Data); the register itself is never pruned |
@@ -328,10 +328,11 @@ Gemini, see AI.md) and a real local Ollama instance.
   to confirm in the lab. Tenants on PostgreSQL are built but not measured with 10, 50 or 100 tenants.
 * The enforcement connectors. All 22 connector kinds are wired and can be configured. Some actions were tried on real
   equipment (a Cisco Catalyst 2960-X, a FortiGate 40F, a Palo Alto PA-220, a MikroTik E50UG, a UniFi gateway with an access
-  point; the exact actions are in docs/enforcement.md) and some in a vendor sandbox or a lab account (Cisco Catalyst 9300 and
-  9200CX, Cisco FTD through FDM and FMC, AWS). Everything else, among it TP-Link Omada, MikroTik Wi-Fi, Cisco Catalyst 9800
-  and Azure, is tested against a local simulation of the documented API only, is labelled Experimental and is off until an
-  administrator switches on the lab setting. By default every action is an administrator's decision; automatic enforcement
+  point; the exact actions are in docs/enforcement.md) and some in a vendor sandbox or a lab account (Cisco Catalyst 9300,
+  9200CX and a 9200L stack, Cisco FTD through FDM and FMC, AWS). TP-Link Omada is verified for reading on a real controller
+  and for the controller's own client block; a block through DENIS is still to be verified. Everything else, among it MikroTik
+  Wi-Fi, Cisco Catalyst 9800 and Azure, is tested against a local simulation of the documented API only; what is not
+  verified is labelled Experimental and is off until an administrator switches on the lab setting. By default every action is an administrator's decision; automatic enforcement
   by policies and Autopilot blocking are experimental, off by default and each switched on separately (see
   docs/enforcement.md).
 * The parts of 4.4 labelled Experimental (three of the twelve new detections, counts and sequences in your own rules, two
@@ -452,12 +453,12 @@ measures itself, the *What DENIS cannot see* page, *This is normal*, a new Netwo
 SNMP (Experimental for control), UniFi and Meraki client reading, site administrators and scoped API tokens.
 4.4.0 shows where a device is plugged in (access points and switches under their controller, virtual machines under their host),
 adds the TP-Link Omada, MikroTik Wi-Fi and Cisco Catalyst 9800 connectors (Experimental), address spaces, one Respond dialog,
-twelve more detections, your own rules with a trial mode, rules an MSP can send you, a durable queue for alerts and notices,
+twelve more detections, your own rules with several conditions, rules an MSP can send you, a durable queue for alerts and notices,
 a data key per customer with rotation, a Start page, one-line enrolment of agents and licensing by devices seen in the last
 30 days. Its PostgreSQL work (a write fence for the old leader, tenants on PostgreSQL) is Experimental and not yet run on a
 managed PostgreSQL service; the limits are in [docs/updates.md](docs/updates.md#known-limits-in-440) and
 [docs/high-availability.md](docs/high-availability.md).
-Next: tests on real systems (a managed PostgreSQL service, Azure, AWS, TP-Link Omada), more rules, domain blocking and
+Next: tests on real systems (a managed PostgreSQL service, Azure, AWS, a block through DENIS on TP-Link Omada), more rules, domain blocking and
 endpoint-tool import (ROADMAP.md). Still owed before a
 commercial launch: an independent penetration test and verification on real equipment, listed in ROADMAP.md. A
 packaged Windows collector, Qualys import and SAML are also open. OIDC single sign-on is built, but its exchange with an
