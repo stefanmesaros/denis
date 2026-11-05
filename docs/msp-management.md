@@ -117,6 +117,8 @@ These stay with you so that you can always see what happened, take the access aw
 An MSP can send **one file of rules** (`denis.rules/1`, the file *Export rules* makes) to several of its customers. The MSP only
 sends; **every decision is the customer's** (the one exception is a customer with no administrator of its own: see below).
 
+![The customer's Rules page: an offer from the MSP that waits for a decision, and rules the MSP delivered, marked Managed by the MSP](img/rule-managed.png)
+
 **What the customer decides** (Settings, MSP management, *Rules from your MSP*). The choice is made **when the link is made**: the
 pairing dialog (and `denis msp-link connect --rule-push off|ask|trial`) has a choice, and for a customer paired with an MSP the default is
 *Ask me*. Afterwards it is changed by an administrator signed in on the customer's console, or by an MSP technician (see below):
@@ -270,6 +272,12 @@ expires or is revoked leaves everything as it was. The customers table shows eac
 customer's invitation (pending, expired, revoked), whether it is paired and when it was last seen, the level it reported, its
 licence (covered, own, not covered) and its active devices (numbers only). *New invitation* revokes a pending one and makes a
 new one; *Revoke invitation* ends it at once. The operator page keeps working as before.
+
+![Settings, MSP customers: the customers, their state, the level they reported and the active devices each one reports](img/msp-customers.png)
+
+![The Add customer dialog](img/msp-add-customer.png)
+
+![The invitation, shown once: the four words to read out by phone, the link and the code](img/msp-invitation.png)
 
 From a shell, with the same effect:
 

@@ -61,6 +61,8 @@ Start appears in the menu for an administrator of a **new** installation (an ins
 version does not get it by itself; open it under *Settings → Setup guide*). It shows five stages: *Install*, *Open the
 console*, *Connect your network*, *First result* and *First decision*, each with the minutes it took.
 
+![The first question of the Start page: where DENIS gets your network from, with controller, own network, mirror port and example data to tick](img/start-question.png)
+
 1. **Where do I get my network from?** Tick everything you have: a **controller or firewall** DENIS can read (UniFi, Meraki,
    Omada, FortiGate, MikroTik, Proxmox, Hyper-V, a Cisco 9800 wireless controller), the **machine's own network** (always on),
    a **mirror (SPAN) port**, or **example data** (a made-up company, clearly marked). Then answer whether DENIS may ask the
@@ -75,6 +77,12 @@ console*, *Connect your network*, *First result* and *First decision*, each with
 4. **Your network, first look.** Three numbers (devices, unknown devices, devices no management tool knows), a short list of
    what to do next, what DENIS is **not** seeing (for example: without a mirror port it sees which devices exist, not
    who they talk to), and what is on and off (blocking is off, nothing is sent to us).
+
+![The first look of the Start page: the five stages, three numbers, what to do next, what DENIS is not seeing and what is on and off](img/start-first-look.png)
+
+On a phone the same page is one column, with the cards one under the other:
+
+![The first look of the Start page on a phone, 375 pixels wide](img/start-phone.png)
 
 Press **I am done with the quick start** when you are finished; Start then leaves the menu. The full checklist stays under
 *Settings → Setup guide*.

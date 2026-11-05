@@ -1213,6 +1213,8 @@ Alerts of all such rules are the one kind `custom_rule`; each alert names its ru
 kept per rule as `custom_rule:<id>`. The IT and OT rules above are unchanged and keep running as they were; they can be
 read in the same model (`GET /api/rules/v2` shows them, read only), and their conversion is exact.
 
+![The rule editor: the rule in one sentence, the conditions, and what the rule would have done over the last seven days](img/rule-editor.png)
+
 **What a rule reads (`source`):**
 
 | Source | Evidence | The device the alert is about (`subject`) | The other side (`peer`) |
@@ -1306,6 +1308,10 @@ desktop to the internet*, *Controller talks to the internet*, *Industrial write 
 then a big upload*): each opens the editor filled in, with a draft that has conditions and no name of its own yet. Imports and
 exports are audited (`rules.import`, `rules.export`, ids only), and over a management link they are the same class as the other
 rule changes (Configure; a dry run too).
+
+![The templates: ready-made rules, each opening the editor filled in](img/rule-templates.png)
+
+![The import plan: three rules that can be imported and one that cannot, with the trial that every imported rule starts in](img/rule-import.png)
 
 **Rules your MSP sends.** An MSP that manages this installation can send a `denis.rules/1` file (4.4; see [MSP management](msp-management.md#sending-rules-to-customers)).
 It is **off by default**: under Settings, MSP management you choose *Not allowed*, *Ask me* (every set waits for an administrator
@@ -1614,6 +1620,8 @@ exceptions and rules (they are your content, not tuning).
 An exception tells one rule to stay quiet about something. Since 4.4 every exception has an expiry, a reason, a scope and a
 "last matched" figure, and all of them are in one list (**Rules → Exceptions**, with filters).
 
+![The exceptions list: one that ends soon, one that has expired and is shown greyed, and one without an end date](img/rule-exceptions.png)
+
 * **Scope.** A **device** (by name), a **device type**, a **tag**, a **network** (`10.0.5.0/24`) or a **site** (every device
   of one site; the local network counts as a site). Any of the first four can also be **limited to a site**, so "cameras" can
   mean the cameras of one branch. For industrial alerts the **sending** device counts too, so excepting the engineering
@@ -1759,6 +1767,8 @@ ordinary record marked *would have raised*, and nothing else happens. No notific
 incident, no Autopilot decision, no prepared response, no enforcement action, and the alert does not appear in the Alerts
 list. A trial alert is not counted among the raised alerts of the rule either; it has its own number.
 
+![A rule in a trial: day 5 of 14, what it would have raised, and why it did not raise for other devices](img/rule-trial.png)
+
 A trial is an **option and a recommendation, and it is off by default**. A new rule, a rule you change and a rule you
 switch on all start live, as before, unless you choose a trial:
 
@@ -1865,6 +1875,8 @@ API tokens in the *alerts* area; the Configure class on a remote master, like th
 
 Two questions people ask about a rule: *why did I get this?* and *why did this not alert?* DENIS answers both from what it
 decided, without adding work for every packet. The work is done where a decision is made, never per packet or per record.
+
+![An alert dialog with Why you got this opened, and the Notifications block with one line per channel](img/alert-why.png)
 
 * **Why you got this.** An alert raised in 4.4 or later carries, in its details, the settings that applied to it: the weight
   of the rule, the minimum score and where it came from (the rule's own, the one for all rules, or the standard one), whether

@@ -42,6 +42,8 @@ A **device** is one physical device, not one hardware address: the rows DENIS ha
 (see the identity groups under Network). A device **counts while it is active**: seen within the last **30 days**. A
 license may carry a different window (`count_window_days`, 7 to 365); the console shows the window in force.
 
+![Settings, System, License: the tier DENIS 500, the devices active in the last 30 days and how many are known](img/settings-license.png)
+
 * While the active devices fit the cap, the Devices list stays **complete**: devices that have not been seen for a while
   are listed too, they just do not count.
 * Above the cap, the list (and its CSV, the printable report, the software inventory and the other lists built on it)

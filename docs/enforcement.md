@@ -137,7 +137,11 @@ Where the rule goes is not a setting: every connector puts its rule first (at th
 
 ## Troubleshooting
 
-When DENIS refuses, the plan lists each refusal with a code. The common ones:
+When DENIS refuses, the plan lists each refusal with a code, and the dialog shows only the refusal: nothing can be applied while it stands.
+
+![The Respond dialog when DENIS refuses: the address is the gateway of the network, and a refusal cannot be overridden](img/respond-refused.png)
+
+The common ones:
 
 | Code | What it means and what to do |
 |---|---|
@@ -302,7 +306,7 @@ at Office AP, and UniFi Gateway routes its network (checked)."). The three bold 
 response, the equipment and the duration. The common case takes four acts: read the sentence, change the duration if you
 like, write your reason, type your password and press **Apply**.
 
-![The Respond dialog for a device on Wi-Fi](img/enforcement-respond.png)
+![The Respond dialog for a laptop on Wi-Fi: one sentence with the response, the equipment and the duration, the reason and the password](img/respond-plan.png)
 
 **What DENIS recommends, and what it never does for you.** The recommended equipment is chosen only from equipment known to
 be on the device's path: a firewall or gateway whose *routed networks* hold the device's address (checked or from your

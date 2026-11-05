@@ -55,6 +55,8 @@ so that channel quietly behaves like "individually" until incidents are back on.
 Every message to a channel (an alert, a summary, an incident, an enforcement or system notice) is written to a queue in
 the database and sent from there, so you can see where it stands.
 
+![Settings, Notifications: each channel with what is waiting and what was delivered in 24 hours, and the Deliveries list](img/settings-notifications.png)
+
 * **On an alert or an incident** the dialog has a **Notifications** block: one line per channel with the state in words
   (*Delivered 12:03*, *Waiting, next try in 4 minutes*, *Not delivered: too old by the time it could be sent*, *In a
   summary of 7 alerts, delivered 12:05*), the number of attempts and the ticket key when the receiver gave one. A channel
