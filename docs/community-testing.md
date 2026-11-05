@@ -1,6 +1,6 @@
 # Tester guide: helping test DENIS
 
-**[Join our Discord Community →](https://discord.gg/DzbeV99xv)** to ask questions, compare notes and share what you find with other testers.
+**[Join our Discord Community →](https://discord.gg/QznSz2tCn)** to ask questions, compare notes and share what you find with other testers.
 
 Thank you for testing DENIS. This page tells you how to install it, what to try first, and how to
 report what you find so that it is useful to the developer. You do not need programming experience.
@@ -142,4 +142,4 @@ Tip: replace values with `<redacted>` rather than deleting the line, so the stru
 
 * Translation corrections: see [CONTRIBUTING.md](https://github.com/stefanmesaros/denis/blob/main/CONTRIBUTING.md).
 * Tell us what confused you. First-install friction is a valid bug.
-* Join the [Discord community](https://discord.gg/DzbeV99xv) and tell other testers what worked on your hardware.
+* Join the [Discord community](https://discord.gg/QznSz2tCn) and tell other testers what worked on your hardware.
