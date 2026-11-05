@@ -288,6 +288,8 @@ has not changed in 4.1, and nothing about a VLAN is part of it:
   like setting it. A mark at any site counts for every site's equipment (stricter, never looser), so an administrator
   limited to some sites can set it only when no device at a site it cannot change has the same hardware address. At most 1000
   marks per site.
+  ![Settings, Capture, Address spaces: two address spaces, Production with VLANs 10 to 20 in two networks and Guest with VLAN 30](img/settings-address-spaces.png)
+
 - **Split into separate devices (4.4, confirmed).** The mark above leaves the devices on one row. When an
   administrator knows that a second device really lives in one of the site's **separate networks** (Settings →
   Capture → *Separate networks*), the device panel offers *Split into separate devices…*: the networks the second
@@ -313,6 +315,10 @@ has not changed in 4.1, and nothing about a VLAN is part of it:
   next report; a joined collector's extra rows move into the local site with the device and bring the split and the
   mark with them. At most 200 split addresses per site and 8 extra networks per address; every change is audited
   (`identity.mac_split`, `identity.mac_unsplit`).
+
+  ![The device panel of an administrator, with the button Split into separate devices](img/device-split.png)
+
+  ![The Split into separate devices dialog: the networks the second device is in, and a reason](img/device-split-dialog.png)
 
 ## Timezones
 

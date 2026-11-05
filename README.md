@@ -200,6 +200,15 @@ register and the monitored networks under Settings, Capture: six of the console'
 <img src="docs/img/settings-capture.png" width="32%" alt="Settings, Capture: capture interfaces, three monitored networks with their port scan and ping settings, and Active probing">
 </p>
 
+New in 4.4: the Start page with the first look at a network, rules written as a sentence that can be tried first, and an MSP's list of
+customers ([quick start](docs/quickstart.md), [detection rules](docs/detection-rules.md), [MSP management](docs/msp-management.md)):
+
+<p>
+<img src="docs/img/start-first-look.png" width="32%" alt="The Start page: five stages, three numbers about the network, what to do next, what DENIS is not seeing and what is on and off">
+<img src="docs/img/rule-editor.png" width="32%" alt="The rule editor: a rule as one sentence, its conditions and what it would have done over the last seven days">
+<img src="docs/img/msp-customers.png" width="32%" alt="Settings, MSP customers: four customers with their state, the access level, the license and the active devices">
+</p>
+
 ## Features
 
 | Area | DENIS |

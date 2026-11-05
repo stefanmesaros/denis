@@ -328,6 +328,10 @@ audit log.
    read it in the process list, and not in the shell history (`DENIS_AGENT_TOKEN` in the environment or
    `--token-file FILE` work too; `--token` still works).
 
+![Sites, One-line enrolment: the address, how many agents and an optional label and site](img/sites-enroll.png)
+
+![The enrolment code, shown with an example code: the one-line command and the same for other ways to install, and the agents that have enrolled](img/sites-enroll-code.png)
+
 ```bash
 curl -fLO https://github.com/stefanmesaros/denis/releases/download/v4.1.3/install.sh
 sudo bash install.sh --version v4.1.3 --agent --master https://MASTER:8081 \

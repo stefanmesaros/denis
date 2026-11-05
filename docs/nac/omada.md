@@ -38,6 +38,10 @@ DENIS names a client by its **MAC address**; an IP address cannot name an Omada 
 2. **The address.** A software controller answers on port 8043 by default (best guess), for example `https://192.0.2.10:8043`. Open API is not offered for a controller reached through the TP-Link cloud (documented: the option is not shown for an on-premises controller accessed through the cloud). Enter the *Interface Access Address* the controller shows.
 3. **In DENIS** (*Network → Equipment → Add a connector → TP-Link Omada*): **Controller address**, **Omada ID**, **Client ID**, **Client secret** (stored sealed as `nac.omada.client_secret`), the **site** (name or id), the MACs that must never be blocked, and the TLS settings below.
 
+![Network, Equipment with connectors for TP-Link Omada, Cisco Catalyst 9800 and MikroTik](../img/network-equipment-connectors.png)
+
+![The connector dialog for TP-Link Omada: address, Omada ID, client ID, secret, site and the read-only option](../img/equipment-omada.png)
+
 ## Permissions
 
 The app needs to read sites, devices and clients, and to block and unblock clients. Whether a viewer-level role can do the reads, and which role may block, is **best guess**: a third-party integration reports that a read-only app cannot control devices. If *Test connection* passes but a block is refused with HTTP 403, give the app a role that may manage clients.
