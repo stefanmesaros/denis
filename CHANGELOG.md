@@ -6,6 +6,12 @@
      paths, rule or file names, or internal groundwork. Below it is the full technical record, kept
      here only. tools/pre-release.sh checks this. -->
 
+## 4.4.3
+
+- TP-Link Omada: a block made in Respond for a device that has an address could not be released ("Give a plain MAC address") and stayed in force until it ended by hand on the controller; the release now finds the hardware address the block was made for. An action that is stuck in "Removal failed" releases with Retry now after the update.
+- Respond finds the controller of a device that the inventory holds in several rows (for example seen by the local capture and by an agent): the controller that lists it is now recommended and preselected instead of "does not know this device".
+- MikroTik Wi-Fi: a router that manages access points with CAPsMAN but has no separate Wi-Fi package (a hEX, for example) is no longer reported as "no Wi-Fi package", so its clients are read and the Wi-Fi responses are offered. The documentation describes what a block through the router covers and does not, and how to set up the new CAPsMAN with one connector.
+
 ## 4.4.2
 
 - TP-Link Omada no longer carries the Experimental label. It was tried on a real controller with a gateway and an access point. Fixed: with a controller of the 5 series a block was refused as "no record of this client" because DENIS asked for the client in the wrong spelling of its hardware address.
