@@ -260,7 +260,7 @@ customers ([quick start](docs/quickstart.md), [detection rules](docs/detection-r
 | Console looks | Three selectable looks — Triage (the default), Scope and Clipboard — each in light and dark, chosen under My account; new in 4.1: a refreshed palette, corner radius and fonts, the fonts shipped inside the program |
 | Documentation | Built into the console and served by the program itself, with a search box |
 | Language | Per-account, not per-browser: your chosen language follows you to any device you sign in from |
-| PostgreSQL & high availability | PostgreSQL as a complete, selectable backend (every store method ported) in addition to the default SQLite; with it, two DENIS nodes can share one database and fail over leadership in about two seconds if the active one goes down (measured on one machine and in a local fault lab). A write from a node that is no longer the leader is refused by the database, and channel messages go through a durable queue, at least once. Tenants can live on PostgreSQL too. The pair, the fence and tenants on PostgreSQL are Experimental in 4.4 and not yet run on a managed PostgreSQL service (that run is planned for 4.4.2). Off by default, for installations that specifically need it |
+| PostgreSQL & high availability | PostgreSQL as a complete, selectable backend (every store method ported) in addition to the default SQLite; with it, two DENIS nodes can share one database and fail over leadership in about two seconds if the active one goes down (measured on one machine and in a local fault lab). A write from a node that is no longer the leader is refused by the database, and channel messages go through a durable queue, at least once. Tenants can live on PostgreSQL too. The pair, the fence and tenants on PostgreSQL are Experimental in 4.4 and not yet run on a managed PostgreSQL service (that run is planned for 4.4.3). Off by default, for installations that specifically need it |
 | White-label | Your logo, colour, default theme |
 | Authentication | Roles, per-site access, passkeys (WebAuthn, optionally passkey-only), authenticator apps (TOTP), OIDC single sign-on, Argon2id, lock-outs, audit log, built-in HTTPS |
 | Data retention | Events, alerts and trend samples pruned after a period you set (Settings → Data); the register itself is never pruned |
@@ -329,8 +329,7 @@ Gemini, see AI.md) and a real local Ollama instance.
 * The enforcement connectors. All 22 connector kinds are wired and can be configured. Some actions were tried on real
   equipment (a Cisco Catalyst 2960-X, a FortiGate 40F, a Palo Alto PA-220, a MikroTik E50UG, a UniFi gateway with an access
   point; the exact actions are in docs/enforcement.md) and some in a vendor sandbox or a lab account (Cisco Catalyst 9300,
-  9200CX and a 9200L stack, Cisco FTD through FDM and FMC, AWS). TP-Link Omada is verified for reading on a real controller
-  and for the controller's own client block; a block through DENIS is still to be verified. Everything else, among it MikroTik
+  9200CX and a 9200L stack, Cisco FTD through FDM and FMC, AWS). TP-Link Omada was tried on a real controller (reading, and the controller's own client block on a Wi-Fi client); a block through DENIS on a wired client is still to be tried. Everything else, among it MikroTik
   Wi-Fi, Cisco Catalyst 9800 and Azure, is tested against a local simulation of the documented API only; what is not
   verified is labelled Experimental and is off until an administrator switches on the lab setting. By default every action is an administrator's decision; automatic enforcement
   by policies and Autopilot blocking are experimental, off by default and each switched on separately (see

@@ -260,6 +260,15 @@ RouterOS 7 has two Wi-Fi stacks, and DENIS supports both:
 
 DENIS finds out which stack the router has from `/system/package` (a disabled package does not count). A router can have both. When the package list cannot be read, the read tries both and ignores the one that is absent; the actions refuse, because they must know where the client is.
 
+### Many access points: use CAPsMAN, one connector
+
+If you run many MikroTik access points, the way to cover them with **one** connector is CAPsMAN: the access points (CAPs) are managed by one router (the manager), and DENIS reads and acts through that manager's connector. A CAP needs no connector of its own.
+
+* **Legacy CAPsMAN** (`/caps-man`) manages access points that run the `wireless` package. **New CAPsMAN** (`/interface/wifi/capsman`) manages access points that run the `wifi` package (`wifi-qcom`, `wifi-qcom-ac`; `wifiwave2` before RouterOS 7.13). Documented: MikroTik's manual for the new CAPsMAN covers the `wifi-qcom` and `wifi-qcom-ac` packages, and the `wireless` package cannot run together with `wifi-qcom` on one router (help.mikrotik.com, WiFi and Packages pages).
+* **Which package the manager router itself needs** is a **best guess**: DENIS reads the manager's CAP lists and registration tables from the package of the matching generation (`wifi` for the new CAPsMAN, `wireless` for the legacy one), and it has not been tested on a manager. We have not found a MikroTik statement on whether a manager without any Wi-Fi package is possible; do not rely on it.
+* A **standalone** access point (RouterOS with its own radio, not under CAPsMAN) needs its own connector for now. Each one is a normal connector with the same REST user. A bulk way to add them from the neighbours a router sees is planned (ROADMAP 4.4.3), not available yet.
+* A router with **no Wi-Fi package** (a hEX, for example) has no Wi-Fi client of its own. Once DENIS has read it and found that, *Respond* lists *Block Wi-Fi client by MAC* and *Disconnect Wi-Fi client* of that connector under "not available" with the reason "no Wi-Fi package", and never preselects them. Before the first read nothing is known and the options appear as usual; the plan still refuses with the same sentence.
+
 ### Reading the clients and access points
 
 Tick *Read the Wi-Fi clients and access points of this router (read only, Experimental)* in the connector's form (it is off for a connector made before 4.4 and on for a new one). DENIS then reads every 120 seconds, with `GET` requests only, with the same user and password as the other actions. It lists:

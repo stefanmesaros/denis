@@ -289,6 +289,10 @@ compare bodies.
 * [Incidents](incidents.md): how related alerts get grouped in the first place, and what the priority on a grouped
   message means.
 
+## What an address-conflict alert saw
+
+An `arp_conflict`, `arp_mismatch` or `ndp_mismatch` alert names its evidence: the alert dialog shows a line such as "Seen as: an ARP reply on enx00e04c41bae6, VLAN 150" under "Why this score" (the kind of frame that made the claim, the capture interface, the VLAN when the frame was tagged, the Ethernet source, the agent that reported it, and the holder's last claim when the collector remembers it). The same facts are stored in the alert's `raw_details.evidence`, so they reach a webhook and the API. Alerts stored before 4.4.2 have no such line. The kinds and the exact shape are listed under `arp_conflict` in [detection-rules.md](detection-rules.md).
+
 ## Details from the console
 
 Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.

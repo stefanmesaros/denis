@@ -246,21 +246,36 @@ code and the release notes:
   `blocked` flag. The controller's own block call disconnected a Wi-Fi client in about two seconds and the client could join again
   right after the release. Through DENIS, a wired client and the traffic effect are not yet verified: Omada stays Experimental.
 
-## Next release: 4.4.2 (tested on real systems; no date)
+## 4.4.2 (delivered)
 
-After 4.4.1 the owner and the assistant test the following on real systems, in this order:
+* **TP-Link Omada** loses its Experimental label (owner decision, 5 November 2026): reading and the controller's own client block were tried on a real
+  controller (5.15.24.19, an ER605, an EAP110). The 4.4.1 block through DENIS was refused because the client was asked in the wrong
+  spelling of its hardware address; fixed. A block by DENIS on a wired client and its effect on traffic are not tried yet.
+* **Respond path from controllers:** the address a controller reports for a device places it on the path of every connector kind,
+  and the card says how and where the controller sees it.
+* **Address-conflict alerts name their evidence:** the kind of packet, the capture interface, the VLAN and the Ethernet source, and the
+  other holder's last claim when remembered.
+* **MikroTik Wi-Fi:** no access-list entry is left behind when a step after it fails; a router without a Wi-Fi package no longer offers
+  the Wi-Fi responses; the documentation names CAPsMAN for many access points.
 
-* **Omada through DENIS** with the 4.4.1 program: block and release of a Wi-Fi client and of a wired client, then the label.
-* **Respond path from the client list for UniFi.** A controller that acts at the endpoint (Omada, Meraki, Cisco Catalyst 9800)
-  is on a device's path when it lists the device as its online client (4.4.1). UniFi is judged by the networks its gateway routes;
-  the client list of its access points should count as well, and the dialog should say which of the two decides.
-* **The Azure connector** on a real Azure subscription, and **the MikroTik Wi-Fi access point.**
+## Next release: 4.4.3 (tested on real systems; no date)
+
+After 4.4.2 the owner and the assistant test the following on real systems, in this order:
+
+* **Omada through DENIS** with the 4.4.2 program: a block and release of a wired client and the traffic effect.
+* **The MikroTik Wi-Fi access point** (a hAP ax lite on the new `wifi` package; a cAP lite on the legacy `wireless` package) and
+  **the Azure connector** on a real Azure subscription.
+* **MikroTik access points at scale.** A standalone access point still needs a connector of its own, which does not work for a
+  customer with dozens. The connector should offer the MikroTik devices its router sees (`/ip/neighbor`) with one shared REST
+  user; the design is written, the code is not.
 * **High availability on a managed PostgreSQL service** (for example AWS RDS Multi-AZ, step P13 of the plan): the pair, the
   write fence and tenants on PostgreSQL, with the managed service's DNS switch, proxies, TLS chain, maintenance events and
   latency between zones, a soak of many hours, and the 10, 50 and 100 tenant measurement.
 * **AWS once more** (already verified in a lab account) and **Cisco Catalyst 9800.**
+* **PostgreSQL tests in containers before every release** (4.4.1 and 4.4.2 were checked by compiling and linting the PostgreSQL
+  flavour only), the capacity measurement and the full fuzz and performance runs.
 
-Then 4.4.2 removes the Experimental label from whatever is verified by then; each one is judged on its own result, and a feature
+Then 4.4.3 removes the Experimental label from whatever is verified by then; each one is judged on its own result, and a feature
 that is not verified stays Experimental.
 
 ## Next after 4.4.0 (in this order; nothing here has a date)

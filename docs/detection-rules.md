@@ -257,6 +257,33 @@ Advertisements with a non-zero lifetime; held for an hour, like the IPv4 gateway
 `fe80::1` reused on several VLANs of a mirrored trunk are not conflicts. An address built from a hardware
 address (EUI-64) scores 20 lower for the device it was built from and 10 higher against any other claimant.
 
+*Evidence (4.4.2):* the alert names what it saw. The alert dialog shows one line under "Why this score", for example
+"Seen as: an ARP reply on enx00e04c41bae6, VLAN 150", and the alert's `raw_details.evidence` holds the same facts:
+
+```json
+"evidence": {
+  "via": "arp_reply",
+  "interface": "enx00e04c41bae6",
+  "vlan": 150,
+  "ethernet_source": "aa:bb:cc:00:00:01",
+  "agent": "site-b",
+  "holder": { "via": "arp_request", "interface": "eth0", "vlan": 150, "ethernet_source": "aa:bb:cc:00:00:02" }
+}
+```
+
+`via` is the kind of observation that made the claim: `arp_reply`, `arp_request` (the sender fields of a request claim
+just as a reply's do), `arp_announce` (gratuitous ARP), `dhcp_ack` (a server's acknowledgement), `dhcp_renew` (a client
+carrying the address it holds), `mdns`, `ssdp`, `neighbor_advert`, `neighbor_echo`, and the inferred claims
+`tcp_source`, `icmp_source` and `flow` (the IP source of a packet or flow; weak evidence). `interface` is the capture
+interface (the main one or a mirror interface) the frame was seen on; `vlan` is present only when the capture saw a tag;
+`ethernet_source` is the frame's Ethernet source (for a DHCP acknowledgement that is the server's, not the client's);
+`agent` is the agent that reported it (set by the master). `holder` is the same facts for the holder's last claim of
+that address as the collector remembers it (IPv4 `arp_conflict` only; a holder whose claim was not remembered, for
+example after a restart, simply has no `holder`; for IPv6 `ndp_conflict` only the claimant's side is recorded). Every
+key is optional and an alert stored before 4.4.2 has no `evidence` object; it never contains a payload, and the
+interface name and agent id are cut at 64 characters. `arp_mismatch` and `ndp_mismatch` carry the same object. Scores
+and the other texts are unchanged.
+
 ### `lan_scan`: internal network scan *(needs traffic analysis on a mirror port)*
 An **already-known** device suddenly touches many different local hosts, or many different ports on one local
 host, within a short rolling window — the signature of a compromised device scanning the LAN, which `new_device_burst`

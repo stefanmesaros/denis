@@ -6,6 +6,14 @@
      paths, rule or file names, or internal groundwork. Below it is the full technical record, kept
      here only. tools/pre-release.sh checks this. -->
 
+## 4.4.2
+
+- TP-Link Omada no longer carries the Experimental label. It was tried on a real controller with a gateway and an access point. Fixed: with a controller of the 5 series a block was refused as "no record of this client" because DENIS asked for the client in the wrong spelling of its hardware address.
+- Respond places a device by what its controller reports as well. A device that moved behind a router DENIS cannot see is placed by the address its controller (UniFi, Omada, Meraki and the others that list clients) reports, and the card says how and where the controller sees it.
+- Address-conflict alerts now say what DENIS saw: the kind of packet (an ARP reply, a DHCP acknowledgement, an mDNS announcement and so on), the capture interface, the VLAN, the Ethernet source and, when known, how the other holder of the address was last seen. Alerts raised before this version are unchanged.
+- An mDNS announcement that crossed a router is no longer taken as the router claiming the announcer's address.
+- MikroTik Wi-Fi: a block can no longer leave an entry in the router's access list while DENIS reports that nothing was changed, a router that has no Wi-Fi package no longer offers the Wi-Fi responses in Respond, and the documentation names CAPsMAN as the way to run many MikroTik access points with one connector.
+
 ## 4.4.1
 
 - The Rules page is one list with one model. Every rule has the same row and the same switch: on judges and raises alerts, off does nothing. It saves at once with Undo, for built-in, IT, OT, several-conditions and MSP rules alike. Your own rules and the rules your MSP sent are one card, Your rules. The settings for all rules (performance protection, the setting for new rules, learning mode, noise profiles) are folded into one place.
