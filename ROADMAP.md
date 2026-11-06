@@ -258,9 +258,15 @@ code and the release notes:
 * **MikroTik Wi-Fi:** no access-list entry is left behind when a step after it fails; a router without a Wi-Fi package no longer offers
   the Wi-Fi responses; the documentation names CAPsMAN for many access points.
 
-## Next release: 4.4.3 (tested on real systems; no date)
+## 4.4.3 (delivered)
 
-After 4.4.2 the owner and the assistant test the following on real systems, in this order:
+* **TP-Link Omada:** the release of a block made for a device that has an address works (4.4.2 failed with "Give a plain MAC
+  address"), and Respond recommends the controller of a device that the inventory holds in several rows.
+* **MikroTik Wi-Fi:** a router that manages access points with CAPsMAN but has no separate Wi-Fi package (a hEX) is no longer reported as having none; the documentation tells how to set up the new CAPsMAN with one connector. A block of a client on a CAP through the manager is not tried yet.
+
+## Next release: 4.4.4 (tested on real systems; no date)
+
+After 4.4.3 the owner and the assistant test the following on real systems, in this order:
 
 * **Omada through DENIS** with the 4.4.2 program: a block and release of a wired client and the traffic effect.
 * **The MikroTik Wi-Fi access point** (a hAP ax lite on the new `wifi` package; a cAP lite on the legacy `wireless` package) and
@@ -275,7 +281,7 @@ After 4.4.2 the owner and the assistant test the following on real systems, in t
 * **PostgreSQL tests in containers before every release** (4.4.1 and 4.4.2 were checked by compiling and linting the PostgreSQL
   flavour only), the capacity measurement and the full fuzz and performance runs.
 
-Then 4.4.3 removes the Experimental label from whatever is verified by then; each one is judged on its own result, and a feature
+Then 4.4.4 removes the Experimental label from whatever is verified by then; each one is judged on its own result, and a feature
 that is not verified stays Experimental.
 
 ## Next after 4.4.0 (in this order; nothing here has a date)
