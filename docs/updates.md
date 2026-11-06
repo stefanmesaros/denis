@@ -165,7 +165,7 @@ What 4.4.0 does not do, or has not proven, so that nothing here comes as a surpr
   PostgreSQL service, not over many hours, and nothing was measured with 10, 50 or 100 tenants. Two lab scenarios (a
   half-open link to the database) are fixed but not yet confirmed in the lab ([details](high-availability.md#where-things-stand-in-44)).
 * **New connectors are Experimental:** TP-Link Omada, MikroTik Wi-Fi and Cisco Catalyst 9800 were not tried on real
-  equipment. Azure stays Experimental. UniFi Wi-Fi blocking, the Cisco FDM and FMC firewalls (virtual) and AWS were tested in
+  equipment in 4.4.0. Since 4.4.2 TP-Link Omada is verified on a real controller and carries no label. Azure stays Experimental. UniFi Wi-Fi blocking, the Cisco FDM and FMC firewalls (virtual) and AWS were tested in
   a lab and carry no label ([validation](nac/validation.md)). Hyper-V and NSX are read only.
 * **Three new detections are Experimental** (name poisoning and industrial networks), and so are counts and sequences in
   your own rules.
