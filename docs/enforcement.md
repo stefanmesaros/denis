@@ -93,7 +93,7 @@ through that path; for the others, a vendor's existing action is reached through
 | [MikroTik RouterOS](nac/mikrotik.md) | Built: `address_list`; Experimental: `block_client_mac` | Built: `deny_rule` | Built: `quarantine_list`; Not built: `access_vlan` | Experimental: `ethernet_disable` | Built: `conntrack_remove`; Experimental: `disconnect_client` |
 | [Ubiquiti UniFi](nac/unifi.md) | Built: `fw_policy`, `block_sta` | Built: `fw_flow` | Experimental: `port_profile` | Experimental: `port_disable` | Built: `kick_sta` |
 | [Cisco Meraki](nac/meraki.md) | Experimental: `client_policy_blocked` | Unsupported | Experimental: `group_policy`; Not built: `access_vlan` | Experimental: `port_disable` | Unsupported |
-| [TP-Link Omada](nac/omada.md) | Experimental: `client_block` | Unsupported | Not built: `client_vlan` | Not built: `port_disable` | Unsupported |
+| [TP-Link Omada](nac/omada.md) | Built: `client_block` | Unsupported | Not built: `client_vlan` | Not built: `port_disable` | Unsupported |
 | [Cisco Catalyst 9800 wireless controller (WLC)](nac/ciscowlc.md) | Unsupported | Unsupported | Unsupported | Unsupported | Experimental: `client_delete` |
 | [Cisco Adaptive Security Appliance (ASA)](nac/asa.md) | Experimental: `object_group` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Experimental: `clear_conn` |
 | [Cisco Secure Firewall Device Manager (FDM)](nac/ftd_fdm.md) | Built: `network_group (sandbox only)` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Unsupported |
@@ -105,7 +105,7 @@ through that path; for the others, a vendor's existing action is reached through
 | [Proxmox Virtual Environment (VE)](nac/proxmox.md) | Experimental: `vm_firewall_drop` | Experimental: `deny_rule` | Experimental: `quarantine_ipset` | Experimental: `link_down` | Unsupported |
 | [RADIUS Change of Authorization (CoA)](nac/radius_coa.md) | Unsupported | Unsupported | Unsupported | Unsupported | Experimental: `radius_disconnect` |
 
-Of the 110 cells (22 connectors, 5 actions; a cell with two methods counts by its best one): 21 are Built, 45 Experimental, 2 Not built and 42 Unsupported.
+Of the 110 cells (22 connectors, 5 actions; a cell with two methods counts by its best one): 22 are Built, 44 Experimental, 2 Not built and 42 Unsupported.
 22 of the 22 connectors have code for at least one action.
 
 <!-- matrix:end -->
@@ -514,7 +514,9 @@ IT or OT rule on its first match. Each row says which rule matched, how often an
 response, how long (1 hour unless the rule says otherwise) and through which connector, with the reason DENIS chose it:
 
 1. a firewall on the device's path (*verified*: it routes the device's network and is its gateway), the most specific
-   network first;
+   network first. The address a controller reports for the device (UniFi, Meraki, Omada and the others that read clients) counts
+   as where the device is now, so a device that moved behind a router DENIS cannot see is still placed; the card says how
+   and where the controller sees it;
 2. a connector that *controls this device directly* (a controller or a hypervisor), only when it lists the device as one
    of its own clients right now: DENIS reads the clients of the connectors that offer it (switch on *Read the clients*), matches
    them by hardware address and trusts a read that is not stale and a client that is online. The card says how the controller sees it (on Wi-Fi at an access point, or wired behind a switch). That is evidence, not proof that the traffic stops: the result of the action is the controller's own read-back. A connector that does not
