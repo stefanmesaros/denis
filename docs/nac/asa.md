@@ -108,3 +108,12 @@ The console shows a short line under each field and a short note behind its (i).
 - **Access list for flow blocks (optional)**: The access list DENIS puts deny lines at the top of when you block one flow. It must be bound to an interface (in) or global. The rule only stops traffic that enters the interface the list is bound to. Leave empty to switch flow blocks off for this ASA.
 - **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can put one deny line per flow block at the top of the access list named above, preceded by a remark that says DENIS managed it, and delete it again when the action ends. It never creates a permit line and never uses any address but the two hosts of the flow. A wrong deny line can cut off traffic: switch this on only if you accept that.
 - **Save the configuration after each change (write memory)**: Off by default: DENIS changes the running configuration only, so a reload removes its changes. When on, DENIS runs write memory after a change and after its removal. Write memory saves every unsaved change on the ASA, including changes other administrators have not finished.
+
+## 4.5.0: releases
+
+* **Saved configuration.** With saving off, a release looks at the saved configuration: when an administrator's own
+  `write memory` saved DENIS's object, the result says that the block comes back after a reload ("The ASA's saved
+  configuration still holds DENIS's object ...").
+* **An object in use elsewhere** (`no object network` refused) no longer fails the release: the membership or the ACL
+  lines are the block; the object is listed as left behind. The read-back of a release asks only for those.
+* Only DENIS's own `extended deny` lines count as DENIS's lines above its rule.

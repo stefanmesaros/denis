@@ -6,6 +6,16 @@
      paths, rule or file names, or internal groundwork. Below it is the full technical record, kept
      here only. tools/pre-release.sh checks this. -->
 
+## 4.5.0
+
+- Threat lists. DENIS reads lists of bad addresses, names and web addresses from your own files and from outside sources: plain lists, CSV, STIX 2.1, TAXII 2.1 and MISP. Add as many as you need, each with its own source, schedule and action: alert only, alert and prepare a block, or block automatically (Experimental). Keys are stored sealed.
+- New rules alert when a device looks up, connects to or requests a listed name, web address or address. Reading server names from the traffic is optional per collector and shows its cost next to the switch. Your own rules can use the condition destination is on list.
+- Alerts on a known-bad address now say whether the match was an exact address, a range or a whole network provider, show the server name and DNS names that were seen with their source, and no longer advise isolating a device on a provider-level match alone.
+- Respond can block a name on FortiGate, Palo Alto and MikroTik. DENIS refuses names that would cut its own access, public resolvers, protected names and names that resolve to protected addresses. The Respond dialog is new: a clear plan, the reasons, every step in words. Alerts take follow-up questions in the AI assessment.
+- An MSP can send the definition of a list to its customers. It arrives switched off and the customer enters the key.
+- MikroTik Wi-Fi: block by MAC address and disconnect are verified with an access point under CAPsMAN and lose the Experimental label. Older Wi-Fi stacks stay unsupported.
+- A full review of the code made responses and updates safer. An action stopped half way ends on time, a connector with live actions cannot be deleted by mistake, a failed update, backup or clean-up step cannot lose data, a passkey change cannot lock everyone out, and loading the demo no longer touches real switches. Health shows failing jobs and failed writes.
+
 ## 4.4.3
 
 - TP-Link Omada: a block made in Respond for a device that has an address could not be released ("Give a plain MAC address") and stayed in force until it ended by hand on the controller; the release now finds the hardware address the block was made for. An action that is stuck in "Removal failed" releases with Retry now after the update.

@@ -277,7 +277,9 @@ DENIS refuses any `Host` name it does not know (protection against DNS rebinding
 name is fine and it is also what [passkeys](security.md#passkeys) are bound to. Caddy passes the original `Host` on by
 default; with nginx use `proxy_set_header Host $host;` and `proxy_set_header X-Forwarded-For $remote_addr;` (DENIS uses
 the last `X-Forwarded-For` entry, from a proxy on this machine only, to rate-limit sign-in attempts per client). Keep
-the proxy on the same machine.
+the proxy on the same machine, or name a proxy on another machine (a load balancer) in `DENIS_TRUSTED_PROXIES` or
+`--trusted-proxy` (addresses or CIDR ranges, comma-separated; 4.5): without it every client behind that proxy shares its address for the
+sign-in limits ([Security](security.md#sign-in-limits-and-lock-out)).
 
 ## Users and roles
 
@@ -290,6 +292,7 @@ denis user reset jana                    # new one-time password, signs her out 
 denis user disable jana                  # and: denis user enable jana
 denis user reset-mfa jana                # removes her authenticator app and signs her out; she sets it up again
 denis user reset-mfa --unreadable        # every account whose authenticator app secrets.key cannot open
+denis user reset-passkeys jana           # removes all her passkeys and signs her out; she signs in with the password
 denis user scrub-backups               # seals authenticator secrets left readable in scheduled and manual backups
 denis user sites-clear jana              # removes every site limit of jana (a site administrator becomes a full one)
 ```
@@ -360,7 +363,10 @@ environment (`sudo -E`, `DENIS_ENROLL_CODE`) or in a file (`--enroll-file FILE`)
 itself when it starts with `DENIS_ENROLL_CODE` and no token (Docker, systemd, Ansible): it keeps the result under
 `<data folder>/enrolled/` and ignores the code afterwards. `denis agent-enroll` is the step on its own. **Revoke the code** in
 the dialog (or `DELETE /api/enroll-codes/{id}`) to stop it early; agents already enrolled keep their tokens. An agent older than
-4.4 simply keeps using Add agent. Add agent is unchanged.
+4.4 simply keeps using Add agent. Add agent is unchanged. If an enrolment was cut off before its answer reached the agent
+(a dropped connection, a restart of the master at that moment), the agent id is taken but nobody has its token, and
+a new try with the same id is refused ("choose another with --id"): revoke and delete that id under **Sites** (its token
+row), then enrol again (one use of the code is spent).
 
 `install.sh --agent` downloads the same signed release as the master install and checks its signature and
 checksum before changing anything. It then installs the program the same way, writes `/etc/denis/agent.env` (mode
@@ -428,7 +434,23 @@ box or in Docker on the site's network.
   remote agents at"); like the interface choice, it needs a restart to take effect.
 * Give each site its own learning period; the master handles it automatically.
 * **Set the agent's clock** (NTP). The master drops records dated more than 1 hour ahead of its own clock or more than 7
-  days old, and the Health page names an agent whose records are dropped for that reason. Give the site its **time
+  days old, and the Health page names an agent whose records are dropped for that reason. A device time from before
+  the year 2000 (a board without a battery clock reports 1970) is replaced by the master's time and counted the same
+  way; a device's "last seen" never moves backwards because of an agent's report.
+* **New devices of an agent** count against the same limits as the master's own: at most 50,000 devices per site and,
+  after the site's first hour (its first full sync), at most 2,000 new devices a minute. A site that is close to the
+  50,000 (90 %) gets room back by itself: once an hour DENIS removes devices of that site that were not seen for 30
+  days and that nothing refers to (no name, owner, status or note, no alert or event, no enforcement action, not part of
+  a device with several interfaces, not named by a rule, exception, watch or the hands-off list). Such a device comes
+  back as a new device if it is seen again. A site below that mark is never touched.
+* **Deleting a site does not revoke its agent's token.** If the agent keeps running, its next report registers the
+  site again; DENIS then writes `agent.site_recreated` to the audit log and the log, and holds the site's new devices
+  to 2,000 a minute from its first report. Revoke the token as well if the agent should not report.
+* **One agent configuration on two machines** (a copied virtual machine or SD-card image): the master notices two runs
+  of one agent id that take turns, logs "two collectors report as agent ...", and still recognises a resent batch of
+  either as a duplicate. Enrol the copy as an agent of its own. The master also logs when an agent's report sequence has
+  a gap (batches the agent dropped); after 20 failed attempts an agent drops a batch's traffic records but sends its
+  devices again. Give the site its **time
   zone** on the Sites page so hour-of-day rules (`unusual_hours`) use the site's local time, not the master's.
 * A report is size-checked on arrival (at most 32 MB, and a fixed number of devices, traffic windows and so on); see
   [Security](security.md#what-a-master-accepts-from-an-agent).
@@ -876,6 +898,7 @@ stays out of the process list).
 | `--ipv6-subnet` | yes | none | IPv6 prefix to treat as local (repeatable); needed for IPv6 flows and industrial decoding |
 | `--east-west` | yes | off | record traffic between two local devices as relationship edges (console setting overrides on `run`) |
 | `--passive-dns` | yes | off | remember the names each device looked up (console setting overrides on `run`) |
+| `--capture-names` | yes | off | read the TLS server name (SNI) and the host and path of plain-HTTP requests and compare them with the threat lists; nothing is stored, the query string is cut, other headers are never read (console setting overrides on `run`) |
 | `--ot-sv` | yes | off | decode IEC 61850 Sampled Values, sampled to one frame per stream per second (console setting overrides on `run`, after a restart) |
 | `-l`, `--listen` | run | `127.0.0.1:8080` | web console address (*env* `DENIS_LISTEN`) |
 | `--db` | yes | `denis.db` / `denis-agent.db` | database file |

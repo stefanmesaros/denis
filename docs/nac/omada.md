@@ -32,6 +32,10 @@ DENIS names a client by its **MAC address**; an IP address cannot name an Omada 
 * **Block a flow.** The controller blocks clients and has gateway firewall rules of its own; DENIS does not write rules on it.
 * **Quarantine to another network and disabling a switch port.** The Open API has switch and port calls (best guess), but nothing here was checked, so these are listed as not built.
 
+## Block domain: not offered (4.5)
+
+Omada has **URL Filtering** (Gateway Rules and EAP Rules) in the controller's settings (documented in TP-Link's FAQ), with wildcard domain entries. DENIS found no documented Open API call that creates such a rule (best guess: none is published), so *Block domain* is **not offered** on Omada. Nothing was tried. Block the addresses the name resolves to on a firewall instead (*addresses only, may change*), or create the URL filtering rule in the controller yourself.
+
 ## Setup on the controller
 
 1. **An Open API app.** In the controller's *Global* view: *Settings → Platform Integration → Open API → Add New App* (documented). Choose **Client** mode, which is meant for system-to-system use without a user signing in (documented). Give the app a role (see *Permissions*). The controller then shows the **Client ID** and **Client Secret** (the secret behind an eye icon), the **Omada ID** and the **Interface Access Address** (documented).
@@ -76,6 +80,15 @@ DENIS signs in as the app with the OAuth2 client-credentials flow: `POST /openap
 ## Reading the clients (optional)
 
 With *Read the clients and devices this controller sees (read only)* ticked, DENIS lists the site's clients (MAC, address, name, Wi-Fi or wired, SSID, signal, VLAN, access point or switch and port) and managed devices on the map and the device pages, every three minutes, with growing waits after a failure. It never changes anything on the controller; the requests are the sign-in, the `GET`s above and the two list queries. Lists are bounded (5000 clients, 1000 devices, 10 pages) and a list cut by a bound is marked partial. The parent of each managed device (its uplink) comes from the device list's `uplinkDeviceMac` and `uplinkDevicePort` or, when those are absent, from `POST .../devices/uplink-info` with `{deviceMacs}` (best guess); a parent the controller does not name stays unknown. A client's `lastSeen` is read as milliseconds when it is very large and as seconds otherwise (best guess). A controller without the v2 list is read with `GET .../clients` (the online clients; best guess).
+
+## When the controller no longer returns a blocked client (4.5)
+
+A controller without the v2 client list (5.15.24.19) is asked about one client's own record. A blocked client the
+controller does not return (errorCode -41011, an offline client it aged out) is no reading of the block: the hourly check
+keeps the action in effect, and the release asks the controller to unblock it anyway (an answer that the client does not
+exist counts as nothing left to unblock). A row whose record lacks the site or the client says to unblock the client in
+the controller and mark the action as resolved. A block of a private (randomised) MAC address says in the plan that the
+device can come back with another one.
 
 ## What DENIS records
 

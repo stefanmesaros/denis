@@ -122,6 +122,29 @@ All of this is in memory, so a restart clears the counters (the *known addresses
   use the same cap on simultaneous password checks.
 * A right password for an account that may sign in only with a passkey is answered exactly like a wrong one (and
   counts the same).
+* **Re-checks have their own count (4.5).** A wrong password typed into a re-check by someone already signed in
+  (setting up an authenticator app or a passkey, changing the password, enforcement changes) and a wrong code typed while
+  setting the app up count in a budget of their own: 5, then the same growing lock. That lock refuses further
+  re-checks, but no longer the account's sign-in (before 4.5, five wrong set-up codes from a phone with a wrong clock
+  locked the person out of signing in everywhere). A locked sign-in still refuses re-checks.
+* **Counts fade after a day (4.5).** A failure count that has not grown for 24 hours (and is not locking) starts again
+  from zero, so occasional typos over weeks no longer add up to a lock-out. A lock in force is never shortened.
+* **MSP operators (4.5).** Operator sign-in on the MSP console has the same two protections as console users: an address
+  the operator signed in from in the last 30 days is not refused by the 25-guess lock from all addresses, and attempts
+  in flight take their place in the count before the password is checked.
+* **Behind a proxy on another machine (4.5).** `X-Forwarded-For` is used from a proxy on the same machine (as before) and
+  from the addresses or ranges named in the environment variable `DENIS_TRUSTED_PROXIES` (comma-separated, for example
+  `DENIS_TRUSTED_PROXIES=10.1.0.0/16,192.0.2.10`), or with `denis run --trusted-proxy 10.1.0.0/16` (the same setting). From such a peer the client is the right-most entry that is not
+  itself a trusted proxy. Without it every client behind a load balancer shares its address, and one guesser uses up
+  the per-address limits above for everybody. Name only the proxies themselves: anything listed may set the client
+  address. Not set: nothing changes.
+* **Confirming it is you (4.5).** An administrator who resets another person's password or authenticator app, removes
+  their passkeys, raises a role, enables an account, deletes one, or links or unlinks a single sign-on identity is asked
+  for their own password again when their sign-in is older than 10 minutes (the answer is HTTP 403 `step_up_required`;
+  the console then asks for the password and repeats the request). A right password counts for 10 minutes for that
+  session (in memory: a restart asks again). Removing one's own passkey asks the same way. An MSP technician on the MSP
+  console proves it with a fresh second factor of the operator session or the operator password; over the management
+  channel the fresh second-factor proof of the MSP stands in, as for enforcement.
 
 ## What a master accepts from an agent
 
@@ -132,6 +155,12 @@ broken or hostile agent cannot fill the master or poison its detection:
   security signals, 20,000 industrial conversations, 50,000 east-west records and 50,000 DNS records. Records over a
   limit, with an invalid MAC address or with an invalid field are skipped and the rest is applied; the master logs
   how many.
+* **Names.** The optional `names` list of a report (TLS server names and the host and path of plain-HTTP requests, 4.5; only
+  from an agent started with `--capture-names`) holds at most 10,000 records. Every record is checked again on the master: a
+  name that is not a plausible host name (letters, digits, `-`, `_`, at most 253 bytes, labels of at most 63, an address in
+  disguise refused) drops that record, the path is cut at `?` and `#` and must start with `/`, a TLS record carries no path, and
+  names are lower-cased. The names are compared with the administrator threat lists and **not stored**; only the alert of a match
+  keeps the listed entry, the name, the device and the time.
 * **Time.** A record's timestamp may be at most **7 days old** and at most **1 hour ahead** of the master's clock;
   other records are dropped. An agent whose records are dropped for this reason is named on the Health page (with how
   many records and how long ago): set its time (switch NTP on) and its data is accepted again.
@@ -153,6 +182,16 @@ events so one stored late on PostgreSQL is still relayed. See
 `--report-to-allow-plain-http` is given for a VPN or tunnel you trust. An address that is not acceptable is logged
 and the relay is skipped; DENIS still starts. `--report-to-ca` pins the MSP's certificate authority, as `--master-ca`
 does for an agent.
+
+## Names on the wire (privacy)
+
+Two opt-in switches read names: passive DNS (records them, short retention, a "delete all" button) and *Server names and web
+addresses* (4.5; the TLS server name and the host and path of a plain-HTTP request; keeps nothing). Both are off by default and
+per collector. What the second one reads and never reads: the query string is cut at once, cookies and `Authorization` and every
+header but `Host` are never interpreted, no body is read, the path of an HTTPS request is not visible, and a name that is on no
+list is forgotten at once and written nowhere (no database row, log line or audit entry). Names say what the people behind a
+device do: switch them on only where that is acceptable and your users have been told. Encrypted Client Hello, QUIC, DoH and DoT
+hide names from the sensor; that is a limit, not a fault. See [Threat lists](threat-lists.md#reading-server-names-and-web-addresses-opt-in).
 
 ## Enforcement (mostly experimental)
 
@@ -268,6 +307,97 @@ Names, banners, page titles and SNMP strings sent by devices are cleaned before 
 characters, text-direction overrides and zero-width characters (which can make a name look like another one) are
 removed. Text in Persian, Indic scripts and emoji that needs joining characters keeps them.
 
+## AI requests (4.5)
+
+What DENIS does around every call to an AI provider (verified by the tests named in brackets, `src/ai_tests.rs`,
+`src/web/tests/ai_tests.rs`):
+
+* **Text from the network is quoted.** Device names, alert summaries, reasons and looked-up names go into a prompt
+  between `<<<` and `>>>`, with the quote marks and line breaks taken out of the text, at most 500 characters each,
+  and the model is told that text inside the quotes is data, never an instruction. A host name that reads like an
+  instruction can still mislead a model: treat what a model writes as advice.
+* **Secrets are taken out** before a prompt leaves: `Bearer` tokens, `Authorization:` values, `password=`, `token=`,
+  `secret=`, `key=` style values and the well-known key prefixes (`sk-`, `AKIA`, `ghp_`, `github_pat_`, `xox?-`)
+  become `[redacted]`. Hashes and fingerprints stay (they are what an alert is about). The follow-up's "What will be
+  sent" list says how many were replaced.
+* **Limits.** One window per person for every AI button: 60 provider calls in ten minutes (Ask DENIS counts two), then
+  "too many AI requests in the last ten minutes". An Ask DENIS question is at most 500 characters, a rule description
+  at most 1000. The follow-up keeps its own 30 questions in ten minutes.
+* **One call per request.** When the browser or the MSP remote view gives up waiting (a remote request is cut after
+  30 to 40 seconds, a provider may take up to 60), the call already running is not repeated: its answer is kept for ten
+  minutes, and the same request again gets it without a second charge. An identical request while the first runs
+  waits for its answer. No further call is started for a request that is gone.
+* **Usage counts every attempt** (Settings → AI → Usage): an answer DENIS rejects afterwards (no valid JSON, an address
+  that was not in the prompt) is a call, because the provider billed it; an attempt that got no answer (not reached,
+  an error status) is counted apart as "failed this month". The counts of a day show 0 on a quiet day. Autopilot keeps
+  its own call and token budget (Settings → Autopilot); its calls are not yet in these numbers.
+* **The background features use the default provider only** (the dashboard summary, the automatic incident
+  assessments, the report summary). With one ready provider it is the default; with several, the settings cannot be
+  saved without one while a background feature is on, and the form says which features use it. The automatic incident
+  assessment counts every attempt against its 50 a day, and after a failed one waits longer (20 minutes, then 40, at
+  most three tries a day per incident).
+* **The dashboard summary covers every site.** A person limited to some sites sees "The AI summary covers every
+  site, so it is shown only to people who may see all of them" instead of the text. A failed update says so ("The
+  last update failed: …"); an older text says "Newer alerts since this summary". Switching the feature off removes
+  the stored text.
+* **A local model** is asked exactly at the address set up: `http` or `https`, no user name or password in it, within
+  the tenant's outbound policy; a redirect is not followed and its answer is never echoed back in an error.
+* **Keys.** The Gemini key is sent in the `x-goog-api-key` header, never in the address. Settings → AI has a Test
+  per provider (one short call, counted) and a Remove per saved key. A key that can no longer be opened is dropped
+  by the next save and named in the answer, so the settings can be repaired.
+* **MSP.** The AI settings cannot be changed over an MSP link (like SIEM and SSO): they decide where the customer's
+  prompts go. Every change of the local model's address or of the default provider is in the audit log with the old
+  and the new value.
+* **Egress.** Inside a tenant of a hosted installation the tenant's outbound policy applies to every AI call, and a
+  proxy from the environment is not used (the proxy would resolve the target itself); when one is set the error says
+  so. The update check, the automatic security update, the fallback host and the shipped-list update are
+  install-wide and are not held to a tenant's policy. A tenant's reverse-DNS resolver must be an address its policy
+  allows.
+
+## The console in the browser (4.5)
+
+What the console page itself does so that one person's session does not reach the next one at the same browser
+(verified by `tools/console-state-test.mjs` and `tools/console-start-test.mjs`):
+
+* **Sign out** loads a fresh page. When a session ends (expiry, a reset), every open window of the console closes
+  before the sign-in card shows, the timers stop, the Ask DENIS conversation and the notification list are cleared, and
+  the page forgets what it had loaded. When somebody else signs in in the same tab, the page is loaded again. The
+  forced password change on a first sign-in has a **Sign out** button.
+* **Secrets leave the page with their window:** passwords typed into a form, a password or agent token shown once, an
+  enrolment code and a pasted MSP link code are removed when the window closes or the session ends.
+* **A window cannot be closed with Esc while its request runs**, and the answer of a request only closes the window
+  that sent it, never one opened since.
+* **A program updated behind an open page** (a scheduled install, an automatic security update, another tab) shows
+  "DENIS was updated to … Reload this page to use the new version." A role, enforcement permission or site access
+  changed by an administrator shows "Your permissions changed. Reload to see what you may do." within a minute.
+* **An MSP technician whose session in a customer's console ends** sees "Your MSP session ended. Open this customer
+  again from your MSP console." instead of the customer's own sign-in.
+* **Your own IT and OT rules** are saved on the list as stored at that moment, one save after the other: two quick
+  saves keep both changes, and a change another administrator made since the page was loaded is kept. (The server has
+  no revision for these lists yet; two saves at the very same moment can still overwrite each other.)
+
+## Single sign-on links (4.5)
+
+A single sign-on is matched to an account by the identity provider's issuer and the person's `sub`, never by email.
+
+* The first sign-in of a new identity creates a viewer account named after the email and links it, in one database
+  step: a failure can no longer leave an account without its link.
+* An issuer URL written with or without a trailing slash is one issuer (links stored by an older build with a slash
+  still count).
+* When a local account with the same email already exists, the sign-in is refused and says so; an administrator links
+  the identity under *Users* (or `PATCH /api/users/{id}` with `sso_link: {issuer, sub}`, asking for the administrator's
+  password when their sign-in is older than 10 minutes). The `sub` is in the identity provider's user details. A link
+  is removed the same way (`sso_unlink`).
+* When the issuer URL is changed in *Settings → Sign-in & security* (another tenant path, `http` to `https`), existing
+  links keep the old issuer and those people would be refused. Save with `move_links: true` to move them to the new
+  issuer, but only when it is the same identity provider: the `sub` values of another provider are not the same
+  people.
+* An account that signs in with single sign-on has no password of its own. To set up an authenticator app or a passkey
+  (for example when a policy asks for one), it proves itself with a single sign-on in the last 10 minutes instead of a
+  password; the password field can stay empty.
+* A temporary password an administrator set does not stand in the way of a single sign-on (it still has to be changed
+  before signing in with it).
+
 ## Passkeys
 
 Anyone can add passkeys to their own account (click your name in the header → **My account**) and then sign in with a fingerprint,
@@ -285,14 +415,27 @@ face, device PIN or security key, with no password to type or phish.
 * A passkey cannot skip a pending password change, cannot sign in a disabled account, is rate limited like passwords,
   and every registration, removal and sign-in is in the audit log.
 * **Lost device:** the person removes it under *Passkeys*; an administrator can remove *all* of a user's passkeys
-  (`DELETE /api/users/{id}/passkeys`). Passwords keep working unless an administrator turns on **passkey-only
+  (`DELETE /api/users/{id}/passkeys`), or on the server `denis user reset-passkeys <name>` (4.5: removes every passkey
+  and signs the account out; the way back when the console's name changed and nobody can use a passkey). Since 4.5 removing passkeys also ends sessions: the administrator's removal signs
+  the person out everywhere, and removing one's own passkey ends every other session of the account (this one stays).
+  Removing the last second step while the authenticator-app policy requires one is refused (`409`), also when an
+  authenticator app is turned off in another tab at the same moment. Passwords keep working unless an administrator turns on **passkey-only
   sign-in** (*Settings → Sign-in & security*, for administrators or everybody). The console enforces it, not only the
   sign-in page: once a covered account has added a passkey, its password stops opening a session; until it has added
   one, the password still signs in but every other request is refused with `passkey_required` (HTTP 403) and the
   console asks the person to add a passkey first (API tokens are not affected). The requirement is applied only where
   passkeys are switched on (`--public-url`, or the console opened as `http://localhost`), because it could not be met
   otherwise. If an administrator reset the account's password, the person can still sign in with the passkey, and the
-  reset password is replaced by a random one nobody knows.
+  reset password is replaced by a random one nobody knows. Since 4.5 the requirement can only be switched on where
+  passkeys are available (otherwise `400`).
+* **When passkeys cannot work any more (4.5).** If DENIS is started without `--public-url` (and not on loopback), or the
+  public host name changes, the stored passkeys cannot sign in (a passkey is bound to the host it was made for). An
+  account limited to passkeys then signs in with its password again (with the authenticator-app step the policy asks
+  for), instead of being locked out; the log says why once. DENIS remembers the host the passkeys were made for
+  (setting `passkey.rp_id`, written at the first check, at each registration and at each passkey sign-in). Adding a
+  passkey on the new address makes the account passkey-only again.
+* A passkey's signature counter moves on only from the value it was checked against, in one database step: of two
+  sign-ins carrying the same counter (a copied authenticator), one is refused.
 * Verified with a software authenticator against the full protocol (forged, replayed, unverified, cloned and
   wrong-origin responses are all refused) and in a browser with a simulated authenticator. Not yet verified with a
   physical security key or a phone.
@@ -496,7 +639,7 @@ Explanations that used to be printed on the console screens. The console shows a
 * The decision log records who acknowledged, resolved or re-opened which alert or incident, when and why. It has its own period, independent of the setting above: it stays after the alerts and incidents themselves have been deleted. 90 to 3650 days; 1095 (3 years) is the default. Enter 0 to keep it for ever. It holds user names and the notes people typed, and no other personal data.
 * A rough sense of how much these features have actually been used — a call count and, when the provider's own response reported one, its token count. Not exact billing information; check your provider's own dashboard for that.
 * Adds an "Explain with AI" button to alerts and findings: one plain-language summary per click. Never automatic — only called when you click the button, sending only that one alert or finding's own summary, reasons and device label.
-* Adds an "Assess & Explain with AI" button to alerts (shared with Device behavioral analysis below) and contributes the assessment section: what it means, a triage read (likely benign / suspicious / requires investigation), what could happen if ignored, and concrete next steps — plus the AI's own plain-language risk estimate, shown alongside (never in place of) DENIS's own severity. Advisory only; DENIS never acts on any of it itself. Only called when you click the button, sending the same alert data as the explanation feature above.
+* Adds an "Assess & Explain with AI" button to alerts (shared with Device behavioral analysis below) and contributes the assessment section: what it means, a triage read (likely benign / suspicious / requires investigation), what could happen if ignored, and concrete next steps — plus the AI's own plain-language risk estimate, shown alongside (never in place of) DENIS's own severity. Advisory only; DENIS never acts on any of it itself. Only called when you click the button, sending the same alert data as the explanation feature above. Under the answer, editors can ask up to six follow-up questions about the same alert (one provider call each, answers of at most 350 tokens). Each carries the same facts as the assessment plus a shortened copy of it, the last few questions and answers of the thread, and, if the person typed one, a note of at most 1000 characters under "What I know", sent as an unverified claim that never changes DENIS's severity or score. A "What will be sent" list shows this before every question. The conversation is not stored; only a note the person ticks "Also keep this as a note on the alert" for (or saves with "Save note only") is kept, in the alert's decision log, visible to everyone who can see the alert, and recorded in the audit log by length, never by wording. The AI's own answers are never stored. Counted in the usage numbers below; no separate switch.
 * Adds an "AI Security Summary" card to the dashboard: a short overview of the last day's alert activity. Never generated by opening or refreshing the dashboard — a background job regenerates it on its own, only when there has been meaningful new alert activity since the last one, at most every few minutes.
 * Adds an "Ask DENIS" button next to "Scan now": a panel that stays open while you move between screens, for five kinds of request — ask about recent alert activity ("What changed in the last 24 hours?"), hunt for a destination across every device's own traffic history ("Has anything talked to 1.2.3.4?"), jump straight to a screen or Settings page ("Take me to Topology", "Open the SSO settings"), ask a how-to question answered from the real documentation ("How do I add a switch?"), or ask what it can do. The AI never answers from facts it invented, acts on a setting, or takes any action itself — for a search it only ever chooses how to search, and DENIS runs that search itself; for a how-to question it only ever describes one real documentation page. Only called when you ask a question.
 * Adds an "AI Security Summary" section to your periodic reports (Settings → AI → Security reports): devices, new devices, alert activity, standing findings and accepted risks over the report's period, in plain language. Written once, when a report is generated and saved — on its existing schedule, or "Generate now" — never on a separate timer of its own, and never for "Open a live report without saving it" (that link stays instant and free). If the AI call fails, the report is still generated without a summary.

@@ -60,8 +60,8 @@ Every other connector in the matrix below is Experimental.
 owner's decision. The other actions of the same connector keep the mark and the lab settings: on UniFi, the client block
 by MAC, the Wi-Fi disconnect and the port actions; FortiGate has none left; on Palo Alto, the
 block through the static address group and the static quarantine group; on MikroTik, the block device, disabling a
-port and removing connections. The *Experimental* mark appears in the Respond dialog as a pill in the title and on the card of the equipment
-that offers the method, and only where it applies.
+port and removing connections. The *Experimental* mark appears in the Respond dialog as a pill in the title, in the *Through* value and on the method that is
+Experimental in the *Through* list, and only where it applies.
 
 ## Capability matrix
 
@@ -80,35 +80,39 @@ through that path; for the others, a vendor's existing action is reached through
 
 <!-- matrix:begin -->
 
-| Connector | Block device | Block flow | Quarantine | Disable port | End sessions |
-|---|---|---|---|---|---|
-| [SNMP v2c & v3 (port shutdown & quarantine VLAN)](nac/snmp.md) | Unsupported | Unsupported | Built: `access_vlan` | Built: `if_admin_status` | Unsupported |
-| [Fortinet FortiGate](nac/fortigate.md) | Built: `address_group` | Built: `deny_rule` | Built: `quarantine_group` | Unsupported | Built: `session_clear` |
-| [Palo Alto PAN-OS](nac/paloalto.md) | Built: `dynamic_group`; Experimental: `address_group` | Built: `deny_rule` | Built: `quarantine_dynamic_group`; Experimental: `quarantine_group` | Unsupported | Built: `session_clear` |
-| [OPNsense](nac/opnsense.md) | Experimental: `alias` | Experimental: `deny_rule` | Experimental: `quarantine_alias` | Unsupported | Experimental: `state_kill` |
-| [SonicWall](nac/sonicwall.md) | Experimental: `address_group` | Unsupported | Experimental: `quarantine_group` | Unsupported | Unsupported |
-| [Check Point](nac/checkpoint.md) | Experimental: `group` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Unsupported |
-| [Juniper SRX](nac/juniper.md) | Experimental: `address_set` | Experimental: `deny_rule` | Experimental: `quarantine_set` | Unsupported | Experimental: `session_clear` |
-| [WatchGuard Firebox](nac/watchguard.md) | Experimental: `blocked_sites` | Unsupported | Unsupported | Unsupported | Unsupported |
-| [MikroTik RouterOS](nac/mikrotik.md) | Built: `address_list`; Experimental: `block_client_mac` | Built: `deny_rule` | Built: `quarantine_list`; Not built: `access_vlan` | Experimental: `ethernet_disable` | Built: `conntrack_remove`; Experimental: `disconnect_client` |
-| [Ubiquiti UniFi](nac/unifi.md) | Built: `fw_policy`, `block_sta` | Built: `fw_flow` | Experimental: `port_profile` | Experimental: `port_disable` | Built: `kick_sta` |
-| [Cisco Meraki](nac/meraki.md) | Experimental: `client_policy_blocked` | Unsupported | Experimental: `group_policy`; Not built: `access_vlan` | Experimental: `port_disable` | Unsupported |
-| [TP-Link Omada](nac/omada.md) | Built: `client_block` | Unsupported | Not built: `client_vlan` | Not built: `port_disable` | Unsupported |
-| [Cisco Catalyst 9800 wireless controller (WLC)](nac/ciscowlc.md) | Unsupported | Unsupported | Unsupported | Unsupported | Experimental: `client_delete` |
-| [Cisco Adaptive Security Appliance (ASA)](nac/asa.md) | Experimental: `object_group` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Experimental: `clear_conn` |
-| [Cisco Secure Firewall Device Manager (FDM)](nac/ftd_fdm.md) | Built: `network_group (sandbox only)` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Unsupported |
-| [Cisco Secure Firewall Management Center (FMC)](nac/ftd_fmc.md) | Built: `dynamic_object (sandbox only)`; Experimental: `network_group` | Experimental: `deny_rule` | Experimental: `quarantine_dynamic_object`, `quarantine_network_group` | Unsupported | Unsupported |
-| [VMware NSX-T Data Center (NSX-T)](nac/nsx.md) | Experimental: `dfw_group` | Experimental: `deny_rule` | Experimental: `quarantine_group` | Unsupported | Unsupported |
-| [Amazon Web Services security groups (AWS)](nac/aws.md) | Built: `isolation_sg` | Unsupported | Built: `security_group_swap` | Unsupported | Unsupported |
-| [Microsoft Azure network security groups (NSG)](nac/azure.md) | Experimental: `isolation_nsg` | Experimental: `deny_rule` | Experimental: `nsg_swap` | Unsupported | Unsupported |
-| [Microsoft Hyper-V](nac/hyperv.md) | Experimental: `port_acl_deny_all` | Experimental: `deny_rule` | Experimental: `access_vlan` | Experimental: `vnic_disconnect` | Unsupported |
-| [Proxmox Virtual Environment (VE)](nac/proxmox.md) | Experimental: `vm_firewall_drop` | Experimental: `deny_rule` | Experimental: `quarantine_ipset` | Experimental: `link_down` | Unsupported |
-| [RADIUS Change of Authorization (CoA)](nac/radius_coa.md) | Unsupported | Unsupported | Unsupported | Unsupported | Experimental: `radius_disconnect` |
+| Connector | Block device | Block flow | Block domain | Quarantine | Disable port | End sessions |
+|---|---|---|---|---|---|---|
+| [SNMP v2c & v3 (port shutdown & quarantine VLAN)](nac/snmp.md) | Unsupported | Unsupported | Unsupported | Built: `access_vlan` | Built: `if_admin_status` | Unsupported |
+| [Fortinet FortiGate](nac/fortigate.md) | Built: `address_group` | Built: `deny_rule` | Experimental: `fqdn_group` | Built: `quarantine_group` | Unsupported | Built: `session_clear` |
+| [Palo Alto PAN-OS](nac/paloalto.md) | Built: `dynamic_group`; Experimental: `address_group` | Built: `deny_rule` | Experimental: `url_category` | Built: `quarantine_dynamic_group`; Experimental: `quarantine_group` | Unsupported | Built: `session_clear` |
+| [OPNsense](nac/opnsense.md) | Experimental: `alias` | Experimental: `deny_rule` | Not built: `name_block` | Experimental: `quarantine_alias` | Unsupported | Experimental: `state_kill` |
+| [SonicWall](nac/sonicwall.md) | Experimental: `address_group` | Unsupported | Not built: `name_block` | Experimental: `quarantine_group` | Unsupported | Unsupported |
+| [Check Point](nac/checkpoint.md) | Experimental: `group` | Experimental: `deny_rule` | Not built: `name_block` | Experimental: `quarantine_group` | Unsupported | Unsupported |
+| [Juniper SRX](nac/juniper.md) | Experimental: `address_set` | Experimental: `deny_rule` | Not built: `name_block` | Experimental: `quarantine_set` | Unsupported | Experimental: `session_clear` |
+| [WatchGuard Firebox](nac/watchguard.md) | Experimental: `blocked_sites` | Unsupported | Not built: `name_block` | Unsupported | Unsupported | Unsupported |
+| [MikroTik RouterOS](nac/mikrotik.md) | Built: `address_list`, `block_client_mac` | Built: `deny_rule` | Experimental: `dns_static` | Built: `quarantine_list`; Not built: `access_vlan` | Experimental: `ethernet_disable` | Built: `disconnect_client`, `conntrack_remove` |
+| [Ubiquiti UniFi](nac/unifi.md) | Built: `fw_policy`, `block_sta` | Built: `fw_flow` | Unsupported | Experimental: `port_profile` | Experimental: `port_disable` | Built: `kick_sta` |
+| [Cisco Meraki](nac/meraki.md) | Experimental: `client_policy_blocked` | Unsupported | Unsupported | Experimental: `group_policy`; Not built: `access_vlan` | Experimental: `port_disable` | Unsupported |
+| [TP-Link Omada](nac/omada.md) | Built: `client_block` | Unsupported | Unsupported | Not built: `client_vlan` | Not built: `port_disable` | Unsupported |
+| [Cisco Catalyst 9800 wireless controller (WLC)](nac/ciscowlc.md) | Unsupported | Unsupported | Unsupported | Unsupported | Unsupported | Experimental: `client_delete` |
+| [Cisco Adaptive Security Appliance (ASA)](nac/asa.md) | Experimental: `object_group` | Experimental: `deny_rule` | Not built: `name_block` | Experimental: `quarantine_group` | Unsupported | Experimental: `clear_conn` |
+| [Cisco Secure Firewall Device Manager (FDM)](nac/ftd_fdm.md) | Built: `network_group (sandbox only)` | Experimental: `deny_rule` | Not built: `name_block` | Experimental: `quarantine_group` | Unsupported | Unsupported |
+| [Cisco Secure Firewall Management Center (FMC)](nac/ftd_fmc.md) | Built: `dynamic_object (sandbox only)`; Experimental: `network_group` | Experimental: `deny_rule` | Not built: `name_block` | Experimental: `quarantine_dynamic_object`, `quarantine_network_group` | Unsupported | Unsupported |
+| [VMware NSX-T Data Center (NSX-T)](nac/nsx.md) | Experimental: `dfw_group` | Experimental: `deny_rule` | Unsupported | Experimental: `quarantine_group` | Unsupported | Unsupported |
+| [Amazon Web Services security groups (AWS)](nac/aws.md) | Built: `isolation_sg` | Unsupported | Unsupported | Built: `security_group_swap` | Unsupported | Unsupported |
+| [Microsoft Azure network security groups (NSG)](nac/azure.md) | Experimental: `isolation_nsg` | Experimental: `deny_rule` | Unsupported | Experimental: `nsg_swap` | Unsupported | Unsupported |
+| [Microsoft Hyper-V](nac/hyperv.md) | Experimental: `port_acl_deny_all` | Experimental: `deny_rule` | Unsupported | Experimental: `access_vlan` | Experimental: `vnic_disconnect` | Unsupported |
+| [Proxmox Virtual Environment (VE)](nac/proxmox.md) | Experimental: `vm_firewall_drop` | Experimental: `deny_rule` | Unsupported | Experimental: `quarantine_ipset` | Experimental: `link_down` | Unsupported |
+| [RADIUS Change of Authorization (CoA)](nac/radius_coa.md) | Unsupported | Unsupported | Unsupported | Unsupported | Unsupported | Experimental: `radius_disconnect` |
 
-Of the 110 cells (22 connectors, 5 actions; a cell with two methods counts by its best one): 22 are Built, 44 Experimental, 2 Not built and 42 Unsupported.
+Of the 132 cells (22 connectors, 6 actions; a cell with two methods counts by its best one): 22 are Built, 47 Experimental, 10 Not built and 53 Unsupported.
 22 of the 22 connectors have code for at least one action.
 
 <!-- matrix:end -->
+
+MikroTik `block_client_mac` and `disconnect_client` are verified on the new `wifi` stack (one access point under a
+CAPsMAN manager, 4.5). A client on the legacy `wireless` package or the legacy CAPsMAN is not supported and is refused
+unless both lab switches are on ([MikroTik](nac/mikrotik.md)).
 
 Why a cell says Unsupported, in short:
 
@@ -119,12 +123,66 @@ Why a cell says Unsupported, in short:
 * **AWS** security groups only allow traffic, so they cannot hold a deny rule.
 * **Meraki** replaces the whole MX firewall rule list in one call, and DENIS does not rewrite rules it does not own. Meraki
   documents no way to end a session.
+* **Block domain**: a switch, a cloud security group, a hypervisor and RADIUS know no host names; UniFi and Omada are not offered because DENIS found no documented interface to create a name rule (see *Blocking by domain name*); the other firewalls are not built yet.
 * **WatchGuard** Blocked Sites works per address only, and offers no group an administrator can reference through the
   interface DENIS uses.
 * **RADIUS** Disconnect ends a session and is not a block, RADIUS cannot filter traffic, and a CoA quarantine is applied
   again by the RADIUS server at the next sign-in, so real quarantine belongs in your policy server.
 * Where the interface offers no session end (SonicWall, Check Point, FDM, FMC, NSX-T, Hyper-V, Proxmox, AWS, Azure), *End
   sessions* is not offered.
+
+## Blocking by domain name (4.5, Experimental)
+
+*Block domain* (`block_domain`) stops every device behind a firewall or router from reaching a **name** (`example.com`, optionally "and
+below": `www.example.com`, `cdn.example.com` ...). It is for names on one of your own threat lists (*Alert and prepare a block*, see
+[Threat lists](threat-lists.md)) and for a name you type or choose in Respond. **Everything here is Experimental: no connector's name
+block has been tried on real equipment** (only on DENIS's simulated devices), so each needs both lab switches, and no row of the
+validated table names it.
+
+**It is a network-wide policy, not a block of one device.** The plan says so in plain words ("All devices behind this firewall"):
+the block does not depend on which device visited the name. Applying needs the permission to **block connections** (a name block is a
+rule of the same kind as a connection block; there is no separate permission), the password again, the reason, the time limit, the
+kill switch, the hourly limit and the lab switches, exactly like every other action. Release, expiry and clean-up of leftovers work as
+for the others: the objects carry the `denis-<tag>-<id>` name and a marker in their comment or description, and are found again as
+orphans.
+
+| Connector | How (method) | Evidence |
+|---|---|---|
+| FortiGate | `fqdn_group`: an address object of type `fqdn` (and with "and below" a `wildcard-fqdn` object `*.name`) in an address group **you** created and use as the destination of your own deny policy. Needs the setting *Domain block address group*. | documented (FortiOS address types); not verified |
+| Palo Alto PAN-OS | `url_category`: a custom URL category `denis-<tag>-<id>` and a deny security rule at the top that uses it, then a commit (the same scoped-commit rules as the flow block; needs *Allow DENIS to create deny rules*). | best guess (custom URL category entries and `*.` for subdomains); not verified |
+| MikroTik RouterOS | `dns_static`: a static DNS entry (`type=FWD`, `match-subdomain`, `address-list` = DENIS's own name list `<block list>-names`) so the addresses the router learns for the name go into that list; DENIS's chain of the same name drops traffic **to** them, except to private, internal and protected addresses and DNS resolvers. Needs *Allow DENIS to create deny rules*. | best guess (`address-list` on a static DNS entry); not verified |
+| UniFi | **Not offered.** The console has a domain match in firewall policies, but DENIS found no documentation of that field in the interface it uses; the field names would be a best guess. | documented that the console can; the interface is not documented |
+| TP-Link Omada | **Not offered.** URL filtering is a controller setting; DENIS found no documented interface call that creates such a rule. | best guess that none is documented |
+| Every other connector | Not offered (OPNsense, Check Point, Juniper, SonicWall, WatchGuard, ASA, FTD: *not built*; switches, clouds, hypervisors, RADIUS: no concept of a name at that layer). | |
+
+**FortiGate and MikroTik block a name by its addresses.** Both turn the name into the addresses it resolves to, so the plan resolves
+the name now and refuses the block when any answer is an address DENIS never blocks (private, internal or special, a protected
+address, DENIS's, the administrator's or the equipment's own, a DNS resolver), naming the addresses. The plan says that the addresses
+can change after the block is applied. On MikroTik DENIS's chain also never drops those addresses later; on FortiGate a later answer
+is FortiOS's own (see [FortiGate](nac/fortigate.md)). PAN-OS matches the name in a URL category and is not affected.
+
+What a name block does **not** do: it works on the name the device asks for. A device that resolves names elsewhere (DoH, DoT), uses a
+cached answer, connects by address or hides the server name (ECH) can still get through. It blocks the **site, never a path**: a web
+address with a path on **HTTPS** cannot be blocked (DENIS and the firewall see only the name), so it is refused with that sentence; a
+web address with a path on plain **HTTP** can become a block only on a connector with a URL object (PAN-OS above).
+
+**Names DENIS never blocks** (each refusal says which): DENIS's own update, licence and AI endpoints, the names of well-known public DNS
+resolvers, the management name of the connector itself, local naming (`localhost`, `home.arpa` ...), and your **protected names**
+(`GET`/`PUT /api/nac/protected-names`). A block of "example.com and below" is also refused when it would cover a protected name. A public
+suffix (`com`, `co.uk`) or a single label is refused.
+
+**The fallback that always exists: block the addresses.** DENIS resolves the name now and offers the existing address-level block for
+the addresses it got. It is labelled **addresses only, may change** and states how many other names passive DNS saw on the same
+addresses (a content network shares one address between many sites). The plan carries two warnings you tick: that the addresses may
+change, and (if there are other names) that those sites may be blocked too. From a list, when no connector can block the name, the
+prepared block is a connection block from the device that asked to the first resolved address.
+
+**From a list.** A list set to *Alert and prepare a block* creates one prepared block per (list, entry) in *Waiting for your approval*,
+at most 50 at a time (a poisoned list cannot flood the queue). It never executes: you open it in Respond, read the plan and give your
+password. A list set to *Automatic block* (**Experimental, off by default**) applies a name block by itself only while *automatic
+enforcement* is on with both lab switches, only on a connector that offers the name block, for at most the automatic duration, within
+the hourly limit of automatic actions, once per name per day, and never when the plan has a warning or a refusal (so never the address
+fallback). Every automatic block is audited (`nac.automation.lists.run`) and announced with an undo link.
 
 ## Settings for flow blocks on a connector
 
@@ -149,7 +207,7 @@ The common ones:
 | `needs_lab` | A lab switch is missing. The text names which one. |
 | `needs_config` | The connector needs a setting first, for example the quarantine group or VLAN. Set it in the connector's settings. |
 | `needs_rule_opt_in` | Flow blocks need *Allow DENIS to create deny rules* on this connector. |
-| `paused`, `not_wired` | The connector is paused (resume it under *Settings → Response policy*) or cannot act yet in this version. |
+| `paused`, `not_wired` | The connector is paused (resume it under *Settings → Response policy*) or cannot act yet in this version. A paused connector makes no new change, but a release, an unblock and an expiry still go through it (4.5). |
 | `not_built`, `unsupported` | See the matrix. The text of `unsupported` says why. |
 | `not_orchestrated` | The connector is not on the plan and apply path. No connector in this version answers it any more; it stays for a connector added later. |
 | `nac_permission` (HTTP 403) | Your account lacks the permission of this action. An administrator grants it under *Users*. |
@@ -171,7 +229,7 @@ The common ones:
 | `snapshot_truncated`, `unreadable` | The switch's forwarding table was read only in part, or a list DENIS judges the port with could not be read. Read the switch again; see *Health* if it stays. |
 | `multiple_ports`, `arp_conflict`, `already_down`, `already_disabled`, `no_fdb`, `fdb_unmapped` and the other switch codes | Since 4.2 each switch refusal has its own code (before, they came as one `observe`). The text says what to do. |
 | `uplink`, `switch_behind`, `trunk`, `trunk_port`, `lag_member`, `cdp_neighbour`, `class_unknown`, `behind_port` (warnings to tick) | A switch port that is not a plain access port: an uplink to another switch DENIS reads, a trunk, an aggregation member, a CDP neighbour, a Cisco port of unknown kind, or equipment learned behind it. Since 4.2 these are no longer refused: an administrator can switch such a port off **by hand only**, after ticking each warning in the plan and again at the apply, with the reason, the password and the typed port name. Each warning says what is behind the port and what it cuts. DENIS never proposes such a port, and automation and Autopilot never act on it. See [Switches](switches.md#ports-that-are-not-plain-access-ports-by-hand-only-with-warnings-to-tick). |
-| `conflict` | Another DENIS action is already active on this target. Release it or extend it. |
+| `conflict` | Another DENIS action is already active on this target. Release it or extend it. Since 4.5 a switch named by its hardware address is one target however the address is spelled, and a client blocked by its hardware address (UniFi, Meraki, Omada, MikroTik Wi-Fi) is one target whether the action was planned from its address or from its hardware address. |
 | `max_rules` | The connector already holds the most DENIS rules allowed (50 by default). |
 | `cap_reached` | The hourly limit is used up. Wait, or raise it under *Settings → Response policy*. |
 | `same_subnet`, `no_endpoint_here` | Flow refusals, explained under *Block a connection*. |
@@ -183,13 +241,51 @@ Other situations:
   device back. A confirmed change stays active; one that is gone becomes `restored_elsewhere`.
 * **`rollback_failed`.** DENIS could not undo it, and it is still in force. DENIS retries on its own; you can retry now or,
   if you removed it on the device yourself, mark it resolved by hand (the password is needed). Look at the device and at the
-  action's steps before doing either.
+  action's steps before doing either. A removal that waits because someone else has changes pending on the device (PAN-OS
+  without scoped commits, Check Point, FDM, FMC network groups, Juniper, SonicWall: the commit or deployment DENIS needs
+  would publish their work) says so (*The removal waits: …*, code `held_by_pending` in the row's verification) and is tried
+  again every 5 minutes instead of the growing back-off; the plan of such an action says this in advance.
+* **`restored_elsewhere` after a restart.** A switch that restarted since the action lost DENIS's change (it is in the
+  running configuration only). When the switch's uptime is lower than at the apply, the row says so and the state log
+  carries the reason `device_restarted` instead of `drift`.
 * **An orphan is listed.** An object named `denis-...` on a device is not accounted for. Check that it really is DENIS's,
   then remove it through the API.
 * **Drift (`restored_elsewhere`).** Someone changed the device by hand, or it restarted. DENIS does not reapply. Start a new
   action if you still want it.
 * **A repeated request.** A request sent twice returns the first answer with `"replayed": true` and does not touch the device
-  a second time.
+  a second time. An apply that was refused before anything was written (a missing tick, a reason too short, the hourly
+  limit) does not use its plan up: sending it again answers the same refusal, or goes ahead once the cause is gone (4.5).
+* **DENIS stopped in the middle (an update, a restart, a lost HA lease)** (4.5). An action keeps the end it was meant to
+  have from the moment it is written, so one that was cut off still ends on time (late at worst, and said so). A
+  *Starting* or *Being removed* action that does not move for two minutes says that it is taking longer than usual and when
+  DENIS looks at it again (`stalled_until` in the API): ten minutes after it stopped when another DENIS start left it, 45
+  minutes when this one may still be at it (a firewall commit or a deploy can take that long). A cut-off apply that had done
+  some of its steps becomes *Partly done*, is released at its end and can be released now; one that did nothing becomes
+  *Failed*. *Resolved by hand* on a *Partly done* action is accepted only on your word (the tick), because reading the device
+  cannot show the part that was done. An *End sessions* that was cut off, or not confirmed, leaves the active list by itself
+  (it has nothing to undo).
+* **A removal that answers with an error.** Before a removal is called failed, DENIS reads the device back: when the change
+  is gone (it was already removed, or the device answered "not found"), the action is *Released* and the device's answer
+  is quoted (4.5).
+* **Removing a connector, or changing its address, while it has active actions** (4.5). Refused with `409`
+  (`code: live_actions`, the action ids in `actions`): release them first, so that DENIS removes what it put on the device.
+  To go ahead anyway and leave those changes on the device, confirm it: `DELETE /api/nac/connectors/{id}?acknowledge=live_actions`,
+  or `"acknowledged": ["live_actions_elsewhere"]` in the update. An action made through a connector that now points to another
+  device is never released, read back or extended there: its release ends *Removal failed* with the reason, and you remove the
+  change on the old device and mark it resolved by hand. The place a connector acts on counts as well as its address: a change
+  of tenant, subscription or resource group (Azure) is "another device" too. A connector that records its own place with
+  the action (an AWS region, a FortiGate VDOM, a PAN-OS virtual system) releases there even after the setting changed. An
+  action recorded before these were stored is judged by the address alone.
+* **Removing an orphan** (an object with DENIS's marker and an action id) is refused when the ledger row of that action
+  cannot be read: DENIS cannot tell then that the object belongs to no live action.
+* **A suggestion closed meanwhile.** A block suggestion that someone approved, dismissed, or that expired, can no longer be
+  planned or applied (`prompt_closed`, `409`). Plan the action from the device instead (4.5).
+* **A change that is set up but not deployed** (4.5). A connector that can tell (none yet; the vendor packages add it) says when
+  DENIS's change is configured on the device but not in force yet, or still there but weakened (no longer first, disabled,
+  changed). The action then stays active (*Not confirmed*, or in force with the difference said) and is never closed as
+  *Changed outside DENIS*.
+* **The last person who may release.** Disabling, demoting or deleting the last administrator who may release actions of a
+  type that are still active is refused, like taking the permission away (`nac_last_holder`, `409`) (4.5).
 
 More general help is on the [Troubleshooting](troubleshooting.md) page.
 
@@ -250,7 +346,8 @@ same path, with the rule as the actor:
   plain access port always carries a warning, so automation never acts on it (a person can, by hand).
 * **Checked again every time.** The administrator who switched automation on must still exist, still be an enabled
   administrator without a site limit and still hold the permission. If not, automation stops itself, says so on every
-  notification channel and writes `nac.automation.suspended` to the audit log. A lab switch switched off does the same. The
+  notification channel and writes `nac.automation.suspended` to the audit log. A database read that fails during this
+  check stops nothing: that pass does nothing, and the next pass checks again. A lab switch switched off does the same. The
   enforcement switch off stops it without suspending it. The administrator who switched a rule's automatic response on
   for real is checked too: one who lost the permission or was switched off sends that rule back to "prepare", with a
   notice. A rule still in its trial only writes down what it would have done, so it never suspends automation.
@@ -273,7 +370,11 @@ block, `nac.automation.autopilot.refused` for each refusal (including a refused 
 `nac.automation.suspended` when it stops itself. Autopilot blocks are in the ledger as actor `autopilot`, with the decision as
 the origin. They count against the hourly limit of all enforcement and against the automatic limit of level (b); on top,
 Autopilot may do 2 an hour, 6 a day and one per device in 3 days, and never for more than 24 hours. Switching level (b) off
-switches level (c) off in the same write.
+switches level (c) off in the same write. Level (c) acts only on a finding seen in the last 15 minutes, and after Autopilot
+was switched off or to shadow mode and back it waits until level (c) is switched on again; the box shows "On, but not
+blocking right now" with the reason. Every switch and limit change is written as one step on the stored setting, so a
+"Switch off now" is never undone by a change someone else saved at the same moment. A limit that is reached is written to
+the audit log once per waiting response and hour.
 
 ### Audit
 
@@ -295,18 +396,35 @@ DENIS never acts on some devices, whatever you ask: its own address, the gateway
 
 On top of them there is one list for the whole installation, the **hands-off list**, in the section *Hands-off devices* of **Network → Readiness**: devices DENIS never acts on. A device on it is refused by every connector and by every switch port action ("never touch my safety PLC", said once). An entry is a device of the register, an IP address, a MAC address or a network. The same screen also shows, read only, DENIS's built-in rules and the lists of the connectors, so the answer to "is this device protected, and why?" is in one place.
 
+A device entry follows the device: when two copies of one device are merged (a joined site's copy into the local one) or a split hardware address is folded back, the entry then names the device that remains, as the rule exceptions and watches do. This is done from the merge record, so it also happens after a restart in between.
+
 The list can only add refusals. Adding an entry needs no password, because it makes DENIS more careful. Removing one needs your password, because it makes blocking possible again; the person who added an entry may take it back without the password in the first ten minutes. Both are audited (`nac.hands_off.add`, `nac.hands_off.remove`). The API is under `/api/network/hands-off` (see the API reference).
 
 ## Respond
 
 On a device's panel, in an incident, on the map and on a switch port, **Respond…** opens one dialog. It does not ask you to
-choose from a list: it opens on one sentence with the answer already in it, for example *Block iPhone (10.1.0.42) through
-UniFi Gateway, for 1 hour.*, with one line under it that says why ("Recommended: the controller shows it connected on Wi-Fi
-at Office AP, and UniFi Gateway routes its network (checked)."). The three bold parts of the sentence are buttons: the
-response, the equipment and the duration. The common case takes four acts: read the sentence, change the duration if you
-like, write your reason, type your password and press **Apply**.
+choose from a list: it opens with the answer already in it, drawn as three labelled rows that look like select controls.
+Under the title one read-only line says which device it is about, its address and where it is.
 
-![The Respond dialog for a laptop on Wi-Fi: one sentence with the response, the equipment and the duration, the reason and the password](img/respond-plan.png)
+* **What DENIS does**: the response, for example *Block the device*. The note under it says *Recommended.* or *Chosen by you.*
+* **Through**: the equipment and how it does it, for example *UniFi Gateway · blocks the Wi-Fi client by its MAC address*. The
+  method is always shown, also when the equipment has only one. The note under it says why: *Recommended: the controller
+  shows it connected on Wi-Fi at Office AP, and UniFi Gateway routes its network (checked).* Experimental methods carry the
+  *Experimental* mark in the value and in the title.
+* **How long**: five presets and **More** (Custom…, Permanent), with the time it ends. For *End its sessions* the row says
+  that no duration is needed.
+
+Below the rows, **What this changes** says in one short block what the plan changes, what it covers and its first limit; the
+**Details** line opens everything (the exact lines, what it cuts off, limits, side effects). Warnings that need a tick sit
+directly under it, before the reason. The common case takes four acts: read the rows, change the duration if you like,
+write your reason, type your password and press **Apply**. Nothing changes until then.
+
+![The Respond dialog for a laptop on Wi-Fi: the three rows, what this changes, the reason and the password](img/respond-plan.png)
+
+Changing one row re-derives what depends on it and says so. When you change the response, the equipment stays when it can
+do the new response (with its preferred method), otherwise the recommendation for the new response is taken, and the note
+under *Through* starts with *Changed to fit this response.* When nothing can do it and nothing is recommended, *Through*
+becomes **Choose the equipment** and its list opens.
 
 **What DENIS recommends, and what it never does for you.** The recommended equipment is chosen only from equipment known to
 be on the device's path: a firewall or gateway whose *routed networks* hold the device's address (checked or from your
@@ -315,26 +433,35 @@ For a device the controller shows connected on Wi-Fi, the client block of that c
 validated (UniFi: validated on a nanoHD behind a Cloud Gateway Ultra); for a wired or unknown client the gateway's own
 policy is chosen and the client block needs the lab switch, as before. When two pieces of equipment have the same proof
 ("Two gateways can stop this device"), when nothing is known to be on the path, or when the device is seen only behind a
-shared port, **nothing is chosen**: the equipment part of the sentence is a gap and its list opens at once. A firewall not
+shared port, **nothing is chosen**: the *Through* row says **Choose the equipment** and its list opens at once. A firewall not
 known to be on the path, a shared or non-access port, a permanent duration and an experimental method can always be chosen
 by hand, never for you: each one asks for its own tick, in the words it always had. Automation never acts on a plan with a
 warning.
 
-**The choosers.** Clicking a part opens a list under the sentence; the rest of the dialog stays where it is.
+**The lists.** Clicking the value of a row opens a list directly under that row; only one list is open at a time and the rest
+of the dialog stays where it is. The list header is short (*Arrows move, Enter picks*) so the close button stays on its line.
 
-* *What DENIS should do*: the responses the server offers for this target (block the device, switch off the port, end
-  sessions, quarantine, move the port to the quarantine VLAN, **Block a connection…**), each with the equipment it goes
-  through.
-* *Through which equipment*: one card per piece of equipment, not per method (equipment with two methods has a small
-  *Method* choice on its card). *On this device's path* is open; **Other equipment (n)** (names appear when it is opened),
-  **By hand only (n)** (the shared or non-access port the device is seen behind, with the count) and **Not available here
-  (n)** are closed lines with counts. With more than ten pieces of equipment a filter field appears.
+* *What DENIS does*: the responses the server offers for this target (block the device, switch off its port, end its
+  sessions, quarantine the device, **Block one connection…**), each with the equipment it goes through and a *Recommended*
+  mark where it applies.
+* *Through*: one entry per piece of equipment. Equipment with one method is one choice with the method under its name;
+  equipment with two or more methods is a heading with one choice per method, so choosing a method chooses the equipment
+  with it. Each entry says how DENIS knows it is on the device's path (or why it is not). *On this device's path* is open;
+  **Other equipment (n)** (names appear when it is opened), **By hand only (n)** (the shared or non-access port the device is
+  seen behind, with the count) and **Not available here (n)** are closed lines with counts. With more than ten pieces of
+  equipment a filter field appears.
 
-Arrow keys move inside a list, Enter chooses, Esc closes the list first and the dialog second.
+Arrow keys move through the choices of the open list (the ones inside a group too), Enter chooses, Esc closes the list first
+and the dialog second. On a narrow screen the labels sit above their values, the list takes the full width and the footer is
+stacked in the order Password, Apply, Cancel.
+
+When DENIS refuses, the refusal sits inside **What this changes** with its reason, and the **Reason** and **Password** fields
+are switched off: a refusal cannot be overridden, so the way out is above, in the rows (change what DENIS does or the
+equipment), or to close the dialog.
 
 ![The Respond dialog when DENIS does not know which equipment carries the traffic](img/enforcement-respond-hand.png)
 
-When nothing is possible the dialog shows no sentence, only the first step that would change that ("Switch enforcement on",
+When nothing is possible the dialog shows no rows, only the first step that would change that ("Switch enforcement on",
 "Add a firewall connector", "Tell DENIS which networks … routes", "Open the write credential", "Place it on a switch port
 by hand…") and every cause under **Not available here**. A device that is **hands-off** says so, with the way to remove it
 from the list.
@@ -404,7 +531,7 @@ never recommended or used by automation; the plan asks you to tick its warning:
 * **Does not know this device**: the connector acts at the device itself (a hypervisor, a cloud group, NSX, Meraki,
   RADIUS) and DENIS has nothing that says the device is one of its own.
 
-Each is a card under **Other equipment**, with that reason; choosing one is a choice by hand.
+Each is an entry under **Other equipment**, with that reason; choosing one is a choice by hand.
 
 UniFi (the gateway's zone-based firewall policy and the client block), SonicWall and WatchGuard count as firewalls
 on the path, with routed networks of their own, like FortiGate or Palo Alto: set them on the connector, or they stay
@@ -412,7 +539,7 @@ under *Other equipment*. **Switch off port** and **Move the port to the quaranti
 through the switch DENIS knows the device is plugged into: a router's, a controller's or a hypervisor's own port
 action never acts on another vendor's switch, and the capabilities list marks it *not the switch of this device*.
 
-**Location.** The dialog says where the device is plugged in (in the line under the sentence and in the list of equipment), how DENIS knows (*announced by the device*
+**Location.** The dialog says where the device is plugged in (in the line under the title and in the list of equipment), how DENIS knows (*announced by the device*
 over LLDP, or *learned from the switch*'s forwarding table) and how old the reading is ("switch read 3 minutes ago"). An
 LLDP announcement on a port where the same switch's forwarding table no longer learns the device, while it learns it on
 another port, is where the device was, not where it is: the forwarding table wins. A placement on another port in the
@@ -430,7 +557,7 @@ A switch that gives no forwarding table (the D-Link DGS-1100-08V2 is one) cannot
 
 ## The plan dialog
 
-Every action starts as a plan. The dialog says in one sentence what DENIS would do, lets you choose the connector and the
+Every action starts as a plan. The dialog shows what DENIS would do in three rows, lets you choose the connector and the
 duration, lists what it would cut off, shows every refusal and warning, and asks for your reason and your password.
 Nothing changes on a device until you press Apply.
 
@@ -466,6 +593,36 @@ When a plan in the dialog expires and is made again, a warning you ticked stays 
 again; *I have read the warnings* is asked again whenever the warnings changed.
 
 ![The list of active responses](img/enforcement-active.png)
+
+### The states of an action
+
+Every action has one state. Scripts read it as `state` in `GET /api/nac/actions` (the words below are in `state_info`
+next to it). `disabled` is the historical name of "in force and confirmed". *Active* states may still be in effect on a
+device, and a target has only one active action at a time; the others are history. The *May do* column is what the
+buttons and the API accept in that state, and *Moves to* is every change the code makes from it. The table is written
+from the code (`src/nac_state.rs`) and a test fails when it differs.
+
+<!-- states:begin -->
+
+| State (`state`) | Words | Active | Colour | Outcome word | May do | Moves to |
+|---|---|---|---|---|---|---|
+| `pending` | Starting | yes | warn | `pending` | none | `disabled`, `unconfirmed`, `partial`, `failed`, `completed` |
+| `disabled` | In force | yes | neutral | `enforced` | `check`, `release`, `extend`, `resolve_by_hand` | `unconfirmed`, `rolling_back`, `restored`, `restored_elsewhere` |
+| `unconfirmed` | Not confirmed | yes | warn | `unconfirmed` | `check`, `release`, `extend`, `resolve_by_hand` | `disabled`, `partial`, `rolling_back`, `restored`, `restored_elsewhere`, `failed` |
+| `partial` | Partly done | yes | warn | `partial` | `check`, `release`, `resolve_by_hand` | `rolling_back`, `restored` |
+| `rolling_back` | Being removed | yes | warn | `rolling_back` | none | `disabled`, `unconfirmed`, `partial`, `rolling_back`, `rollback_failed`, `restored`, `completed` |
+| `rollback_failed` | Removal failed | yes | bad | `rollback_failed` | `release`, `retry`, `resolve_by_hand` | `rolling_back`, `restored` |
+| `restored` | Released | no (history) | ok | `restored` | none | none |
+| `restored_elsewhere` | Changed outside DENIS | no (history) | neutral | `restored` | none | none |
+| `failed` | Failed | no (history) | bad | `failed` | none | `unconfirmed` |
+| `completed` | Done | no (history) | ok | `completed` | none | none |
+
+<!-- states:end -->
+
+The action's detail window reads in plain words: the timeline says "Starting → In force" and each step on the device says
+*Done*, *Refused by the device*, *Not needed* or *No clear answer*. Hover over a word to see the raw value support may ask
+for. A removal that finds the thing already gone (a Wi-Fi client that left before its row was deleted) counts as *Not needed*,
+not as a refusal.
 
 ## Rule actions
 
@@ -519,7 +676,9 @@ response, how long (1 hour unless the rule says otherwise) and through which con
    and where the controller sees it;
 2. a connector that *controls this device directly* (a controller or a hypervisor), only when it lists the device as one
    of its own clients right now: DENIS reads the clients of the connectors that offer it (switch on *Read the clients*), matches
-   them by hardware address and trusts a read that is not stale and a client that is online. The card says how the controller sees it (on Wi-Fi at an access point, or wired behind a switch). That is evidence, not proof that the traffic stops: the result of the action is the controller's own read-back. A connector that does not
+   them by hardware address and trusts a read that is not stale and a client that is online and was seen by the controller
+   within three read intervals. A connector not bound to a site counts only when the hardware address belongs to devices of
+   one site: a device known at two sites is listed by a connector bound to the right site only. The card says how the controller sees it (on Wi-Fi at an access point, or wired behind a switch). That is evidence, not proof that the traffic stops: the result of the action is the controller's own read-back. A connector that does not
    list the device is never chosen for you; you can still choose it when you review the response, with its warning;
 3. a firewall *set up to route this network (not checked)*;
 4. for a quarantine, *the switch port the device is on*, only when DENIS knows that port for certain and nothing else
@@ -542,8 +701,8 @@ prepared for a device on the hands-off list, for the device of a connector or sw
 the device and for an hour after it ended. DENIS checks a waiting response again every 5 minutes: it closes when the
 rule is switched off, deleted or set to only notify, when the device becomes hands-off, or when the device is blocked
 already. A response that is not approved expires 3 days after it was prepared, even while the device keeps matching; the
-next match prepares a fresh one. One notice per rule per hour (the repeats fold into
-it), and at most 6 of them an hour reach your notification channels. Nothing is approved from a notification, a link
+next match prepares a fresh one. Each prepared response raises its own notice, naming its device and opening that
+response, and at most 6 of them an hour reach your notification channels. Nothing is approved from a notification, a link
 or a phone: links only open the console.
 
 ### Responding automatically
@@ -597,6 +756,24 @@ or by `rule:<policy id>` (automatic), as for every other action.
 
 * **Enforcement from an MSP console** on a customer's local master is not built for actions on devices beyond what the level
   and the boxes of [MSP management](msp-management.md) allow.
+
+## Testing a connector, and what the result means (4.5)
+
+* **Test connection reads the device**, also while enforcement is switched off and when the hourly limit is reached:
+  those two guard changes, and a test changes nothing. A wrong token, a wrong password or an unreachable device fails
+  the test (before 4.5 the test of FortiGate and of the kinds tested by a dry-run block passed without contacting the
+  device while enforcement was off, and a FortiGate or UniFi sign-in that failed could still show ✓).
+* **The result is kept by DENIS, not by the console.** A save that changes neither the settings nor a credential (a
+  rename, a pause, a resume) keeps the result; any other save clears it to *Untested*, because it no longer describes
+  what is stored. A test whose connector was edited while it ran is not recorded. When you add a connector, the result
+  of a test of exactly those settings in the last half hour is kept.
+* **Add equipment saves an untested or failed connection paused** (the box *Save it paused* is ticked until the test of
+  exactly those values passes; untick it to save it active anyway). Change a value after a test and the result is
+  cleared.
+* RADIUS CoA has no harmless probe: its test only checks the settings and says so; DENIS contacts the access device at
+  the first real action.
+* An SSH sign-in that fails says why when ssh tells: the user name or password refused, the host key changed or not
+  known yet, the device not reachable.
 
 ## Where to find it in the console
 

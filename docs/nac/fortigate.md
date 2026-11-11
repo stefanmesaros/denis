@@ -137,6 +137,22 @@ the placeholder is missing from `DENIS-BLOCK` (FortiOS does not keep an empty ad
 
 Every object DENIS makes carries `DENIS managed; owner <tag>; action <id>; by <login>; expires <time or never>` in its comment. Text you typed as a reason is never sent to the FortiGate. DENIS deletes only objects that carry its own owner tag. An object with a DENIS-style name that does not carry the tag is never touched, and the action is refused.
 
+## Block domain (4.5, Experimental)
+
+Evidence labels for this section: **documented** (in the vendor's published pages), **best guess** (from the product or other people's code, not checked in a published page), **verified** (tried on real equipment, with the date). **Nothing in this section is verified**; it was built and tried against DENIS's simulated device only, so the action is Experimental and needs both lab switches.
+
+**What DENIS writes** (method `fqdn_group`): an address object `denis-<tag>-<id>` of type `fqdn` with the name (documented: FortiOS firewall address type "FQDN"), and with *and below* a second object `denis-<tag>-<id>-w` of type `wildcard-fqdn` with `*.name` (documented: the wildcard FQDN type; best guess that a wildcard object does not match the bare name, so both are made). Both are added to the **domain block address group** you create yourself and name in the connector's settings (*Domain block address group*). Release removes them from the group and deletes the objects. Every object carries `DENIS managed; owner <tag>; ...` in its comment; an object with the same name that does not carry it is never touched and the action is refused.
+
+**What you set up first:** the group (with one placeholder member, FortiOS keeps no empty group) and a **deny policy of your own that uses the group as the destination**, above your allow policies. A block "does nothing" if that policy is missing or below an allow: that is outside DENIS, as for the other groups. The group must differ from the block group and the quarantine group (they are used as the source).
+
+**The addresses the name resolves to.** FortiOS turns an FQDN object into the addresses the name resolves to, and the deny policy then blocks those addresses for everything behind the firewall. The plan resolves the name now and **refuses** the block when any answer is an address DENIS never blocks (private, internal or special, a protected address or network, the address of DENIS, of the administrator's session or of the firewall, or a DNS resolver), listing the addresses. **Warning:** the addresses can change after the block is applied, and FortiOS follows the name, not DENIS's check: a name that later resolves to an internal address would block that address. Use the name block only for names you expect to stay on public addresses, and release it when that changes.
+
+**What it does:** all devices behind this FortiGate are stopped from reaching the name, not only the device that visited it. The plan says so.
+
+**What it does not do:** FortiOS resolves the name itself, so a device that resolves it elsewhere (DoH/DoT) or connects by address may get through (best guess). It ends no open sessions. IPv4 and IPv6 resolution is FortiOS's own (not tried). A web address with a path is not offered here (no URL object).
+
+**What we tried:** the fake FortiGate in DENIS's tests: create/reuse the objects, add to the group, read back, release, expiry, a foreign object under the name (refused), the last member (refused), orphan removal, a missing group and an empty group (refused). Nothing on a real FortiGate.
+
 ## Setup
 
 1. **Block group.** In FortiOS create an address group for DENIS's blocks (*Policy & Objects → Addresses*) and a **deny policy** that uses it as source, at the top of the policy table. FortiOS does not keep an address group with no member, so put one placeholder address in the group (for example an address object for `192.0.2.255/32`, a documentation address that is never routed). DENIS refuses to use a group that has no member and says so.
@@ -273,3 +289,12 @@ The console shows a short line under each field and a short note behind its (i).
 
 - **Quarantine address group name (optional)**: The address group you created for quarantine. DENIS moves a device into it and back, and nothing else: what the group may reach is decided by your own policies on the FortiGate. DENIS never creates an allow rule. Leave empty to switch quarantine off for this FortiGate.
 - **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create one deny policy per flow block on this FortiGate, at the top of the policy table, named denis-... and tagged DENIS managed, and delete it again when the action ends. It never creates an allow rule and never uses any interface or any address. A wrong deny rule can cut off traffic: switch this on only if you accept that.
+
+## 4.5.0: checks and releases
+
+* **The VDOM is recorded** in the action's record (`vdom`); its release and read-back go to that VDOM even after the
+  connector's VDOM setting changed. An action made before 4.5.0 uses today's setting, as before.
+* **A deny policy someone moved** below an allow policy, disabled or edited keeps the action active with a notice
+  ("DENIS's policy ... is still on the FortiGate, but no longer on top ..."); the release removes it. Only a policy that
+  is gone closes the action.
+* A flow release that cannot delete or read its service or address objects lists them as left behind at once.

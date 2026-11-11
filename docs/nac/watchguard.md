@@ -69,3 +69,12 @@ Behaviours that are unproven vendor facts (marked **[verify]** in the code):
 ## Credentials
 
 AccessID (plain configuration), access password (`nac.watchguard.access_password`) and API key (`nac.watchguard.api_key`), both in the encrypted secret store. They obtain an OAuth token from `/oauth/token`; a token is requested for each action and dropped when it ends. None of them is written to the ledger, the audit log or a notification.
+
+## 4.5.0: releases and leftovers
+
+* **The entry id is recorded** with the step that made the entry; the release removes exactly that entry, however long
+  the account's list is (a 404 is "already gone"). Actions made before 4.5.0 are found by address as before.
+* **Ownership is exact**: only an entry whose description is this action's own mark counts as DENIS's on the action
+  path (another install's entry, another action's or an old route's does not).
+* **Leftovers can be removed**: they are listed as `denis-<tag>-<action>-blockedsite-<address>`, which the shared
+  removal on the Health page accepts.

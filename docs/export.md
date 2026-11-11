@@ -101,7 +101,19 @@ A CEF message looks like this (LEEF and JSON carry the same fields, in their own
   never affects detection, and delivery is at least once (de-duplicate on `eventId` for events).
 * Text from the network (device names, hostnames) is escaped so it cannot forge a CEF/LEEF field or an
   extra record, in any of the three formats.
-* Health shows in the header (`syslog ok …` / `FAILING`).
+* Health shows in the header (`syslog ok …` / `FAILING`). Since 4.5 a target that fails shows `FAILING` with the
+  error (a refused connection, an expired certificate) and keeps the time of the last success; before, the line
+  kept saying `ok` with an ever older time. The count of records sent is since DENIS started.
+* The first time the export is switched on, each stream starts from the beginning of what is stored: the whole event
+  history and audit log are sent, up to 20,000 records every 15 seconds (documented; a "start from now" choice is
+  not offered).
+* Settings saved by an older release that a newer one no longer accepts (a rule that was tightened) keep the export
+  running as configured: the settings page names what is wrong (`invalid` in `GET /api/siem`) and the header line
+  shows `FAILING` with *The saved SIEM export settings are not valid any more* until they are corrected and saved.
+  Before 4.5 such settings switched the export off without a word.
+* On an HA pair only the leader exports (4.5): a node that lost its lease sends nothing and moves no position.
+* **Send a test message** over UDP can only say *sent*: UDP has no answer, so a closed port or a collector that drops
+  it looks the same (`unconfirmed: true` in the answer).
 
 ## The legacy `--syslog` flag
 
@@ -123,11 +135,14 @@ to an index or data stream via `POST .../_bulk`, shaped as [Elastic Common Schem
 `ecs` automatically; it is the only format this transport accepts.
 
 * **Elastic URL**: the full base address, e.g. `https://es.example.com:9200`. Must be `https://` (or a
-  loopback address, for local testing).
+  loopback address, for local testing). A user name and password in the URL (`https://user:pass@…`) are refused
+  since 4.5: they would be stored and shown in clear; use an API key. One saved before is never shown back.
 * **Index or data stream**: where documents are written, e.g. `denis-events`.
 * **API key** (optional): sent as `Authorization: ApiKey <key>`. Like every other secret in DENIS, the
   console never shows it back to you; saving the form again without retyping it keeps the one already stored,
-  and an explicitly empty field clears it.
+  and an explicitly empty field clears it. Since 4.5 it is stored sealed in a row of its own (`siem.api_key`) like
+  the other integration secrets, so it is not in a backup: after a restore, enter it again (the restore notice
+  names it). A key an older version kept in the export settings is moved there at the first start.
 * **Streams** (events/findings/audit/incidents) work exactly as for syslog, independently toggled, same cursor-based
   at-least-once delivery, same health line in the header.
 

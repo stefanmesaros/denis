@@ -110,3 +110,10 @@ The console shows a short line under each field and a short note behind its (i).
 - **Quarantine group id (optional)**: The group you created for quarantine. DENIS moves one address into it and back, and nothing else (it owns the group's whole address list): what the group may reach is decided by your own distributed firewall rules. DENIS never creates an allow rule. Leave empty to switch quarantine off.
 - **Security policy for DENIS deny rules (optional)**: The security policy you created for DENIS's deny rules, in the same domain, applied to the whole distributed firewall and first in its category. DENIS adds and deletes only its own rules in it and never edits the policy. Needed only for "Allow DENIS to create deny rules".
 - **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create one drop rule per flow block in the security policy named above, with the lowest sequence numbers of that policy, named denis-... and tagged denis-owner, and delete it again when the action ends. It never creates an allow rule. A wrong deny rule can cut off traffic.
+
+## 4.5.0: checks and releases
+
+* **A group deleted by hand** lets the release of a host block or a quarantine close: nothing of DENIS's is left in it
+  (it used to be refused for ever).
+* **`partial_success` is not "realized".** NSX Manager reports some hosts without the change; the step is *unknown* with
+  "realized on some hosts only", and the action stays *not confirmed* until NSX reports full success.

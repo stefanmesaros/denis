@@ -109,3 +109,22 @@ The console shows a short line under each field and a short note behind its (i).
 - **Never quarantine these VM names**: VM names as Hyper-V shows them, or VM ids. Put the VM DENIS itself runs in, and any router or firewall VM, on this list.
 - **Quarantine VLAN id (optional)**: The VLAN you built for quarantine (1 to 4094), with its own DHCP, gateway and ACLs. DENIS moves one virtual network adapter into it and back, and nothing else: what the VLAN may reach is decided by your own network. DENIS never creates an allow ACL. Leave empty to switch quarantine off.
 - **Allow DENIS to create deny rules on this Hyper-V host**: Off by default. When on, DENIS can create one deny ACL per flow block on the VM that owns an end of the flow, with a weight from 60000 to 64999 that DENIS reserves, and delete it again when the action ends. It never creates an allow ACL. A wrong deny ACL can cut off traffic.
+
+## 4.5.0: checks and releases
+
+* **The host is recorded** in the action's record (`host`). A VM that is not on the host any more is gone only when the
+  connector still points at that host and the host is not a running failover cluster node (`ClusSvc`). On a cluster
+  node the VM may have moved to another node with DENIS's ACLs or VLAN on it, so the check stays *unknown* and the
+  release is refused with a sentence: release it on the node where it runs now, then Resolve the action by hand.
+* **A release finds the VM by its id and one recorded hardware address.** An adapter added to a quarantined VM, or a
+  dynamic address that changed, no longer makes the release fail for ever; the result says that the adapters changed.
+  A VM whose id now belongs to a machine that shares none of the recorded addresses is still never touched. The plan
+  and the apply keep the exact check.
+* **An adapter added after an isolation** (the deny entries were added per adapter that existed then) keeps the action
+  active with a notice.
+* **A VLAN someone else changed** after DENIS set it: the release leaves it, says so and closes the action (it used to
+  refuse for ever). DENIS's VLAN is not there any more.
+* **WinRM on a busy host.** DENIS asks the host to answer each poll within 15 seconds (`OperationTimeout`); a host that
+  is still running the command answers with a timeout fault, and DENIS asks again for up to a minute in all. A busy
+  host no longer looks unreachable. A write that runs out of that minute is left to finish on the host (its shell is
+  not ended); a read that runs out is ended.

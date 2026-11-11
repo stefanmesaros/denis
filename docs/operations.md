@@ -8,8 +8,11 @@ newest 7 (change or switch off the schedule there, keep up to 60). *Back up now*
 for the installer's layout), named `denis-auto-…`, `denis-manual-…`; the copies made before an update
 (`denis-before-…`) are listed too, but the updater looks after those. Only scheduled backups are ever removed
 automatically. DENIS refuses to make a backup when the disk could not hold it, and the Health page warns when the
-newest backup is too old. A backup on the same disk does not survive the disk: fetch some copies elsewhere. If a backup fails part-way (the disk fills up, say), the unfinished file is removed, so the list never offers a partial
-copy for restore. A database file that is damaged at start is reported with its path.
+newest backup is too old. A backup on the same disk does not survive the disk: fetch some copies elsewhere. A backup is written under a temporary name
+(`….db.partial`) and gets its real name only once it is complete and the integration secrets are taken out: if it fails
+part-way (the disk fills up, say) the unfinished file is removed, and one left by a crash or a power loss is never
+listed, never counted as the last scheduled backup, never uploaded to an MSP, and is removed by the backup job at its
+next start. The list never offers a partial copy for restore. A database file that is damaged at start is reported with its path.
 
 From the command line:
 
@@ -33,7 +36,29 @@ tenant database under `tenants/` as well, kept in `backups/tenants/<id>/`. To ba
 into another tenant's slot is refused at start-up (that tenant answers 503 and the log says why), and importing a file
 as a tenant re-stamps it. Secrets sealed under another installation's key are dropped on import and entered again.
 
-**Restore:** stop DENIS, copy the backup over the database file (`denis.db`), start DENIS. Test a restore once
+**Restore:** stop DENIS (never copy over the database of a running DENIS), delete `denis.db-wal` and `denis.db-shm`
+beside the database if they are there (they belong to the database being replaced, and SQLite would apply them to the
+restored file), copy the backup over the database file (`denis.db`), start DENIS. A restore brings back the accounts
+and tokens as they were when the backup was taken: check the users and tokens afterwards.
+
+What a restore cannot bring back, and what DENIS notices (4.5):
+
+* **No sessions.** A backup holds no sign-in sessions (they are left out of the copy), so nobody is signed in by a
+  restored file.
+* **An older copy is recognised.** DENIS keeps a generation number in the database and in the file `db-generation` of
+  the data directory, and moves it on at each start and each time a credential is taken away (an API or agent token
+  revoked, a user disabled, demoted or deleted, a password reset or changed, a passkey or authenticator app removed).
+  When a start finds the database behind the data directory (an older copy was put back), every session ends, the log
+  says so with an error, the audit log has `store.restore_detected`, and the setting `store.restored_from_older_copy`
+  records when; the Health page shows it for 30 days. Review then what the copy brought back: API and agent tokens revoked after the copy was taken work
+  again, deleted users and removed passkeys or authenticator apps are back, used recovery codes work again. Revoke or
+  remove them once more. A restore onto a fresh data directory (no `db-generation` file) is not recognised. A
+  PostgreSQL dump made by DENIS leaves the sessions out too (the table is there, empty).
+* **The secret key.** `secrets.key` is not in the database backups. When it is missing at start and the database holds
+  values sealed with a key (integration credentials, authenticator-app secrets, the data key), DENIS refuses to start
+  and says so, instead of making a new key that could open none of them (4.5; before, a new key was made silently).
+  Put the installation's `secrets.key` back into the data directory (mode 0600) and start again. A database with nothing
+  sealed still gets a new key at its first start, as before. Test a restore once
 before you need it: `denis serve --db /backups/denis-2026-09-21.db` opens a backup in a console **without
 capturing anything**, so you can check it safely (see below).
 
@@ -54,12 +79,32 @@ live discovery does not.
 * **Load demo data**: a fictional company so you can explore every screen. Marked as demo; ignored by the
   collector and the detectors; a banner says it is loaded. (API: `POST /api/demo`; command line: `denis demo load`.)
 * **Remove demo data**: deletes only the demo records. (`DELETE /api/demo`; `denis demo remove`.)
+
+  Loading the demo on a console that already holds real data is safe, and removing it takes only what it added:
+
+  * **Switches**: the three demo switches are added only when the switch list is empty. A console with switches keeps
+    its list, its SNMP communities and its topology exactly as they were (it then has no demo switch topology). Removal
+    takes out exactly the three demo switches and their topology; a switch added meanwhile stays.
+  * **Posture history**: the demo's sixty days of history are written only for days that have no sample yet; a day
+    with a real sample keeps it (only the demo sites' own rows are added). While the demo is loaded, the daily sample
+    counts the demo devices only in the demo sites' rows; the "every site" row counts the real devices (on a console
+    with nothing but the demo it counts the demo). Removal takes the demo's rows only, also those of the days the demo
+    was loaded.
+  * **Reports and the compliance overview**: demo devices, their sites and alerts are left out when real devices are
+    present. On a console with nothing but the demo, a report shows the demo, says "Demo data." at the top, and its
+    title ends with "(demo data)".
+  * The demo's two sites are not counted by the Health page's "Agent reports" line.
+
+  If a removal stops part-way (a database error), the demo still shows as loaded; press **Remove demo data** again
+  to finish: every step takes only what is still there.
 * **Erase all data**: for when you have finished exploring, or are moving from a trial to the real network. It deletes
   **every device, edit, alert, baseline, communications record, trend sample and remote site**, forgets what was
-  learned, and starts a **new learning period**. It keeps user accounts and sign-in methods (passkeys, API tokens),
+  learned (including the known DHCP, DHCPv6 and router-advertisement servers, sweepers, address pairs and the rules' own
+  learning clocks), and starts a **new learning period**. It keeps user accounts and sign-in methods (passkeys, API tokens),
   notification channels, branding, rule settings, agent tokens and the **audit log** (which records that the erase
   happened and who did it). You must type `ERASE ALL DATA` to confirm. **It cannot be undone: take a backup first.**
-  (`POST /api/data/erase` with `{"confirm": "ERASE ALL DATA"}`; with DENIS stopped, `denis erase --yes`.)
+  (`POST /api/data/erase` with `{"confirm": "ERASE ALL DATA"}`; with DENIS stopped, `denis erase --yes`, which also
+  forgets what was learned.)
 
 ## Retention
 
@@ -71,6 +116,18 @@ acknowledged, resolved or re-opened which alert or incident, when and why): 1095
 days, or 0 to keep it for ever. It is independent of the period above, so a decision can still be read after its alert
 has been deleted. Nothing else removes decision-log rows: not deleting or merging a device, not *Erase all data*
 (the rows hold no personal data beyond the user name and the note a person typed).
+
+An alert that belongs to an incident nobody has resolved yet, and that incident, are kept up to a year beyond the
+period, so a slow investigation does not lose its evidence; after that year they go like everything else. This holds on
+SQLite and, from 4.5, on PostgreSQL too (before, PostgreSQL deleted them at the period). Each hourly prune is its own
+step: one that fails (for example a statement timeout on a large first prune on PostgreSQL) is written to the log as
+"pruning ... failed" and the others still run; it is tried again the next hour. On PostgreSQL the deletes run in chunks
+of 2,000 rows, as on SQLite.
+
+Kept without a time limit (documented, not pruned by any period): the audit log, the results of connection tests run
+by hand, the record of merged devices (it maps a merged device's old id to the one it became), the history of
+segmentation changes, and revoked API tokens, agent tokens and push subscriptions. They grow with what people do, not
+with traffic.
 
 ## Monitoring DENIS itself (Prometheus)
 
@@ -228,7 +285,7 @@ rules are only warned about unless you opt in, and the console asks again when y
 
 * every rule that is never quiet (`quiet::NEVER_QUIET`): threat list, rogue DHCP and router advertisements, DHCP
   options, DHCP starvation, DNS resolver changes, sweeps and fan-out, segmentation, new device on a watched port,
-  fingerprint changes, listed names (`dns_threat_domain`), an exposed service followed by a fetch
+  fingerprint changes, listed names (`dns_threat_domain`), names, web addresses and addresses of the lists you added (`threat_list_domain`, `threat_list_url`, `threat_list_address`, 4.5), an exposed service followed by a fetch
   (`inbound_then_fetch`), and the industrial command, write, unexpected writer, your own OT rules and GOOSE conflicts;
 * the safety-critical rules (`NEVER_PAUSED` in `src/detect/meter.rs`): `ot_program_upload`, `ot_concurrent_masters`,
   `ot_identity_changed`, `dns_threat_domain`, `inbound_then_fetch` and `lifecycle_device_seen`;
@@ -348,7 +405,24 @@ that mean DENIS is working but part of what it should see is missing:
 | N notifications could not be delivered in the last hour | The receiver refused them, or the alert was too old by the time it could be sent. They are given up on, listed under Settings → Notifications → Deliveries, and can be sent again from there. |
 | Notifications for a channel have been waiting for N | A channel's oldest message has waited more than 15 minutes because the receiver cannot be reached or does not accept it. They are sent again automatically. |
 | N notifications were not queued because too many were waiting | A channel that has been down for a long time reached 1,000 waiting messages (20,000 for all channels); the alerts are still in the console. |
-| Agent reports (a service line) | Agents are enrolled but none has reported for 6 hours. Advisory. |
+| Agent reports (a service line) | Agents are enrolled but none has reported for 6 hours. Advisory. The demo's two sites do not count. |
+| Saving devices and sightings (or east-west connections, or passive DNS names) to the database failed N times | A database write failed within the last 15 minutes: what was seen then is not saved. Check the free disk space and the database (on PostgreSQL: is the primary accepting writes?); the service log names the error. While writes fail, the **Database writes** service line is judged from the last flush that came with no new failure. |
+| Part of the database could not be read for this page | The Health page could not read the database statistics or the backup settings. It still shows everything else; the figures that need the database are empty. |
+| *Job*: the last N attempts failed | A periodic job (Findings, Posture samples, Scheduled reports, Service probe; advisory for Vulnerability data, the GeoIP database update, the Entra ID and Intune import, the vulnerability scanner import and, since 4.5, the Active Directory, Jamf Pro, Microsoft Defender, AWS, Azure and Google Cloud imports) failed three times in a row. What it keeps up to date is from its last completed run. The error is in the warning and under **Background work**. |
+| The background job *X* failed N times in a row (4.5) | One of the jobs that reconcile work items or merge joined devices keeps failing. The error is in the warning; the service log has more. |
+| Passkeys are off on this console / The stored passkeys were made for *old* (4.5) | Said at start and kept on the page: the sign-in policy asks for passkeys but passkeys cannot be used on this start (no `--public-url`, or a new public address). Accounts limited to passkeys sign in with their password until passkeys work again; `denis user reset-passkeys <name>` removes an account's old passkeys. |
+| This database is older than the one this installation last ran (4.5) | A restore from an older copy was detected at start (see above). Shown for 30 days. |
+| The standby *host* runs DENIS *version* … (4.5) | The standby of a PostgreSQL pair cannot open the database's schema and would not take over. Update it. |
+| The export to *target* has not worked for *age* / The saved SIEM export settings do not pass this version's checks (4.5) | The SIEM or OpenObserve export has failed for 15 minutes, or its saved settings fail a check of this version (the export keeps running as configured). |
+| The local TLS authority in *dir* cannot be read (4.5) | `ca.pem`/`ca.key` are there but do not open; they are not replaced on their own (agents pin them). Restore them, or delete both to make a new one. |
+| N devices were deleted from the database while discovery still had them / N devices … were removed (4.5, advisory) | The live inventory dropped rows the database no longer had, or the aging pass of a nearly full site removed devices nothing referred to. Seen again, they come back as new devices. |
+| Reports of these agents went missing / Remote agents dropped N flow records / Two collectors report as the same agent (4.5) | A gap in an agent's report sequence, records its full buffers pushed out while the master could not take them, or two processes with one agent id (a cloned machine). |
+
+**Background work** (at the bottom of the Health page, folded) lists each periodic job with its last completed run,
+its last attempt and the last error; each service line with its status and last good time; and each supervised task
+with its state, restarts and last error. The periodic jobs keep their record in the database (`jobrun.<job>` settings),
+so it survives a restart. When the Health page itself cannot be read (`/api/system` fails), the page says "Health could
+not be read" with the reason and the menu badge shows **!**, instead of keeping the last good page.
 
 These warnings clear when the cause stops. A restart clears the counters (not the cause).
 
@@ -416,8 +490,11 @@ first, and can update its remote agents from the console ([Updates](updates.md))
 2. Replace the `denis` binary and restart the service. On a Linux service installed with `install.sh`, just run the
    newest `install.sh` again: it does both steps ([Deployment](deployment.md#installing-on-a-linux-server-a-permanent-service)).
 
-The database is upgraded in place, in small transactional steps; a crash mid-upgrade leaves it at a consistent
-older version. A database newer than the program is refused with a clear message (never silently downgraded).
+The database is upgraded in place, in one transaction per start on SQLite and on PostgreSQL alike (4.5; before, SQLite
+committed each step on its own): a step that fails, or a crash mid-upgrade, leaves the database at the version it had
+before the start, which the program you ran before can still open. A step can run twice: a column, table or index it
+adds that is already there (a database set back to an older version by hand) is left out instead of failing the start.
+A database newer than the program is refused with a clear message (never silently downgraded).
 
 **Going back from 4.4.** Schema V57 (4.4, the counts of trial mode, which 4.4.1 removed: no rule can be put in a trial any more, the column stays) adds one column, `rule_outcomes_daily.trial`
 (`INTEGER`/`BIGINT NOT NULL DEFAULT 0`, on SQLite and PostgreSQL alike), and nothing else; the trial records themselves
@@ -425,7 +502,9 @@ live in the saved rules (`rules` setting, field `rule_modes`), which needs no mi
 restoring the backup taken before the update (the update does this by itself when it fails); a database already at V57 is
 refused by 4.3 ("newer than this build") rather than opened. If you must run 4.3 on a V57 database without a backup, the
 column is harmless to 4.3 and can stay; to bring the schema back by hand, stop DENIS and set it to 56: SQLite
-`PRAGMA user_version = 56;`, PostgreSQL `UPDATE schema_version SET version = 56;`. Nothing else changes, and the trial
+`PRAGMA user_version = 56;`, PostgreSQL `UPDATE schema_version SET version = 56;`. Installing 4.4 or newer again
+later upgrades that database as usual (from 4.5 on, SQLite leaves out the column that is already there; 4.4 itself
+stopped with "duplicate column name: trial", so go straight to 4.5 or drop the column first). Nothing else changes, and the trial
 records in the rules are ignored by 4.3 (it would reject a rules file that carries them, which is why a rules export never
 does). Rules that were in a trial then simply raise their alerts as usual: nothing stays hidden.
 
@@ -507,6 +586,62 @@ What is lost: nothing but the network of the rows (all of them are the original 
 with V60 adds the column again, empty. On PostgreSQL, `denis db undo-v58` refuses a database that is at version 60: do
 the steps above first, then undo V59 as described there. The steps were run against a real SQLite file in the tests
 (`store/sqlite/tests_v60.rs`); the PostgreSQL migration is covered by the shared store conformance cases.
+
+### Rolling back V61
+
+Schema V61 (4.5, administrator threat lists) adds two tables and nothing else: `threat_lists` (one row per list: its
+source, action, refresh and age settings, the name of its sealed credential and the status of its last fetch, never the
+credential) and `threat_list_entries` (the entries of each list). It changes no existing table, so it can be taken back
+on its own. A build that does not know V61 refuses the database ("newer than this build"); restoring the backup taken
+before the update is the simple way back. To go back by hand, stop DENIS on every node first, then:
+
+```sql
+-- PostgreSQL (one transaction)
+BEGIN;
+DROP TABLE threat_list_entries;
+DROP TABLE threat_lists;
+UPDATE schema_version SET version = 60 WHERE version = 61;
+COMMIT;
+```
+
+```sql
+-- SQLite (sqlite3 denis.db)
+PRAGMA foreign_keys = ON;
+DROP TABLE threat_list_entries;
+DROP TABLE threat_lists;
+PRAGMA user_version = 60;
+```
+
+What is lost: every administrator list and its entries. The sealed credentials stay in the settings table
+(`threat_list.credential.<id>`) and are ignored by an older build; delete them with
+`DELETE FROM settings WHERE key LIKE 'threat_list.credential.%'` if you do not want them kept. The settings row
+`threat_lists` (the global switches) is ignored too. The next start of a 4.5 build creates the tables again, empty. On
+PostgreSQL, `denis db undo-v58` refuses a database that is at version 61 (at version 62, take back V62 first, below): do the steps above first. The SQLite steps are
+run against a real file in `store/sqlite/tests_v61.rs`.
+
+### Rolling back V62
+
+Schema V62 (4.5, the threat list console) adds one column, `threat_lists.csv_column` (the column of a CSV list that holds
+the indicator; empty means the first column). Nothing else changes. A build that does not know V62 refuses the database
+("newer than this build"); restoring the backup taken before the update is the simple way back. To go back by hand, stop
+DENIS on every node first, then:
+
+```sql
+-- PostgreSQL (one transaction)
+BEGIN;
+ALTER TABLE threat_lists DROP COLUMN csv_column;
+UPDATE schema_version SET version = 61 WHERE version = 62;
+COMMIT;
+```
+
+```sql
+-- SQLite (sqlite3 denis.db, version 3.35 or later)
+ALTER TABLE threat_lists DROP COLUMN csv_column;
+PRAGMA user_version = 61;
+```
+
+What is lost: the column choice of each CSV list (those lists read their first column again). To go further back,
+continue with "Rolling back V61". The SQLite steps are run against a real file in `store/sqlite/tests_v62.rs`.
 
 ### The delivery outbox has no switch
 

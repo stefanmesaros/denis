@@ -43,7 +43,7 @@ Rule names for `--rule-weight`: `new_device`, `new_destination`, `volume_anomaly
 `remote_access_tool`, `ot_recon`, `ot_cross_cell`, `ot_new_protocol`, `ot_remote_access_path`,
 `ot_write_rate`, `ot_offhours_command`, `ot_exception_burst`, `inbound_bruteforce`, `inbound_then_fetch`,
 `dns_nxdomain_burst`, `mining_pool`, `vpn_tunnel_start`, `anonymizer_contact`, `admin_spread`, `new_admin_listener`,
-`daily_upload_new_owner`, `gateway_changed`, `rogue_dhcpv6`, `lifecycle_device_seen`, `mac_flood`, `hostname_clone`, `rogue_network_device`, `dynamic_dns_first_use`, `new_domain_for_server`, `upload_to_file_share`, `inbound_new_country`, `slow_scan`, `cleartext_admin_use`, `llmnr_nbns_responder`, `ot_time_source_changed`, `ot_register_range`, `custom_rule`.
+`daily_upload_new_owner`, `gateway_changed`, `rogue_dhcpv6`, `lifecycle_device_seen`, `mac_flood`, `hostname_clone`, `rogue_network_device`, `dynamic_dns_first_use`, `new_domain_for_server`, `upload_to_file_share`, `inbound_new_country`, `slow_scan`, `cleartext_admin_use`, `llmnr_nbns_responder`, `ot_time_source_changed`, `ot_register_range`, `threat_list_domain`, `threat_list_url`, `threat_list_address`, `custom_rule`.
 
 Every alert carries **advice**: click an alert (Alerts or Events tab) to see its summary, *why* it scored what
 it did, and *what to do next*. The same advice is in `GET /api/meta/options` (`advice`).
@@ -124,6 +124,29 @@ switch address table and a poisoning responder. The other ten are the ones a sit
 switch, a cloned virtual machine, a traveller, an old Telnet device), so you can tell DENIS that they are normal for a
 device. `llmnr_nbns_responder`, `ot_time_source_changed` and `ot_register_range` are **Experimental**. The data the three
 industrial ones need is listed in the [OT guide](ot-guide.md#the-44-rules-and-the-data-each-one-needs).
+
+## The rules added in 4.5, at a glance
+
+DENIS 4.5 adds three detections for the [threat lists](threat-lists.md) you add yourself. They are separate rules, with their
+own switch, weight and exceptions: `threat_list_match` and `dns_threat_domain` keep judging the lists that come with the
+product and the file given with `--threat-list`, exactly as before. **On an installation that already existed they arrive
+switched off** and carry the mark **New in 4.5.0**, like every new rule ([how that works](#new-rules-in-a-release)); none is
+recommended, because each has ordinary causes (a name shared with a content network, an entry that is wrong for you), and
+none does anything until you have added a list.
+
+| Rule | What it detects | Needs | Never quiet |
+|---|---|---|---|
+| [`threat_list_domain`](#threat_list_domain-a-name-on-your-threat-list-looked-up-or-contacted-needs-passive-dns-or-the-capture-of-server-names-and-a-list-with-names) | a device looks up or contacts a name that one of your lists holds (and below, where the entry says so) | passive DNS or name capture | **yes** |
+| [`threat_list_url`](#threat_list_url-a-web-address-on-your-threat-list-requested-over-plain-http) | a device requests, over plain HTTP, a web address (host and path) that one of your lists holds | capture of plain-HTTP requests (a later step of 4.5) | **yes** |
+| [`threat_list_address`](#threat_list_address-an-address-on-your-threat-list-contacted-needs---flows-and-a-list-with-addresses) | a device contacts an address or network that one of your lists holds | `--flows` | **yes** |
+
+**What a sensor can and cannot see** decides what each can find. DENIS sees the name in a *plain* DNS answer; DNS over HTTPS
+and DNS over TLS hide it, and so does a resolver the device uses on a link DENIS does not capture. It will see the TLS server name
+and the host and path of a plain-HTTP request where the capture of those names is switched on (a later step of 4.5; it is off
+by default). **It cannot see the path of an HTTPS request**: a list entry with a path matches plain HTTP only, an `https`
+entry matches nothing (the list says how many it holds), and for HTTPS only the host can match, which is a name rule.
+Encrypted Client Hello and QUIC hide the server name too. A match says a device asked for the name or the address, never that
+what it got was bad.
 
 ## Network rules
 
@@ -682,6 +705,34 @@ device and address per six hours. A hit only on the Tor exit list is `anonymizer
 weight, minimum score and exceptions you saved for `threat_list_match` keep applying to every other hit. Traffic is only seen when it crosses the interface DENIS listens on (see
 [Concepts](concepts.md#visibility-what-can-be-seen-from-where)).
 
+**How the list matched (4.5.0).** A hit says which of three things the list named, in its summary, its first reason and
+`raw_details.match_kind`:
+
+| Match kind | When | What it means |
+|---|---|---|
+| `exact` | the list names this address (a bare address, `/32` or `/128`; a list made only of single addresses always counts as exact, also where touching addresses were merged) | today's meaning: the list says this server is malware, botnet or scanner infrastructure |
+| `range` | the address lies in a network the list names as a whole (Spamhaus DROP, a network in your own file) | a reputation of that network; the address itself is not named |
+| `asn` | Spamhaus ASN-DROP: the address belongs to an autonomous system the list names; the alert gives the AS number and its network when the ASN database knows them | a reputation of the whole network operator, **not evidence about this address or this device** |
+
+The score (85, +10 at 100 kB or more), the six-hour cooldown, the severity and "never quiet" are the same for all three.
+What changes is the wording: an `exact` hit keeps today's advice (find what made the connection; if nothing explains it,
+isolate the device and change its credentials); a `range` or `asn` hit says what to check first (what the device was doing,
+which name was involved, whether you know the destination) and to isolate the device or change credentials only if more
+evidence points to malware. "If ignored" for an ASN-level hit no longer says the device is likely compromised. An incident
+made only of ASN-level hits has **medium** confidence instead of high (its score is unchanged). The AI assessment is told the
+match kind and, for a range or ASN hit, not to call the device compromised from it alone. A mixed list (a single address
+inside a network it also lists) reports the network: precision is never claimed where the compiled list cannot show it.
+
+**Connection evidence (4.5.0).** The alert carries a snapshot of the flow window that raised it (`raw_details.connection`):
+the device and its address, the remote address, the service port and protocol, bytes sent and received, the packet total,
+the window and the sensor, the list, the match kind and entry, and the names that go with the address, each labelled by
+source: *Observed TLS SNI* and *Observed HTTP Host* (only with the capture of names switched on for that collector) and
+*DNS correlated (inferred)* (only with passive DNS on; several candidates are kept and the alert says it is ambiguous; a name
+from DNS never means the device visited that site). What this version does not record (the source port, packets per
+direction, first and last packet inside the window, whether a TCP handshake completed, the capture interface, the DNS TTL,
+the CNAME chain) is listed as such, and the console says which program made the connection cannot be known from the network.
+The snapshot lives as long as the alert. See [Threat lists](threat-lists.md#connection-evidence-450).
+
 ### `dns_threat_domain`: a known-bad domain looked up *(needs passive DNS)*
 A device looks up a name that a threat feed lists as malware infrastructure (abuse.ch ThreatFox domain indicators,
 the hosts of URLhaus malware URLs, see above) or a name on **your own domain list**. Malware finds its control server
@@ -713,6 +764,81 @@ paused**, like `threat_list_match`: "This is normal" cannot hide it. Use `--rule
 the publisher (the next fetch drops it), add a rule exception for the devices that use it, switch that feed off, or
 lower the rule's weight. There is no allow list per domain, and it cannot be marked as normal. *Investigate:* the device named in the alert and what it runs; the
 alert lists each listed name, the list, whether it came through a CNAME and the addresses that answered.
+
+### `threat_list_domain`: a name on your threat list looked up or contacted *(needs passive DNS or the capture of server names, and a list with names)*
+A device looks up, or connects by name to, a name that one of your [threat lists](threat-lists.md) holds. **New in 4.5, off until you turn it on.** The
+question name and the last CNAME target of every passive-DNS answer are checked, over IPv4 and IPv6; the same matcher
+judges the TLS server name (SNI) of a connection and the host of a plain-HTTP request when an administrator switched on
+*Server names and web addresses* on the collector (`--capture-names` on an agent; IPv4 only, nothing is stored, see
+[Threat lists](threat-lists.md#reading-server-names-and-web-addresses-opt-in)), and the alert says which of the three it saw
+(*a DNS lookup*, *the TLS server name*, *the host and path of a plain HTTP request*). Encrypted Client Hello, QUIC, DoH and DoT hide names.
+
+*Matching:* on label boundaries (`notevil.example` never matches `evil.example`), against the index of your enabled lists. An
+entry written `evil.example` matches that name only, unless its list ticks "a bare domain also covers below"; `*.evil.example` and
+`.evil.example` match the name and everything under it. Case does not matter, international names are compared in Punycode,
+a single label and a public suffix are never listed. **A CNAME to a listed name counts**: a lookup of an innocent name that is
+answered through `edge.bad.example` alerts, and the alert says it came through a CNAME and names the target. The most specific
+entry wins; at the same name, the list that was created first.
+
+*The alert* names the list ("on your list Acme ISAC"), the matched entry (and whether it matched the name itself or a parent
+"and below"), the device, the name asked for, what answered (the addresses), the resolver and the time. `raw_details` has the same
+shape as `dns_threat_domain`'s (`summary`, `reasons`, `mac`, `client_ip`, `listed`, `listed_all`, `source`, `names[]`) plus `list`
+(`id`, `name`, `action`), `seen_as` and `response`.
+
+*The hint* (an estimate): a flow carries only addresses, so a flow never raises a name match on its own. DENIS keeps, per
+device, the addresses it was answered with for a short while (ten minutes: passive DNS does not record the answer's own
+time to live, so five minutes plus five of grace are assumed; at most 128 addresses per device and 50,000 in all). When a
+listed name matches, the alert adds, **labelled *estimate***, how many *other* names the same device got the same address for:
+a shared address (a content network) is a weak sign, and a block by address could hit those names too. The hint never raises an
+alert and never prepares a block by itself. With passive DNS off there is no hint, and a flow alone is never a name match.
+A connection to the answered address is noted, and reported as "and then connected" on the alert of `threat_list_address` for
+that address, and on a name alert when an earlier window already showed it; a stored alert is not amended afterwards.
+
+*Learning:* none, from the first lookup, during the learning period too. *Score:* the list's score (default 80, high); 20 less on a
+lookup through a device that resolves names for others. *Cooldown:* once per device and listed entry per six hours. **Never quiet and
+never paused.** Use `--rule-weight threat_list_domain=<weight>`.
+
+*The list's action* (`alert`, `prepare_block`, `auto_block`, a setting of the list) is stored with the list. This rule creates
+the alert; for the other two it also queues a prepared block (bounded to 50, one per list and entry), which becomes a proposal in
+*Waiting for your approval* (a name block on equipment that can block by name, else the addresses it resolves to, labelled
+"addresses only, may change"; see Threat lists, "What a block from a list does"). The alert says in `response` whether a path
+exists (`offered`). Automatic blocking is Experimental and off by default.
+
+*Typical false positive:* an entry that is wrong for you, or a name you use on purpose (a shared service). Remove it from the list, tell
+the publisher, add a rule exception for the devices concerned, or lower the weight. *Investigate:* the device and what runs on it;
+the alert lists each listed name, the list, whether it came through a CNAME and the addresses that answered. Lists are per
+installation (per customer on a multi-tenant server): a name on one customer's list is never judged for another.
+
+### `threat_list_url`: a web address on your threat list requested over plain HTTP
+A device requests, in plain HTTP, a web address that one of your lists holds: the host and a path prefix (`http://bad.example/malware`
+also matches `/malware/x.exe`, not `/malwarex`), or a path with a query, which matches that exact query only. **New in 4.5, off until
+you turn it on.** The request is normalised the way the entries were (host in lower case, default port, fragment and user name dropped, path
+normalised) and the longest listed prefix wins.
+
+**HTTPS paths are invisible.** A sensor cannot see the path of an HTTPS request, so this rule can never match one; an `https`
+entry of a list matches nothing (unless the list ticks "an HTTPS address counts as its host", which turns it into a name entry for
+`threat_list_domain`), and the list shows how many such entries it holds. Only the first request of a plain-HTTP connection is seen.
+The alert keeps the listed entry, never the visited address (a visited address can hold personal data).
+
+This rule needs the capture of plain-HTTP requests: *Settings -> Network interfaces -> Server names and web addresses* (off by
+default; `--capture-names` on an agent). Only the host and the path of the first request of a connection on port 80, 8000,
+8008, 8080, 8081 or 8888 are read; **the query string is cut when the request is read** (a token in a URL is never kept) unless
+an administrator also ticks keeping it in memory for the match, and no header but `Host` is read. Nothing is stored. It shares
+the matcher, the evidence and the cooldown with `threat_list_domain`. *Score:* the list's score (default 80).
+*Cooldown:* once per device and entry per six hours. **Never quiet and never paused.**
+
+### `threat_list_address`: an address on your threat list contacted *(needs `--flows` and a list with addresses)*
+A device contacts an address or network that one of your lists holds (an address, a network in CIDR notation, IPv4 or IPv6; an
+IPv4-mapped IPv6 address and a NAT64 address count as the IPv4 address they carry). **New in 4.5, off until you turn it on.** It is the
+twin of [`threat_list_match`](#threat_list_match-contact-with-a-known-bad-address-needs---flows-and-a-threat-list) for the lists you
+add: `threat_list_match` goes on judging the product's lists and the `--threat-list` file and is not changed.
+
+The alert names the list, the **listed entry** (the stored range: ranges that touch are merged when a list is compiled, so a
+network can show as the wider merged one), the address, the port, the protocol and the bytes; when passive DNS looked the address
+up for that device recently the alert has `names` as other flow alerts do, and when the device was answered that address
+for a listed name it adds the hint, **labelled *estimate***: "this device asked for *name* (list *L*) and then connected to
+*address*; it got that address for *n* other names". *Score:* the list's score (default 80), +10 when the device sent 100 kB or more
+in one window. No learning. *Cooldown:* once per device and listed entry per six hours. **Never quiet and never paused.**
 
 ### `remote_access_tool`: a remote-access tool used for the first time *(needs passive DNS or `--flows`)*
 A device uses a remote-access service for the first time: AnyDesk, TeamViewer, ConnectWise ScreenConnect, Splashtop,
@@ -1269,8 +1395,28 @@ in a list. A condition is a field and its values:
 * the traffic: `proto` (tcp, udp, icmp), `port`, `bytes_kb` (at least), and for `flow` and `inbound` the address: `remote`
   (`private`, `public`, an address or a network), `peer_country`, `peer_asn`;
 * the name: `name_suffix` (a domain and its subdomains);
+* your threat lists (new in 4.5): `list`, for `flow` and `dns` rules: **the destination is on one of these lists**. See below;
 * the time, on the site's clock: `days` (0 is Monday) and `hours` (ranges like `08:00-17:00`, which may pass midnight);
 * industrial: `ot_proto`, `ot_writes`, `ot_controls`, `ot_any_traffic`, `ot_command` (words in a function name).
+
+**The `list` condition** (4.5). It names lists you added under Settings, Threat lists, by their **id** (the editor shows names; renaming a
+list changes nothing about a rule). In a `flow` rule it asks whether the address outside your networks is on one of the lists
+(their addresses and networks); in a `dns` rule whether the looked-up name is on one of them (the name itself, or below a name listed
+with *and below*). It combines with every other condition: *the device is a camera and the port is 443 and the address is on
+the list "Acme ISAC"*, or *the name is on the list during office hours*. *Is on none of* is the opposite. The lookup is the same
+one the list rules use: no allocation per record, and a window raises at most 25 alerts per rule as for every own rule. The alert
+says which list the destination is on.
+A list that was **deleted or switched off** (or the lists as a whole switched off) can no longer hold anything, so the condition
+**never holds, and neither does its negation**: deleting a list never turns "on the list" into "not on the list" and widens a rule.
+The editor and the Rules page say so in words (*the list no longer exists*, *is switched off*), also when the list is not set to
+hold what the rule looks at (a list of names asked about an address). A list is the lists of **your installation**: on a server with
+tenants a rule reads its own tenant's lists and no others, and the same list id in two tenants is two different lists.
+A rule that uses the condition is written in the format `denis.rule/2`; every other rule stays `denis.rule/1`, so a file without the condition
+can still be read by 4.4, (API: `GET /api/rules/v2` also answers `lists`, the lists a rule can name with their state, and `list_notes` on a rule whose lists cannot work; `POST /api/rules/v2/validate` answers `list_notes` and the same sentences in `warnings`; the codes are `list_missing`, `list_off` and `list_wrong_kind`)
+and a 4.4 console that meets a rule with the condition refuses it with its "made by a newer DENIS" sentence
+instead of dropping the condition. Ids differ between installations: an MSP cannot send a rule with this condition (send the list as a
+[managed list](msp-management.md#sending-threat-lists-to-customers) and let the customer pick it), and an imported rule is imported with a note that its
+lists must be checked.
 
 `first_seen` makes a rule raise only the first time for each device (`device`), device and peer (`peer`), device and port
 (`port`) or device and name (`name`). The memory is in the running program: after a restart each can raise once more.
@@ -1575,9 +1721,11 @@ only through a remote agent, or anything at all when DENIS runs `--passive-only`
   read, and the page's `<title>` kept. Redirects are never followed.
 
 Every connection has a short timeout, at most eight devices are probed at once with a pause between one device's
-connections, and at most 1,024 devices per run. What comes back is kept as plain text in the device's panel
-(*Certificates and web pages*) and feeds the four findings above. Switching the probe off removes what it found, and a
-port that closes loses its result at the next run. The certificate is only read, never trusted: nothing is sent over
+connections, and at most 1,024 devices per run; with more, the next run starts after the last device the previous one
+probed, so every device is reached in turn, and a device that did not fit a run keeps its earlier result. What comes
+back is kept as plain text in the device's panel (*Certificates and web pages*) and feeds the four findings above.
+Switching the probe off removes what it found, and a port that closes loses its result at the next run. A device where
+no port answered at all (busy, rebooting) keeps its earlier result until it answers again. The certificate is only read, never trusted: nothing is sent over
 these connections except the `GET /`.
 
 ## Software versions: end of support and known exploits
@@ -1612,7 +1760,11 @@ IIS, Exim, ProFTPD, vsftpd, MySQL, MariaDB) and asks two questions of it. **No v
   * **Update now** fetches the current CISA catalog live, looks up ranges on NVD and scores on EPSS, for the same
     recognised products above; a weekly auto-refresh sits beside it, on by default like the support-date refresh
     (it can take a minute or two, since NVD is rate-limited per CVE; switch it off there if you would rather not
-    contact those three sites).
+    contact those three sites). A refresh is merged with the previous list: a CVE whose NVD lookup failed this time
+    (a timeout or a refused request) keeps its previous entry, and a refresh that would empty the list, or shrink it
+    to less than half while lookups failed, is refused and the previous list stays in use. One refresh runs at a
+    time; pressing **Update now** while one runs says so. A live entry the shipped list already has (the same CVE
+    and product) is counted once.
   * **Custom CVEs**: add one by hand (CVE id, product, name, date, an exact version or a range) for software DENIS does not
     ship data for yet, or one you want flagged sooner than the next release. Matched exactly like the list above.
 
@@ -1650,7 +1802,20 @@ On the **Rules** page (administrators):
   which targets, and from which senders never.
 
 *Reset everything to defaults* returns weights, thresholds and minimum scores to their defaults and **keeps** your
-exceptions and rules (they are your content, not tuning).
+exceptions and rules (they are your content, not tuning). Since 4.5.0 it also keeps off a rule you marked as reviewed
+among the new rules, and a rule the 4.4.1 update switched off when its trial ended ("N rules you kept off stay off"):
+before, a reset turned them on. The API's `DELETE /api/rules` does the same (before 4.5.0 it also removed exceptions,
+schedules and the other settings).
+
+Deleting one of your rules also removes its exceptions, so a later rule with the same id starts clean and the rules
+export of this installation always imports again (an older file that still names such a rule imports, with the key
+listed as ignored). When two people edit the same rule, the second save is refused with "this rule was changed since you
+opened it" instead of overwriting the first; a rule deleted meanwhile is not brought back by an editor left open.
+
+**A rule made by a newer DENIS** (after going back to an older version, for example a `denis.rule/2` rule on 4.4) is
+listed at the top of the Rules page and **kept untouched**: no save deletes or changes it, and its id cannot be taken by a
+new rule. When the saved rule settings themselves were written by a newer DENIS and cannot be read, detection runs on
+the defaults, the page says so, and DENIS refuses to save over them until it is updated again.
 
 ## Exceptions
 
@@ -1745,7 +1910,7 @@ runs), it makes all detection late, and after that the capture can drop packets.
   one slow rule is skipped, every other rule keeps running, and nothing is silent: Health says which rule was paused and
   why, the Rules page marks it **Paused: too slow**, the administrators get a notice (at most one per rule every six hours), and the
   audit log records it. After 30 minutes DENIS tries the rule again on a little work, and when three runs in a row are fast
-  enough it **resumes by itself** (audited too); a rule that is slow again waits longer. An administrator can re-enable it
+  enough it **resumes by itself** (audited too); a rule that is slow again waits longer, also after a restart. An administrator can re-enable it
   at any time with **Run it again** in the details of the rule, or under Health, Detection rules.
 * **Keep every rule running and accept that packets may be dropped:** nothing is paused, the rule is only warned about,
   and packet loss is reported on Health and by a notice.
@@ -1756,7 +1921,7 @@ industrial network, so DENIS pauses one only if you choose that, after a strong 
 **Some rules are never paused**, whatever you choose, only warned about: every rule that is never kept quiet (threat list,
 rogue DHCP and router advertisements, DHCP changes, sweeps, segmentation, fingerprint changes, a changed gateway,
 and the industrial command and write rules), the safety-critical industrial rules (`ot_program_upload`,
-`ot_concurrent_masters`, `ot_identity_changed`), `dns_threat_domain`, `inbound_then_fetch`, `mac_flood`, `llmnr_nbns_responder` and the rules they are built
+`ot_concurrent_masters`, `ot_identity_changed`), `dns_threat_domain`, `threat_list_domain`, `threat_list_url`, `threat_list_address`, `inbound_then_fetch`, `mac_flood`, `llmnr_nbns_responder` and the rules they are built
 from, and every built-in rule of 4.2 and earlier. The complete list, the numbers and the metrics are in
 [Operations](operations.md#when-a-rule-is-paused-or-detection-is-overloaded). Packet loss from overload is reported:
 Health shows it, and a high notice is sent when traffic was lost while detection was far behind.
@@ -1938,8 +2103,11 @@ decided, without adding work for every packet. The work is done where a decision
   `cooldown` (the same alert was raised a short while ago), `quiet` (recorded as a quiet entry; which quiet reason),
   `normal` (you marked it as normal), `trial` (only in records of 4.4.0: the rule was in a trial), `held` (*new rule, off*: a new rule that is off until you turn it on),
   `paused_by_meter` (*paused: too slow*: the rule took too long and the overload protection paused it), `needs_traffic_analysis` (the rule needs a source that is
-  not switched on), `excluded_type` (the rule leaves this kind of device out) and `off` (the rule is switched off). The last
-  five, and `learning` for a device, are states rather than events: they are worked out when you ask, not recorded while
+  not switched on), `excluded_type` (the rule leaves this kind of device out), `off` (the rule is switched off), `waiting` (a rule
+  with a count or a sequence that has not reached it yet) and, since 4.5, `needs_sequences` (*needs Sequences and
+  counts*: an own rule with a count or a sequence while *Sequences and counts* is off; before 4.5 this was reported as
+  `needs_traffic_analysis`). `off`, `held`, `paused_by_meter`, `trial`, `needs_traffic_analysis`, `needs_sequences`,
+  and `learning` for a device, are states rather than events: they are worked out when you ask, not recorded while
   detection runs. `excluded_type` is reserved for the rules that leave a device type out; until a rule reports it, it does not appear.
 * **Where it appears.** On a rule's row, a small *N not raised* tag (with the counts per reason on hover), and in its details a
   section **Why it did not raise** with the states that keep it from raising now and its last decisions. On a device, the list
@@ -1971,7 +2139,27 @@ DHCP, DHCPv6 or router-advertisement server, a DNS resolver, an industrial conve
 device serves) is taken back, so the next sighting
 alerts again. Learned state that belongs to an alert is written to disk only after the alert itself is stored, so this
 also holds across a restart. The delay is a few milliseconds; if the confirmation never arrives, saving resumes after
-two minutes.
+two minutes. The same goes for the repeat limits a lost alert armed: the six-hour limit per connection of
+`segmentation_violation`, the day of `new_on_port`, the hour per source network of `inbound_from_public` (for every device
+the alert named) and the half hour of `new_device_burst` are lifted, so the next occurrence alerts. A rule that fails on
+some data (a fault in DENIS, counted under *errors* on Health) gives back what it had learned from that data at the next
+save, so that data alerts when it is seen again. A device whose baseline could not be saved is tried again at the next
+saves (three in all).
+
+**What a restart keeps.** Baselines, the learning periods and the learning clocks of the rules, the known DHCP, DHCPv6
+and router-advertisement servers, the known sweepers and address pairs, industrial conversations, the devices waiting
+for their `new_device` alert (saved within 5 seconds) and the paused rules come back after a restart or on the other server of a
+high-availability pair. The repeat limits (cooldowns), the "first time" marks of your own rules and the counters of the
+rules that count repeats live in memory only: after a start, a condition that goes on (a scanner, a contact with a listed
+address, a segmentation violation) is reported once more, and an own rule with *only the first time* reports its first
+times again. Learning saved in the last 30 seconds before an unclean end (a crash, a power cut) is lost and learned again.
+
+**When the clock jumps.** DENIS compares the system clock with a clock that cannot be set, every 5 seconds. When the
+system clock moves by more than five minutes beyond the time that passed (a box that started with a stale clock and is
+then set right by NTP, or someone setting the clock), a learning period that was still running keeps its remaining time
+instead of ending at once (forward) or lasting longer (back), and the start moved forward is saved, so a restart keeps
+it. A clock set back moves the repeat limits back with it, so they last what they should; a clock set forward drops the
+open volume windows unjudged (they would close at once with a partial count).
 
 Rule settings can be **exported as a file and imported** on another install (*Rules* → *Export as file* /
 *Import from file…*); the file is the same shape `PUT /api/rules` takes.

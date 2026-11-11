@@ -8,7 +8,7 @@ Besides the connector's own refusals, every action through it is refused for a l
 
 ## What the old "block" really is
 
-Before 4.1 this connector's block moved every network interface of one VM into one network security group (NSG) you made for quarantine. That was always a **quarantine of the machine**, not a block of one address, and DENIS now calls it that (*Quarantine*, method `nsg_swap`). The old *Block…* and *Unblock…* buttons still do exactly this, by VM name, and old records keep working. Nothing about the old routes changed.
+Before 4.1 this connector's block moved every network interface of one VM into one network security group (NSG) you made for quarantine. That was always a **quarantine of the machine**, not a block of one address, and DENIS now calls it that (*Quarantine*, method `nsg_swap`). The old *Block…* and *Unblock…* buttons still do exactly this, by VM name, and old records keep working. Since 4.5.0 the old routes refuse a VM name that DENIS's device list does not know (by the Azure cloud import or a host name): without it DENIS cannot check that the VM is not DENIS itself, the gateway or a protected device. Run the cloud import for the subscription first.
 
 ## What DENIS can do on Azure
 
@@ -105,3 +105,20 @@ The console shows a short line under each field and a short note behind its (i).
 - **NSG for DENIS deny rules (optional)**: The network security group you named for DENIS's deny rules, as its full resource id. Attach it to the network interface or the subnet of the machines it should protect. DENIS adds and deletes only its own rules in it and never edits the group. Needed only for "Allow DENIS to create deny rules".
 - **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create deny rules for a flow block in the group named above (an inbound and an outbound rule for each direction), named denis-... and marked DENIS managed in the description, and delete them again when the action ends. It never creates an allow rule. A wrong deny rule can cut off traffic.
 - **First priority number for DENIS rules (optional)**: DENIS uses the 100 priority numbers from this one (100 to 3997, default 100) for its deny rules in the group above, taking the lowest free ones. It refuses when a rule of yours that allows traffic has a lower number, so keep your own allow rules at higher numbers.
+
+## 4.5.0: checks and releases
+
+* **Before a swap DENIS asks Azure** whether the service principal may attach each NSG it takes off (and the one it puts
+  on): `Microsoft.Network/networkSecurityGroups/join/action`, read from
+  `{nsg}/providers/Microsoft.Authorization/permissions`. When Azure says no, the plan is refused and nothing is changed
+  ("DENIS could isolate this VM but not put it back"); a permission list DENIS cannot read changes nothing (best guess:
+  the shape of that answer is documented, not tried on a real tenant).
+* **In force is about the NSG.** A network interface that carries DENIS's NSG but is `Failed` or still `Updating` in
+  Azure keeps the action active with a notice that names its state; it is no longer recorded as removed. Some
+  interfaces given their NSG back while others still carry DENIS's, and an interface attached to the VM after the
+  block, keep the action active with a notice too.
+* **A rule NSG deleted by hand** lets the release of a flow block close: nothing of DENIS's is left in it.
+* **Two writes to one NSG at once** (`409 AnotherOperationInProgress`) are waited out and repeated up to three times; a
+  write that still meets it is refused with a sentence about the NSG, not about a network interface.
+* **The old route refuses** a VM any of whose interfaces carries the quarantine or the isolation NSG or a DENIS mark
+  from another action.

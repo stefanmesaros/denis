@@ -90,3 +90,19 @@ The console shows a short line under each field and a short note behind its (i).
 - **Access layer for deny rules (default Network)**: The access layer of your policy package where DENIS puts a deny rule at the top when you block one flow. Leave empty to use Network.
 - **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create one Drop rule per flow block at the top of the access layer, named denis-... and tagged DENIS managed, and delete it again when the action ends. It never creates an allow rule and never uses any address but the two hosts of the flow. A wrong deny rule can cut off traffic: switch this on only if you accept that.
 - **Do not check for other administrators' unpublished changes**: Off by default. Installing a policy pushes everything already published in the package, and DENIS refuses to publish and install while another administrator has unpublished changes in an open session, or when it cannot read the open sessions. Tick this only if your version cannot give DENIS that list and you accept that DENIS may act while someone else is editing.
+
+## 4.5.0: checks, installs and sessions
+
+* **Published but not installed.** An action whose host or rule is on the Management Server as planned but whose
+  install failed stays active and unconfirmed ("... not installed on the gateways yet") instead of closing; an install
+  still running is "cannot tell". A rule that is no longer first or no longer as planned keeps the action active with a
+  notice.
+* **"install started"** is recorded with the task id before DENIS waits, so a later check asks the task after a stop.
+* **A removal of a block that was never installed** needs no install of its own: no install-only retries of the whole
+  package.
+* **A flow release** whose service or host object cannot be deleted (an administrator's rule uses it) still removes and
+  publishes the rules; the objects are listed as left behind.
+* **DENIS's own earlier session.** DENIS names its Management sessions "DENIS". An earlier session of DENIS's own
+  account under that name that still holds changes (a lost publish answer, a stop) is discarded by its id before the
+  next write; one that cannot be discarded is named as DENIS's own ("An earlier Management session of DENIS ...").
+  **[verify]** on a real server that `show-sessions` returns the session name.

@@ -53,8 +53,24 @@ page section: [Upgrading a pair to 4.4](#upgrading-a-pair-to-44).
 
 Both nodes start and try to take one install-wide lock in the database. The one that gets it becomes the **leader**: it
 captures, detects, sends notifications and serves the console and the agent port. The other one is on **standby**: it
-serves only `/api/health`, which answers HTTP `503` with `{"ok":false,"role":"standby"}`, and does not open the agent port
-(`--ingest-listen`) at all. The leader's `/api/health` answers `{"ok":true,"role":"leader"}`.
+serves only `/api/health`, which answers HTTP `503` with `{"ok":false,"role":"standby","can_take_over":true}`, and does
+not open the agent port (`--ingest-listen`) at all. A standby whose program is older than the database's schema (one
+node updated, the other not) answers `"can_take_over":false`, does not try the lock (it could not open the database
+after winning it) and leaves a note `ha.standby_incompatible` (host, version, the newest schema it opens, the schema of
+the database) for the leader; update that node to the leader's version (4.5). The leader's `/api/health` answers `{"ok":true,"role":"leader","ha":{"mode":"leader","may_act":true}}`.
+
+What `/api/health` says about this node, and what it means:
+
+| `role` | `ha.mode` | `ha.may_act` | The node |
+|---|---|---|---|
+| `standalone` | `standalone` | `true` | has no `--database-url`: a single node, there is no pair |
+| `leader` | `leader` | `true` | holds the lock and keeps proving it: it acts |
+| `leader` | `holding_off` | `false` | has just taken over and waits a few seconds (4 s) for the previous leader to stop acting before it sends, exports or changes anything |
+| `lost` | `lost` | `false` | was the leader and its lease ran out or was revoked: it no longer counts as the leader and is about to exit |
+
+Before 4.5 the last row answered `"role":"standalone"`, which reads as "a healthy single node". A balancer that only
+looks for `"role":"leader"` is not affected: the node was never `leader` in that state and still is not. The `ha` block
+is new and additive; `role` keeps its name and its first two values.
 
 When the leader stops, the standby takes the lock and becomes leader, in tests within about 2 seconds of the database
 noticing the old session is gone. When the old leader comes back, it starts as standby; leadership does not move back by
@@ -133,12 +149,14 @@ clients trust for that address.
 * **Backup files.** Only the leader runs the scheduled backup, and it writes to its own disk. A backup taken while one node
   was leader exists only on that node; if that machine is lost for good, the backup goes with it. Send backups off the
   machine with `--backup-upstream` instead of sharing the backup folder; the backup job needs the folder to itself.
+  After a failover the console of the new leader lists only the backups on its own disk; the older ones are on the other node.
 * Each node's own log files and anything else about that process only.
 
 ## Load balancer or virtual address
 
 Point agents, browsers and anything else at **one virtual address or host name** that checks both nodes and sends
-traffic only to the one whose `/api/health` says `"role":"leader"`. Never point anything at one node's own address:
+traffic only to the one whose `/api/health` says `"role":"leader"` (a node that says `"role":"lost"` has lost the lock and
+is about to exit). Never point anything at one node's own address:
 
 * the standby is by definition not the node that should serve you, and which node leads changes without any
   configuration change;
@@ -350,7 +368,8 @@ of these settings still works; the log then names the setting that was skipped. 
 ## What happens to the old leader
 
 The leader checks once a second that it still holds leadership. Each good answer renews a local lease of three seconds.
-If the answer says another node leads, is an error, or does not arrive within about 8 seconds, the node gives the lease up
+If the answer says another node leads, is an error, or does not arrive within about 8 seconds (30 seconds when
+`DENIS_PG_LOCK_STATEMENT_TIMEOUT` is set to `0`; the writes of such a node are refused by the database meanwhile), the node gives the lease up
 and exits; your service manager starts it again as standby. This check runs on its own thread, apart from the
 console's and the jobs' work, so a database link that has gone silent cannot delay it. Once the lease has run out,
 `/api/health` no longer answers `leader`, even before the process has exited.
@@ -420,7 +439,10 @@ What you may see and what to do:
   database was changed with the fence switched off.
 * An operator who must change data by hand in `psql` types `SET denis.fence_exempt = 'maintenance';` first (any other
   value is no exemption), and should do so only with DENIS stopped. Without it the write is refused with SQLSTATE
-  `DN001` and a message that names this setting.
+  `DN001` and a message that names this setting. A backup from the *Backups* page of a PostgreSQL installation (a
+  plain SQL file) sets it itself before its settings rows, so it can be restored with
+  `psql -v ON_ERROR_STOP=1 --dbname=<empty database> < <file>`; the file creates the `public` schema, so drop the one
+  a new database comes with first (`DROP SCHEMA public;`). Verified on PostgreSQL 16 (4.5.0 test run).
 * **Give DENIS a schema or a database of its own.** The fence is attached to the DENIS tables only, never to a table of
   another application, but DENIS still assumes it owns its schema (it changes the tables in it at every upgrade). Do not
   share the schema with another application. A tenant's database role has no right at all on the election table or on
@@ -587,7 +609,9 @@ tenant's table, and the cached statements of a connection are dropped at each sw
 * Each tenant schema has its own copy of the data tables and its own `schema_version`, and the write fence on every
   table. The main schema (`public`) must be at schema version 58 or newer first: the fence function, the election
   table and the standby's notes exist once, there.
-* Backups: the backup of a tenant is a `pg_dump --schema=t_acme`; the backup of `default` is a dump of `public` only.
+* Backups: the backup of a tenant is a `pg_dump --schema=t_acme`. The copy DENIS takes before an update holds `public`, the control schema `denis_control` and every tenant schema `t_<id>`
+  owned by its `denis_t_<id>` role (from 4.5; before, `public` only), so restoring it brings the whole install back.
+  Another application's schemas in the same database are not in it.
   Removing a tenant drops its schema and role for good (backups taken earlier still hold its data).
 * PgBouncer in transaction mode does not work with DENIS (session locks and session settings); use session pooling or a
   direct connection.

@@ -101,3 +101,17 @@ The console shows a short line under each field and a short note behind its (i).
 - **Access policy name (optional)**: The access policy DENIS puts deny rules at the top of when you block one flow. Leave empty to use the device's one access policy.
 - **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create one deny rule per flow block at the top of the access policy, named denis-... , and delete it again when the action ends. It never creates an allow rule and never uses any address but the two hosts of the flow. A wrong deny rule can cut off traffic: switch this on only if you accept that.
 - **Deploy without checking for other administrators' pending changes**: Off by default. A deployment publishes every pending change on the FTD, including changes another administrator has not finished, so DENIS refuses to deploy while it can see changes that are not its own, or when it cannot read the list. Tick this only if your FDM version cannot give DENIS that list and you accept that a deployment may publish other people's pending changes.
+
+## 4.5.0: checks and releases
+
+* **Set up but not deployed yet.** The hourly check and *Check* no longer close an action as "not on the device any
+  more" when DENIS's object or rule is on FDM as planned but not deployed: the action stays active and unconfirmed
+  ("DENIS's change is on FDM as planned but not deployed to the FTD yet"), and is confirmed once the deployment has
+  run. A group update DENIS left pending after another action was withdrawn is not taken as this block's.
+* **A rule someone moved.** A flow rule that is still there but no longer first, or no longer as DENIS set it, keeps
+  the action active with a notice; the release removes it. Only a rule that is gone closes the action.
+* **A stop during the deployment wait.** DENIS records "deploy started" with the job id before it waits. After an
+  update or a restart in that window the release deploys its removal (before 4.5.0 it could skip the deployment).
+  A job that ended FAILED is still withdrawn without a deployment, as before.
+* Only DENIS's own **deny** rules count as "DENIS's rules above its rule" (a rule named like DENIS's that allows
+  does not).

@@ -28,6 +28,25 @@ default for a new installation since 4.2, one switch to turn off): see
 Your data is not changed by updating: the database is migrated forward by the new version exactly as in any manual
 upgrade, after the backup exists. Only newer versions are offered; a downgrade is never installed.
 
+## When an automatic rollback is not possible
+
+After a switch the new program must run for a minute. If it fails to start twice, the third start puts the previous
+program back (and, on SQLite, the pre-update database when its format had changed). Since 4.5.0 two cases are refused
+instead of half-done, and the new program keeps starting:
+
+* **PostgreSQL, the schema was migrated.** The old program refuses a schema newer than itself, so putting it back would
+  leave both nodes unable to start. DENIS records the schema version before the update and the one the new program
+  found after it opened the database; when they differ it does not put the old program back. The note (in the console's
+  update box and in the log at every start) names both versions and the pre-update dump. To go back by hand: stop DENIS
+  on both nodes, restore that dump with `pg_restore --clean`, then start the previous version. From 4.5 the dump holds the
+  main schema, the control schema and every tenant schema, so one restore takes all of them back. A new version that fails
+  before it opens the database is rolled back as before.
+* **`denis.previous` is missing.** Nothing is changed (the database neither), and the note says so.
+
+In both cases the update is no longer counted against further starts; once the version has run for a minute the note
+goes. A node of a pair that comes back as standby after an update counts as started once it has waited for a minute,
+so restarts while the other node leads no longer roll a working version back.
+
 ## Automatic security updates
 
 **Automatic security updates are on by default, and you can switch them off:** *Settings → System → Updates →
@@ -84,6 +103,7 @@ is still running after that minute, the update stops with nothing changed and is
 | Installed | *Update X was installed* (info), with the version before and "installed automatically" |
 | Failed before anything was replaced (download, signature, test of the new program) | *Automatic update to X failed* (high), with the reason. Nothing changed; tried again after a day |
 | The new version did not start and the previous one came back | *Update X did not start and was rolled back* (high). That version is not tried automatically again; install it by hand once the cause is known |
+| The new version did not start and the previous one could not come back | The console's update box and the log say why (see [When an automatic rollback is not possible](#when-an-automatic-rollback-is-not-possible)); the new version keeps running |
 | A release marked as a security fix that is not installed by itself (automatic updates off, or it starts a new line) | *Security update X is available* (high). Also for a security release of the running line while the update bar offers a newer line |
 
 **A new installation and an existing one.** A database created by DENIS 4.2 or newer starts with automatic security

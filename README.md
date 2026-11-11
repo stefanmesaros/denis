@@ -200,6 +200,8 @@ register and the monitored networks under Settings, Capture: six of the console'
 <img src="docs/img/settings-capture.png" width="32%" alt="Settings, Capture: capture interfaces, three monitored networks with their port scan and ping settings, and Active probing">
 </p>
 
+New in 4.5: threat lists (your own and from other sources: plain, CSV, STIX, TAXII, MISP) with alerts and prepared blocks, alerts that say whether a match was an exact address, a range or a whole network provider, block by name on FortiGate, Palo Alto and MikroTik (Experimental), a new Respond dialog and follow-up questions in the AI assessment ([threat lists](docs/threat-lists.md), [enforcement](docs/enforcement.md)).
+
 New in 4.4: the Start page with the first look at a network, rules written as a sentence that can be tried first, and an MSP's list of
 customers ([quick start](docs/quickstart.md), [detection rules](docs/detection-rules.md), [MSP management](docs/msp-management.md)):
 

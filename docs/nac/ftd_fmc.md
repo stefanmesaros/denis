@@ -126,3 +126,18 @@ The console shows a short line under each field and a short note behind its (i).
 - **Devices to deploy to (names or IDs)**: The FTD devices that receive a deployment after a change in network group or access rule mode. A deployment changes every pending item on these devices, not only DENIS's, and can take about ten minutes. Not used with dynamic objects.
 - **Access policy for deny rules (optional)**: The access policy DENIS writes its flow deny rules into, at the top. Needed only for flow blocks. It must be assigned to the devices listed above, or those devices keep a pending change that nobody deploys.
 - **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create one deny access rule per flow block (two for both directions) at the top of the access policy named above, marked denis-... and DENIS managed, deploy it, and delete it again when the action ends. It never creates an allow rule and never uses any address but the two hosts of the flow. A deployment affects every device in it and can take about ten minutes. A wrong deny rule can cut off traffic: switch this on only if you accept that.
+
+## 4.5.0: checks, deployments and the token
+
+* **Set up but not deployed yet.** For the network group and the flow block, the hourly check keeps an action that
+  is on the FMC as planned but not deployed active and unconfirmed instead of closing it; pending changes about the
+  group or the access policy count as this action's only when no deployment of it finished. A flow rule that is no
+  longer first or no longer as planned keeps the action active with a notice.
+* **A stop during the deployment wait**: "deploy started" is recorded before the wait, so the release deploys its
+  removal.
+* **A failed deployment to several devices** may have gone through on some of them: the action stays open
+  (unconfirmed) and its release deploys the removal ("The FMC reported that the deployment failed, on at least one
+  of the devices ..."). With one device a failed deployment is still "nothing was deployed".
+* **One token per FMC and user.** The clients of DENIS share one token in the process (best guess from the
+  documented behaviour that a new sign-in of the same user can end the earlier token), so a read-back no longer ends
+  the token of an action that waits for its deployment. The pacing window is still per client.

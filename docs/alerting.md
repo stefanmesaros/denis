@@ -23,9 +23,11 @@ Press **Test** on a channel to send a test message and see straight away whether
 Each channel also has its own **Delivery** choice:
 
 * **Every alert, individually** (the default) — one message per alert, as described below.
-* **Group related alerts into incidents** — one message the moment an [incident](incidents.md) opens or escalates,
-  plus any alert that never joined one. An alert already absorbed into an incident that was already reported never
-  sends a second message for it. PagerDuty updates the same incident on escalation instead of opening a new one, the
+* **Group related alerts into incidents** — one message the moment an [incident](incidents.md) opens, escalates or is
+  re-opened, plus any alert that never joined one. An alert already absorbed into an incident that was already reported
+  to that channel never sends a second message for it. An alert that joins an incident the channel never heard of (the
+  incident opened below the channel's minimum score, or its message was given up on or cancelled) is sent on its own,
+  so a serious alert is never swallowed by a mild incident (4.5). PagerDuty updates the same incident on escalation instead of opening a new one, the
   same idea as its own repeat-folding below; a ServiceNow incident filed for an escalation carries the same
   `correlation_id` as the first one.
 
@@ -35,7 +37,12 @@ so that channel quietly behaves like "individually" until incidents are back on.
 
 ## What gets sent, and when
 
-* Only real alerts (not the low-level `info` events) at or above the channel's **minimum score**.
+* Only real alerts (not the low-level `info` events) at or above the channel's **minimum score**. Two housekeeping
+  messages are decided by the channel's *Which alerts* setting alone, whatever its minimum score (4.5): the daily digest
+  (only on an "important only" channel, when it names a new provider of an infrastructure or industrial device) and
+  the licence warnings (*the licence expires soon*, *grace period*). Their scores (10 to 55) say nothing about danger,
+  and a default channel (minimum 50, PagerDuty 70) would otherwise never receive them. The command-line webhook keeps
+  its `--webhook-min-score`.
 * **One message per alert**, unless more than five are waiting for a channel; then they go out as **one summary**
   listing the most serious. An alert storm never floods a chat room. (This individual-alert behaviour; a channel set
   to deliver grouped incidents instead follows the rule above.)
@@ -45,9 +52,19 @@ so that channel quietly behaves like "individually" until incidents are back on.
   exactly once.**
 * A new channel starts from *now*; it does not replay history.
 * **Maintenance mode** (*Settings → Notifications*): silence *all* channels for 30 minutes to 7 days during planned work. A
-  banner shows on every screen while it is on, and alerts raised meanwhile are **not** sent afterwards.
-* **Silence one device**: in a device's edit form, *Silence notifications until* a date (to the end of that day).
+  banner shows on every screen while it is on, and alerts and notices raised meanwhile are **not** sent afterwards.
+  Messages that were already waiting when it began (an alert retrying against a receiver that is down, a weekly
+  summary) are held, not dropped, and go out when maintenance ends, unless they are older than 24 hours by then (4.5).
+  Enforcement and MSP messages are sent during maintenance as before, and so is the SIEM **incidents** stream: it is an
+  export, like the SIEM event stream, which maintenance mode does not stop either.
+* **Silence one device**: in a device's edit form, *Silence notifications until* a date (to the end of that day in the
+  site's own time zone, or the console's for the console's own network; before 4.5 the day ended at midnight UTC).
   The device's alerts still show in the console.
+* **Turning a channel off** (and on again) cancels its waiting alerts (they come back from the channel's place in the
+  alert stream, which does not move while it is off) but **holds** its enforcement and MSP messages: they are sent once
+  the channel is on again, or given up on after 24 hours (4.5; before, they were cancelled for good). **Deleting** a
+  channel cancels everything that waits for it.
+* Editing a channel's address sends what is still waiting for it to the new address.
 * Every change to channels and maintenance mode is in the audit log.
 
 ## What happened to a notification
@@ -72,7 +89,14 @@ the database and sent from there, so you can see where it stands.
 * **Retries:** a failed send is tried again after 15 seconds, then with a doubling pause up to 15 minutes. A receiver
   that says *try later* (HTTP 429 or 503 with `Retry-After`) is obeyed up to 15 minutes. A refusal that more
   attempts will not cure (a wrong key or URL: 400, 401, 403, 404, 413) is given up on after three tries; editing the
-  channel gives its recent given-up messages another try.
+  channel gives its recent given-up messages another try. Telegram's answers are read the same way (4.5): a blocked
+  bot, a revoked token, a chat that does not exist and a channel that is not paired yet are refusals, Telegram's own
+  *retry after N* is obeyed.
+* **Summaries to PagerDuty:** every summary (an alert storm, a backlog) is its own PagerDuty incident, and a backlog
+  summary carries the severity and score of the most serious alert in it, not of the first one (4.5).
+* **Test** of a PagerDuty channel resolves the test incident right after it opened it; a test to the generic webhook
+  carries a `delivery_id` and an `Idempotency-Key` (`test-<time>`) like a real message (4.5). A test to Jira or
+  ServiceNow files a real ticket.
 * **A flood:** when a channel already has 50 messages waiting, new alerts for it are folded into one summary that counts
   them; at 1,000 waiting messages for one channel (20,000 for all) new ones are refused and counted. Enforcement and
   MSP messages are never folded and are sent first, in their own lane, ahead of the alert stream.
@@ -154,8 +178,8 @@ to a channel.
   removed in 4.4.1 ([Trials (removed in 4.4.1)](detection-rules.md#trials-removed-in-441)).
 * **Close low alerts automatically** (*Settings → Notifications → Quiet routine alerts*, off by default): a low alert that
   has not happened again (same device, kind and provider) for 3 to 30 days (7 by default) is acknowledged by the system.
-  The alert's history says so, and it can be undone. Medium and high alerts, the kinds above and alerts in an open
-  incident are never closed this way.
+  The alert's history says so, and it can be undone. Medium and high alerts, the kinds above and alerts of an incident
+  nobody resolved yet (open or acknowledged, however long ago it started) are never closed this way.
 * **The kill switch**: *Keep routine events quiet* in the same box. Off, every event is raised as an alert, as before.
   It applies within seconds.
 * The Alerts list is ordered by **priority** by default: alerts in an incident first, then the kinds that are never
@@ -213,13 +237,21 @@ show here too.
   enforcement message is sent to every channel at once; other notices respect a channel's minimum score and
   maintenance mode, and purely informational ones (an update is available) are shown in the bell only. A channel
   gets at most 30 ordinary notices in ten minutes, then one message that more are waiting; enforcement and MSP
-  messages (an MSP remote session included) are never held back by that limit and do not count toward it.
+  messages (an MSP remote session included) and, since 4.5, every `high` notice (a failed backup, a connector DENIS
+  cannot reach) are never held back by that limit and do not count toward it. The limit is counted in memory and
+  starts again after a restart.
+* Each notice says under it whether it reached the channels (4.5): *Waiting to be sent*, *Sent to the channels*, *Not
+  delivered to every channel*, *Could not be delivered to any channel* or *Not sent: maintenance mode was on*. A
+  notice shown in the bell only, or that no channel takes, says nothing.
 * PagerDuty: a notice that is not about an action or a device (a connector DENIS cannot reach, a site offline) uses
   its own key, `denis-notice-<key>`, and the notice that ends the condition (the site is back) resolves the incident.
-  A recovery so short that DENIS shows it in the bell only does not resolve it, nor does a connector that answers
-  again (its notice is closed without a message): resolve those in PagerDuty.
+  A recovery so short that DENIS shows it in the bell only does not resolve it: resolve that in PagerDuty. A condition
+  that ends without a message of its own (a connector that answers again, a capture interface switched off, a site
+  that is removed) resolves its PagerDuty incident with the same key since 4.5; the other channels get nothing.
 * A backup that fails is one notice a day. A site that was offline when DENIS restarted is still known to be
-  offline; a site that is removed has its notice closed.
+  offline; a site that is removed has its notice closed. The demo data's sites never report and are never announced
+  as offline (4.5), and the daily digest leaves demo devices out when real devices are there (an install with only the
+  demo shows them), as the reports do.
 * Notices are kept for 90 days (one still in force, such as a site that is offline, until it ends).
 
 ## The generic webhook
@@ -268,7 +300,9 @@ compare bodies.
 ## Security
 
 * Webhook URLs, integration keys, SMTP passwords and signing secrets are **secrets**. They are stored in the
-  database (protect it and its backups), are **never shown again** (the console only says "set"), never appear
+  database sealed with the installation's key (since 4.5 also the address of a Slack, Teams, Discord, generic-webhook
+  or ntfy channel, whose path or topic is what lets anyone post; it is sealed at the first start of 4.5) and left out
+  of backups (a restored backup lists them under the secrets to enter again), are **never shown again** (the console only says "set"), never appear
   in logs or error messages, and are not written to the audit log. Use a channel's **Edit…** to change one —
   leaving a secret field blank on save keeps the one already stored.
 * Slack, Teams and Discord URLs must be `https://`. Plain `http://` is accepted for a generic webhook to your
