@@ -116,7 +116,8 @@ A mirror can also reach DENIS in a VLAN (RSPAN) or as ERSPAN, VXLAN or Geneve pa
 A brand-new deployment knows nothing, so everything would look "new". For the first **24 hours** (adjustable
 with `--learning-minutes`) DENIS only learns. Each remote site has its own learning period, and so does each
 device's traffic baseline. Exceptions: ARP conflicts, industrial control commands and industrial protocols
-crossing the network boundary alert immediately.
+crossing the network boundary alert immediately. A clock that is set right while the period runs (a box that started
+with a stale clock) does not shorten it: DENIS notices the jump and keeps the remaining time.
 
 ## Baselines
 
@@ -311,7 +312,8 @@ has not changed in 4.1, and nothing about a VLAN is part of it:
   device talks to), the flows and the industrial conversations stay on the original row. What the second device gets
   is its own row with its own addresses, names, services, open ports, fingerprint and layer-2 evidence. *Undo the split* (or *Merge this device back* on
   an extra row) folds the extra rows into the original one: history, names, addresses and alerts of the extra row
-  are kept on it; the entry goes, the mark stays. A remote site's collector receives the split with the answer to its
+  are kept on it; the entry goes, the mark stays. An undo that stops part way says how many rows are still apart, opens
+the original device and keeps the form open to undo again. A remote site's collector receives the split with the answer to its
   next report; a joined collector's extra rows move into the local site with the device and bring the split and the
   mark with them. At most 200 split addresses per site and 8 extra networks per address; every change is audited
   (`identity.mac_split`, `identity.mac_unsplit`).

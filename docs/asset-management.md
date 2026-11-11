@@ -55,8 +55,13 @@ a device you know is coming. MAC address is optional:
 * Without one, DENIS gives it a private placeholder address (`02:54:42:…`); you can create a new record with
   the real MAC later.
 
-Manually created assets are marked **manual**; an *admin* can delete them (discovered devices cannot be deleted,
-they would simply reappear: set their status to `retired` instead).
+Manually created assets are marked **manual**; an *admin* can delete them. Since 4.5 an *admin* can also delete a
+discovered device that nothing refers to (no rule, exception or watch names it, it is not on the hands-off list or
+part of a device with several interfaces, and no enforcement action, alert or event is about it); seen again, it comes
+back as a new device. A discovered device something refers to is refused (`409`, the answer says what): set its status
+to `retired` instead. The device panel offers **Delete** to an administrator for every device but DENIS's own, and shows
+that reason in the dialog when the delete is refused. The delete also removes the device from the running discovery's memory, so its next save does
+not stumble over the missing row.
 
 ## Lifecycle and status
 
@@ -145,6 +150,8 @@ site is left out of the entries, as it is everywhere else. The filter buttons an
 
 Events, alerts and port movements older than the retention period (Settings → Data → Data retention, 90 days unless you
 changed it) are deleted, and the tab says so at the end of the list. Addresses, "first seen" and "last seen" are never deleted.
+For a device with more than 2,000 traffic relationships or 500 edits, the tab reads the newest of them and says that
+some older ones may not be listed.
 Not in the list: hostname changes and changes of the "is anything managing this device" answer, which DENIS does not
 store.
 

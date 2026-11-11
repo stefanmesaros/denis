@@ -82,6 +82,16 @@ flooding it with DHCP requests. See [Operations](operations.md#health-warnings-t
 The agent's clock is wrong: records more than 1 hour ahead of the master or more than 7 days old are dropped. Switch NTP on
 there. Data from before the fix stays missing.
 
+**A device was deleted, and it came back as a new device**
+A device somebody registered by hand and deleted after discovery had already found it is dropped from the live
+inventory at the next write (the log says "deleted from the database while discovery still had them"). If it is still
+on the network it is stored again as a new device. Earlier versions stopped writing the local inventory at that point
+until a restart.
+
+**The log says "two collectors report as agent ..."**
+Two machines run with one agent's configuration and token (a copied virtual machine or image). Their devices overwrite
+each other at that site. Enrol the copy as an agent of its own.
+
 **A switch looks incomplete, or a device looks unplugged**
 Health says the switch gave back only part of its SNMP tables. A table was too big to read within the safety limits
 (rows, time or bytes), and the switch card names it. The topology of that switch is not complete.

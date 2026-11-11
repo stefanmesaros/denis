@@ -49,9 +49,15 @@ You choose the mode in **Settings → Autopilot**. Each control on that page exp
 Turning Autopilot on always starts in shadow mode. To go from shadow to active you need all of:
 
 * at least **7 days** in shadow (14 is suggested for a business; the minimum can be raised, not lowered),
-* to have **opened the shadow report** during that shadow period,
+* to have **opened the shadow report** during that shadow period (it counts, and so does its agreement figure for
+  auto-filing, only when opened by an administrator who may decide for the whole installation: not through an API
+  token, an MSP connection or an account limited to some sites),
 * a current **acknowledgement of the disclaimer** (it asks again when its wording changes: the wording changed in 4.1.0, so an acknowledgement given earlier must be given again),
 * your password (or a passkey).
+
+If the disclaimer changes while Autopilot is active (or a restored database holds an older acknowledgement), Autopilot
+only watches, as in shadow mode, until it is acknowledged again: it files nothing, sends no question and never blocks.
+The dashboard says so.
 
 Switching to Off is always one click, from any mode. A **pause** (1 to 72 hours, from the console or
 from any Autopilot message) acts like Off for that long and then returns; resuming early is console-only.
@@ -182,7 +188,14 @@ deny, snooze, tell me more, pause), valid 12 hours (no longer than the question 
 exactly that action, so an approve token cannot deny and a token cannot be reused for another
 action. Opening the link only shows the question: **a link never acts** (a link scanner or a preview
 cannot approve anything); the answer is a separate request. If the question changed after the token
-was made, the token no longer works. Revoking a phone invalidates every token that is out.
+was made, the token no longer works. Revoking a phone invalidates every token that is out, and also
+revokes every installed web app's push subscription (pair the web app again by subscribing).
+
+A question with its tokens goes to the paired channels and only to the installed web app of the
+administrator the phones are bound to (the one who paired last). A tap on a phone is answered as that
+administrator, so it works only while that account is an enabled administrator without a site limit;
+otherwise every tap is refused and nothing is spent. Messages without tokens (the briefing, an
+interruption) still go to every installed web app.
 
 * Classes 2 and 3a: the token alone (one tap).
 * Class 3b: the token **and** your password or passkey on the phone.
@@ -198,6 +211,25 @@ channel whose policy is *autopilot*. When one of those channels has not delivere
 interruption also goes to the other channels that take important or Autopilot alerts, so one broken
 channel never means silence. Delivery is tested against local simulations of ntfy, Web Push and the
 Telegram bot API; round trips with real phones are not verified yet (see below).
+
+## Questions over time
+
+* A proposal belongs to the mode it was made in. When the mode changes (shadow to active or back), the
+  waiting proposals of the other kind are marked *superseded* and the question is asked again in the
+  mode in force; in shadow mode nothing can be approved.
+* When a cluster gets new alerts, a new question about the same alerts replaces the older one (the older
+  one is *superseded*), so only one waits.
+* A block suggestion that keeps matching is one decision and one message, not one per observation.
+* An approved proposal whose apply was stopped half way (a restart, a lost lease) is marked *failed*
+  with the note "stopped while being applied: check" after 10 minutes; when what it did can be taken
+  back (acknowledged alerts, a quiet exception, a profile, a rule change) it keeps its **Undo** for the
+  usual 30 days.
+* Undo of a rule change that set a value which was unset before is not offered (edit the rule instead):
+  it is never half undone. Undo of an allowed provider leaves it allowed when a person allowed it
+  since, or when DENIS learned it from the device's own traffic since.
+* An interruption that could not be handed to the channels (for example because DENIS restarted at that
+  moment) is sent once by the housekeeping within a few minutes.
+* The auto-file limit counts the alerts Autopilot really filed today.
 
 ## Kill switch, pause and limits
 
@@ -243,7 +275,11 @@ same checks, the kill switch, the hourly limit, the ledger and the audit log.
 * It cannot name a device, a connector, an address, a time or a setting. The model's answer is a closed form: one
   suggestion id and, at most, an action you already allowed. Anything else in it is refused and written to the audit log.
   DENIS itself computes what to do, to which device, through which of the connectors you chose, and for how long.
-* It never blocks while Autopilot is in shadow mode, paused or off.
+* It never blocks while Autopilot is in shadow mode, paused or off. After Autopilot was switched off or to shadow mode
+  and back to active, it does not block again until someone switches "Let Autopilot block" on again (phrase and
+  password); a pause does not need that. The automation box says why it is not blocking.
+* It acts only on a finding seen in the **last 15 minutes**: an older alert that is decided late (after a pause, a
+  restart or a mode change) is left to a person.
 * Every block ends by itself after at most **24 hours** (default 1 hour). It is never permanent.
 * At most **2 blocks an hour**, 6 a day, and one per device every 3 days. These also count against the hourly limit of
   all enforcement and the limit of automatic enforcement by rules. A plan with any warning is not carried out.
@@ -270,7 +306,8 @@ every block:
    sites cannot switch it on.
 
 **It switches itself off** (it stays off until a person switches it on again) when the administrator who allowed it is
-gone, disabled, limited or loses a permission. It stops acting, without switching off, when the agreement falls below 95 %
+gone, disabled, limited or loses a permission. A database read that fails while this is checked is not a lost
+permission: nothing is done at that moment, nothing is switched off, and the next check decides. It stops acting, without switching off, when the agreement falls below 95 %
 again, when Autopilot leaves active mode, or when a lab switch or the kill switch goes off.
 
 **Every block is announced** on every notification channel with an **Undo** link. The link only opens the console; the Undo

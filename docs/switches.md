@@ -470,9 +470,17 @@ A switch that is **not bound** keeps working as before (it is tenant-wide), but 
 device a MAC belongs to when devices of two sites share it: nothing is attached to such a MAC (counted in
 `denis_topology_ambiguous_mac_total`) instead of guessing. Once any switch is bound, port control (NAC)
 asks only the switches bound to the device's own site where it is, and never acts on a device of one site
-through a switch of another. When you save the list, the
+through a switch of another. When only a switch that is bound to no site sees the device, the response
+dialog says so ("Only a switch that is not bound to this device's site sees it"), while the map still draws
+the device on that switch (4.5). When you save the list, the
 console keeps each switch's binding (the form sends it back): an API client that saves the list must send
 `site` too, or it unbinds the switches.
+
+**Two people saving the list (4.5).** `GET /api/switches` answers a `revision`; a `PUT` that quotes it is refused with
+409 (`code: stale`, the current `revision`) when the list changed in the meantime, and the console reads the list again,
+so an editor opened earlier never removes a switch someone else added. A `PUT` without `revision` is not checked (an older
+API client). The audit entry names the switch ids the save added, removed and changed. A stored list that cannot be read
+is an error, never an empty list: nothing is forgotten, and the poll loop waits until it can be read again.
 
 ## How a device is placed
 
@@ -484,6 +492,21 @@ console keeps each switch's binding (the form sends it back): an API client that
 * A neighbour that **announces itself by LLDP** (an access point, a phone) is drawn with what it says and matched to the
   register by its chassis MAC.
 * MACs on access ports that are **not in the register** are only counted (the map says how many).
+* **A table read half-way (4.5).** When a switch stops answering in the middle of a table (busy, packet loss after the
+  retries), the table is marked as read only in part (the *Incomplete data* chip), every port action on that switch is
+  refused for it, and a device placed from it is not certain. A Q-BRIDGE forwarding table that failed half-way is not
+  replaced by BRIDGE-MIB (which many such switches fill only for one VLAN). The poll is still stored.
+* **A switch not read for a while (4.5).** When a switch DENIS read recently sees a device, a switch last read more than two
+  reads ago (paused, or not answering) does not count for the response dialog; alone, its old reading gives the reason "last
+  placed ... minutes ago". The map still draws what the old reading said.
+* **Port found by number only (4.5).** When an LLDP announcement names no port DENIS can match by name and the port is found
+  only by LLDP's local port number (the ifIndex only on some switches), the device is shown there but never as a placement
+  DENIS is sure of (`via: lldp_number`, reason `location_by_number`).
+* **Cisco VLANs carried over (4.5).** The entries of a VLAN one poll did not reach are taken over from the previous poll only
+  when that poll read the same device (chassis id, name, sysObjectID) and is at most three hours old. Otherwise the VLAN counts
+  as not read, and port actions on its ports are refused.
+* **One poll of a switch at a time (4.5).** The poll loop, *Read now* and the read before a port action take turns, and a
+  reading never replaces a newer one.
 
 ### Testing the write credential
 
@@ -551,7 +574,12 @@ and back. A cable drawn by hand always wins over every guess between the same eq
 administrator, survives a restart, is written to the audit log with the old and the new value, and is undone with **Remove cable**
 on the cable's panel. When the equipment itself announces
 something else, the cable you drew is used and the map shows the conflict. A switch port with a cable drawn by hand is never treated as a
-plain access port for port actions (more warnings, never fewer).
+plain access port for port actions (more warnings, never fewer). Since 4.5 a cable keeps the port's ifIndex too: when the
+port is renamed later (a stack member renumbered), the port now at that index is not an access port either.
+
+Since 4.5 every change of the cables, the port marks (unmanaged, mirror), the confirmed gateways, the core switch and the
+tiers is one read-change-write step: two administrators changing different items both keep their change, and a stored
+list that cannot be read refuses the change (500) instead of saving an empty list over everything.
 
 Setup (Network → Setup, step 5, *Cables DENIS is not sure about*) asks its questions from them and lists *Networks and firewalls* (which firewall routes which
 network, and whether DENIS also sees it is that network's gateway). The API is `GET /api/topology/relations`, `POST /api/topology/links`

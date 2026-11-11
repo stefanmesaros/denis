@@ -45,7 +45,7 @@ on with `--passive-dns`.
   Addresses are reused and shared (a CDN, a cloud load balancer), so up to 3 names are shown, most
   recently looked up first.
 * **In alert evidence** for `new_destination`, `new_destination_v6`, `new_port`,
-  `threat_list_match`, `it_watch` and `segmentation_violation`: a `names` field next to the address,
+  `threat_list_match`, `threat_list_address`, `it_watch` and `segmentation_violation`: a `names` field next to the address,
   filled only when passive DNS looked something up for that exact (device, address) pair recently.
   Omitted entirely otherwise, so an install with the feature off — or an alert from before this
   feature existed — looks exactly as it always did. `dns_resolver_changed` itself (below)
@@ -127,6 +127,10 @@ the network's gateway or DNS server" pattern alongside rogue DHCP/RA activity.
   the query came from, so one device on the network cannot plant fake answers for another. A query and its answer seen on
   different interfaces of one DENIS (a TAP with one interface per direction) are matched. Each client can have at most
   256 queries waiting for an answer.
+* **Threat lists (4.5).** With passive DNS on, a lookup of a name that one of your [threat lists](threat-lists.md) holds raises
+  [`threat_list_domain`](detection-rules.md). While a list with names exists, DENIS also keeps in memory, per device, the addresses it
+  was answered with for ten minutes (at most 128 per device, 50,000 in all; never written to the database, gone on a restart) so that
+  the alert can say, as an *estimate*, how many other names the device got the same address for. With passive DNS off none of this exists.
 * Retention: 1–90 days, your choice, capped at the console's general retention. Pruned hourly like
   everything else.
 * **"Delete all recorded names…"** (admin, with a confirmation dialog) erases every recorded name
@@ -141,6 +145,19 @@ See [API](api.md) for the exact shapes: `GET/PUT /api/interfaces/passive-dns` (t
 retention), `GET /api/assets/{id}/dns-names` (one device's own rows), `GET
 /api/relationships/contacted?name=` (the hunt), `DELETE /api/dns-names` (the purge button), and the
 `names` field that `talks-to`/`talked-to-by`/`contacted` and the baseline endpoints all carry.
+
+## Server names and web addresses are a separate switch
+
+Passive DNS is the only place where DENIS **records** names. Reading the TLS server name of a connection and the host and
+path of a plain-HTTP request (4.5, for the [administrator threat lists](threat-lists.md#reading-server-names-and-web-addresses-opt-in))
+is a different, second switch (*Settings -> Network interfaces -> Server names and web addresses*; `--capture-names` on an
+agent), off by default, and it records **nothing** of its own: the names are compared with your lists and forgotten, so it has
+no retention and no "delete all" button. Since 4.5.0 a server name read in a connection to an address that raises a threat-list
+address alert is copied into that alert's connection evidence, labelled *Observed TLS SNI* or *Observed HTTP Host*; to make that
+possible the master holds the names in memory for 15 minutes while such a list is loaded, never stores them by themselves, and
+holds nothing while none is ([Threat lists](threat-lists.md#connection-evidence-450)). In the same evidence a passive-DNS name
+is labelled *DNS correlated (inferred)*. Switching passive DNS on or off does not change it and the other way round. The hint that
+links a flow to a listed DNS answer needs passive DNS; the two name sources do not need each other.
 
 ## A note on personal data
 

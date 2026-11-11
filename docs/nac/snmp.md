@@ -131,7 +131,9 @@ through another switch needs that switch added too. Traffic does not have to pas
   plan names the reason. An uplink, a trunk, an EtherChannel member or a port with a CDP neighbour can be switched off
   **by hand only**, with a warning to tick for each (see [Switches](../switches.md#ports-that-are-not-plain-access-ports-by-hand-only-with-warnings-to-tick)).
 * *A port is back after a switch restart:* DENIS changes the running configuration only and never saves; a reload returns
-  the port to its saved state.
+  the port to its saved state. DENIS records the switch's uptime (`sysUpTime`) with the apply; when the read-back finds the
+  change gone and the uptime lower, the action is closed as removed with the reason *the device restarted* (the state log
+  says `device_restarted`).
 * *"Confirm the new engine ID" on the switch line:* the switch's SNMP engine ID changed (replaced, reset, or someone
   answers for it). Check, then confirm it on *Network → Equipment*.
 
@@ -325,6 +327,45 @@ The bounce has not been tried on a real device.
 **Undo.** The port's previous VLAN is recorded. On release or at the end of the time DENIS moves the port back **only if it
 is still in the quarantine VLAN**; a port someone else moved is left where it is. The change is in the running
 configuration only (DENIS never saves it), so a switch restart returns the port to its saved VLAN.
+
+### Release and read-back: what DENIS checks (4.5)
+
+These rules were added in 4.5 (state audit). They were tested against the stand-in switch in DENIS's own tests, not on a
+real switch.
+
+* **An interrupted bounce is finished.** If DENIS stops between "port off" and "port on" of a bounce (a restart, an update,
+  a crash), the action's steps say so. The release moves the VLAN back and switches the port on again, with the step
+  "the bounce that DENIS started was not finished". A port someone switched off after a bounce that did finish stays off.
+* **A bounce whose "off" did not happen says so** with the result: the device may keep its old address until it renews it.
+* **Same switch, same address.** Every action records the switch's address. When the switch's entry in Settings points
+  at another address since, the release and the read-back refuse ("the switch's settings changed") and send nothing to the
+  new address. Saving such an address change warns that DENIS will not change those ports at the new address.
+* **An answer with an error is read back.** When the switch answers a SET with an error status, DENIS reads the port with
+  the read credential. If it shows the value DENIS asked for, the change counts as made (step note "the switch answered with
+  an error but shows the change"). If it shows the value from before, it is the refusal the switch said. `undoFailed`, or
+  nothing readable, is "not confirmed", never "nothing was changed".
+* **A renumbered port is found by its name.** When the index of the action no longer carries the port's name (no ifIndex
+  persistence, a stack member renumbered or replaced), the release and the read-back look for the one port with that name
+  and act there (step "port ... moved from index A to index B"). No port, or more than one, with that name: DENIS changes
+  nothing and says to check the port and use *Resolved by hand*. A new action on the same port at its new index is refused.
+* **The bridge port must be the same** (switches that are not Cisco). When the switch maps the port to another bridge port
+  than when DENIS moved it, the release refuses and changes nothing.
+* **The generic release is read back with the VLAN port lists** too: a port that is back in its VLAN but still an untagged
+  member of the quarantine VLAN is not reported released.
+* **More management ports.** Besides `Fa0`, `Gi0/0`, `mgmt0` and `Management*`, the names `me0`, `me1`, `em0`, `fxp0`,
+  `eth0`, `oobm` and `mgmt-intf` are the switch's management port and refused. So is the port that holds the address DENIS
+  reaches the switch at (`ipAdEntIfIndex`, IPv4 only), a routed port.
+* **One write sequence per switch at a time.** A block, a release and the standard write test of one switch wait for each
+  other (a block or a release waits up to 30 seconds, then goes on). The write test never picks a port an active action of
+  DENIS is about.
+* **A second action on a port** is refused with what DENIS is doing there: disabled, moved to the quarantine VLAN, or a write
+  test running.
+* **SNMPv3 write user.** The fingerprint that ties a plan and the generic control's write test to the write credential now
+  covers the authentication protocol, the privacy protocol and the privacy password too. After the update to 4.5, run the
+  generic write test again on an SNMPv3 switch that uses the generic control.
+
+Not changed: DENIS still does not notice a switch restart as such (the next read-back reports the change as made
+elsewhere), and does not look at whether someone saved the running configuration.
 
 ### What is verified, and what is not
 

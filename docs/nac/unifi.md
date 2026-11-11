@@ -82,6 +82,10 @@ DENIS keeps one active action per port: a disable and a quarantine of the same p
 
 A device's `port_overrides` are replaced as a whole by one `PUT`. DENIS therefore reads the device immediately before the write, changes **only the one entry of the one port** (only its `portconf_id`), keeps every other entry exactly as the controller reported it, and writes under a lock per controller instance. Release changes back **only that one field**, and only while the entry still shows DENIS's profile: if someone put the port on another profile in the meantime, DENIS leaves it alone and says so in the steps. If the entry did not exist before, it is removed again; if it did, everything else in it (a name, PoE mode) stays as it is at that moment.
 
+## Block domain: not offered (4.5)
+
+The console's firewall policies can match a **domain** as the destination (documented in Ubiquiti's help pages), and a third-party client of the Integration API models a domain filter in a policy (best guess for the field names). DENIS found **no Ubiquiti documentation of that field in the interface it uses**, and will not write a rule language it cannot check, so *Block domain* is **not offered** on UniFi. Nothing was tried. The fallback is the same as everywhere: block the addresses the name resolves to (*addresses only, may change*) with the firewall policy method.
+
 ## The controller kinds
 
 * **UniFi OS console** (Dream Machine, Cloud Gateway, Cloud Key Gen2+): sign-in at `/api/auth/login`, API under `/proxy/network`, and every call carries the `X-Csrf-Token` of the sign-in. When an answer carries a newer token (`X-Updated-Csrf-Token`), DENIS uses that one from then on.
@@ -114,6 +118,26 @@ A device's `port_overrides` are replaced as a whole by one `PUT`. DENIS therefor
 * **Port actions:** see above. A release the controller refuses leaves the action active, flagged, and retried; it is never closed.
 * **Expiry** rolls an action back after its duration, whatever the kill switch, the hourly cap and both lab switches say.
 * The old routes (the *Block…* and *Unblock…* buttons of earlier versions) make **the same controller calls and write the same ledger row** as before: sign in, read the client, `cmd/stamgr`, read the client back, on one session; the row records `mac`, `site` and `controller`.
+
+## When a block on the controller changes (4.5)
+
+* **Firewall policies.** The hourly check and **Check** close an action as removed outside DENIS only when none of its
+  policies is left. A policy of someone else (or of another DENIS install) standing ahead of DENIS's in its zone pair, a
+  policy changed or disabled on the console, or one of several policies removed keeps the action in effect with a
+  notice; the release still deletes what is left.
+* **Quarantine.** A quarantine whose port profile now lets tagged networks through keeps the action in effect with a
+  notice.
+* **Two actions on one port.** A port on the quarantine port profile is not disabled on top (release the quarantine
+  first): the release of the disable would otherwise give the quarantine back with no action left to end it.
+* **Release after the prior profile was deleted.** The port gets the profile of the switch's port table, and a step
+  says so, instead of a refusal on every retry. A port row without undo data says to change the port in the controller
+  and mark the action as resolved.
+* **One lock per console and site** for the port override list, as for the firewall order: two connector instances of
+  one site never interleave their read and their write.
+* **DENIS's own way to the controller.** A port with one of this machine's own hardware addresses behind it is refused,
+  like a port with a protected address.
+* An old-route unblock is not stopped by a MAC put on the protected list after the block.
+* A block of a private (randomised) MAC address says in the plan that the device can come back with another one.
 
 ## Orphans
 

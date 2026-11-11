@@ -164,15 +164,65 @@ pairing dialog (and `denis msp-link connect --rule-push off|ask|accept`) has a c
   rules.
 
 On the MSP's operator page, below the customers: **Send rules to customers**: choose the file, the customers and an optional note, **Check**
-(nothing is sent or changed) and **Send**. The answer has one line per customer. The same from the API:
+(nothing is sent or changed) and **Send**. **Send** is available only after a **Check** of exactly the file, customers and
+note now chosen; a change to any of them asks for a new Check first (4.5). The answer has one line per customer. The same from the API:
 `POST /api/operator/msp/rules/push` ([API](api.md)).
+
+### Sending threat lists to customers
+
+New in 4.5. An MSP can send the **definition** of a threat list (see [Threat lists](threat-lists.md)) to chosen customers: where it comes from
+(a web address, a TAXII collection or a MISP feed), how it is read, what a match does, how often it is fetched. The list becomes a
+**managed list** on the customer: the customer sees it, marked *Sent by <MSP>*, and cannot change its source. The same rule as for rules
+holds: the MSP only sends; **every decision is the customer's.**
+
+* **The consent is the one for rules** (*Rules from your MSP*: *Not allowed* by default, *Ask me*, *Take new ones at once*). *Not allowed* refuses a
+  push, even as a check. *Ask me* keeps it as an **offer** on Settings, Threat lists, which an administrator accepts or declines (a technician with the
+  administrator role may do so for a customer that has no administrator of its own, exactly as for rules, and it is in the audit log). While
+  the consent is *Not allowed*, an offer that still waits is not answered over the link; an administrator at the customer still may.
+  *Take new ones at once* takes **new** lists at once (switched off); a change of a list the customer has **switched on** waits as an offer
+  too, as a replacement of a rule does, so nothing changes in a list in use without the customer.
+* **It arrives switched off.** Nothing is fetched until the customer switches the list on. A pushed list never allows an address inside the
+  customer's network, never allows plain http, and cannot be set to block by itself: *alert* and *prepare a block for approval* can be sent,
+  automatic blocking (Experimental) is the customer's own choice.
+* **No credential, ever.** A definition has no field for a key, a token or a password, and one that has a field that looks like one is
+  refused (`push_list_credential`) on the MSP's console and again at the customer. A web address with a query or a fragment is refused too,
+  because a key in it would travel in clear (`push_list_url_query`). Keys and tokens belong in the credential, never in the address
+  or the note: a definition's address and note are stored as they are, not sealed. The customer sets its own credential **by hand** on its Threat lists
+  page; it is sealed on that installation, sent only to the list's address and never shown, exported, put in a support bundle or passed back to
+  the MSP (the MSP is told only whether one is set). When a later push moves the list to **another server**, the credential that was set for
+  the old one is removed and the list is switched off, so a credential entered for one server is never sent to another because an MSP asked.
+* **What the customer can still do:** switch it on and off, set or remove the credential, refresh it, delete it. Not change the address, the
+  action or the schedule. Deleting a list is the customer's alone: it is not reachable over the management link (the MSP takes back its own
+  lists by key).
+* **Idempotent.** Sending the same definition again changes nothing (`unchanged`); a changed one updates the list in place and keeps its
+  switch, its credential and its entries. A list is matched by the MSP and the **key** the MSP gave it, never by name alone: another MSP's push
+  with the same key is refused, and a list the customer made itself with the same name is refused (`push_list_name_taken`).
+* **Take it back.** The MSP that sent a list can take it back by its key: the list, its entries and its sealed credential are deleted at the
+  customer, and an offer for it that still waits (a key that has only an offer takes the offer back) (also when the consent has been lowered
+  meanwhile, because it only reduces what the MSP gave). A later push of the same key replaces a waiting offer. A rule that named the list keeps its
+  condition, which then never holds; the rule editor says so. If the customer deletes the list itself, the MSP's record of it goes with it.
+* **Tenants.** Nothing is shared between customers: a push reaches only the customers named in the request (1 to 50, each one the technician
+  administers), and what it writes lives in that installation's own lists. The MSP holds no entries of a customer.
+* **Matching stays at the customer.** The customer's master matches and raises the alerts, which name the list; the MSP sees them in the customer's
+  console and through the relay as for any alert.
+* **Audit.** On the customer: `threat_list.managed.push` (by `msp:<MSP>:<technician>`: key, list id, result), `.offered`, `.accepted`, `.declined`,
+  `.revoke`, `.refused`. On the MSP: `msp.lists.push` and `msp.lists.revoke` per customer, with the key and a hash of the definition, never its address.
+* **Roles.** As for rules: the administrator role on the customer at the MSP, a link at *Read and write* or above, a second-factor proof from the last
+  10 minutes for a send and a take-back (a check and *What do they hold?* need any proof in the session). A customer that is not connected is
+  answered *not connected*: nothing is queued.
+
+On the MSP's operator page, below *Send rules to customers*: **Send a threat list to customers**: describe the list, choose the customers, **Check**,
+**Send**, **Take back** or **What do they hold?**. From the API: `POST /api/operator/msp/lists/push`, `/revoke` and `/status` ([API](api.md)).
 
 ### Notifications
 
 The MSP's acts are announced to every enabled notification channel at once (a channel's score filter does not hide
 them), and written to the audit log as `msp.notified`: an account created, or a password reset, by the MSP; the level,
 the boxes or the site limit changed (by either side); a request waiting for your approval; an enforcement request that was
-carried out. Each kind is limited to five per ten minutes; the ones held back are counted in the next message.
+carried out. Every one of them is in the bell and in the audit log. The push to the channels is limited to five per
+kind per ten minutes: the ones over the limit go to the bell only, folded into one row per ten minutes ("repeated n
+times"), and are counted in the next message that is pushed. An administrator account created by the MSP is always
+pushed. If the link is cut while the MSP is creating an account, the account is switched off as soon as it is recorded.
 
 Automatic enforcement that a technician switched on for a policy ends with the link too: it is removed when the MSP is
 disconnected, unlinked or lowered below Full, so you have to opt in again yourself.
@@ -198,7 +248,9 @@ throws it away. It is off by default; switching it off asks for your password.
 * **DISCONNECT** (any administrator, one click, no password) sets the level to Off. The channel drops within seconds, the
   next request is refused. `denis msp-link off` does the same from a shell and works with the console unreachable.
   Bringing the MSP back needs an administrator's password.
-* **Unlink** forgets the MSP completely (its key, the stored token, the blocked list).
+* **Unlink** forgets the MSP completely (its key, the stored token, the blocked list), and the rule offers it sent that
+  nobody answered. Pairing with another link does the same for the old link's offers: an offer is only ever shown and
+  accepted under the link that sent it.
 * `denis run --no-msp-management` (or `DENIS_NO_MSP_MANAGEMENT=1`) switches the whole feature off for the process
   whatever the console says: this master never connects out for it, and a console that is an MSP's never serves customers.
 * **Health** warns when a link is on but this node is not the active node of its pair, or when this master has not
@@ -207,7 +259,12 @@ throws it away. It is off by default; switching it off asks for your password.
 ### High availability
 
 Only the leader of a pair dials the MSP and answers its requests; the standby never does. A request in flight during a
-failover fails and is retried by the technician.
+failover fails and is retried by the technician. A customer refuses a request signed before it started (the replay
+check); a clock that is set back after the start (a box without a real-time clock whose time was corrected late) no
+longer makes it refuse fresh requests for the size of the correction.
+
+**Pairing.** An invitation is used up as soon as the MSP accepts it: if the answer is lost on the way, or the link cannot
+be saved afterwards, the pairing says so and you need a new invitation from the MSP.
 
 ### Licensing
 
@@ -326,6 +383,11 @@ nobody in). The click sets a `__Host-` cookie and shows the customer's console. 
 If the customer's master is not connected, the technician sees a page saying when it was last connected, with a link to
 the mirrored devices and alerts (read only). Nothing is queued.
 
+**Two tabs.** A console tab works in the customer it was opened for. If the technician picks another customer in
+another tab, the first tab's next request (a read too) is refused with `409 tenant_switched`: its dialogs close, its
+refresh stops and a banner offers to reload it into the customer now picked. Nothing it still had on screen reaches the
+other customer. (A client that does not send the tab's customer, such as a script, works as before.)
+
 ### Step-up
 
 Admin and Enforce class requests (users, tokens, restart, update, enforcement, new administrators) need a
@@ -351,6 +413,11 @@ second-factor proof. Browser cookies and `Authorization` headers never cross. Wh
 at most five headers. `Set-Cookie`, redirects and the customer's own security headers are dropped; the MSP adds its own (a
 content policy that lets the page talk only to its own portal address, no framing, no referrer, `nosniff`, same-origin
 isolation).
+
+A change that gets no answer within 30 seconds on the customer is answered `504 customer_timeout` with
+`may_have_committed: true` and "The change may have been carried out: look before you try again": it may have run, and a
+retry is a new request that runs it again. A request whose handler fails on the customer is answered `500
+customer_error`; the customer's channel goes on. The same holds for a rule or list push that gets no answer in time.
 
 Limits: 2 MiB of request body, 16 MiB of answer, 40 seconds per request, 32 requests at a time per customer. Per
 technician and customer: 20 requests a second sustained, 2 writes a second, and a five minute pause after 30 refusals from

@@ -92,6 +92,44 @@
       }
     },
     "schemas": {
+      "AgentUpdateState": {
+        "description": "The update state of one agent (the `update.state` field of an agent), derived from the pieces next to it.",
+        "enum": [
+          "current",
+          "outdated_ready",
+          "outdated_manual",
+          "outdated_unknown",
+          "requested",
+          "preparing_build",
+          "build_failed",
+          "installing",
+          "failed_last"
+        ],
+        "type": "string"
+      },
+      "AgentUpdateStatus": {
+        "description": "The additive fields of an agent's `update` object.",
+        "properties": {
+          "next_actions": {
+            "items": {
+              "enum": [
+                "update",
+                "cancel"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reason": {
+            "description": "A stable code: agent_installing, agent_silent (installing, and no report for 30 minutes), build_failed, master_preparing_build, waiting_for_agent_report, agent_offline (a request waits, and no report for 30 minutes), manual_update_needed, older_than_4_1, last_update_failed, newer_version_available, up_to_date.",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/AgentUpdateState"
+          }
+        },
+        "type": "object"
+      },
       "Error": {
         "properties": {
           "code": {
@@ -105,6 +143,198 @@
         "required": [
           "error"
         ],
+        "type": "object"
+      },
+      "HaMode": {
+        "description": "What this node is in a high-availability pair, or not.",
+        "enum": [
+          "standalone",
+          "leader",
+          "holding_off",
+          "lost"
+        ],
+        "type": "string"
+      },
+      "Health": {
+        "properties": {
+          "ha": {
+            "properties": {
+              "may_act": {
+                "type": "boolean"
+              },
+              "mode": {
+                "$ref": "#/components/schemas/HaMode"
+              }
+            },
+            "type": "object"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "role": {
+            "enum": [
+              "standalone",
+              "leader",
+              "lost",
+              "standby"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "HeldRequestPhase": {
+        "description": "Where a request held for co-approval is in its life (`phase`). `end_reason` says why an `expired` one expired: timeout or body_unreadable. `executed_unknown`: approved, and no result was recorded before it ended.",
+        "enum": [
+          "waiting",
+          "approved_running",
+          "executed_unknown",
+          "executed_ok",
+          "executed_failed",
+          "denied",
+          "expired"
+        ],
+        "type": "string"
+      },
+      "IncidentStatus": {
+        "description": "The status of an incident.",
+        "enum": [
+          "open",
+          "acknowledged",
+          "resolved"
+        ],
+        "type": "string"
+      },
+      "NacAction": {
+        "additionalProperties": true,
+        "description": "One row of the enforcement ledger. Only the state fields are described here; docs/api.md lists the rest.",
+        "properties": {
+          "can_release": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "label": {
+            "description": "The name of the method (for example `Block host`), not of the state.",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/NacActionState"
+          },
+          "state_info": {
+            "$ref": "#/components/schemas/NacStateInfo"
+          }
+        },
+        "type": "object"
+      },
+      "NacActionState": {
+        "description": "The state of an enforcement action in the ledger. `disabled` means in force and confirmed (the historical name). Active: pending, disabled, unconfirmed, partial, rolling_back, rollback_failed. History: restored, restored_elsewhere, failed, completed.",
+        "enum": [
+          "pending",
+          "disabled",
+          "unconfirmed",
+          "partial",
+          "rolling_back",
+          "rollback_failed",
+          "restored",
+          "restored_elsewhere",
+          "failed",
+          "completed"
+        ],
+        "type": "string"
+      },
+      "NacStateInfo": {
+        "description": "The state in words and what may be done with it. Additive: `state` itself is unchanged.",
+        "properties": {
+          "active": {
+            "description": "May still be in effect on a device.",
+            "type": "boolean"
+          },
+          "code": {
+            "$ref": "#/components/schemas/NacActionState"
+          },
+          "final": {
+            "description": "The row can not change any more.",
+            "type": "boolean"
+          },
+          "label": {
+            "description": "English words for the state, for example `In force`.",
+            "type": "string"
+          },
+          "next_actions": {
+            "items": {
+              "enum": [
+                "check",
+                "release",
+                "extend",
+                "retry",
+                "resolve_by_hand"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "next_states": {
+            "items": {
+              "$ref": "#/components/schemas/NacActionState"
+            },
+            "type": "array"
+          },
+          "tone": {
+            "enum": [
+              "ok",
+              "warn",
+              "bad",
+              "neutral"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ThreatListState": {
+        "description": "The state of one administrator threat list (the `state` field of a list of `GET /api/threat-lists`), derived from the fields next to it: all_off (the global switch is off), off, fetching, problem (the last fetch failed), waiting_first_fetch, no_entries (a pasted or uploaded list nobody sent entries to), rule_off (the list is fetched but none of the rules that use it is switched on), stale (the last success is older than three intervals and an hour), working.",
+        "enum": [
+          "all_off",
+          "off",
+          "fetching",
+          "problem",
+          "waiting_first_fetch",
+          "no_entries",
+          "rule_off",
+          "stale",
+          "working"
+        ],
+        "type": "string"
+      },
+      "ThreatListStatus": {
+        "description": "The additive fields of a list of the administrator threat lists.",
+        "properties": {
+          "failures_in_a_row": {
+            "description": "Failed fetches in a row; kept over a restart (4.5).",
+            "type": "integer"
+          },
+          "next_actions": {
+            "items": {
+              "enum": [
+                "refresh",
+                "send_entries",
+                "enable",
+                "edit"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reason": {
+            "description": "A stable code: lists_switched_off, list_switched_off, fetch_running, last_fetch_failed, last_fetches_failed, never_fetched, no_entries_sent, fetched_ok.",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ThreatListState"
+          }
+        },
         "type": "object"
       }
     },
@@ -1658,6 +1888,73 @@
         "x-denis-token": true
       }
     },
+    "/api/ai/followup": {
+      "post": {
+        "operationId": "post_api_ai_followup",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/ai/followup",
+        "tags": [
+          "ai"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "editor",
+        "x-denis-scope": "ai:write",
+        "x-denis-token": true
+      }
+    },
     "/api/ai/incident": {
       "post": {
         "operationId": "post_api_ai_incident",
@@ -1900,7 +2197,7 @@
         "tags": [
           "ai"
         ],
-        "x-denis-msp-class": "configure",
+        "x-denis-msp-class": "never",
         "x-denis-role": "admin",
         "x-denis-token": false
       }
@@ -11563,6 +11860,81 @@
         "x-denis-token": true
       }
     },
+    "/api/events/{id}/note": {
+      "post": {
+        "operationId": "post_api_events_id_note",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/events/{id}/note",
+        "tags": [
+          "events"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "editor",
+        "x-denis-scope": "alerts:write",
+        "x-denis-token": true
+      }
+    },
     "/api/export/alerts.csv": {
       "get": {
         "operationId": "get_api_export_alerts_csv",
@@ -12090,7 +12462,9 @@
           "2XX": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
               }
             },
             "description": "Success"
@@ -13620,6 +13994,121 @@
         "x-denis-role": "viewer",
         "x-denis-scope": "network:read",
         "x-denis-token": true
+      }
+    },
+    "/api/interfaces/capture-names": {
+      "get": {
+        "operationId": "get_api_interfaces_capture_names",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/interfaces/capture-names",
+        "tags": [
+          "interfaces"
+        ],
+        "x-denis-install-wide": true,
+        "x-denis-msp-class": "read",
+        "x-denis-role": "viewer",
+        "x-denis-scope": "network:read",
+        "x-denis-token": true
+      },
+      "put": {
+        "operationId": "put_api_interfaces_capture_names",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/interfaces/capture-names",
+        "tags": [
+          "interfaces"
+        ],
+        "x-denis-install-wide": true,
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
       }
     },
     "/api/interfaces/capture/dedup": {
@@ -17377,7 +17866,12 @@
           "2XX": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NacAction"
+                  },
+                  "type": "array"
+                }
               }
             },
             "description": "Success"
@@ -17563,7 +18057,9 @@
           "2XX": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/NacAction"
+                }
               }
             },
             "description": "Success"
@@ -22003,6 +22499,198 @@
           }
         ],
         "summary": "POST /api/operator/msp/key/rotate",
+        "tags": [
+          "operator"
+        ],
+        "x-denis-install-wide": true,
+        "x-denis-msp-class": "never",
+        "x-denis-role": "operator",
+        "x-denis-token": false
+      }
+    },
+    "/api/operator/msp/lists/push": {
+      "post": {
+        "operationId": "post_api_operator_msp_lists_push",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "operator": []
+          }
+        ],
+        "summary": "POST /api/operator/msp/lists/push",
+        "tags": [
+          "operator"
+        ],
+        "x-denis-install-wide": true,
+        "x-denis-msp-class": "never",
+        "x-denis-role": "operator",
+        "x-denis-token": false
+      }
+    },
+    "/api/operator/msp/lists/revoke": {
+      "post": {
+        "operationId": "post_api_operator_msp_lists_revoke",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "operator": []
+          }
+        ],
+        "summary": "POST /api/operator/msp/lists/revoke",
+        "tags": [
+          "operator"
+        ],
+        "x-denis-install-wide": true,
+        "x-denis-msp-class": "never",
+        "x-denis-role": "operator",
+        "x-denis-token": false
+      }
+    },
+    "/api/operator/msp/lists/status": {
+      "post": {
+        "operationId": "post_api_operator_msp_lists_status",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "operator": []
+          }
+        ],
+        "summary": "POST /api/operator/msp/lists/status",
         "tags": [
           "operator"
         ],
@@ -29575,6 +30263,1084 @@
           "threat"
         ],
         "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/threat-lists": {
+      "get": {
+        "operationId": "get_api_threat_lists",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/threat-lists",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      },
+      "post": {
+        "operationId": "post_api_threat_lists",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/threat-lists",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      },
+      "put": {
+        "operationId": "put_api_threat_lists",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/threat-lists",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/threat-lists/collections": {
+      "post": {
+        "operationId": "post_api_threat_lists_collections",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/threat-lists/collections",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/threat-lists/managed": {
+      "get": {
+        "operationId": "get_api_threat_lists_managed",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/threat-lists/managed",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/threat-lists/managed/offers/{id}/accept": {
+      "post": {
+        "operationId": "post_api_threat_lists_managed_offers_id_accept",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/threat-lists/managed/offers/{id}/accept",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/threat-lists/managed/offers/{id}/decline": {
+      "post": {
+        "operationId": "post_api_threat_lists_managed_offers_id_decline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/threat-lists/managed/offers/{id}/decline",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/threat-lists/managed/push": {
+      "post": {
+        "operationId": "post_api_threat_lists_managed_push",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/threat-lists/managed/push",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/threat-lists/managed/revoke": {
+      "post": {
+        "operationId": "post_api_threat_lists_managed_revoke",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/threat-lists/managed/revoke",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "configure",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/threat-lists/{id}": {
+      "delete": {
+        "operationId": "delete_api_threat_lists_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "DELETE /api/threat-lists/{id}",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      },
+      "get": {
+        "operationId": "get_api_threat_lists_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "GET /api/threat-lists/{id}",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "read",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      },
+      "put": {
+        "operationId": "put_api_threat_lists_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/threat-lists/{id}",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/threat-lists/{id}/credential": {
+      "delete": {
+        "operationId": "delete_api_threat_lists_id_credential",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "DELETE /api/threat-lists/{id}/credential",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      },
+      "put": {
+        "operationId": "put_api_threat_lists_id_credential",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "PUT /api/threat-lists/{id}/credential",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/threat-lists/{id}/entries": {
+      "post": {
+        "operationId": "post_api_threat_lists_id_entries",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/threat-lists/{id}/entries",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/threat-lists/{id}/refresh": {
+      "post": {
+        "operationId": "post_api_threat_lists_id_refresh",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/threat-lists/{id}/refresh",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "never",
+        "x-denis-role": "admin",
+        "x-denis-token": false
+      }
+    },
+    "/api/threat-lists/{id}/test": {
+      "post": {
+        "operationId": "post_api_threat_lists_id_test",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XDenis"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "409": {
+            "$ref": "#/components/responses/E409"
+          },
+          "410": {
+            "$ref": "#/components/responses/E410"
+          },
+          "429": {
+            "$ref": "#/components/responses/E429"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          }
+        ],
+        "summary": "POST /api/threat-lists/{id}/test",
+        "tags": [
+          "threat-lists"
+        ],
+        "x-denis-msp-class": "never",
         "x-denis-role": "admin",
         "x-denis-token": false
       }

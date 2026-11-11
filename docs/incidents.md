@@ -130,7 +130,8 @@ ignored, innocent explanations that would make it nothing to worry about, and th
 either way. This is a second, clearly labelled opinion next to DENIS's own rule-based priority — never a replacement
 for it, and never what drives a notification. If the AI's read and DENIS's own priority point different ways, the
 answer says so explicitly rather than leaving the two sitting side by side. A newer alert joining the incident after
-an assessment was written marks it stale, with an offer to ask again.
+an assessment was written marks it stale, with an offer to ask again. A person's acknowledge, resolve or re-open does
+not (since 4.5.0: before, any such step showed the assessment as stale).
 
 **Settings → AI → Incident consequences, automatically** (meaningless without the button above also on) writes that
 same assessment in the background for open incidents already at *Act now* or *Investigate today* — once an incident
@@ -146,7 +147,10 @@ your notification channels, are completely unaffected either way; existing incid
 Each notification channel (Slack, Teams, e-mail, PagerDuty, …) chooses, in its own **Delivery** setting, between
 *Every alert, individually* (the default) and *Group related alerts into incidents*: the latter sends one message the
 moment an incident opens or escalates, plus any alert that never joined one — never a repeat for every alert already
-absorbed into an incident already reported. PagerDuty and ServiceNow update the same incident/ticket on escalation
+absorbed into an incident already reported. Since 4.5.0 it also sends one message when a new alert re-opens an
+incident a person had resolved (under the channel's own minimum score), so that alert is not silent. An incident whose
+newest alert is more than a day old when DENIS correlates it (correlation switched back on after a while, or a long
+stop) is stored but not sent, like the per-alert stream's own limit. PagerDuty and ServiceNow update the same incident/ticket on escalation
 instead of opening a new one. See [Alerting](alerting.md) for the channels themselves.
 
 SIEM/log export has the same idea: turn on the **Incidents** stream (Settings → Integrations) to send one record per

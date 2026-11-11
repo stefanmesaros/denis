@@ -89,3 +89,10 @@ The console shows a short line under each field and a short note behind its (i).
 
 - **Quarantine address-set name (optional)**: The address-set you created for quarantine, in the global address book. DENIS moves one address into it and back, and nothing else: what the set may reach is decided by your own security policies on the SRX. DENIS never creates an allow policy. Leave empty to switch quarantine off.
 - **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create one deny security policy per flow block on this SRX, first in the policy list of the zone pair, named denis-... and tagged DENIS managed, commit it with an automatic rollback that it cancels once the running configuration shows the policy, and delete it again when the action ends. It never creates an allow policy. A wrong deny policy can cut off traffic.
+
+## 4.5.0: the candidate and the policy order
+
+* **DENIS's own leftover in the candidate** (a stop between edit and commit) is removed at the start of the next change
+  when every changed line names this install's objects, and said so in a step; anything else in the candidate is still
+  refused. The cleanup after a lost session asks for the lock a few times before it gives up.
+* Only this install's own deny policies (name, marker and action) count as "DENIS's policies ahead of this one".

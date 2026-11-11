@@ -254,6 +254,18 @@ waiting leaves the action *unconfirmed*; **Check now** or a release settles it.
 
 Every object DENIS makes carries `DENIS managed; owner <tag>; action <id>; by <login>; expires <time or never>` in its description. Text you typed as a reason is never sent to the firewall. DENIS deletes only objects that carry its own owner tag. An object with a DENIS-style name that does not carry the tag is never touched, and the action is refused.
 
+## Block domain (4.5, Experimental)
+
+Evidence labels for this section: **documented** (in the vendor's published pages), **best guess** (from the product or other people's code, not checked in a published page), **verified** (tried on real equipment, with the date). **Nothing in this section is verified**; it was built and tried against DENIS's simulated device only, so the action is Experimental and needs both lab switches.
+
+**What DENIS writes** (method `url_category`): a **custom URL category** `denis-<tag>-<id>` of type URL List with the entry `name/` (and with *and below* also `*.name/`), or for a plain-HTTP address with a path `name/path` and `name/path/*` (best guess, from PAN-OS's URL category pattern rules, not checked on a firewall: an entry without the closing `/` also matches longer names such as `name.au`, and `*.name` is how PAN-OS writes the names below; a web address with a query, or with `*` or `^` in its path, is refused because PAN-OS reads those characters as patterns), its description carrying `DENIS managed; owner <tag>; ...`, and a **deny security rule** `denis-<tag>-<id>` (zone any to zone any, any source and destination, that category, action deny, log at session end) moved to the **top** of the rulebase and checked there, then a commit. Release deletes the rule and the category and commits. Needs *Allow DENIS to create deny rules* and the **commit scoped to one administrator**, exactly like the flow block, and follows the same commit and revert rules (DENIS undoes its own candidate edits when a step fails).
+
+**What it does:** all devices behind this firewall are stopped from reaching the name. A plain-HTTP address with a path (`http://example.com/a/b`) becomes the entries `example.com/a/b` and `example.com/a/b/*` (best guess); an HTTPS path is never blocked.
+
+**What it does not do:** PAN-OS sees the name in the HTTP Host header or the TLS server name; an encrypted server name (ECH) or a connection by address is not matched. Panorama pre-rules are evaluated first. **Unknown:** whether a custom URL category in a security rule needs a URL Filtering licence on the firewall (best guess: not, to be confirmed on a device). Takes a commit, so minutes on a small firewall.
+
+**What we tried:** the fake firewall in DENIS's tests (create, read back from the running configuration, release, orphan removal, a foreign category or rule under the name refused). Nothing on a real PAN-OS.
+
 ## The commit model, and why it matters here
 
 A change made through the XML API lands in the *candidate* configuration and does nothing until a commit publishes it. A plain commit publishes **everything that is pending, including other administrators' unfinished edits.** DENIS therefore treats the commit as the most important part of every action:
@@ -358,3 +370,23 @@ The console shows a short line under each field and a short note behind its (i).
 - **Register a tag again when the firewall lost it**: On by default. DENIS reads the firewall's registered addresses every minute and right after it sees a restart. When the tag of an active block or quarantine is missing, the action is shown as unconfirmed at once, and with this on DENIS registers the tag again, at most three times per action per hour, only while every safety check still allows the device, and writes it to the audit log. Off: DENIS only shows the action as unconfirmed and notifies you.
 - **At most this many registered addresses**: DENIS refuses a new block or quarantine through a dynamic group when it already holds this many registered addresses on this firewall (default 200, from 1 to 1000). The firewall's own limit is shared with every other source (a PA-220 holds 1000); DENIS also refuses when the firewall is at 95 percent of it.
 - **Let the firewall remove a timed tag by itself (experimental)** (4.3): Off by default. When on, a block or quarantine through a dynamic group that has an end registers DENIS's tag with the firewall's own timeout, the end plus 15 minutes, so the firewall removes the tag by itself if DENIS is not running at the end. DENIS still releases the action at its end. Extend renews the timeout first and is refused (the end stays) when it cannot. A permanent action, or one longer than 30 days, gets no timeout. Experimental: the timeout itself was seen working on a PA-220 with PAN-OS 10.1.14-h9, DENIS's use of it has not yet been run on a firewall (see "The firewall's own timeout").
+
+## 4.5.0: checks, the dynamic group and commits
+
+* **The vsys is recorded** for every method (before: only the dynamic groups); releases and read-backs go to the
+  vsys the action was made in. An action made before 4.5.0 uses today's setting.
+* **A tag that comes back.** When the reconcile job finds DENIS's tag again right before it would register it
+  (a restart refilling the table, an HA peer syncing), it is taken as DENIS's own registration: not registered twice,
+  confirmed by the next pass and removed by the release. It is marked as someone else's (`lost_to_other`) only when
+  another active action of this install accounts for it. A listing of a full page or more is checked address by
+  address before an address counts as missing. An action marked by an earlier version whose own steps show DENIS's
+  registration is released all the same.
+* **The firewall's own timeout** is never replaced by a permanent tag: a timed registration whose record has no end is
+  not registered again, and a row past its end is left to the expiry.
+* **Rule methods** (flow, URL category): a rule still in the running configuration but no longer first, disabled or
+  edited keeps the action active with a notice; a rule only in the candidate is "not committed yet"; only a rule that
+  is gone in both closes the action. Only this install's own deny rules count above DENIS's rule.
+* **Someone else's commit.** When DENIS's commit is refused after another commit (an administrator's, a Panorama push)
+  already published DENIS's half-made change, the action stays open (unconfirmed) and its release commits the removal,
+  instead of closing as "nothing was changed" (best guess on the timing; the check reads the running configuration).
+* When the firewall cannot be reached to ask who has pending changes, the refusal now names the transport error.

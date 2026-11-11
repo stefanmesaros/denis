@@ -82,7 +82,13 @@ denis run --license-file /path/to/license.key
 ```
 
 `DENIS_LICENSE_FILE` works the same way as an environment variable. A license pasted into
-Settings → System → License always takes priority over `--license-file` if both are present.
+Settings → System → License always takes priority over `--license-file` if both are present. Since 4.5 a pasted
+license that verifies but is not in force (expired past its grace period, or made for another installation) is
+refused with the reason and nothing is changed, so pasting an old file can no longer replace a valid one.
+
+The term of a license counts from the first time this installation verified it (its activation time, kept in the
+database). Since 4.5 that time is written only once: a moment when the database cannot be read (a busy store, a
+failover) or a stored value that cannot be read no longer starts the term again.
 
 The license belongs on the top-level installation that has a console: your own instance if you are
 a single business, or the MSP's master if you are an MSP. Agents reporting into a master never need
@@ -136,7 +142,8 @@ When the customer unlinks, the MSP removes it, the MSP's license ends, or 14 day
 becomes a Community edition at once, with a **30-day trial**: the device list is not shortened during the trial and a
 banner counts the days down. After the trial the list is capped at 100 (active first, as above); detection continues,
 your data is kept, and you can paste your own license at any time. The trial is given **once per installation per
-365 days**. It is separate from the 30-day evaluation that starts at first installation.
+365 days** (also when the second loss of coverage is dated before the first; the trial and its record are saved
+together, 4.5). It is separate from the 30-day evaluation that starts at first installation.
 
 ## Tenants inside one installation
 

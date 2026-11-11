@@ -40,7 +40,7 @@ A release removes the object from the group, deletes the object, and commits onc
 
 Check these against SonicWall's documentation for your firmware version before relying on them.
 
-1. **The block group and your own rule.** Create an **address group** dedicated to DENIS's blocks (with a placeholder member, for example an address object for `192.0.2.255`) and a **deny access rule** that refers to it at the top of the policy. DENIS never creates or edits this rule. Reserve the group for DENIS's IPv4 blocks: DENIS reads and rewrites only the IPv4 member list, and it is unproven whether a group that also holds MAC or FQDN members would keep them.
+1. **The block group and your own rule.** Create an **address group** dedicated to DENIS's blocks (with a placeholder member, for example an address object for `192.0.2.255`) and a **deny access rule** that refers to it at the top of the policy. DENIS never creates or edits this rule. Reserve the group for DENIS's IPv4 blocks: DENIS rewrites the whole member list as IPv4 address objects, so it refuses a group that also holds IPv6, MAC or FQDN objects or another group (the plan says so, and nothing is written) instead of losing those members.
 2. **Quarantine (optional).** A second address group (with a placeholder member) and **your own access rules** that use it: allow what a quarantined device needs (DHCP, DNS, NTP, the remediation server) and deny the rest. DENIS never creates, checks or edits these rules. Traffic inside the device's own subnet does not pass the firewall and is not affected.
 3. **An administrator account for DENIS** in the *SonicWall Administrators* group, with the SonicOS API and RFC-2617 HTTP Basic authentication turned on (*Device | Settings | Administration*). It needs to read and change address objects and groups and to commit. Use an account of its own.
 4. **A zone.** SonicOS requires every host address object to carry a zone. Use an existing zone name; it has no effect on which traffic your deny rule matches.
@@ -86,3 +86,14 @@ The console shows a short line under each field and a short note behind its (i).
 
 - **Quarantine address group name (optional)**: The address group you created for quarantine. DENIS moves a device into it and back, and nothing else: what the group may reach is decided by your own access rules on the SonicWall. DENIS never creates an allow rule. Leave empty to switch quarantine off for this SonicWall.
 - **Do not check for pending changes before changing the configuration**: Off by default. DENIS takes over the firewall's configuration session and commits, which applies every pending change and signs out an administrator who is editing, so it refuses to start while it can see pending changes, or when it cannot read them. Tick this only if your SonicOS version cannot give DENIS that list and you accept that a commit may apply other people's pending changes.
+
+## 4.5.0: pending changes, the group and the device hold
+
+* **Pending changes of someone else** no longer make a live block read as removed: the hourly check says it cannot
+  tell and keeps the action. Only DENIS's own lost commit makes a pending block "not in force".
+* **The pending check of a release** is skipped only after DENIS's own lost commit, not after any step without an
+  answer.
+* **The group is read again inside the configuration session** right before the full-list write, so an administrator's
+  commit since DENIS's first read is not overwritten; the last-member rule is checked on that read too.
+* Every write path takes the same device hold as FortiGate and PAN-OS (per firewall address, not per connector
+  instance).

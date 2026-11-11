@@ -30,6 +30,18 @@ source card). What was checked, and against what, is in [what was verified](nac/
 Cloud inventory (Azure, AWS, GCP) is shown as context on a device but is not a control. A device's
 owner and review state stay findings (`critical_no_owner`, `unreviewed`), not matrix columns.
 
+**How the imports run (4.5.0).** Each import (Active Directory, Jamf Pro, Defender for Endpoint, Azure, AWS, GCP)
+keeps the record of its last run: when it was last tried, when it last succeeded, its last error and how many runs in a
+row failed. The import's settings API returns it (`last_run`, see [API](api.md)), so a sync that keeps failing can
+be seen and not only in the server log. Only one sync of a source runs at a time; a *Sync now* while the scheduled one runs answers
+"A sync of this source is already running". The scheduled sync is due one interval after the last good run, also when
+that run found nothing (it used to start again every hour), and is tried again at the next hourly check after a
+failure. It runs on the HA leader only. A listing that stops early is not taken as complete: a page with no rows that
+still names a next page is followed, a listing longer than the page cap, an empty Jamf page before the reported total,
+and a next-page link to another address than the configured one end the sync with an error, and nothing of that source
+is imported or removed. The Jamf server address must be `https://`, and a GCP key file must name Google's own
+`https://…googleapis.com` token endpoint.
+
 A source manages only some platforms: Jamf, Apple; Active Directory, Windows; Defender, everything but
 Android. DENIS reads the platform from its guess of the operating system (or the one you entered).
 When the platform is known and no tool switched on for the control manages it, the cell reads
@@ -126,6 +138,25 @@ None is raised from Unknown, Off or n/a, and a missing name never creates a gap.
 they get an instance per device, can carry a work item, and can have their risk accepted: the matrix
 cell then reads **Exempt**. They create no exposure.
 
+An open one of these stays open while the cell is **Unknown**: a tool that has not synced is not a
+fix, so the finding is not resolved (and a work item on it is not verified) until a fresh sync says so.
+Likewise, any finding a work item is waiting on stays open while its device is not seen for a week: a
+device that was switched off is not a fixed device. (Without a work item, a finding of a device not
+seen for a week resolves as before.) Since 4.5 also: a work item checked against the register is verified only while its device is online
+(an offline device stays *pending*, as the behaviour check already did); a banner read that brings nothing back while
+the banner port is still open (a timeout) keeps the banners read before, so `eol_software`, `kev_software` and the
+like do not resolve on a failed read; and a device with several known-exploited CVEs has one `kev_software` instance
+per CVE (each opens and is fixed on its own; the instances of 4.4 and earlier, one per device, resolve once and the
+per-CVE ones open in their place). The Findings page's "since" is the start of the oldest open instance of that
+kind on the devices listed.
+
+The Entra ID / Intune import is due by its own last sync: Active Directory, Jamf, Defender and the
+clouds keep their rows in the same table but sync on their own intervals and do not delay it. The
+vulnerability scanner import fetches everything first and stores it only when the whole download
+worked, so a sync that fails part-way keeps the previous rows (and is tried again at the next hourly
+check); for each host it keeps the findings of the newest completed scan that lists the host, so a
+plugin fixed in the newest scan is gone even while an older scan still lists it.
+
 ## Posture history
 
 Once a day, shortly after midnight (after 00:15 console-local time), DENIS writes one row per site
@@ -133,7 +164,10 @@ that has devices, plus one for all sites together, each computed from its own de
 percentage is not a sum). If the console was down at midnight it samples at its first opportunity
 that day; a day it was down for entirely has no row and the chart shows a gap. History starts when
 the feature does and is never reconstructed. Rows are kept for 1,100 days. Administrators can press
-*Take a sample now* to replace today's rows, for example after a big clean-up.
+*Take a sample now* to replace today's rows, for example after a big clean-up. When the findings job
+has not completed for more than an hour (the Health page names it), the daily sample waits for it
+rather than storing the counts of the day it broke. Demo data counts only in the demo sites' own
+rows (see [demo data](operations.md#demo-data-and-starting-clean-erase-all-data)).
 
 A number that does not apply on a day is **absent**, never 0: no verified fix in 30 days, or a
 control that nothing is switched on for. There is no composite score and no number is weighted

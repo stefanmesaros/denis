@@ -192,6 +192,12 @@ and an administrator removes the exception under *Rules → Suppressed by "This 
 With an AI provider configured, **Assess & Explain with AI** appears in the dialog: one click covers what the
 alert means, whether it looks malicious, the consequences of ignoring it and what to do next, plus — for alerts
 about a change from a device's own baseline — a behavior-change explanation, all in the same answer.
+Editors can keep talking about the alert right under that answer (up to six questions per thread): pick a suggested
+question or type one, and add **What I know** — a fact only you have, such as "the phone switched off right after
+this" — which is sent with the question as an unverified claim and never changes DENIS's own severity or score.
+**What will be sent** shows the exact text before it goes. The conversation is not kept when you close the alert;
+tick *Also keep this as a note on the alert* (or use *Save note only*) to put your note under *Decisions*, where
+everyone who can see the alert reads it. **Continue in Ask DENIS** takes the alert along to the Ask DENIS panel.
 **Alerts CSV** (a button, next to *show acknowledged*) exports the list.
 
 **Investigate**, a collapsible section in the same dialog, shows the alert in context: the device's other events an
@@ -274,7 +280,14 @@ with controls of **CIS Controls v8**, **NIST CSF 2.0**, **IEC 62443-3-3**, **NIS
 SP 800-53 controls), **ISO/IEC 27001:2022 Annex A**, **NIS2 Article 21**, **DORA**, **PCI DSS v4.0**, the
 **HIPAA Security Rule**, **SOC 2** (Trust Services Criteria) and **CMMC 2.0** (through NIST SP 800-171): which are
 in place, partly or not yet, and why. It is evidence for your own assessment, not a certification. Print the page
-to keep it.
+to keep it. Since 4.5 the monitoring controls count as in place only while the detector is actually running (when it
+has not run its regular check lately they say *partly*, with the reason). A control with no evidence to judge it by
+says **not assessed** with the reason, never *in place*: on a console that has seen no device yet (no capture running
+and no site delivered data) every control that rests on what is seen, and segmentation when there is no industrial
+device and no zone or policy to judge (it said *in place* before 4.5). The controls that rest on settings (the audit
+log, the second sign-in step, alert delivery) keep their status. A measure with nothing to count shows *n/a* instead of
+100 %. The group headings count *in place* among the assessed controls and name the not assessed ones apart. The same
+status is in the API (`not_applicable`, and `not_applicable: true` on a measure) and in saved reports.
 
 ## Network
 
@@ -306,13 +319,16 @@ product DENIS cannot yet act through without the lab settings ([what was verifie
 **Add equipment…** starts with the product: DENIS then asks only for what that product needs, tests the connection, and says
 what it can do with it (read the cables, place devices on ports, block, quarantine, end sessions). Type a vendor or product in
 the search box or pick a card; a gateway DENIS has already seen is suggested at the top. *Any switch with SNMP* reads any managed
-switch with the standard tables; its port actions are Experimental.
+switch with the standard tables; its port actions are Experimental. *I do not know* asks one address what it is (SNMP, its web
+page, LLDP); on a console started passive only it says beforehand that the probe still contacts that address (an explicit,
+audited action, not refused).
 
 ![Add equipment: pick the product](img/network-add-equipment.png)
 
 **Setup** is the guided setup in seven steps: *Discover* (what DENIS has already found, passively), *Confirm the gateway*, *Add equipment*,
 *Same device?* (interfaces of one machine), *Cables DENIS is not sure about*, *Write credentials* and *Dry run*. Every step can be
-entered again later. Nothing is written to equipment before you press a button of its own, and the dry run only asks what is possible.
+entered again later. A connector whose test could not try it for real (*Not testable before a real action*) leaves *Write
+credentials* waiting for you: DENIS cannot act through it yet. Nothing is written to equipment before you press a button of its own, and the dry run only asks what is possible.
 
 ![Setup in seven steps](img/network-setup.png)
 
@@ -398,7 +414,8 @@ it off), *Back up now*, and a list to **download** or delete. See [Operations](o
 
 The local collector and every remote **agent** that reports to this master (outbound connections only). An
 administrator issues and revokes one **token per agent** here, and can **delete a site** together with every
-device it reported (the site id has to be typed back to confirm; the token is revoked separately). Each agent shows
+device it reported (the site id has to be typed back to confirm; since 4.5 the site's agent token is revoked with it, so the
+running agent does not bring the site back at its next report, unless *Keep the agent token* is ticked). Each agent shows
 its version, **outdated** when it is older than the master, the result of its last update and, for an administrator,
 an **Update** button (and **Update all outdated** above the table); how agents are updated is set under *Settings →
 System → Updates for remote agents* ([Updates](updates.md#updating-remote-agents)). See
@@ -507,6 +524,12 @@ The picture shows the box with no key.
 
 ![Settings → Data → Threat list sources: the abuse.ch key box with no key](img/settings-abusech.png)
 
+**Your own lists.** Under the built-in sources, *Settings → Data → Threat list sources → Your own lists* is where an administrator adds
+lists of addresses, networks, domain names and web addresses of his own: a file on a web server, a TAXII 2.1 server (each collection
+you tick becomes a list), a MISP feed, pasted text or an uploaded file, as many as you like. Each list shows its state, last fetch,
+entries by kind, action, next fetch and memory, and has **Test** (changes nothing), **Refresh now**, **Edit** and **Delete**;
+credentials are write-only. The page, the dialogs and what each switch costs are described in [Threat lists](threat-lists.md#using-the-screen).
+
 ## IP enrichment
 
 ![Network Intelligence](img/network-intelligence.png)
@@ -566,7 +589,8 @@ client or an auditor.
 * **Make a report now** (editors and administrators) for the last 7 days up to a year. The report is stored, so
   last month's is still there next month, exactly as it was.
 * **Schedule** (administrators): every week or every month, covering a period you choose, optionally e-mailed as a
-  link when ready. DENIS keeps the newest N scheduled reports and removes older ones; reports you made by hand are
+  link when ready. The list says under each scheduled report whether it was e-mailed ("E-mailed to 3") or why not
+  (no public URL, no e-mail channel, or the mail server's error); one attempt is made per report. DENIS keeps the newest N scheduled reports and removes older ones; reports you made by hand are
   never removed. Deleting a report is an administrator's action and goes to the audit log.
 * **Share…** (administrators) turns on a link that opens the report **without signing in** — the dialog says so
   plainly; **Stop sharing** invalidates it immediately.

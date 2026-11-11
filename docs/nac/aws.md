@@ -8,7 +8,7 @@ Besides the connector's own refusals, every action through it is refused for a l
 
 ## What the old "block" really is
 
-Before 4.1 this connector's block moved every network interface of one EC2 instance into one security group you made for quarantine. That was always a **quarantine of the instance**, not a block of one address, and DENIS now calls it that (*Quarantine*, method `security_group_swap`). The old *Block…* and *Unblock…* buttons still do exactly this, by instance id, and old records keep working. Nothing about the old routes changed.
+Before 4.1 this connector's block moved every network interface of one EC2 instance into one security group you made for quarantine. That was always a **quarantine of the instance**, not a block of one address, and DENIS now calls it that (*Quarantine*, method `security_group_swap`). The old *Block…* and *Unblock…* buttons still do exactly this, by instance id, and old records keep working. Since 4.5.0 the old routes refuse an instance id that DENIS's device list does not know (the AWS cloud import has not listed it): without it DENIS cannot check that the instance is not DENIS itself, the gateway or a protected device. Run the cloud import for the account first.
 
 ## What DENIS can do on AWS
 
@@ -115,3 +115,23 @@ Instances from earlier versions keep working and nothing changes for them: the s
 The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
 
 - **Isolation security group id (optional)**: The security group you made for the host block: no rules at all, inbound and outbound (remove the default allow-all outbound rule too), so an instance whose interfaces carry only this group can neither send nor receive new connections. DENIS only swaps the interfaces' groups and puts the old ones back, and never creates or edits a rule in it. Leave empty to switch the host block off.
+
+## 4.5.0: checks and releases
+
+* **The region and the access key are recorded** in the action's record (`region`, `access_key_id`). Its release and
+  read-back sign for the region the action was made in, even after the connector's region changed. The interfaces are
+  asked for by id: EC2 then says whether one does not exist. While the connector uses the access key the action was
+  made with, an interface that does not exist is gone (a terminated instance), as before; with another key (perhaps
+  another account) DENIS cannot tell, so the check stays *unknown* and the release is refused with a sentence that
+  says why ("put the old access key back, or check the interface and Resolve the action by hand"). An action made
+  before 4.5.0 uses today's region and key, as before.
+* **In force is about the groups.** An interface that still carries only DENIS's group is isolated whether DENIS's tags
+  are still on it or not: tags removed by a clean-up script keep the action active with a notice ("DENIS's tags were
+  removed ... the block is still in force"), and the release puts the old groups back as recorded. Some interfaces
+  given their groups back while others still carry DENIS's group, and an interface attached to the instance after the
+  block without DENIS's group, keep the action active with a notice too. Only when no recorded interface carries the
+  group any more is the action recorded as removed elsewhere.
+* **An undo right after a refused step** (a refused tag, a refused second interface) reads until it sees DENIS's own
+  swap and puts the old groups back even when EC2's answer still lags behind.
+* **The old route refuses** an instance any of whose interfaces carries the quarantine or the isolation group or a DENIS
+  tag from another action: its release would otherwise put that action's group back.

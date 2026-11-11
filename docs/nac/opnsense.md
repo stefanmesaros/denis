@@ -81,3 +81,11 @@ The console shows a short line under each field and a short note behind its (i).
 
 - **Quarantine alias name (optional)**: The alias you created for quarantine. DENIS moves one address into it and back, and nothing else: what the alias may reach is decided by your own rules on the OPNsense. DENIS never creates an allow rule. Leave empty to switch quarantine off.
 - **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create one floating deny rule per flow block on this OPNsense, first in the rule order, named denis-... and tagged DENIS managed, apply the rules, and delete the rule again when the action ends. It never creates an allow rule. A wrong deny rule can cut off traffic.
+
+## 4.5.0: checks and the device hold
+
+* **A deny rule someone moved** below another floating rule, disabled or edited keeps the action active with a notice;
+  the release removes it. Only rules that are gone close the action.
+* Only DENIS's **block** rules count as "DENIS's rules ahead of this one".
+* Every write path takes the device hold (one change at a time per OPNsense), as on FortiGate and PAN-OS. The block
+  alias is DENIS's alone: an address someone else added to it is removed by DENIS's release of the same address.

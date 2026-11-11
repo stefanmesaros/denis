@@ -58,7 +58,8 @@ and keeps its current label; the device panel shows the *resolved* segmentation 
 
 A **policy** is one of four kinds, all stored in the same table with optimistic-concurrency
 revisions and an append-only history (so "policy 17 at revision 3" is a durable citation, and every
-edit, delete or restore is one click to undo):
+edit, delete or restore is one click to undo). Since 4.5 a zone cannot be deleted while any policy names it, switched on
+or not (409):
 
 * **`zone_rule`** — "traffic from zone A to zone B is allowed / denied", optionally only for listed
   services (protocol and ports). `any` is allowed on one side. `bidirectional: true` covers both
@@ -101,7 +102,9 @@ pin first). Things worth knowing before using it:
   wins), or moving a device (tag, register field, Purdue level, address) changes which devices the rule covers, with no
   edit to the rule. The device's own
   attributes are read at match time, like every other rule subject; the zone definitions are the ones the segmentation
-  engine compiled at its last reload (within seconds of a zone edit).
+  engine compiled at its last reload (within seconds of a zone edit). The live detector also rebuilds its zones once a
+  minute, so a device whose tag, type or address changed, or a new device in a zone's network, is judged in its new
+  zone within a minute; a reload that fails (the database was briefly unavailable) is tried again 5 seconds later.
 * **Observed placements count.** A device that is in a zone only by its address (`cidr`) or by a detected type is
   covered like any other; the preview reports how many are in the zone only that way, since a device can change those
   itself.
@@ -208,7 +211,9 @@ can be switched off on the Rules page if it becomes redundant for a site.
   confirm with your password, exactly as for every other action. A block made from it closes it. Responses are only
   prepared while enforcement is switched on and a connector or a switch could act on the device; never for DENIS
   itself, the gateway, network equipment and servers, industrial devices, a device with an open address conflict or
-  on the hands-off list, and not while DENIS acts on the device. They close by themselves after 3 days without a new
+  on the hands-off list, not while DENIS acts on the device, and not for a device that an exception of the segmentation rule
+  covers (the device or the device it reached), nor while that rule runs as a trial (4.5: its alert is not raised either), and a violation scored under the rule's own
+*Alert only from score* does not count toward one. They close by themselves after 3 days without a new
   violation. Only a policy that is enabled and in `alert` mode (not `record`) prepares one. The thresholds are stored
   under the setting `nac_prompts`, and `GET /api/nac/prompts` shows the values in force. The 4.1 setting "Offer to block
   devices that violate this" (`offer_block`) is read as "prepare".
@@ -243,6 +248,11 @@ button, prefilled from the alert's own stored evidence.
 
 The window picker (1/7/30 days) and the coverage/compliance reasoning above apply the same way to
 both the full matrix and one cell's drawer.
+
+Since 4.5 each cell keeps the **most recently seen** edges (up to 200), and of the violations and the unreviewed edges
+each their own most recent 200, so a cell's state in any window is the one the whole scan gives: an old, low-numbered edge
+that is still active today is never pushed out by newer rows. The answer carries `truncated: true` when the scan stopped at
+its limit (2,000,000 edges) and older edges were not looked at.
 
 ## Freezing a device's observed behaviour
 

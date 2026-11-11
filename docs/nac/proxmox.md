@@ -105,3 +105,22 @@ The console shows a short line under each field and a short note behind its (i).
 
 - **Quarantine IP set name (optional)**: The cluster IP set you created for quarantine (Datacenter, Firewall, IPSet). DENIS adds one guest address to it and takes it out again, and nothing else: what the set may reach is decided by your own firewall rules that use it. DENIS never creates the set and never writes an allow rule. Leave empty to switch quarantine off.
 - **Allow DENIS to create deny rules on this Proxmox**: Off by default. When on, DENIS can create one DROP rule per flow block in the firewall of the guest that owns an end of the flow, first in that guest's rules, named denis-... and tagged DENIS managed, and delete it again when the action ends. It never creates an allow rule. It needs the Proxmox firewall on for the datacenter, the node, the guest and its network devices. A wrong deny rule can cut off traffic.
+
+## 4.5.0: checks and releases
+
+* **The cluster address is recorded** in the action's record (`base_url`). A guest that `/cluster/resources` does not
+  list is gone only when its own status on the node it was on answers "does not exist" (404, or the HTTP 500 Proxmox
+  uses for it while that node's own guest list answers and no longer holds the id; a 500 with that list unreadable or
+  still holding the id is a fault, not a deletion); one the token may not see any
+  more (403), or one behind a connector pointed at another address, keeps the check *unknown*, and the release is
+  refused with a sentence that says why.
+* **A release finds the guest by its id and one recorded hardware address**: a network device added or regenerated
+  since no longer makes the release fail for ever; the result says so. The plan and the apply keep the exact check.
+* **The isolation release looks first.** It puts the old firewall options back only while the guest still has DENIS's
+  isolation (`enable=1`, `DROP`, `DROP`). Options someone set since are left as they are and the result says so;
+  DENIS never switches a guest firewall off that someone switched on meanwhile.
+* **A network device whose firewall is not ticked** (added or changed after an isolation) keeps the action active with
+  a notice: traffic through it is not filtered.
+* **Quarantine by IP set follows the address.** The entry is the guest's address at the time of the block. When the
+  guest's configuration or agent shows that it no longer holds that address, the action stays active with a notice;
+  the entry may now hit another machine. Release it and quarantine the guest again.

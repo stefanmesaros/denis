@@ -45,6 +45,15 @@ The Dashboard API allows about ten requests a second per organization and answer
 * **Port:** only while the port is still switched off.
 * The old routes (the *Block…* and *Unblock…* buttons of earlier versions) make **the same Dashboard calls and write the same ledger row** as before: a read, a write, a read back; the row records `mac`, `network_id`, `organization_id`, `prior_policy` and `prior_group_policy_id`.
 
+### Changes since 4.5
+
+* A client in the quarantine group policy is not blocked on top: release the quarantine first. The release of either
+  would otherwise give the client the other's state back.
+* A release whose prior group policy was deleted in the Dashboard gives the client the Normal policy, and a step says so.
+* A client the Dashboard no longer knows (404) is no reading of a block: the hourly check keeps the action in effect.
+* An old-route unblock is not stopped by a MAC put on the protected list after the block.
+* A block of a private (randomised) MAC address says in the plan that the device can come back with another one.
+
 ## Orphans, and why a client policy cannot be listed
 
 A client policy has no name and cannot carry a marker, so DENIS cannot find, from the Dashboard alone, a client that it left blocked. The record is the ledger: the row's target and undo data hold the MAC, the prior policy and the prior group policy, and a client DENIS blocked stays visible in *Active responses* until it is released or expires. The only Meraki object with a name is a group policy, and DENIS makes none. The orphan check therefore lists group policies named `denis-<tag>-...` (a name that claims to be made by this installation) and never deletes one: remove it in the Dashboard if it is not in use.
