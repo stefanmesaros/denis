@@ -589,6 +589,16 @@ old and the new end time. The time left is kept in whole minutes (rounded up), s
 put back with it, and when two people extend the same action at the same moment only the first is written: the second
 is told the action moved on and can try again on the new end.
 
+**Extend reads the device first.** Before the end is moved, DENIS reads the block back from the equipment (except where the
+connector renews the end on the device itself, as Palo Alto does for a timed tag). In force, or changed but still there: the
+extend goes on. Not on the device any more (removed by hand, say), or set up but not in force yet: the extend is refused, the
+end stays, and the answer says so (`409`, code `block_not_on_device` for a block that is gone, with the target, action and
+equipment under `respond`). No answer from the device: refused as not confirmed (`extend_unconfirmed`), the end stays. When the
+block is gone the console asks *Block again…*: on yes the normal **Respond** dialog opens for the same target, action and
+equipment with the duration you chose for the extend (else the original one), so the plan, warnings, confirmations, password,
+kill switch, caps and lab switches apply as for any new block; on *Cancel* nothing changes. DENIS never makes the new block by
+itself. The old action stays as it is until the next read-back closes it as changed outside DENIS, or you release it.
+
 When a plan in the dialog expires and is made again, a warning you ticked stays ticked only when it says the same words
 again; *I have read the warnings* is asked again whenever the warnings changed.
 

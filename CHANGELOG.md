@@ -6,6 +6,14 @@
      paths, rule or file names, or internal groundwork. Below it is the full technical record, kept
      here only. tools/pre-release.sh checks this. -->
 
+## 4.5.1
+
+- Extending a block now reads the device first. If the block was removed by hand on the device, DENIS says so and offers "Block again" instead of extending a block that is not there. Connectors that cannot be read back keep the earlier behaviour.
+- After DENIS starts, its first check of blocks now reads every block, also one that was checked a few minutes before, so a block removed by hand shows within minutes.
+- Large networks: in a lab test with 20,000 and 30,000 simulated devices under busy capture, the longest inventory write fell from about 4 seconds to about 1 second, and the console's status and exposure calls use several times less memory. Answers are unchanged. The documentation now states the sizes that were measured.
+- Threat lists: a very large MISP document can no longer use up memory, a list sent by an MSP is not applied twice at the same moment, and an offered rule is accepted only by the customer's own administrator.
+- MikroTik page: the five actions of the Respond dialog are explained in plain words.
+
 ## 4.5.0
 
 - Threat lists. DENIS reads lists of bad addresses, names and web addresses from your own files and from outside sources: plain lists, CSV, STIX 2.1, TAXII 2.1 and MISP. Add as many as you need, each with its own source, schedule and action: alert only, alert and prepare a block, or block automatically (Experimental). Keys are stored sealed.

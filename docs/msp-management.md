@@ -129,10 +129,11 @@ pairing dialog (and `denis msp-link connect --rule-push off|ask|accept`) has a c
 | *Ask me* | The push waits as an **offer**. An administrator opens it on the Rules page, sees the plan of the import (new, already here, different, in conflict, refused, each with its reason), picks per rule and accepts, or declines. Every accepted rule arrives off. |
 | *Take new rules at once; they arrive off* | New rules are taken at once and **arrive off**: the customer turns each on when ready. A rule that would **replace** one, or is in conflict, still waits as an offer: nothing is replaced silently. |
 
-* **A customer without an administrator of its own.** A fully MSP-managed customer has nobody to accept an offer. A technician who
-  holds the **administrator** role on that customer at the MSP, through a link at *Read and write* or *Full* (the level the customer
-  granted), may **accept or decline an offer for the customer** and acts as its administrator: the audit names
-  `msp:<MSP>:<technician>` (`rules.push.offered`, `rules.push.accepted` and `rules.import` with `by_msp_technician`). The same technician
+* **Who answers an offer.** An offer is answered by the customer: **accepting** is for the customer's own administrator signed in
+  on the customer's console. Over the link no technician accepts it, whatever his role at the MSP (`403 accept_needs_customer`),
+  as for lists. A technician who holds the **administrator** role on that customer, through a link at *Read and write* or *Full*,
+  may **decline** an offer, and the audit names `msp:<MSP>:<technician>` (`rules.push.offered`, `rules.push.declined`; an accept by
+  the customer's administrator is `rules.push.accepted` and `rules.import`). The same technician
   may change the choice above, and **making it more permissive** (Ask me, or take new rules at once) needs his fresh second factor from the
   last 10 minutes, as the password does for the customer's own administrator; a more careful choice needs nothing. A technician below
   the administrator role, and a link below *Read and write*, can do neither. **Taking back a delivery** stays with the customer's own
@@ -196,7 +197,7 @@ holds: the MSP only sends; **every decision is the customer's.**
   lists by key).
 * **Idempotent.** Sending the same definition again changes nothing (`unchanged`); a changed one updates the list in place and keeps its
   switch, its credential and its entries. A list is matched by the MSP and the **key** the MSP gave it, never by name alone: another MSP's push
-  with the same key is refused, and a list the customer made itself with the same name is refused (`push_list_name_taken`).
+  with the same key is refused, and a list the customer made itself with the same name is refused (`push_list_name_taken`). A delivery that moves the list to another server is refused `push_list_busy` while a fetch of that list is running (send it again later).
 * **Take it back.** The MSP that sent a list can take it back by its key: the list, its entries and its sealed credential are deleted at the
   customer, and an offer for it that still waits (a key that has only an offer takes the offer back) (also when the consent has been lowered
   meanwhile, because it only reduces what the MSP gave). A later push of the same key replaces a waiting offer. A rule that named the list keeps its

@@ -176,7 +176,10 @@ manifest or its folder); events are read newest first, and a later fetch reads o
 last one. One pull reads at most the 1,000 newest events: a feed that lists more is stored with those, the answer and the
 job's log say it is **only partly loaded**, and the later pulls read the events changed since the newest one read (the
 older events are not read, as for the entry limit). A **single event or attribute export** is read directly: `{"Event":{...}}`, `{"response":[{"Event":...}]}`,
-`{"Attribute":[...]}`, `{"response":{"Attribute":[...]}}` or a plain array of attributes.
+`{"Attribute":[...]}`, `{"response":{"Attribute":[...]}}` or a plain array of attributes. A single element of the document
+(an event wrapper in a plain array, say) may hold at most 200,000 nested attributes, objects and events; a document beyond
+that is refused ("a MISP event holds more nested elements than the limit") and, in a feed, that event file counts as one that
+could not be read.
 
 Attribute types used: `ip-src`, `ip-dst`, `domain`, `hostname`, `url`, and the composite `ip-src|port`,
 `ip-dst|port`, `hostname|port` by their first part, and `domain|ip` by both parts (the name and the address). Attributes inside event objects are included.
@@ -340,6 +343,12 @@ records a short error, for example `fetch: server answered HTTP 503`, `fetch: ti
 out. A TAXII list asks only for what was added after the cursor of its last complete pull; a MISP feed reads only
 events changed since its last complete pull. These incremental pulls **add**: an entry the source has since removed leaves
 the list through the age limit, not at once. (Set an age limit on such lists.)
+
+**The point to continue from.** The cursor a source sends (the TAXII `X-TAXII-Date-Added-Last` date, the newest MISP event
+time) is checked before it is kept: it must be a valid time (for TAXII `YYYY-MM-DDTHH:MM:SS[.fraction]Z`), not more than a day
+ahead of the server's clock and not older than the one already kept. Otherwise the previous cursor stays, what was read is
+stored as usual, and the list's status says "the source sent a point to continue from that is not usable ... the previous
+point was kept": the next pull then reads again from the old point, so a broken or wrong source cannot park later pulls in the future.
 
 **Ageing.** An entry has an expiry from the source (STIX `valid_until`) or counts until its age limit has passed since it was last seen.
 "Last seen" is the last fetch that listed it (a 200 answer or a "not modified" one alike); the source's own time (a STIX
