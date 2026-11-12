@@ -475,6 +475,15 @@ read connections would fix that in testing (the write cycle stayed at 0.3 to 0.4
 **it is not built**: the figures for a pool are from a prototype in the test harness. Separate databases (one per
 tenant) have separate connections; several sites in one database were not measured.
 
+**With live capture (4.5.1).** A second set of measurements ran the whole pipeline at once on the same laptop: synthetic traffic of 35,000 frames per second, the detector, the 2-second write cycle and console readers (single runs of 60 seconds on a busy machine, so differences under about 30 % are noise):
+
+| Devices | Console readers | Longest write cycle | Device list (95th percentile) | Memory peak |
+|---|---|---|---|---|
+| 20,000 | 0 / 4 / 16 | 0.6 / 1.1 / 1.9 s | - / 0.26 / 0.53 s | 0.6 / 1.2 / 1.4 GB |
+| 30,000 | 0 / 4 / 16 | 0.9 / 1.2 / 2.3 s | - / 0.35 / 0.79 s | 0.8 / 1.9 / 2.0 GB |
+
+No frame was lost in any of these runs. Before 4.5.1 the longest write cycle at these sizes was 3.3 to 3.9 s, because it waited behind long writes of connections and passive DNS names and behind the detector's periodic save; those now go to the database in small steps. At 149,000 frames per second and at 50,000 devices the same setup was not repeated with 4.5.1 and should be read from the 4.5.0 figures, which stalled there. **Verified up to 30,000 devices at 35,000 frames per second. Read it as the largest size one SQLite installation has been shown to handle on this laptop; beyond that it is not measured.** The readers of this test load the whole device list on every call, as an uncapped console does, and each decode is large: plan on 2 GB or more of memory for 30,000 devices with several people in the console. The console's status and exposure calls, which 4.5.1 reads without decoding every device, stay near 0.1 to 0.3 GB in a separate test of the server alone.
+
 **PostgreSQL is not a speed-up for one site.** It stays the choice for high availability. Writing a changed device is a
 round trip and a durable commit each (about 4 ms against 0.1 ms on SQLite), and the write cycle is currently one commit
 per device: on the test setup (PostgreSQL in Docker on a laptop, so slower than a native server) it took 1.5 s at
