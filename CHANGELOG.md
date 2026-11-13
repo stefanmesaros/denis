@@ -1,6 +1,6 @@
 # Changelog
 
-<!-- Each "## <version>" section has two parts. Above its "<!-- details -->" line is the release
+<!-- Each "## <version>" section has two parts. Above its details marker line (an HTML comment reading: details) is the release
      notes: they appear in every customer's update window (plain text, so no markdown markup) and on
      the GitHub release, so keep them short, in plain language, with no ROADMAP/step numbers, API
      paths, rule or file names, or internal groundwork. Below it is the full technical record, kept
