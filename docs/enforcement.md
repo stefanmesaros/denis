@@ -593,7 +593,34 @@ is told the action moved on and can try again on the new end.
 connector renews the end on the device itself, as Palo Alto does for a timed tag). In force, or changed but still there: the
 extend goes on. Not on the device any more (removed by hand, say), or set up but not in force yet: the extend is refused, the
 end stays, and the answer says so (`409`, code `block_not_on_device` for a block that is gone, with the target, action and
-equipment under `respond`). No answer from the device: refused as not confirmed (`extend_unconfirmed`), the end stays. When the
+equipment under `respond`). No answer from the device: refused as not confirmed (`extend_unconfirmed`), the end stays.
+
+**An extend is written down first (4.5.2).** Before the device is asked, DENIS records the intent (the new end, who asked, which
+process) as an open `extend_intent` step of the action, in the same transaction that checks the action's state and end; only one extend of an
+action can be open, so device writes for one action never interleave (`409 extend_in_progress`). When the device side is done, one transaction closes the
+intent and moves the end, only if the intent is still open and the action still has the end the request was computed from. The ledger end therefore
+never passes the device's: if the device took the new end but the ledger could not be written, or the process stopped in between, the answer is
+"uncertain", the end stays, and the open intent is closed by *reading* the device (the next extend after a wait, or the reconcile job), never by
+sending the extend again. A firewall that shows no remaining time can only be asked whether the block is there; DENIS keeps the earlier end and
+releases then.
+
+**An extend and a release never both write (4.5.2, third review).** The release's claim on the action is one compare-and-set in the database that
+is refused while an extend of the action is open (`extend_open`: "Another extend of this action is still running ..."), so a release cannot start
+between the record of an extend and its close. The extend's last check before the request (state and end of the action, and that its own entry is
+still open) is made immediately before the device is asked; a release that began first, or an entry that a settle closed because its process was
+judged gone, stops the extend before anything is sent. An open entry whose process is gone is closed by reading the device (a block gone or still
+there; the earlier end stays) and the release goes on. The result of a release is recorded only by the claim that sent it (the claim carries a
+generation in the action's verification): a takeover that replaced the claim while the device was being asked is not overwritten. What the database
+cannot decide is the time between the last check and the connector's own request, and an effect of an already sent request that a device applies
+late: for those the ledger keeps the earlier end and says so ("DENIS keeps the earlier end"), never claiming a later one it has not confirmed.
+
+**Recovery details (4.5.2).** A result the database refuses is never reported as the success it did not confirm: an apply answers `unconfirmed`
+(code `not_recorded`) and the row stays `pending` with its end until the reconcile job reads the device; a removal answers `rollback_failed` (code
+`not_recorded`) and stays `rolling_back` until the next try. A temporary action that an older version left active with a duration but no end gets
+the end it was meant to have (effect time plus duration; when that is long past, one hour from now so it can still be extended), once, audited
+`nac.end_backfilled`. The expiry job's query applies the same wait as its takeover rule (10 minutes for a rollback another process start left, 45 for
+this one) before its limit, so rollbacks that are not due cannot hide ones that are. The reconcile job reads at most 200 devices per pass, rows in
+doubt first, then the ones read longest ago; the first pass after a start carries on over the next five-minute ticks until it has read every row. When the
 block is gone the console asks *Block again…*: on yes the normal **Respond** dialog opens for the same target, action and
 equipment with the duration you chose for the extend (else the original one), so the plan, warnings, confirmations, password,
 kill switch, caps and lab switches apply as for any new block; on *Cancel* nothing changes. DENIS never makes the new block by

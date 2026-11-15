@@ -6,6 +6,16 @@
      paths, rule or file names, or internal groundwork. Below it is the full technical record, kept
      here only. tools/pre-release.sh checks this. -->
 
+## 4.5.2
+
+- Security updates of components: the SQLite library built into DENIS (SQLite 3.54, which fixes a memory leak when a crafted database file is opened) and the libraries used for outgoing QUIC connections.
+- Extending or releasing a block is safer. DENIS asks again whether this node still leads after it waited for a device's lock and, for ASA, FMC, FDM, Check Point, UniFi and FortiGate, right before every request that changes something; for other equipment between the steps. A release waits while an extension of the same block is settled, an extension that could not be confirmed no longer blocks later ones for 45 minutes, and an answer that could not be stored says so. After a start, the first check works through every block over several checks.
+- Going back to the previous version after a failed update takes back only a database it can show was migrated by that update, checks the copy before and again right before the swap, starts the old program only after verifying it, and finishes an interrupted return at the next start. Programs older than 4.5.2 cannot finish it: the note then says what to restore by hand.
+- A revoked token, agent token or invitation stays revoked after an older backup is restored, also in the console that only views a backup. A credential that cannot be revoked again is refused until it can. On a PostgreSQL pair each node has its own journal: see the documentation before a restore.
+- Agent enrolment can be repeated after a lost answer without a second code and without touching a token you issued by hand. One tenant's single sign-on traffic can no longer push out another tenant's sign-ins.
+- Turning a rule's response live is bound to the trial results you looked at: if the rule, its response or a verdict changed meanwhile, DENIS refuses and leaves automation off. A settings read error no longer lifts a customer's limits.
+- Settings has one name for the first-run checklist: the setup guide.
+
 ## 4.5.1
 
 - Extending a block now reads the device first. If the block was removed by hand on the device, DENIS says so and offers "Block again" instead of extending a block that is not there. Connectors that cannot be read back keep the earlier behaviour.

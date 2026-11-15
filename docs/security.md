@@ -104,6 +104,7 @@ All of this is in memory, so a restart clears the counters (the *known addresses
 | Failed sign-ins from one address (any accounts) | 20 per 10 minutes, then HTTP 429 until the window passes |
 | Failed sign-ins from one IPv6 /64 network | 400 per 10 minutes. The 20 above count each IPv6 address on its own, so rotating through addresses of one network is still bounded |
 | Passkey sign-in start requests from one address | 30 per minute (600 per minute for a /64) |
+| Single-sign-on start requests (`/api/auth/sso/login`) of one tenant | 60 per minute, then HTTP 503 with `Retry-After`. Sign-ins waiting at the identity provider are kept per tenant (256 each, 1,000 in all; a tenant that floods its own page only evicts its own, and when all 1,000 places are taken a new start is refused with HTTP 503 and `Retry-After` while nobody's waiting sign-in is dropped), so one tenant's traffic cannot make another tenant's users start again |
 | Password checks running at the same time | twice the number of processor cores, at least 2 and at most 16. Up to 256 more wait for up to 10 seconds; past that the answer is HTTP 503 with `Retry-After` |
 | Distinct unknown session cookies from one address (IPv6: one /64) | 60 per minute, then HTTP 429 `rate_limited`. A cookie found invalid is remembered for 30 seconds and answered 401 without a database read, so a real user with an expired session is not affected |
 
@@ -383,7 +384,9 @@ A single sign-on is matched to an account by the identity provider's issuer and 
 * The first sign-in of a new identity creates a viewer account named after the email and links it, in one database
   step: a failure can no longer leave an account without its link.
 * An issuer URL written with or without a trailing slash is one issuer (links stored by an older build with a slash
-  still count).
+  still count). Since 4.5.2 that holds when linking too: an identity that has an owner under one spelling cannot be
+  linked to a second account under the other (the link is one database statement that changes a row only for the
+  real owner; `400` for another account's identity).
 * When a local account with the same email already exists, the sign-in is refused and says so; an administrator links
   the identity under *Users* (or `PATCH /api/users/{id}` with `sso_link: {issuer, sub}`, asking for the administrator's
   password when their sign-in is older than 10 minutes). The `sub` is in the identity provider's user details. A link
@@ -391,7 +394,25 @@ A single sign-on is matched to an account by the identity provider's issuer and 
 * When the issuer URL is changed in *Settings → Sign-in & security* (another tenant path, `http` to `https`), existing
   links keep the old issuer and those people would be refused. Save with `move_links: true` to move them to the new
   issuer, but only when it is the same identity provider: the `sub` values of another provider are not the same
-  people.
+  people. Since 4.5.2 the move and the new configuration are one transaction: a failure leaves both as they were, and
+  when an identity would belong to two different accounts after the two spellings are one (an old link with a slash
+  for one account, the new address for another) nothing is changed, the answer is `409` with the count, and the
+  attempt is audited as `sso.update_refused`. Unlink or relink those first. The move is planned from the stored
+  setting the request read; the transaction compares that value again once it holds the setting's lock, and when
+  someone else changed it meanwhile the answer is `409` and nothing is written (two moves that both read the same old
+  issuer cannot both be applied, so no link is left under an issuer that no configuration names). On PostgreSQL the
+  first sign-in of an identity (account and link), a link and a move all take the same transaction lock for the
+  identity (both issuer spellings share its name) and the table lock a move holds, so none of them decides on a
+  state another has not finished writing. An unlink is one keyed statement and waits for a running move.
+* The public sign-in (`/api/auth/sso/login` and `/callback`) talks to the identity provider with a 5 s connect, 10 s
+  read and 15 s overall limit. At most 16 such calls run at once in the process and 4 for one tenant; beyond that the
+  answer is `503` with `Retry-After` at once (a callback loses nothing: its sign-in is only used up when it runs). The
+  provider's discovery document is cached per tenant and issuer (at most 64 entries), and callers that arrive while it
+  is being fetched share that one fetch. The cache and the fetch in progress are looked at together under one lock, so
+  a caller that missed the cache just before another's fetch ended finds its result instead of fetching again. The
+  name of the issuer is checked against the tenant's outbound policy within the call's overall time limit. Limit: the
+  operating system's name lookup itself cannot be interrupted; a lookup that never finishes is abandoned by the call
+  (which answers with an error) and ends with the system's own timeout.
 * An account that signs in with single sign-on has no password of its own. To set up an authenticator app or a passkey
   (for example when a policy asks for one), it proves itself with a single sign-on in the last 10 minutes instead of a
   password; the password field can stay empty.

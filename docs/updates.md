@@ -31,8 +31,8 @@ upgrade, after the backup exists. Only newer versions are offered; a downgrade i
 ## When an automatic rollback is not possible
 
 After a switch the new program must run for a minute. If it fails to start twice, the third start puts the previous
-program back (and, on SQLite, the pre-update database when its format had changed). Since 4.5.0 two cases are refused
-instead of half-done, and the new program keeps starting:
+program back (and, on SQLite, the pre-update database when its format had changed). Since 4.5.0 two cases (and since 4.5.2 a third, last in this list) are
+refused instead of half-done, and the new program keeps starting:
 
 * **PostgreSQL, the schema was migrated.** The old program refuses a schema newer than itself, so putting it back would
   leave both nodes unable to start. DENIS records the schema version before the update and the one the new program
@@ -42,6 +42,41 @@ instead of half-done, and the new program keeps starting:
   main schema, the control schema and every tenant schema, so one restore takes all of them back. A new version that fails
   before it opens the database is rolled back as before.
 * **`denis.previous` is missing.** Nothing is changed (the database neither), and the note says so.
+* **A restore copy cannot be made or does not pass the check** (no space, a damaged backup, a missing backup of a
+  database whose format changed). Since 4.5.2 every database's restore copy (the default one and each tenant's) is
+  written beside the database, synced and checked with SQLite's integrity check *before* anything is changed; if any
+  of them fails nothing is changed, the program is not put back, and the note names the database.
+
+Once the copies are ready the marker is rewritten as "restoring" and the program is put back; each database is then
+switched with one rename (the replaced one, with its write-ahead log, stays beside it as `...failed-<time>`; the
+restored database never meets the old log). The rollback counts as done, and the marker is removed, only when every
+database is confirmed back. If it is interrupted, or one tenant cannot be switched, the marker stays and the next
+start finishes the restore; the note says what is still open. The marker also records which databases the rollback means
+to put back and the format each was at then, and the retry keeps to that:
+
+* A database is put back only if it is still at the format it had when the rollback began. One that has moved on since
+  (a newer program migrated it) is never replaced by the backup from before the update.
+* A missing database is put back only if this rollback itself had set it aside, which the aside file proves (the marker
+  names the file the database is set aside under before the rename, and the retry restores a missing database only when
+  that file exists and is the very file that was planned); a tenant deleted, or a database that vanished for another
+  reason, stays missing and the note says so with the backup to restore it from by hand.
+* A rollback that is just starting takes only a database the update migrated: its format must be above the one before the
+  update and not above what the program being rolled back writes. An older one, or one a later program migrated, is left
+  exactly as it is and the note says so. Immediately before a database is set aside it is checked once more (format and
+  file identity); a database that changed since the plan is left untouched.
+* The old program is started only after the swap is verified: the marker records the hash of `denis.previous`, and the
+  file at the program's path must have it. A swap that failed (even together with a failed write of the marker) is never
+  followed by a start of the program that was just rolled back, and the missing `denis.previous` alone is no proof that
+  the old program is in place; the next start tries again.
+* Only the program that was rolled back and the version rolled back to finish a rollback. When a third version is
+  running (a package or image upgrade made in between), the marker is dropped with a note and the databases stay as
+  they are; the backups taken before the update remain in the backup folder.
+* If the new program is still the one in place (the old one could not be put back, for example a full disk), it keeps
+  running instead of restarting itself; after the third failed start the rollback is given up with a note, like a
+  rollback without `denis.previous`.
+* **Rolling back to a version before 4.5.2.** Those programs do not know the "restoring" marker and remove it at their
+  first start. A database that could not be switched back (the note names it and its backup) is then not retried: restore
+  it by hand from the backup named in the note, before starting the older program.
 
 In both cases the update is no longer counted against further starts; once the version has run for a minute the note
 goes. A node of a pair that comes back as standby after an update counts as started once it has waited for a minute,

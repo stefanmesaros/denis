@@ -60,7 +60,7 @@ denis tenant limit acme ingest.agent_backup_quota_mb     # no value: back to the
 | `ingest.agent_backup_quota_mb` | Total size of the backups this tenant's agents may upload (counting what pruning to the keep count frees). Past it an upload gets `507` and Health shows a warning to that tenant. `0` = no limit. A single upload is still capped at 500 MiB. | 20480 |
 | `egress.allow` | Addresses, CIDR networks or host names the tenant's integrations may reach although they are private (see below). | empty |
 
-The limits apply to a running DENIS within seconds. An upload is streamed to disk (never held whole in
+The limits apply to a running DENIS within seconds. If the control store cannot be read for a moment, the tenant keeps the limits and the allow-list it had (a read error is never taken for "nothing set"), a suspend or resume is still applied, and Health shows *Tenant limits from the control store* after three failed looks in a row; the next successful look applies the current values. If it cannot be read when DENIS starts, the tenant starts with the built-in defaults and no extra allow-list (the most restrictive state the code has; nothing is widened) until it can. An upload is streamed to disk (never held whole in
 memory) and refused as soon as it passes the cap or the quota, leaving no partial file.
 
 ### What a tenant's integrations may connect to

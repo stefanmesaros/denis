@@ -55,7 +55,7 @@ so that channel quietly behaves like "individually" until incidents are back on.
   banner shows on every screen while it is on, and alerts and notices raised meanwhile are **not** sent afterwards.
   Messages that were already waiting when it began (an alert retrying against a receiver that is down, a weekly
   summary) are held, not dropped, and go out when maintenance ends, unless they are older than 24 hours by then (4.5).
-  Enforcement and MSP messages are sent during maintenance as before, and so is the SIEM **incidents** stream: it is an
+  If DENIS cannot read or understand the maintenance setting (the database does not answer, or the stored value is damaged), it does not guess "off": those messages wait as in maintenance, are sent once the setting can be read, and Health names *Maintenance setting for notifications* after three failed attempts in a row. Enforcement and MSP messages are sent during maintenance as before, and so is the SIEM **incidents** stream: it is an
   export, like the SIEM event stream, which maintenance mode does not stop either.
 * **Silence one device**: in a device's edit form, *Silence notifications until* a date (to the end of that day in the
   site's own time zone, or the console's for the console's own network; before 4.5 the day ended at midnight UTC).

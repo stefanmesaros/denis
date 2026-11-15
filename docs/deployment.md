@@ -363,10 +363,27 @@ environment (`sudo -E`, `DENIS_ENROLL_CODE`) or in a file (`--enroll-file FILE`)
 itself when it starts with `DENIS_ENROLL_CODE` and no token (Docker, systemd, Ansible): it keeps the result under
 `<data folder>/enrolled/` and ignores the code afterwards. `denis agent-enroll` is the step on its own. **Revoke the code** in
 the dialog (or `DELETE /api/enroll-codes/{id}`) to stop it early; agents already enrolled keep their tokens. An agent older than
-4.4 simply keeps using Add agent. Add agent is unchanged. If an enrolment was cut off before its answer reached the agent
-(a dropped connection, a restart of the master at that moment), the agent id is taken but nobody has its token, and
-a new try with the same id is refused ("choose another with --id"): revoke and delete that id under **Sites** (its token
-row), then enrol again (one use of the code is spent).
+4.4 simply keeps using Add agent. Add agent is unchanged.
+
+**If an enrolment is cut off (4.5.2).** On the master, taking one use of the code, making the agent's token and writing the audit
+entry are one database transaction: a crash or an error leaves all of it or none of it, never a used code without a token. If
+only the *answer* is lost (a dropped connection, a restart of the master at that moment), the agent repeats the same request
+(three tries, with the same random proof it generated for this one exchange). Within five minutes of the first try, and as long as
+the token that first try issued was never used, the master answers again for the same agent id with a **new** token, revokes that
+first one and takes no second use of the code. Only the token that enrolment issued can be replaced: a credential issued since by
+hand (for example an administrator's re-issue) is never touched by the old proof. The five minutes hold also when the code's own
+expiry falls inside them (the expiry ends only new enrolments). The first use of a token is recorded in the same database statement
+that checks it is still active, so a first request and a repeat cannot both win. On the agent, the proof is written to a private
+file next to the target folder (`.enrolled.pending`, mode 600, flushed) before the first request and removed after the result is
+published, so the same agent started again after a crash or a restart repeats the request with the same proof (a record older than
+five minutes, or for another code or id, is not reused); everything that writes the folder runs under one lock file
+(`.enrolled.lock`), and a second writer is told to wait. After five minutes, with a different proof, or once the first token has been used, the repeat is
+refused as before, and the way out is also as before: revoke and delete that id under **Sites**, then enrol again (one more use of the
+code is spent). On the agent, the result (`master`, `token`, `id`, `ca.pem` and a `manifest` with their SHA-256) is built in a
+hidden folder next to `enrolled/` and moved into place with one rename, the manifest being the sign of a finished enrolment;
+a folder that does not match its manifest is reported as damaged and not used. A folder, or a file in it, that is a link or
+belongs to another user is refused, and permissions are only ever narrowed (folder 700, files 600). A folder written by an
+earlier version (no manifest) is accepted as it was.
 
 `install.sh --agent` downloads the same signed release as the master install and checks its signature and
 checksum before changing anything. It then installs the program the same way, writes `/etc/denis/agent.env` (mode
