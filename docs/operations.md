@@ -89,6 +89,35 @@ What a restore cannot bring back, and what DENIS notices (4.5):
   database would be rolled back by the very restore it is meant to survive. A line cut off by a full disk or a crash is
   closed with a newline before the next one is written (and stays ignored), a byte that is not text costs only its own line,
   and a journal that cannot be read is logged as an error at start.
+  **What the journal guarantees, and what an operator sees (4.5.3).**
+  * *Journal first, on purpose.* The line is written before the revocation commits. If the commit then fails (or the
+    process dies between the two), the line stays valid, and the next start revokes that token, although the revocation
+    never committed. This is the fail-closed choice: a revocation is never lost to a restore. You can see it: the token
+    keeps working until that start, and the start's audit entry `tokens.revocations_reapplied` has
+    `restore_detected: false` (it says `true` only when the start also recognised an older database copy). If you re-issued
+    a token and the replacement was never delivered, repeat the re-issue after such a start.
+  * *A revocation that could not be journaled* (full disk, wrong permissions, or another process holding the lock for
+    more than 5 seconds) is still made, because a stolen token must always be revocable. It is never silent: the log has
+    an error, the Health page warns until DENIS restarts, the audit entry of the token-revoking console call has
+    `journaled: false`, and the answer carries the header `X-Denis-Journal: not-written`. That token is NOT protected
+    against a restore until it is revoked once more with a writable journal.
+  * *The lock is bounded.* `revoked.journal.lock` is opened without following a link (it must be a regular file of the
+    DENIS user, mode 600, one name; anything else is refused with an error, never waited on) and is waited for at most 5
+    seconds on every platform (`flock` on Unix, `LockFileEx` on Windows). A stopped or stuck process that holds it delays a
+    revocation by those seconds at most; start-up never waits for it, because the replay only reads the journal and a
+    line that is in the journal already is not written again.
+  * *Repeating the replay is safe.* Starting twice changes nothing the second time: no second audit entry, no second
+    journal line.
+  * *Compaction* keeps the newest 10,000 distinct revocations **by time** (the later line wins a tie) and writes them oldest
+    first, then flushes the folder; a journal merged from two nodes in any order keeps the right lines.
+  * *A replay that cannot prove it was complete* is shown, never taken for clean: Health and the audit entry
+    `tokens.revocation_replay_incomplete` say so when the journal cannot be read, when a credential could not be revoked
+    again (it is refused until it can, per store; the bootstrap token of an invitation included), or when the invitation
+    records could not be read completely (`invitations_unverified`). **What to do then:** fix the cause the log names (the
+    file's owner and mode, the database), restart DENIS, and check that the warning is gone. While it is not gone, treat
+    every token and enrolment/link code as possibly open after a restore: revoke and re-issue the API and agent tokens
+    you rely on, and delete the open enrolment and link codes (Sites, Add agent) you do not recognise. If the journal is
+    lost for good, there is nothing to replay: review the tokens by hand.
 * **The secret key.** `secrets.key` is not in the database backups. When it is missing at start and the database holds
   values sealed with a key (integration credentials, authenticator-app secrets, the data key), DENIS refuses to start
   and says so, instead of making a new key that could open none of them (4.5; before, a new key was made silently).

@@ -30,6 +30,10 @@ about a real network is touched.
 DENIS_LISTEN=0.0.0.0:8443 docker compose up -d denis
 ```
 
+The service passes `DENIS_LISTEN` (default `0.0.0.0:8443`) and `DENIS_NO_TLS` (default empty, so HTTPS with the built-in
+certificate) to the container. Use `DENIS_LISTEN=127.0.0.1:8443` to keep the console local, or `DENIS_NO_TLS=true` behind a
+reverse proxy.
+
 This is the one that needs real trade-offs, spelled out rather than hidden in a flag:
 
 * **`network_mode: host`**: a container's own bridge network is a different network namespace than
@@ -38,15 +42,16 @@ This is the one that needs real trade-offs, spelled out rather than hidden in a 
   container sees (and can be reached on) the host's real interfaces directly — no port mapping, and
   no network isolation from the host either. This is the standard way network-monitoring tools run
   in Docker; it is still a real reduction in isolation, not a default to take lightly.
-* **`cap_add: [NET_RAW, NET_ADMIN]` with `cap_drop: [ALL]`, `user: root`**: the same two
+* **`cap_add: [NET_RAW, NET_ADMIN]`, `user: root`**: the same two
   capabilities `packaging/denis.service` grants a dedicated, unprivileged `denis` user on a
   bare-metal Linux install via `AmbientCapabilities`. A Linux **file** capability (`setcap`) was
   tried first, to keep the container non-root the same way — it does not work: a file capability
   can only grant what the container's own capability *bounding set* already has, and Docker's
   default bounding set excludes both. Confirmed by actually running it: `denis --version` failed
   with "Operation not permitted" inside a container that had the file capability set but neither
-  capability added at the Docker level. So the container runs as root, with every other capability
-  explicitly dropped — Docker's own capability system enforces the boundary instead.
+  capability added at the Docker level. So the container runs as root with Docker's default capability set plus
+  `NET_ADMIN`. Dropping every other capability (`cap_drop: [ALL]`) was tried and broke writing to the data
+  volume (root loses `CAP_DAC_OVERRIDE`), so it is not used; this is less tightly scoped than a bare-metal install.
 * With host networking, auto-detection (the interface holding the default route) works the same
   way it does on a bare-metal install — no `--iface` needed by default. To monitor a specific
   interface, or add a `--mirror-iface` for a SPAN/mirror port, override the command in

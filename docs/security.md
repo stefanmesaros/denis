@@ -405,14 +405,29 @@ A single sign-on is matched to an account by the identity provider's issuer and 
   identity (both issuer spellings share its name) and the table lock a move holds, so none of them decides on a
   state another has not finished writing. An unlink is one keyed statement and waits for a running move.
 * The public sign-in (`/api/auth/sso/login` and `/callback`) talks to the identity provider with a 5 s connect, 10 s
-  read and 15 s overall limit. At most 16 such calls run at once in the process and 4 for one tenant; beyond that the
-  answer is `503` with `Retry-After` at once (a callback loses nothing: its sign-in is only used up when it runs). The
-  provider's discovery document is cached per tenant and issuer (at most 64 entries), and callers that arrive while it
-  is being fetched share that one fetch. The cache and the fetch in progress are looked at together under one lock, so
-  a caller that missed the cache just before another's fetch ended finds its result instead of fetching again. The
-  name of the issuer is checked against the tenant's outbound policy within the call's overall time limit. Limit: the
-  operating system's name lookup itself cannot be interrupted; a lookup that never finishes is abandoned by the call
-  (which answers with an error) and ends with the system's own timeout.
+  read and 15 s overall limit, and **one deadline of 15 s per call** covers every step of it: the policy check of the
+  issuer's name, the discovery, the lookup of the token endpoint and the token request each get what the earlier steps
+  left. At most 16 such calls run at once in the process and 4 for one tenant; a new start leaves 4 of the 16 (and one
+  of a tenant's 4) free for callbacks, so a flood of starts cannot keep the people who are already at the identity
+  provider from coming back. Beyond the budget the answer is `503` with `Retry-After` at once, and a refused start does
+  not use up the tenant's 60 starts per minute. The provider's discovery document is cached per tenant and issuer (at
+  most 64 entries), and callers that arrive while it is being fetched share that one fetch. The cache and the fetch in
+  progress are looked at together under one lock, so a caller that missed the cache just before another's fetch ended
+  finds its result instead of fetching again.
+  **Name lookups** run on one finite pool of 4 resolver threads for the whole process, shared by the policy check and
+  the connect of every call; calls that ask for the same name share one lookup. The addresses that passed the tenant's
+  outbound policy are kept for the call and used by the connect, so the name is not looked up a second time (this also
+  closes the gap between the check and the connect). A caller leaves at its deadline; a lookup that the operating
+  system never finishes keeps one pool thread until the system's own timeout, but holds no flight and no sign-in place.
+  When all 4 threads are taken by such lookups, a call that needs a new lookup is refused at once with `503` (and is not
+  remembered as the provider's failure). Limit: the operating system's name lookup cannot be interrupted, so those at
+  most 4 threads, and the sign-ins that need a new name meanwhile, are the cost of a broken resolver.
+  A callback is checked against its cookie and state first, then the provider's metadata and the token endpoint's
+  address are fetched, and only then is the waiting sign-in used up: a `503` for want of room leaves it waiting, and the
+  same link can be opened again. If the last step, the local sign-in (it hashes a password for a first sign-in),
+  has no room (`503`), the provider's code is already spent: DENIS keeps the verified identity for 60 seconds for that
+  browser (cookie and tenant must match, and the single sign-on settings must still allow it), and reloading the page
+  finishes the sign-in without asking the provider again; after a minute the person starts again.
 * An account that signs in with single sign-on has no password of its own. To set up an authenticator app or a passkey
   (for example when a policy asks for one), it proves itself with a single sign-on in the last 10 minutes instead of a
   password; the password field can stay empty.

@@ -52,6 +52,13 @@ services:
     # bare-metal install -- no --iface needed by default. To monitor a specific interface (or add
     # a --mirror-iface for a SPAN/mirror port) instead, override the command, e.g.:
     #   command: ["run", "--iface", "eth0"]
+    # The real-network profile serves HTTPS on 8443 by default (a host-networked container is
+    # reachable from the LAN, so it must not fall back to the image's plain-HTTP demo default).
+    # Override from the shell: DENIS_LISTEN=127.0.0.1:8443 to keep it local, DENIS_NO_TLS=true
+    # behind a reverse proxy.
+    environment:
+      DENIS_LISTEN: ${DENIS_LISTEN:-0.0.0.0:8443}
+      DENIS_NO_TLS: ${DENIS_NO_TLS:-}
     volumes:
       - denis-data:/data
 

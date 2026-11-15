@@ -614,6 +614,37 @@ generation in the action's verification): a takeover that replaced the claim whi
 cannot decide is the time between the last check and the connector's own request, and an effect of an already sent request that a device applies
 late: for those the ledger keeps the earlier end and says so ("DENIS keeps the earlier end"), never claiming a later one it has not confirmed.
 
+**The native extend asks its own operation again after every wait (4.5.3, fourth review).** The permit for an extend that renews the end on the
+device itself (Palo Alto's timed registration) carries the extend's journal entry and the action's claim generation as they were when the
+database check was made. After the process lock and the read of the registered tags (either can take as long as the firewall needs) and right
+before the one request, the connector asks the database again: the entry must still be the open extend of the action and the claim generation
+the same. A settled or replaced entry, or a release that claimed the action, sends nothing. A request that had already left cannot be withdrawn:
+the result then says the firewall took the new timeout while the action moved on, the ledger keeps the earlier end and DENIS releases the
+address at it (the firewall may hold it longer until then).
+
+**"Nothing was sent" is proved, not assumed (4.5.3, fourth review).** The transport of a connector that asks the lease at the last moment
+(`nac_guard::send_gate`: ASA, FMC, FDM, Check Point, UniFi, FortiGate, and since 4.5.3 Palo Alto) distinguishes: the gate refused before the first
+request of the write path (typed `NotSent`: "DENIS sent nothing to the device, so nothing was changed"), a request the device answered with a
+refusal (nothing changed, so a lease lost at its retry is still "not sent"), a connection that failed before the request was transmitted (DNS,
+connect, TLS handshake or policy: also "not sent", seen by a probe around the HTTP agent's transport, `nac_kit::wire`), and everything else, which
+stays "unknown" and is read back (a request whose first byte left, an earlier request that may be in place, a transport without a probe). The
+earlier possible effect is its own flag, so a refused retry never hides an earlier request that may have been applied. A save the ASA did not take
+(`write memory`) leaves the change in the running configuration; the result now says so in words, not only as a skipped step. Not covered: the
+connectors that still ask only between steps and through the instance lock (AWS, Azure, Cisco WLC, Hyper-V, Juniper, Meraki, MikroTik, NSX, Omada,
+OPNsense, Proxmox, RADIUS CoA, SNMP, SonicWall, WatchGuard): a lease lost inside one of their steps lets that step finish.
+
+**The jobs walk the whole set across ticks (4.5.3, fourth review).** A pass of the expiry job reads at most 40 pages of 50 rows. A pass that stops
+there keeps its place (`nac.expiry_cursor`, a store setting, so it survives a restart and a failover); the next pass continues behind it, and when it
+reaches the end of the set it goes on from the start up to the place it began and clears the place. Rows that stay due after their attempt (an open
+extend, a record this version does not understand) therefore cannot keep the rows behind them from ever being offered: every due row is offered
+within (rows / 2,000) + 1 passes. `more` in the pass summary means exactly "the whole set was not covered". The backfill of missing ends
+(`nac.backfill_cursor`), the settling of open extends (`nac.settle_cursor`) and the start sweep of the reconcile job (`nac.sweep_cursor`, under the
+process start's id) keep their places the same way. Whether a rolling-back action is due depends on who claimed it; that is read from the row's JSON
+by the one function every other part of DENIS uses (a top-level string `claimed_by`), in Rust, after a bounded SQL pre-filter, so SQLite and
+PostgreSQL cannot differ on a legacy spelling, and the clock thresholds are computed in Rust (an extreme clock no longer overflows PostgreSQL's
+`bigint`). The hourly walk of the reconcile job still relies on each row's own `last_checked_at` for its progress (a row whose check cannot be saved
+comes back at the front of the next hour's walk), and reads at most 100,000 rows per pass.
+
 **Recovery details (4.5.2).** A result the database refuses is never reported as the success it did not confirm: an apply answers `unconfirmed`
 (code `not_recorded`) and the row stays `pending` with its end until the reconcile job reads the device; a removal answers `rollback_failed` (code
 `not_recorded`) and stays `rolling_back` until the next try. A temporary action that an older version left active with a duration but no end gets

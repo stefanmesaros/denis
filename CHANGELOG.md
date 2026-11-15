@@ -6,6 +6,18 @@
      paths, rule or file names, or internal groundwork. Below it is the full technical record, kept
      here only. tools/pre-release.sh checks this. -->
 
+## 4.5.3
+
+- Updates are confirmed by health, not by a timer. After an update the new version is kept only when its mandatory parts work: the console answers, the database accepts a write, capture runs (a quiet network is fine) and an agent has delivered a report. If they do not, DENIS says so and, with the automatic return on, goes back to the previous version. A lost connection to the master alone never causes a return. The automatic return can be turned off (--auto-rollback off); the documentation describes the manual way.
+- Going back after a failed update is stricter: every database is read once and the same reading is used to decide, copy and swap; the previous program must be the one that was installed; a write-ahead log that is not empty is never deleted.
+- A revoked token stays revoked after a restore also when its journal could not be read completely: Health says the check is incomplete instead of clean. The journal no longer blocks start-up when another process holds it.
+- A service stopped with systemctl or docker stop now saves its last window like a stop with Ctrl-C, and a console that fails on its own ends the program with an error so that the service manager restarts it. An agent finishes its collection before it stops sending.
+- A remote agent never builds a report the master refuses for its size; what does not fit follows in the next report. A report refused as too large is sent again with its devices.
+- A backup uploaded by an agent is published only when it arrived whole and opens as a database; a cut-off or damaged upload never replaces a healthy backup. Two uploads of one agent no longer disturb each other.
+- Blocks on Palo Alto firewalls: an extension is sent only while it is still the current one. Equipment that never received a request is reported as "DENIS sent nothing" instead of "refused". Due blocks are always all looked at in turn.
+- Docker: the real-network profile now serves HTTPS on the port you set (DENIS_LISTEN) and the documentation no longer claims capabilities that are not dropped.
+- Single sign-on: a slow name lookup can no longer hold the sign-in page; turning a rule's response live is bound to exactly the table you saw.
+
 ## 4.5.2
 
 - Security updates of components: the SQLite library built into DENIS (SQLite 3.54, which fixes a memory leak when a crafted database file is opened) and the libraries used for outgoing QUIC connections.

@@ -274,13 +274,34 @@ There is no 4.4.4: what was planned for it is part of 4.5.0.
 * **A review of the whole code for state problems** (what happens when a step stops half way, a request arrives twice, or a restart comes in the middle) with about 380 findings, fixed in 4.5.0 with tests that pin the earlier behaviour.
 * **Not in 4.5.0:** high availability on a managed PostgreSQL service (the run on a managed service, a long soak and the many-customer measurement; decided later), MikroTik access points at scale (one shared REST user for many standalone access points), and the evidence model below.
 
+## 4.5.1 to 4.5.3 (delivered; the release notes are in CHANGELOG.md)
+
+Review releases after independent reviews of 4.4.0 and 4.5.x. 4.5.1: first review fixes. 4.5.2: the lease asked again before a block is extended or released, a stricter return after a failed update, a revocation journal, repeatable agent enrolment, rule go-live bound to the trial results, rusqlite 0.42. 4.5.3: update confirmed by health (`--auto-rollback on|off`), the fourth review's findings (Palo Alto extension fence, typed "not sent", expiry paging, resolver pool for sign-in, public-sync manifest), SIGTERM and report size, uploaded backups published only when intact, the Docker real-network profile. Verified on fakes and a real PostgreSQL 16; the new enforcement code paths are not yet run on real equipment.
+
+## 4.5.4 (planned, from the independent pre-sale review of 2026-11-14; 4.5.3 takes its PS-02, PS-04, PS-05, PS-07 and PS-08)
+
+Documented by reading the code; the first two are to be closed before remote branches are sold in the ordinary way.
+
+* **PS-01, a confirmed batch can be processed only in part (remote agents).** The master stores the batch number first and processes flows, DNS and alerts in later steps. A crash in between lets the repeated batch be acknowledged as a duplicate, so the agent deletes it and those observations are lost. Fix: the batch is stored durably (or all its effects are written in one transaction); after the retry limit the console marks the branch and the time interval as incomplete. The ROADMAP wording about storing the number together with the events is to be corrected with it.
+* **PS-03, restarting an offline branch can stop local collection.** A registered agent needs a successful ping of the master before it opens its database and starts the collector. Fix: tell "master unreachable" from "invalid configuration or revoked credential"; on a temporary outage collect and keep a bounded disk queue (age and number of dropped records shown); the operator sees the gap after reconnecting. The in-memory channel between the collector and the reporter is to be bounded.
+* **PS-06, a local backup holds the writer lock while it copies.** `VACUUM INTO` runs under the same write gate as normal operations, so writes queue behind a long backup. Measure first (p95 of writes and console requests, oldest queued item, capture drops, restore time at the largest supported working set); if it shows stalls, copy online in steps over a separate connection or change the backup schedule. Also test a full disk in the middle of a copy and that the last good backup survives.
+* **Not sales conditions (independent review, 2026-11-14):** PostgreSQL and high availability are not important for the target audience; their open items stay under "Not done in 4.4.0" and 4.5.0 above.
+
+## 5.0.0 (planned; decisions of 2026-11-15)
+
+After 4.5.4 comes 5.0.0 directly: the steps the analysis had put between them (port health, events and Dashboard list, RADIUS accounting) are all part of 5.0.0 and there are no 4.6 to 4.8 releases. Source: a plan from an independent review, checked against the code.
+
+* **Port health in Network → Equipment** (standard IF-MIB over the existing SNMP v2c/v3 read path, counters off for existing switches after the upgrade and offered on a card, on for a switch added later; 8 days of history by default, adjustable; fixed start thresholds of 90 % use and errors in 3 of 4 samples; switches read by the master only, a remote site needs a route or a VPN to its management network). Operational events go through the existing notice, incident and delivery paths; one list of what needs attention on the Dashboard; a card in Start.
+* **Remote branches dependable:** the 4.5.4 work (PS-01, PS-03, PS-06), an agent queue on disk (512 MiB and 72 hours by default), a measured write budget of 2 s during a backup, and a smoke test on a real Linux host.
+* **802.1X, Experimental:** DENIS receives RADIUS accounting on a UDP port it opens (it is still not a RADIUS server), shows the session per device, and ends the exact session with Disconnect through the existing approval, audit and read-back path. First lab pair: FreeRADIUS and a Cisco Catalyst switch. Steering policy through the customer's RADIUS comes later.
+* **After 5.0:** TCP and HTTPS availability checks. An independent security assessment is not a condition for the 5.0 tag (owner, 2026-11-15); pilots with three to five administrators are still to be chosen.
+
 ## Next after 4.4.0 (in this order; nothing here has a date)
 
 * **A record of each connection as evidence** (source port, packets in each direction, first and last seen, how far the TCP handshake was seen, DNS answer lifetimes and name chains), kept with an alert so that an alert on a bare address can be investigated: a general model for DNS, server names and connection data that the detections and the investigation view share. 4.5.0 shows the names and the connection facts that are already collected, with their source.
 * **Read what more endpoint tools know**: the device lists of further EDR and MDM products (Intune, Jamf, Entra ID and Defender are already read, see CMDB.md), next
   to what is seen on the network.
-* **802.1X, RADIUS accounting and CoA.** Who is behind an address, durable quarantine through your own RADIUS server,
-  session-exact disconnect; with the first customer who runs 802.1X.
+* **Full 802.1X access control, through your own RADIUS server (goal of the next major version; owner decision 2026-11-15).** DENIS does not become a RADIUS server: it reads and steers the one you run (FreeRADIUS, Microsoft NPS, Cisco ISE and similar). Read: authentication and accounting records (user or certificate, hardware address, port or access point, network name, session history) attach an identity to each device. Steer: policy by identity, group and device state (VLAN, ACL, quarantine) is handed to your RADIUS server and applied with a Change of Authorization, session-exact, with the same intent record, read-back and release rules as every other action. Experimental until each RADIUS product is verified on real equipment.
 * **Sandbox validations.** Done in the Cisco DevNet sandbox on 29 October 2026: Catalyst 9300 and 9200CX, Cisco Secure Firewall
   Device Manager (FDM) and Management Center (FMC). Still open: Meraki (when its sandbox is available), and a Cisco Modeling
   Labs run with a layer-2 switch image (IOSvL2) to verify client isolation (a quarantine VLAN move on a switch with real
