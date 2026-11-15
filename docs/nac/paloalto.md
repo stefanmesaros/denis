@@ -147,6 +147,13 @@ when DENIS could not. Details:
   extend is refused and the action keeps its old end ("The end was not moved"). An action whose tag carries a timeout
   cannot be made permanent or extended past 30 days from now (the timeout cannot be taken off again): release it and
   block again.
+* **The extend asks its own operation again (4.5.3).** The extend carries the journal entry it was started for and the action's
+  claim generation. After the wait for the firewall's other writes and after the read of the registered addresses, and right
+  before the register request, DENIS checks that the entry is still the open extend of this action and the claim unchanged; if
+  an entry was settled or replaced (a second node, a new extend) or a release claimed the action, nothing is sent. A request
+  that had already left cannot be withdrawn: the answer then says the firewall took the new timeout while the action moved
+  on, DENIS keeps the earlier end and releases the address then. The simulated firewall holds a request between "applied"
+  and "answered" in the tests for this; it has not been run on the hardware.
 * A re-registration of a lost tag (the minute check) carries a timeout for the time that is left, under the same rules.
 * An expiry that finds the tag already gone (the timeout fired, a restart) is a normal release: nothing is left to remove,
   and the read-back confirms it.

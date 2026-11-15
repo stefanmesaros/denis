@@ -23,14 +23,14 @@ default for a new installation since 4.2, one switch to turn off): see
 | Test | The new program is asked for its version before anything is replaced; if it cannot run on this machine the update stops with nothing changed. |
 | Back up | A verified copy of your database is written to a `backups` folder beside the database (`denis-before-<version>-<time>.db`, owner-only; the newest five are kept). An attempt that stops before the switch removes its own copies again, and older copies are pruned only after a switch, so attempts that did not happen never push out the backups of updates that did. |
 | Switch | The old program is kept as `denis.previous`, the new one takes its place, and DENIS restarts **in place** (same process, same arguments). |
-| Confirm | After one minute of healthy running the update counts as done. If the new version fails to start twice, the **previous version comes back automatically**, together with the pre-update database if its format had changed; the console tells you what happened. |
+| Confirm | The update counts as done when the new version has run for at least a minute **and** its mandatory parts work (see [How an update is confirmed](#how-an-update-is-confirmed)); time alone does not confirm it. If the new version fails to start twice, the **previous version comes back automatically**, together with the pre-update database if its format had changed; the console tells you what happened. |
 
 Your data is not changed by updating: the database is migrated forward by the new version exactly as in any manual
 upgrade, after the backup exists. Only newer versions are offered; a downgrade is never installed.
 
 ## When an automatic rollback is not possible
 
-After a switch the new program must run for a minute. If it fails to start twice, the third start puts the previous
+After a switch the new program must run for at least a minute and show that it works (see below). If it fails to start twice, the third start puts the previous
 program back (and, on SQLite, the pre-update database when its format had changed). Since 4.5.0 two cases (and since 4.5.2 a third, last in this list) are
 refused instead of half-done, and the new program keeps starting:
 
@@ -78,9 +78,66 @@ to put back and the format each was at then, and the retry keeps to that:
   first start. A database that could not be switched back (the note names it and its backup) is then not retried: restore
   it by hand from the backup named in the note, before starting the older program.
 
-In both cases the update is no longer counted against further starts; once the version has run for a minute the note
-goes. A node of a pair that comes back as standby after an update counts as started once it has waited for a minute,
+In both cases the update is no longer counted against further starts; once the version is confirmed the note
+goes. A node of a pair that comes back as standby after an update is confirmed when its health responder answers (after at least a minute),
 so restarts while the other node leads no longer roll a working version back.
+
+**What a rollback checks and reports (4.5.3).**
+
+* *One read per database.* The rollback reads each database file once (device and inode, size, modification time and
+  SQLite `user_version`, taken together) and decides eligibility, makes the restore copy, writes its plan to the marker
+  and, immediately before the swap, compares against that same snapshot. A file that has taken the path since (another
+  program, a package upgrade, a restore by hand) is a different snapshot and is left untouched, with the marker kept. After
+  the rename the file under the aside name is compared once more; a different file that slipped in is put back. A database
+  seen missing is restored only with the proof of the rollback's own aside file, and only while the path is still empty. What
+  remains is the time between two system calls (the rename itself cannot be made conditional); do not run another program on
+  the data directory while a rollback is under way.
+* *The old program is the recorded one.* The install records the SHA-256 of the program it kept as `denis.previous`; the
+  rollback refuses a `denis.previous` with another hash, and one that is identical to the running program (there is nothing
+  to go back to). The recorded digest is never replaced by a newer read, also across a resumed rollback. The program is
+  hashed again just before it is started and must still be the verified one.
+* *Program and databases are reported apart.* The note says that the program was put back and, separately, which databases
+  were restored, and lists the ones the rollback did not touch because it could not prove they were the update's
+  (`DATABASES LEFT FOR MANUAL RESTORATION`, each with its backup). The list is also kept in
+  `update-manual-restore.txt` in the backup folder. Restore those by hand with DENIS stopped.
+* *Limit.* A DENIS older than 4.5.2 does not know a plan in the marker and discards the marker at its first start (see above).
+  Rolling back to one needs the manual restore procedure.
+
+### How an update is confirmed
+
+Since 4.5.3 the one-minute timer is only a floor. The marker of an update is removed (the update is confirmed) when the
+running version has shown that its mandatory parts work:
+
+| Mode | Confirmed when |
+|---|---|
+| Collector (console) | the console answers on its own address, the database accepts a write, and capture is not down on every interface. A quiet network is healthy: no traffic count is looked at. |
+| Standby of a pair | the health responder answers. |
+| Agent | the first report was delivered to the master. |
+
+* **A master that cannot be reached** (connection refused, timeout, no route: a WAN outage) is not the new version's fault.
+  The agent's state is **confirmed pending master** (`/api/health` field `update`, the console note and
+  `update-status.json` in the backup folder). The marker stays, **nothing is rolled back** however long the outage lasts, and
+  the version is confirmed by the first delivered report. (Best guess: DENIS cannot tell from the agent whether the master
+  is down for a reason of its own; it treats every transport failure alike.) A master that answered and refused the report
+  (a rejected batch, HTTP 500, a rejected token) is a failed send: degraded.
+* **Degraded** is a mandatory part that failed after the first minute, or one that is still not ready after ten minutes.
+  The console note, the log and the health field `update: degraded` say what. With the automatic return **on** (the default)
+  the update is then treated like a failed start: DENIS restarts once and the start-up guard puts the previous version back.
+  With `--auto-rollback off` nothing is restarted or restored; decide by hand whether to go back (the note names the steps).
+  A version that recovers later is confirmed.
+* The confirmation is bound to the update it was started for (both versions and the recorded digests of the old and the new
+  program); a marker of another update is never removed by it.
+
+### Turning the automatic return off
+
+Some operators want to restore by hand. `denis run --auto-rollback off` (also `denis agent`; environment
+`DENIS_AUTO_ROLLBACK=off`) switches the automatic return to the previous version off. **The default is on** (unattended
+installs rely on it). Off: when a freshly installed version fails to start twice, nothing is restored and no old program is
+started; the update marker stays exactly as the install wrote it, the log and the console show a note (at every start)
+with the steps to go back by hand (stop DENIS, put `denis.previous` back as the program, restore the backup of the
+database, which the note names), and the new version keeps starting. A rollback that has already begun is finished anyway,
+so that no database is left half put back. Remove the setting and restart to let DENIS return by itself. The setting is
+read from the command line or the environment because the guard runs before the database is opened.
 
 ## Automatic security updates
 

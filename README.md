@@ -459,6 +459,12 @@ a data key per customer with rotation, a Start page, one-line enrolment of agent
 30 days. Its PostgreSQL work (a write fence for the old leader, tenants on PostgreSQL) is Experimental and not yet run on a
 managed PostgreSQL service; the limits are in [docs/updates.md](docs/updates.md#known-limits-in-440) and
 [docs/high-availability.md](docs/high-availability.md).
+4.5.0 added alerts and blocks on visited domains and URLs, threat lists and a review of the whole code for state problems.
+4.5.1 to 4.5.3 are review releases: safer extension and release of blocks, a return to the previous version after a failed
+update that is stricter, an update that is confirmed by health instead of a timer, revoked tokens that stay revoked after a
+restore, and a stop of the service that saves its last window (see [CHANGELOG.md](CHANGELOG.md)). Not yet closed for remote
+branches: a batch from an agent that is confirmed and then processed only in part, and the start of an offline branch
+(planned for 4.5.4, see ROADMAP.md).
 Next: tests on real systems (a managed PostgreSQL service, Azure, AWS, a block through DENIS on TP-Link Omada), more rules, domain blocking and
 endpoint-tool import (ROADMAP.md). Still owed before a
 commercial launch: an independent penetration test and verification on real equipment, listed in ROADMAP.md. A
