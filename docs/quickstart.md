@@ -58,7 +58,7 @@ and the **Devices** page fill up within seconds either way.
 ## 2a. The Start page: your first look at the network
 
 Start appears in the menu for an administrator of a **new** installation (an installation that was updated from an earlier
-version does not get it by itself; open it under *Settings → Setup guide*). It shows five stages: *Install*, *Open the
+version does not get it by itself; open it under *Settings → Getting started → Open the setup guide*). It shows five stages: *Install*, *Open the
 console*, *Connect your network*, *First result* and *First decision*, each with the minutes it took.
 
 ![The first question of the Start page: where DENIS gets your network from, with controller, own network, mirror port and example data to tick](img/start-question.png)
@@ -85,7 +85,7 @@ On a phone the same page is one column, with the cards one under the other:
 ![The first look of the Start page on a phone, 375 pixels wide](img/start-phone.png)
 
 Press **I am done with the quick start** when you are finished; Start then leaves the menu. The full checklist stays under
-*Settings → Setup guide*.
+*Settings → Getting started → Open the setup guide*.
 
 **The weekly summary.** If you turn it on (on Start, or under *Alerting*), DENIS sends one e-mail a week with counts: new
 and unknown devices, alerts by severity, what it could not see and the next thing to do. It contains no device addresses.
@@ -111,7 +111,7 @@ administrator signs in, the **setup guide** opens by itself: a checklist of your
 security, notifications, colleagues, backups and branding. Each item turns green when it is really done (DENIS checks
 what is configured, it does not take your word for it), and each has a button to the right page. **Remind me later**
 closes it until your next sign-in; **Mark as done** stops it opening (for everyone). You can open it again any time
-under *Settings* → *Setup guide*. The list below is the same job in more detail.
+under *Settings* → *Getting started* → *Open the setup guide*. The list below is the same job in more detail.
 
 1. **Look at what was found.** Open **Devices**. Each row has an icon, a risk score, the address, the
    manufacturer and a guessed type and operating system. Click a device to see *why* DENIS thinks so.

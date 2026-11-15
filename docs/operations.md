@@ -39,7 +39,8 @@ as a tenant re-stamps it. Secrets sealed under another installation's key are dr
 **Restore:** stop DENIS (never copy over the database of a running DENIS), delete `denis.db-wal` and `denis.db-shm`
 beside the database if they are there (they belong to the database being replaced, and SQLite would apply them to the
 restored file), copy the backup over the database file (`denis.db`), start DENIS. A restore brings back the accounts
-and tokens as they were when the backup was taken: check the users and tokens afterwards.
+and tokens as they were when the backup was taken: check the users afterwards. API tokens, agent tokens and invitations that
+were revoked after the copy was taken are revoked again at the start (see the revocation journal below).
 
 What a restore cannot bring back, and what DENIS notices (4.5):
 
@@ -50,10 +51,44 @@ What a restore cannot bring back, and what DENIS notices (4.5):
   revoked, a user disabled, demoted or deleted, a password reset or changed, a passkey or authenticator app removed).
   When a start finds the database behind the data directory (an older copy was put back), every session ends, the log
   says so with an error, the audit log has `store.restore_detected`, and the setting `store.restored_from_older_copy`
-  records when; the Health page shows it for 30 days. Review then what the copy brought back: API and agent tokens revoked after the copy was taken work
-  again, deleted users and removed passkeys or authenticator apps are back, used recovery codes work again. Revoke or
+  records when; the Health page shows it for 30 days. Review then what the copy brought back: deleted users and removed passkeys or authenticator apps are back, used recovery codes work again. Revoke or
   remove them once more. A restore onto a fresh data directory (no `db-generation` file) is not recognised. A
   PostgreSQL dump made by DENIS leaves the sessions out too (the table is there, empty).
+* **Revoked tokens and invitations stay revoked (4.5.2).** Every revocation of an API token, an agent token (also the one
+  taken away by a rotation or a retried enrolment) or an invitation (revoked, claimed, all its uses taken) is also appended to
+  `revoked.journal` in the data directory, **outside the database and so outside every backup**. It holds one line per
+  revocation: the kind, the SHA-256 that the token table already keeps (or of the invitation id), the time and a closing
+  `ok`; never a token. A line is read only when it is complete (all fields, the `ok`, the newline): a line cut off by a
+  crash or a full disk is ignored. The line is written **before** the revocation is committed in the database, so a crash
+  can leave a line without a revocation (harmless) but not a revocation without its line; if the journal cannot be written
+  the revocation still goes through and the Health page says so.
+  The file is private (mode 600), only appended to, and kept to the newest 10,000 revocations. Appending and the rewrite
+  take a lock file (`revoked.journal.lock`) beside it, so the console and a command-line tool can run at once. At every
+  start DENIS opens it only if it is a regular file of the DENIS user (or root) that nobody else can read or write (never
+  through a link), reads it and revokes again whatever the database has open; the log says so with an error and the audit
+  log has `tokens.revocations_reapplied` with the counts. A token that the database refused to revoke again is **refused**
+  until a later start manages it, and Health and the audit log (`tokens.revocation_replay_incomplete`) say so; a journal that
+  cannot be read or is invalid is shown in Health and the audit log the same way (the credentials it would have named are not
+  known then: review the tokens). `denis serve` and `denis demo`, which open a copy for viewing, replay the journal too. So a
+  token revoked after the backup is revoked again after you restore the backup. What it does **not** cover: a restore onto a
+  data directory without the journal (a fresh machine; copy `revoked.journal` along with `secrets.key` if you move the data
+  directory), revocations older than the newest 10,000, tokens whose validity was only shortened by a rotation, a multi-use
+  enrolment code that was used some but not all of its times, and (in 4.5.2) the line of an invitation that is closed, which
+  is written just after the invitation is saved. Deleted users, passkeys, authenticator apps and recovery codes are not in the
+  journal either (see above).
+  The journal is written by the console and by the command-line tools that revoke something (`denis agent-token`,
+  `denis user`, `denis msp ...`; they find the data directory from `--data-dir` or the folder of `--db`; a process that
+  does not know it says so once in the log), and it is applied to every tenant's database when that tenant is opened, not
+  only to the default one. **On a PostgreSQL pair each node has its own `revoked.journal`**: a revocation made through
+  node A is in A's file only, and a database restore followed by a start on B would not know it. Before you restore
+  a PostgreSQL dump, merge the two files into both nodes. In a folder holding `a/revoked.journal` and `b/revoked.journal`
+  (copies of the two nodes' files), run
+  `cat a/revoked.journal b/revoked.journal | sort -k4,4nr | awk '!seen[$2 " " $3]++' | sort -k4,4n > merged`
+  (newest time per revocation kept, oldest first), copy `merged` over `revoked.journal` on each node and set mode 600.
+  DENIS does not do this by itself: any copy kept in the
+  database would be rolled back by the very restore it is meant to survive. A line cut off by a full disk or a crash is
+  closed with a newline before the next one is written (and stays ignored), a byte that is not text costs only its own line,
+  and a journal that cannot be read is logged as an error at start.
 * **The secret key.** `secrets.key` is not in the database backups. When it is missing at start and the database holds
   values sealed with a key (integration credentials, authenticator-app secrets, the data key), DENIS refuses to start
   and says so, instead of making a new key that could open none of them (4.5; before, a new key was made silently).
@@ -408,7 +443,7 @@ that mean DENIS is working but part of what it should see is missing:
 | Agent reports (a service line) | Agents are enrolled but none has reported for 6 hours. Advisory. The demo's two sites do not count. |
 | Saving devices and sightings (or east-west connections, or passive DNS names) to the database failed N times | A database write failed within the last 15 minutes: what was seen then is not saved. Check the free disk space and the database (on PostgreSQL: is the primary accepting writes?); the service log names the error. While writes fail, the **Database writes** service line is judged from the last flush that came with no new failure. |
 | Part of the database could not be read for this page | The Health page could not read the database statistics or the backup settings. It still shows everything else; the figures that need the database are empty. |
-| *Job*: the last N attempts failed | A periodic job (Findings, Posture samples, Scheduled reports, Service probe; advisory for Vulnerability data, the GeoIP database update, the Entra ID and Intune import, the vulnerability scanner import and, since 4.5, the Active Directory, Jamf Pro, Microsoft Defender, AWS, Azure and Google Cloud imports) failed three times in a row. What it keeps up to date is from its last completed run. The error is in the warning and under **Background work**. |
+| *Job*: the last N attempts failed | A periodic job (Findings, Posture samples, Scheduled reports, Service probe, Tenant limits from the control store, Maintenance setting for notifications; advisory for Vulnerability data, the GeoIP database update, the Entra ID and Intune import, the vulnerability scanner import and, since 4.5, the Active Directory, Jamf Pro, Microsoft Defender, AWS, Azure and Google Cloud imports) failed three times in a row. What it keeps up to date is from its last completed run. The error is in the warning and under **Background work**. |
 | The background job *X* failed N times in a row (4.5) | One of the jobs that reconcile work items or merge joined devices keeps failing. The error is in the warning; the service log has more. |
 | Passkeys are off on this console / The stored passkeys were made for *old* (4.5) | Said at start and kept on the page: the sign-in policy asks for passkeys but passkeys cannot be used on this start (no `--public-url`, or a new public address). Accounts limited to passkeys sign in with their password until passkeys work again; `denis user reset-passkeys <name>` removes an account's old passkeys. |
 | This database is older than the one this installation last ran (4.5) | A restore from an older copy was detected at start (see above). Shown for 30 days. |
@@ -484,11 +519,22 @@ tenant) have separate connections; several sites in one database were not measur
 
 No frame was lost in any of these runs. Before 4.5.1 the longest write cycle at these sizes was 3.3 to 3.9 s, because it waited behind long writes of connections and passive DNS names and behind the detector's periodic save; those now go to the database in small steps. At 149,000 frames per second and at 50,000 devices the same setup was not repeated with 4.5.1 and should be read from the 4.5.0 figures, which stalled there. **Verified up to 30,000 devices at 35,000 frames per second. Read it as the largest size one SQLite installation has been shown to handle on this laptop; beyond that it is not measured.** The readers of this test load the whole device list on every call, as an uncapped console does, and each decode is large: plan on 2 GB or more of memory for 30,000 devices with several people in the console. The console's status and exposure calls, which 4.5.1 reads without decoding every device, stay near 0.1 to 0.3 GB in a separate test of the server alone.
 
+**What this table is, in plain words.** It comes from a synthetic test harness, not from a real network, and the numbers are an orientation, not a promise:
+
+* The traffic is **generated frames handed to the capture worker**. No network card, driver or kernel was involved, so "no frame was lost" means no frame was lost *inside DENIS*. Loss in the kernel or the driver on a real interface is not counted: the harness only has DENIS's own software counters.
+* The **DNS observations are injected in front of the detector**, not parsed from packets.
+* The **console readers call the store directly, not over HTTP**. There is no web server, TLS, login or browser in their time, so real pages are slower than the figures.
+* **"Longest write cycle" is the time of the database write itself** (`FlushPlan::write`, the step that stores the changed devices), not the whole cycle with the detector and the sampling around it.
+* Every cell is a **single run of 60 seconds** on one laptop that was doing other things. Differences under about 30 % are noise; do not read one cell against another as a trend.
+
 **PostgreSQL is not a speed-up for one site.** It stays the choice for high availability. Writing a changed device is a
-round trip and a durable commit each (about 4 ms against 0.1 ms on SQLite), and the write cycle is currently one commit
-per device: on the test setup (PostgreSQL in Docker on a laptop, so slower than a native server) it took 1.5 s at
-10,000 devices with no users and was over the 2-second cycle at 50,000. Plan on up to about 5,000 devices per site on
-PostgreSQL until the write path is batched, and treat that as unverified on server hardware.
+round trip, and PostgreSQL commits once per block: the write cycle (`FlushPlan::write`) hands the changed devices to the store
+in blocks of up to 500 (`save_assets_batch`), and PostgreSQL commits each block as one transaction (about 4 ms per
+round trip against 0.1 ms on SQLite). The figures that were measured, however, are from **before** this: they were taken
+when the write cycle still committed once per device, on the test setup (PostgreSQL in Docker on a laptop, so slower than a native
+server): 1.5 s at 10,000 devices with no users, and over the 2-second cycle at 50,000. The block write has **not been
+measured again**, so the estimate of about 5,000 devices per site on PostgreSQL is **the old measurement on the old write
+path**; it is probably conservative now, and it is unverified on server hardware.
 
 ## Upgrading
 

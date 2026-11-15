@@ -406,6 +406,7 @@ document has a stable id. Alerts older than 24 hours are never sent, which limit
 Automatic enforcement on a pair runs only on the leader. The fence closes the database side of a leader that lost its
 lease in the middle of a write, but an action already sent to a switch, firewall or other device cannot be recalled, so
 treat [automation](enforcement.md#automation) on a pair with care while high availability is Experimental.
+Since 4.5.2 the ASA, FMC, FDM, Check Point, UniFi and FortiGate connectors ask the lease again immediately before every request that changes something leaves, also after a wait or a repeat (a rate-limit pause, a new sign-in, the wait between two vendor tasks), so a node that lost the lease sends nothing more; a request that had already been sent is read back by the new leader. The other connectors still ask between the steps of an action only, so a step that has started can finish after the lease is lost.
 
 ## The write fence (4.4)
 
