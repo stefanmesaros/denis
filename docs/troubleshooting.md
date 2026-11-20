@@ -51,6 +51,25 @@ received an MSP relay sync cannot be joined.
 **An agent is not connecting**
 Check `denis agent-token list` (revoked?), the master's `--ingest-listen` address and firewall, that the agent
 id matches the token, and that the agent can reach `https://MASTER:8081/api/v1/ping` with the token (and has the master's CA: `--master-ca`).
+From 4.5.4 the agent tells the two cases apart at its start. `the master ... rejected the token (401)` (or `refused
+this agent (HTTP 403)`) stops the start: issue a new token on the master (Sites, Add agent). Everything else
+(`collecting, master unreachable since ...` with the reason: a name that does not resolve, connection refused, a
+timeout, a TLS error) does not stop it: the agent collects and keeps its reports on disk. A **TLS error that does not
+go away** (`certificate`, `UnknownIssuer`) is a wrong or missing `--master-ca`, not an outage: the agent will collect
+for 72 hours and deliver nothing until the CA is fixed, so read the reason in the log line.
+
+**A site was cut off from the master: what is kept, what is lost**
+Look at `agent-status.json` in the agent's data folder (`/var/lib/denis-agent/` for the installed service) or at the
+agent's log (`journalctl -u denis-agent`): `collecting, master unreachable since ...; N report(s) (X MiB) wait on disk`
+is repeated every ten minutes. Nothing is lost while the queue is under its bounds (512 MiB by default,
+`DENIS_AGENT_OUTBOX_MAX_MB`, and 72 hours). When a bound is reached the log says `report(s) waiting for the master
+were dropped, oldest first`; after the link is back, **Health** on the master names the site with the number of
+reports and the time span, and the audit log has `agent.batches_dropped`. That span's traffic records cannot be
+recovered. After the link is back the queue empties at about one report a second: an outage of a day takes roughly
+twenty-five minutes to catch up (best guess from the pace, not measured). If the agent's disk is full the log says
+`a report could not be written to the queue on disk`; the agent then holds one report in memory, as it did before
+4.5.4, until the disk has room again. See
+[A site keeps collecting while the master is away](deployment.md#a-site-keeps-collecting-while-the-master-is-away).
 
 **Database problems**
 Stop DENIS, restore the latest backup (`.backup` file) over the database file. Never edit it while running.
@@ -95,6 +114,46 @@ each other at that site. Enrol the copy as an agent of its own.
 **A switch looks incomplete, or a device looks unplugged**
 Health says the switch gave back only part of its SNMP tables. A table was too big to read within the safety limits
 (rows, time or bytes), and the switch card names it. The topology of that switch is not complete.
+
+**"DENIS could not read switch … from this server", or "Loss of monitoring" on the Dashboard**
+This server got no answer from the switch, or an error; it does **not** say that the switch or the devices behind it are
+down, and their state is not known meanwhile. The switch's row and the Health table *Switch readings* give the reason
+of the last attempt and the failures in a row. Check, from the DENIS server itself (not from your desk): the switch's
+management address, the read community or the SNMPv3 read user and its passwords (after a restore they must be entered
+again), that the switch allows SNMP from this server's address, and, for a switch at a remote site, that this server
+has a route or a VPN to that address and that UDP port 161 is let through. After three failed readings in a row DENIS
+reads the switch only every second interval; **Read now** tries at once, and a good reading puts it back on the normal
+schedule and closes the notice. A failed **Read now** never opens the notice (see
+[Switches](switches.md#port-health-how-a-switch-is-read-and-what-is-announced-460)).
+
+**"Switch … is not read: …" (not allowed)**
+The tenant's outbound policy does not allow this server to reach the switch's address. Change the policy or the
+address; `--passive-only` and the OT profile do not stop the reading of a switch you added.
+
+**"Switch readings are late"**
+DENIS reads the switches one after another, so a slow switch, or one that does not answer and waits for its time limit,
+delays the others. Health names the switch with the longest delay. Fix or pause the switch that does not answer, or set
+a longer interval.
+
+**The traffic counters are "Skipped"**
+Reading the counters took longer than the 5 seconds they are given, so they were left out of that reading; the port list
+and the topology were still read, and the next reading measures the whole span. Health warns when this happens in 3 of
+the last 12 readings of a switch. A switch with many ports or a slow SNMP agent is the usual cause (best guess); a
+longer interval does not change the 5 seconds.
+
+**A port says "Not offered by this switch"**
+The switch gives no byte counters for the port, or only 32-bit ones, which DENIS does not trust on a port faster than
+10 Mbit/s at a 5-minute interval (they can start again at zero more than once between two readings unseen). Check
+whether the switch's firmware or SNMP settings offer the 64-bit counters (`ifHCInOctets`); on SNMPv2c and SNMPv3 they are
+part of standard IF-MIB. DENIS does not show a guessed number instead.
+
+**A port says "Not known", or a chart has a gap**
+The words beside it give the reason: the switch restarted or its counters started again, the switch gave the port
+number to another port, the reading was not plausible, too long since the reading before, partly read, or skipped. The
+list *Gaps in this chart* under the port's chart gives each gap with its reason and the time of the last valid
+measurement. One reading after the cause, the value is normally back ("Measuring: needs two readings" in between). A
+long gap marked "Loss of monitoring" means the switch was not read at all then: see the first entry above. A port that
+had no link is drawn as a measured zero, not as a gap.
 
 **IPv6 devices do not appear**
 IPv6 is off unless `--ipv6` is given. Active discovery of new IPv6 addresses does not run with `--passive-only` or in the

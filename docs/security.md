@@ -184,6 +184,88 @@ events so one stored late on PostgreSQL is still relayed. See
 and the relay is skipped; DENIS still starts. `--report-to-ca` pins the MSP's certificate authority, as `--master-ca`
 does for an agent.
 
+## The RADIUS accounting receiver (4.6.0, experimental)
+
+DENIS can receive RADIUS accounting records (RFC 2866) from your switches, wireless controllers or RADIUS server, to
+show who is signed in on which device. It is DENIS's only inbound UDP port, and it is **off by default**. What it does,
+and how sure each part is (documented: an RFC says so; verified: tested in DENIS's own tests on 127.0.0.1, and in
+one lab run on a Cisco Catalyst 2960-X on 2026-11-18, see [RADIUS accounting](radius-accounting.md)):
+
+* **It only receives accounting.** A datagram that is not an Accounting-Request is dropped without an answer. A sign-in
+  request (Access-Request) is never answered and is counted, because it means some equipment was told to use DENIS
+  as a sign-in server. Nobody can authenticate against DENIS.
+* **Only listed sources.** Every source is one IP address (at most 64), with its own shared secret. A datagram from any
+  other address is dropped before anything else is done with it; DENIS keeps only a count and the last eight such
+  addresses. For a RADIUS server that forwards records, you can also list the access devices it may speak for.
+* **Fail closed.** The packet's Request Authenticator is checked with the source's secret before a single attribute is
+  read (documented: RFC 2866 section 3). A packet that fails is dropped without an answer, so a wrong secret looks like
+  silence from outside. A Message-Authenticator, when present, must match too. Packets that carry a password or other
+  attributes RFC 2866 forbids are dropped.
+* **Answered only after it is stored** (documented: RFC 2866 section 2). If the database cannot take a record, it is
+  not answered and the equipment sends it again.
+* **Bounded.** Each source may send 2,000 records a second (bursts of 4,000); the queue to the database holds 4,096
+  records; everything above that is dropped and counted, and the equipment retransmits. The bound lives in each listed
+  source's own entry, so traffic from unlisted addresses creates no state at all.
+* **The shared secret** must have at least 16 characters (documented: RFC 2865 section 3). It is stored sealed like
+  every connector secret, is never shown again, never written to a log line or an audit entry, and is left out of
+  backups (enter it again after a restore).
+* **Switching on** (an administrator) asks for the password again, and so do a new listen address, any change to the
+  sources or a secret, and showing user names to more people. Every change is in the audit log as
+  `radius.accounting.updated`, with the source names, never a secret.
+* **The listen address has no default that listens everywhere.** You choose the address (the form suggests this
+  machine's own address and port 1813). `0.0.0.0` or `::` is accepted only when you tick "listen on every address".
+* **Switching off** needs no password; the port is closed at once (well under a second) after the save.
+* **4.6.0: the main installation only.** Hosted tenants have no receiver.
+
+Limits you should know (documented: RFC 2866 has no protection against a copied packet being sent again, and its
+authenticator uses MD5): someone on the path can replay a record, which can show a session that has ended, until it
+goes stale by itself; it cannot make DENIS disconnect anyone. Someone who spoofs a listed address can use up that
+source's budget, so genuine records are dropped and resent and sessions may go stale. A weak secret can be guessed
+offline from one captured record. So keep accounting on the management network, and use a long random secret.
+
+The records name people (user or certificate names) and their devices: that is personal data. Ended sessions are kept
+30 days by default (1 to 365, and never more than 200,000 rows), are deleted with the device, and are erased with the
+inventory. Tell your users or your data-protection officer before you switch it on.
+
+Setting it up and what the console shows: [RADIUS accounting](radius-accounting.md).
+
+## Service checks (4.6.0, experimental)
+
+A service check makes the DENIS server send a ping, open a TCP connection, ask a DNS server a question or make one HTTP(S)
+request. It is **off until an administrator of the whole installation adds a check**, and it is the only feature that probes, on a
+schedule, an address a person typed. What it sends, where, and what keeps it from being misused (verified: read in
+the code or tested on 127.0.0.1, not on a customer network):
+
+* **Only listed targets.** Each check names one host, port or DNS server. DENIS never takes a target from the inventory,
+  a page, a redirect or a DNS answer other than the resolution of the typed name, and never scans.
+* **The address guard.** Before every run, on every address a name resolves to, DENIS refuses this computer's own addresses,
+  loopback, link-local (with the cloud metadata address), the other cloud metadata addresses, unspecified, multicast,
+  broadcast, `0.0.0.0/8` and `240.0.0.0/4`, whatever is ticked (`target_denied`). A **public** address needs the tick
+  *outside my networks* on that check and the administrator's password again. Private ranges are allowed. The connection
+  goes to the address that was checked, never to the name again, so a name that changes in between cannot reach a refused
+  address. The tenant's outbound policy is asked as well. The guard is the one of the connection test of the
+  console (`web_probe`), reused, not copied.
+* **No redirect, no proxy, no credentials.** A web check sends one `GET` with the `User-Agent` `DENIS-check`, no body and no
+  extra headers; a redirect is a status, not a second request; a URL with a user name or password is refused. The answer
+  is read only up to 16 KiB of headers and, when a text is to be found, 64 KiB of body.
+* **Bounded.** At most 100 checks, one run in flight per check, two per address, eight in all, an interval of at least
+  30 seconds.
+* **Industrial equipment is held** unless an administrator lists its site or zone, with the password again. An address
+  is industrial when the inventory of **any** site says so, not only the check's own site (it fails closed: a
+  controller seen by an agent of another site is never probed). If DENIS cannot read the inventory, the zones or the
+  setting, the run is held, not allowed. A target that is not in any inventory is not treated as industrial: do not
+  point a check at a controller DENIS has not seen (see [Service checks](service-checks.md)).
+* **What is stored** is numbers and one reason code per run, and a certificate's subject, issuer and end date. Nothing the
+  target wrote is stored or shown; there is no secret in a check, so none is audited.
+* **No action follows.** A failing check is a notice. It starts no alert, incident, rule response or Autopilot step.
+* **Nothing is sent from a passive-only server**, and a standby node of a high-availability pair sends nothing.
+
+Setting it up and what each state means: [Service checks](service-checks.md). The same page lists what has not been checked
+on a real network.
+
+A related, read-only feature, [configuration changes](config-changes.md), asks a Cisco switch that is already in the switch
+list for three configuration time stamps with the switch's read credential. It stores no configuration and no user name.
+
 ## Names on the wire (privacy)
 
 Two opt-in switches read names: passive DNS (records them, short retention, a "delete all" button) and *Server names and web
@@ -674,8 +756,8 @@ Explanations that used to be printed on the console screens. The console shows a
 * Optional, bring-your-own-key: DENIS can use an AI provider you configure for a growing set of individually-switchable features below. Each call is billed to your own account with the provider you choose — DENIS runs and hosts none of this itself. Only compact, already-processed context (an alert's own summary and reasons, a device's label) is ever sent — never raw traffic, never more than what the feature you enable actually needs.
 * The decision log records who acknowledged, resolved or re-opened which alert or incident, when and why. It has its own period, independent of the setting above: it stays after the alerts and incidents themselves have been deleted. 90 to 3650 days; 1095 (3 years) is the default. Enter 0 to keep it for ever. It holds user names and the notes people typed, and no other personal data.
 * A rough sense of how much these features have actually been used — a call count and, when the provider's own response reported one, its token count. Not exact billing information; check your provider's own dashboard for that.
-* Adds an "Explain with AI" button to alerts and findings: one plain-language summary per click. Never automatic — only called when you click the button, sending only that one alert or finding's own summary, reasons and device label.
-* Adds an "Assess & Explain with AI" button to alerts (shared with Device behavioral analysis below) and contributes the assessment section: what it means, a triage read (likely benign / suspicious / requires investigation), what could happen if ignored, and concrete next steps — plus the AI's own plain-language risk estimate, shown alongside (never in place of) DENIS's own severity. Advisory only; DENIS never acts on any of it itself. Only called when you click the button, sending the same alert data as the explanation feature above. Under the answer, editors can ask up to six follow-up questions about the same alert (one provider call each, answers of at most 350 tokens). Each carries the same facts as the assessment plus a shortened copy of it, the last few questions and answers of the thread, and, if the person typed one, a note of at most 1000 characters under "What I know", sent as an unverified claim that never changes DENIS's severity or score. A "What will be sent" list shows this before every question. The conversation is not stored; only a note the person ticks "Also keep this as a note on the alert" for (or saves with "Save note only") is kept, in the alert's decision log, visible to everyone who can see the alert, and recorded in the audit log by length, never by wording. The AI's own answers are never stored. Counted in the usage numbers below; no separate switch.
+* Adds an "Explain with AI" button to alerts and findings: one plain-language summary per click. Never automatic — only called when you click the button, sending only that one alert or finding's own summary, reasons and device label. From 4.6.0 an alert's prompt also carries DENIS's own description of each address the alert names (at most 12): this device's own address, private (and whether it is inside a network DENIS monitors), shared address space (carrier-grade NAT or a VPN), link-local, loopback, multicast, reserved or public, the name of a device of the same site the inventory holds for it, and who opened the connections when the rule records that. The model is told to use these descriptions and never to call an address external or public unless DENIS says it is public. The same lines are part of what the follow-up sends and of its "What will be sent" list.
+* Adds an "Ask AI for an opinion" button to alerts (called "Assess & Explain with AI" before 4.6.0; shared with Device behavioral analysis below) and contributes the assessment section: what it means, a triage read (likely benign / suspicious / requires investigation), what could happen if ignored, and concrete next steps — plus the AI's own plain-language risk estimate, shown alongside (never in place of) DENIS's own severity. Since 4.6.0 the alert dialog shows the risk, the classification, the reasoning and the suggested checks, and not the AI's "what it means" and "if ignored" (DENIS's own guidance says both); the answer still carries them. Advisory only; DENIS never acts on any of it itself. Only called when you click the button, sending the same alert data as the explanation feature above. Under the answer, editors can ask up to six follow-up questions about the same alert (one provider call each, answers of at most 350 tokens). Each carries the same facts as the assessment plus a shortened copy of it, the last few questions and answers of the thread, and, if the person typed one, a note of at most 1000 characters under "What I know", sent as an unverified claim that never changes DENIS's severity or score. A "What will be sent" list shows this before every question. The conversation is not stored; only a note the person ticks "Also keep this as a note on the alert" for (or saves with "Save note only") is kept, in the alert's decision log, visible to everyone who can see the alert, and recorded in the audit log by length, never by wording. The AI's own answers are never stored. Counted in the usage numbers below; no separate switch.
 * Adds an "AI Security Summary" card to the dashboard: a short overview of the last day's alert activity. Never generated by opening or refreshing the dashboard — a background job regenerates it on its own, only when there has been meaningful new alert activity since the last one, at most every few minutes.
 * Adds an "Ask DENIS" button next to "Scan now": a panel that stays open while you move between screens, for five kinds of request — ask about recent alert activity ("What changed in the last 24 hours?"), hunt for a destination across every device's own traffic history ("Has anything talked to 1.2.3.4?"), jump straight to a screen or Settings page ("Take me to Topology", "Open the SSO settings"), ask a how-to question answered from the real documentation ("How do I add a switch?"), or ask what it can do. The AI never answers from facts it invented, acts on a setting, or takes any action itself — for a search it only ever chooses how to search, and DENIS runs that search itself; for a how-to question it only ever describes one real documentation page. Only called when you ask a question.
 * Adds an "AI Security Summary" section to your periodic reports (Settings → AI → Security reports): devices, new devices, alert activity, standing findings and accepted risks over the report's period, in plain language. Written once, when a report is generated and saved — on its existing schedule, or "Generate now" — never on a separate timer of its own, and never for "Open a live report without saving it" (that link stays instant and free). If the AI call fails, the report is still generated without a summary.

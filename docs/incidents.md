@@ -67,7 +67,7 @@ with "12 open alerts will be closed with this decision; 3 already closed keep th
   it; the dialog counts these ("3 already closed keep theirs").
 * **Everything is on the record.** Every step is one row in an append-only history — who, when, from what to what, the
   reason, your note and, for an alert, that it was closed *via incident #12* — shown under **Decisions** in the
-  incident and in each of its alerts, kept in the audit log (`incident.ack`, `incident.resolve`, `incident.reopen`)
+  incident and under **History** in each of its alerts (**Decisions** there too before 4.6.0), kept in the audit log (`incident.ack`, `incident.resolve`, `incident.reopen`)
   and, if you turned the Incidents stream on, each incident decision is also sent to your SIEM. A note is free text and
   is always shown as text.
 * **Wrong is cheap to undo.** **Re-open** puts the incident back to open in one click (a note is optional) and leaves

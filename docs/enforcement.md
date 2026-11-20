@@ -264,6 +264,15 @@ Other situations:
   *Failed*. *Resolved by hand* on a *Partly done* action is accepted only on your word (the tick), because reading the device
   cannot show the part that was done. An *End sessions* that was cut off, or not confirmed, leaves the active list by itself
   (it has nothing to undo).
+* **During an update** (4.6.0). Every change DENIS makes on a device starts through one gate. While DENIS replaces its
+  program (seconds), every apply, release, extend, removal of a leftover object, write test and port switch-on is refused
+  with `updating` and nothing is sent: try again a minute later; the expiry job and the hourly checks try again by
+  themselves. While a freshly installed version is not confirmed yet (a few minutes), only what DENIS would start by
+  itself waits: an automatic block by a rule, a list or Autopilot is not made (`update_unconfirmed`, the suggestion stays
+  for a person, nothing is queued), and the re-registration of a lost Palo Alto tag and the repair of a MikroTik name
+  chain wait for the next check after the confirmation. What a person asks for, releases and expiries run. A write test
+  of a switch and the removal of a leftover object are refused on a cluster node that is not the leader (`not_leader`),
+  and an extend is refused when enforcement was switched off after the dialog was opened.
 * **A removal that answers with an error.** Before a removal is called failed, DENIS reads the device back: when the change
   is gone (it was already removed, or the device answered "not found"), the action is *Released* and the device's answer
   is quoted (4.5).
@@ -340,6 +349,8 @@ same path, with the rule as the actor:
   hour, default 3). One policy can cause at most 2 per hour. A device gets at most one automatic action in 24 hours, even if
   you undid the first one. A flood of alerts cannot go beyond these limits.
 * **Fresh and after the mark.** Only a violation seen in the last 15 minutes, and after the policy was marked, can trigger it.
+* **Not during an update.** While DENIS installs an update, and until the new version is confirmed (a few minutes), it
+  starts no automatic action; the suggestion stays open for a person, and nothing is queued (4.6.0).
 * **Never on** DENIS itself, the gateway, industrial (OT) devices, or network and server infrastructure (routers, switches,
   firewalls, access points, servers). The guards that apply to everyone also apply here: management ports, the port DENIS or
   the gateway is behind, and the addresses on your "never block" lists. An uplink, a trunk or another port that is not a
@@ -589,6 +600,11 @@ old and the new end time. The time left is kept in whole minutes (rounded up), s
 put back with it, and when two people extend the same action at the same moment only the first is written: the second
 is told the action moved on and can try again on the new end.
 
+**Check now only reads** (4.6.0). A check of an action, the hourly check's read-back and the plan never change the device.
+Where DENIS puts a missing part of its own change back by itself (the MikroTik name chain, a lost Palo Alto tag), that is
+a step of its own of the hourly check, recorded with the action and audited, and it waits for enforcement to be on and for
+an update to be confirmed.
+
 **Extend reads the device first.** Before the end is moved, DENIS reads the block back from the equipment (except where the
 connector renews the end on the device itself, as Palo Alto does for a timed tag). In force, or changed but still there: the
 extend goes on. Not on the device any more (removed by hand, say), or set up but not in force yet: the extend is refused, the
@@ -623,15 +639,22 @@ the result then says the firewall took the new timeout while the action moved on
 address at it (the firewall may hold it longer until then).
 
 **"Nothing was sent" is proved, not assumed (4.5.3, fourth review).** The transport of a connector that asks the lease at the last moment
-(`nac_guard::send_gate`: ASA, FMC, FDM, Check Point, UniFi, FortiGate, and since 4.5.3 Palo Alto) distinguishes: the gate refused before the first
+(ASA, FMC, FDM, Check Point, UniFi, FortiGate, since 4.5.3 Palo Alto, and since 4.6.0 MikroTik and RADIUS CoA) distinguishes: the gate refused before the first
 request of the write path (typed `NotSent`: "DENIS sent nothing to the device, so nothing was changed"), a request the device answered with a
 refusal (nothing changed, so a lease lost at its retry is still "not sent"), a connection that failed before the request was transmitted (DNS,
 connect, TLS handshake or policy: also "not sent", seen by a probe around the HTTP agent's transport, `nac_kit::wire`), and everything else, which
 stays "unknown" and is read back (a request whose first byte left, an earlier request that may be in place, a transport without a probe). The
 earlier possible effect is its own flag, so a refused retry never hides an earlier request that may have been applied. A save the ASA did not take
 (`write memory`) leaves the change in the running configuration; the result now says so in words, not only as a skipped step. Not covered: the
-connectors that still ask only between steps and through the instance lock (AWS, Azure, Cisco WLC, Hyper-V, Juniper, Meraki, MikroTik, NSX, Omada,
-OPNsense, Proxmox, RADIUS CoA, SNMP, SonicWall, WatchGuard): a lease lost inside one of their steps lets that step finish.
+connectors that still ask only between steps and through the instance lock (AWS, Azure, Cisco WLC, Hyper-V, Juniper, Meraki, NSX, Omada,
+OPNsense, Proxmox, SNMP, SonicWall, WatchGuard): a lease lost inside one of their steps lets that step finish.
+
+Since 4.6.0 the nine connectors above cannot send a change any other way: a request that changes something needs a ticket that only the
+gate's permit for that action hands out, and a request that comes without one is refused before anything is sent (documented; checked by
+source scans and by tests against simulated devices, not on real equipment). Two writes were found this way and now go through the gate:
+the Palo Alto hourly check ended the open sessions of an unconfirmed tag block without asking the update holds, the lease or the kill
+switch (it now asks all three; while one refuses, the sessions are not ended and the row is confirmed as before 4.6.0, because the
+firewall enforces the block), and MikroTik now asks the lease before every request instead of only between steps.
 
 **The jobs walk the whole set across ticks (4.5.3, fourth review).** A pass of the expiry job reads at most 40 pages of 50 rows. A pass that stops
 there keeps its place (`nac.expiry_cursor`, a store setting, so it survives a restart and a failover); the next pass continues behind it, and when it
@@ -668,7 +691,10 @@ Every action has one state. Scripts read it as `state` in `GET /api/nac/actions`
 next to it). `disabled` is the historical name of "in force and confirmed". *Active* states may still be in effect on a
 device, and a target has only one active action at a time; the others are history. The *May do* column is what the
 buttons and the API accept in that state, and *Moves to* is every change the code makes from it. The table is written
-from the code (`src/nac_state.rs`) and a test fails when it differs.
+from the code (`src/nac_state.rs`) and a test fails when it differs. Since 4.6.0 DENIS checks every change of
+state against this table: a change it does not list is still recorded in this release, and is marked in the action's
+state history (`unlisted_move`, reason `unlisted`) and in the log, so that it can be found; Health counts those of the last
+30 days; DENIS's own tests fail on it.
 
 <!-- states:begin -->
 
@@ -677,7 +703,7 @@ from the code (`src/nac_state.rs`) and a test fails when it differs.
 | `pending` | Starting | yes | warn | `pending` | none | `disabled`, `unconfirmed`, `partial`, `failed`, `completed` |
 | `disabled` | In force | yes | neutral | `enforced` | `check`, `release`, `extend`, `resolve_by_hand` | `unconfirmed`, `rolling_back`, `restored`, `restored_elsewhere` |
 | `unconfirmed` | Not confirmed | yes | warn | `unconfirmed` | `check`, `release`, `extend`, `resolve_by_hand` | `disabled`, `partial`, `rolling_back`, `restored`, `restored_elsewhere`, `failed` |
-| `partial` | Partly done | yes | warn | `partial` | `check`, `release`, `resolve_by_hand` | `rolling_back`, `restored` |
+| `partial` | Partly done | yes | warn | `partial` | `check`, `release`, `resolve_by_hand` | `unconfirmed`, `rolling_back`, `restored` |
 | `rolling_back` | Being removed | yes | warn | `rolling_back` | none | `disabled`, `unconfirmed`, `partial`, `rolling_back`, `rollback_failed`, `restored`, `completed` |
 | `rollback_failed` | Removal failed | yes | bad | `rollback_failed` | `release`, `retry`, `resolve_by_hand` | `rolling_back`, `restored` |
 | `restored` | Released | no (history) | ok | `restored` | none | none |
@@ -691,6 +717,11 @@ The action's detail window reads in plain words: the timeline says "Starting →
 *Done*, *Refused by the device*, *Not needed* or *No clear answer*. Hover over a word to see the raw value support may ask
 for. A removal that finds the thing already gone (a Wi-Fi client that left before its row was deleted) counts as *Not needed*,
 not as a refusal.
+
+On SQLite every write of the action record (the intent written before the device is changed, each step, each change of
+state, a plan taken) is synced to disk before DENIS answers or goes on (4.6.0): a power cut does not take back an action
+DENIS already acted on. The rest of the database (devices, traffic, metrics) is synced less often, as before, so a power
+cut can lose its last moments. PostgreSQL syncs every commit by its own settings.
 
 ## Rule actions
 
@@ -845,13 +876,13 @@ or by `rule:<policy id>` (automatic), as for every other action.
 
 ## Where to find it in the console
 
-**Network** is a group in the left menu, like Settings, with four pages:
+**Network** is a group in the left menu, like Settings, with seven pages: Map, Equipment, Service checks, Sign-ins, Configuration changes, Response and Network setup (the three 4.6.0 pages are described in [Service checks](service-checks.md), [RADIUS accounting](radius-accounting.md) and [Configuration changes](config-changes.md)). The ones about equipment and responses:
 
 * *Network → Map* (formerly *Topology*): the gateway DENIS knows, your switches and the cables between them; click a switch for its ports with a role and the reason for it (uplink, trunk, link aggregation, management, infrastructure, access). **Read now** is on every switch (in *Equipment*).
 * *Network → Equipment*: every switch DENIS reads and every firewall, controller or cloud platform it acts through, in one table (this used to be *Settings → Switches* and *Settings → Connectors*). Add a switch or a connector, read or test one, and the **write test** of a switch. Where DENIS recognises your gateway as a firewall it offers to set up that connector.
-  One row per physical device: a switch DENIS reads and a connector it acts through are one row with two roles (*Ports · SNMP*, *Enforcement · kind*) when the identity layer says they are one device, or when both are set up on the same address (the row says which: *same address*, *reported by the device*, *joined by admin*); the row takes the connector's name, settings, credentials, Edit and Delete stay per role. The row shows the state in short words (*read 2m ago*, *Tested 1d ago*, *no forwarding table*, *Simulator only*); the chevron opens the detail with the full sentences, what it can do, the last action, the site and where it is wired. *Read now*, *Test* and *Edit* stay visible, the rest (*Test write*, *Block…*, *Placed by hand…*, *Delete…*) is in the **⋯** menu. **Order:** *By wiring* (the default) follows the cables on *Network → Map* (internet side first, then by address); *Manual* keeps the order you set with the handle or **Move up** / **Move down**, saved for every administrator (`PUT /api/network/equipment-order`, audited); *Use this order* starts the manual order from the order by wiring.
+  One row per physical device: a switch DENIS reads and a connector it acts through are one row with two roles (*Ports · SNMP*, *Enforcement · kind*) when the identity layer says they are one device, or when both are set up on the same address (the row says which: *same address*, *reported by the device*, *joined by admin*); the row takes the connector's name, settings, credentials, Edit and Delete stay per role. The row shows the state in short words (*read 2m ago*, *Tested 1d ago*, *no forwarding table*, *Simulator only*); the chevron opens the detail with the full sentences, what it can do, the last action, the site and where it is wired. *Read now*, *Test* and *Edit* stay visible, the rest (*Test write*, *Block…*, *Placed by hand…*, *Delete…*) is in the **⋯** menu.
 * *Network → Response*: a strip with whether enforcement is on, the hourly limit and what your account may and may not do, *Currently blocked by DENIS* (every response in force with its origin: a person, an automation policy by name, Autopilot; releasing an automatic one can also pause its policy), the responses waiting for your approval, and *Hands-off devices* (grouped: built-in, your list, connector lists). What each piece of equipment can do is on *Network → Equipment*.
-* *Network → Setup*: a seven-step guided setup (discover, confirm the gateway, add equipment, same device?, cables DENIS is not sure about, write credentials, dry run).
+* *Network → Network setup*: a seven-step guided setup (discover, confirm the gateway, add equipment, same device?, cables DENIS is not sure about, write credentials, dry run).
 
 ![Network → Response: the strip, the responses in force and the hands-off devices](img/network-response.png)
 

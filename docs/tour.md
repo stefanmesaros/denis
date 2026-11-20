@@ -6,14 +6,21 @@ A small round **i** after a heading, a label or a checkbox opens a short explana
 Space); Escape or a second click closes it, and opening another one closes the first. Where there is more to say, the
 explanation ends with *More in the docs*.
 
-## Start (new installations)
+## Setup guide (first run)
 
-For an administrator of a new installation, **Start** is the first menu entry and the first screen. It asks where DENIS
+For an administrator, the **Setup guide** is the first menu entry until somebody marks it done (since 4.6.0 it is one page:
+the quick start and the setup guide checklist of earlier versions together). On a new installation it asks where DENIS
 should get your network from (a controller or firewall it reads, this machine's own network, a mirror port, example data),
-can read a controller with a read-only key, sets up one e-mail address with an optional **weekly summary** (English only, counts
-without addresses), and then shows a first look: devices, unknown devices, the next things to do, what DENIS is not
-seeing and what is on and off. **I am done with the quick start** removes it from the menu. Details:
-[Quick start](quickstart.md#2a-the-start-page-your-first-look-at-the-network).
+can read a controller with a read-only key, sets up one e-mail address with an optional **weekly summary** (English only,
+counts without addresses), and shows one checklist of first steps (capture running, a device list, somebody told about
+alerts, one read-only switch with its traffic and error counters, the first investigation), each done, to do or skipped,
+then a first look: devices, unknown devices, what DENIS is not seeing and what is on and off. **Mark the setup guide as
+done** removes it from the menu; *Settings → System → Setup guide → Open the setup guide* brings it back. Details:
+[Quick start](quickstart.md#2a-the-setup-guide-your-first-look-at-the-network).
+
+Two 4.6.0 additions you may meet: the Dashboard's **Needs attention** list (including [port health](switches.md#on-the-dashboard-and-the-health-page)
+marks, Experimental) and, when [RADIUS accounting](radius-accounting.md) is set up (Experimental), the device panel's
+**Network sign-ins** and the page *Network → Sign-ins*.
 
 ## MSP view (optional)
 
@@ -52,7 +59,7 @@ It never changes a setting, acknowledges an alert, or takes any action by itself
 or describes what is really there. A yellow banner appears while **maintenance mode** silences notifications; a blue
 one while demo data is loaded or an update is available.
 
-The menu on the left lists *Dashboard*, *Devices*, *Alerts*, *Findings* and *Network* (Map, Equipment, Response, Setup), then the groups
+The menu on the left lists *Dashboard*, *Devices*, *Alerts*, *Findings* and *Network* (Map, Equipment, Service checks, Sign-ins, Configuration changes, Response, Network setup), then the groups
 *Segmentation* (Zones, OT), *Governance* (Compliance, Reports, Software) and *Operate* (Events, Rules, Sites, Users, Health, Audit log,
 Settings; alert channels are under *Settings → Notifications*); the ☰ button collapses it to an icon rail.
 
@@ -176,11 +183,14 @@ logged). Click an alert for the full story:
 
 ![An alert](img/alert-dialog.png)
 
-*what happened*, *why it scored what it did*, and **what to do next**. **Acknowledge** an alert when it is handled,
+the rule's name as the title, the one sentence, the facts (device, target, what was seen, how often before), three lines
+of guidance (*If it is real*, *Normal if*, *Next step*), and closed sections for *Investigate*, *Score and rule details*
+and *Notifications* ([the layout](alerting.md#the-alert-dialog)). **Acknowledge** an alert when it is handled,
 with an optional reason (resolved / false positive / expected behaviour); acknowledged alerts no longer count
 towards a device's risk score. Tick several rows to acknowledge them together, or **Acknowledge all**. The same
 alert kind repeating for the same device is folded into one row ("×12, recurring since…") that expands on click.
-**Add exception** (administrators) silences that exact alert for that device without a trip to the Rules page.
+**More → Mute this rule for this device…** (administrators; *Never alert on this again* before 4.6.0) stops that rule
+for that device without a trip to the Rules page; later alerts are not stored, for the time you choose.
 **This is normal…** (editors and administrators) closes the alert as expected behaviour and keeps later alerts like it
 out of the alert list for the time you choose (90 days by default), for this rule on this device, for this device and
 destination, or for everything ordinary on the device. Nothing is deleted: the quiet alerts are still stored and counted,
@@ -189,14 +199,18 @@ and an administrator removes the exception under *Rules → Suppressed by "This 
 
 ![This is normal](img/this-is-normal.png)
 
-With an AI provider configured, **Assess & Explain with AI** appears in the dialog: one click covers what the
-alert means, whether it looks malicious, the consequences of ignoring it and what to do next, plus — for alerts
-about a change from a device's own baseline — a behavior-change explanation, all in the same answer.
-Editors can keep talking about the alert right under that answer (up to six questions per thread): pick a suggested
+With an AI provider configured, **Ask AI for an opinion** appears in the dialog (*Assess & Explain with AI* before
+4.6.0): one click gives the AI's own risk estimate and classification, its reasoning and what it suggests checking, plus —
+for alerts about a change from a device's own baseline — a behavior-change explanation. The answer is a closed panel
+whose header says the risk in words; it never moves the facts. DENIS's own guidance says what the alert means and what
+happens if it is ignored, so the AI's versions of those two are not shown. The AI is told what kind each address of the
+alert is (this device, private and whether in a monitored network, or public), so it does not call a private address
+external.
+Editors can keep talking about the alert under that answer (*Ask a question about this alert…*, up to six questions per thread): pick a suggested
 question or type one, and add **What I know** — a fact only you have, such as "the phone switched off right after
 this" — which is sent with the question as an unverified claim and never changes DENIS's own severity or score.
 **What will be sent** shows the exact text before it goes. The conversation is not kept when you close the alert;
-tick *Also keep this as a note on the alert* (or use *Save note only*) to put your note under *Decisions*, where
+tick *Also keep this as a note on the alert* (or use *Save note only*) to put your note under *History*, where
 everyone who can see the alert reads it. **Continue in Ask DENIS** takes the alert along to the Ask DENIS panel.
 **Alerts CSV** (a button, next to *show acknowledged*) exports the list.
 
@@ -291,7 +305,7 @@ status is in the API (`not_applicable`, and `not_applicable: true` on a measure)
 
 ## Network
 
-*Network* is a group in the left menu with four pages: **Map**, **Equipment**, **Response** and **Setup**.
+*Network* is a group in the left menu with seven pages: **Map**, **Equipment**, **Service checks**, **Sign-ins**, **Configuration changes**, **Response** and **Network setup** ([Service checks](service-checks.md), [RADIUS accounting](radius-accounting.md) and [Configuration changes](config-changes.md) describe the three pages of 4.6.0).
 
 **Map** draws your equipment (switches, firewalls, routers, access points, controllers) with the cables between them, internet side
 on top, and the devices under each switch port or access point; from 40 devices on a site they are grouped into one box you can open.
@@ -325,7 +339,7 @@ audited action, not refused).
 
 ![Add equipment: pick the product](img/network-add-equipment.png)
 
-**Setup** is the guided setup in seven steps: *Discover* (what DENIS has already found, passively), *Confirm the gateway*, *Add equipment*,
+**Network setup** is the guided setup in seven steps: *Discover* (what DENIS has already found, passively), *Confirm the gateway*, *Add equipment*,
 *Same device?* (interfaces of one machine), *Cables DENIS is not sure about*, *Write credentials* and *Dry run*. Every step can be
 entered again later. A connector whose test could not try it for real (*Not testable before a real action*) leaves *Write
 credentials* waiting for you: DENIS cannot act through it yet. Nothing is written to equipment before you press a button of its own, and the dry run only asks what is possible.
@@ -483,7 +497,7 @@ Everything about the installation that is not about people, in eleven categories
 
 * **System** — license, updates (check, install now or later, include pre-releases, and "If GitHub is unreachable, try
   usedenis.com"), how remote agents are updated (manually by default, automatically, from the internet or from this
-  master), restart / shut down, the setup guide (the first-run checklist, which you can open again here).
+  master), restart / shut down, the setup guide (the first-run page, which you can open again here).
 * **Notifications** — the channels alerts are sent to ([Alerting](alerting.md)).
 * **Sign-in & security** — who must use a second step, passkey-only sign-in, single sign-on (OIDC), the HTTPS
   certificate (download the local CA, or use your own).

@@ -30,7 +30,7 @@ A Disconnect has no undo and leaves no state on the device. So:
 
 ## DENIS has no session data, so the plan says what it sends
 
-DENIS holds **no RADIUS session data**: no accounting feed and no session list. A Disconnect-Request has to name the session by an attribute the access device recorded, so DENIS names it by **one attribute**, the one set in the connector as the *session attribute*:
+This connector uses **no RADIUS session data**. Since 4.6.0 DENIS can receive accounting and show network sign-ins ([RADIUS accounting](../radius-accounting.md), Experimental), but this connector does not read them yet: ending the exact session from a recorded sign-in is not built in 4.6.0 (verified). A Disconnect-Request has to name the session by an attribute the access device recorded, so DENIS names it by **one attribute**, the one set in the connector as the *session attribute*:
 
 | Session attribute | Sent as | Where DENIS gets the value |
 |---|---|---|
@@ -55,6 +55,14 @@ One UDP send, then at most **5** more tries of the **same** packet (the same Ide
 * **Signed answers** (since 4.1.3): when an answer carries a Message-Authenticator, it must match the shared secret, or the answer counts as not genuine (**unconfirmed**). An answer **without** one is accepted on its Response Authenticator alone, because many access devices do not sign their answers; so the signature check protects only against a forged signed answer. If your access device signs every answer, tick **Require a signed answer (Message-Authenticator)**: an unsigned answer is then treated as not genuine too. Since 4.1.4 DENIS also remembers, per connector, that the device has signed an answer: from then on an unsigned answer counts as not genuine without any tick, so nobody on the path can swap in an unsigned one. A device that never signs keeps working as before. If a device really stopped signing (new firmware, another device at the same address), tick **My access device stopped signing its answers**: unsigned answers are accepted again.
 * **No usable answer after every try**, or an answer whose authenticator does not match the secret: **unconfirmed**. DENIS does not know whether the access device acted. A reply that fails the authenticator check is not read and not retried (it means a wrong secret, or an answer that is not from the configured device).
 * Nothing is sent at all when the plan is refused, when a lab switch is off, or when the session value is missing.
+
+**Each copy asks the gate first (4.6.0).** The first packet and every retransmission leave only with a ticket of the
+gate's permit for that action, and the ticket asks again, immediately before the copy, whether this DENIS is still the
+one allowed to act (the high-availability lease). If it is not, nothing is sent: before the first copy the action fails
+with "DENIS sent nothing to the device"; between two copies it stops and is **unconfirmed**, because the first copy may
+have ended the session. The old routes (the pre-4.1 "block") go through the same function and so ask the same. This
+changes nothing else: the same packet, the same tries, the same answers (documented; checked by tests against the
+simulated access device and by source scans, not on real equipment).
 
 ## Setup
 

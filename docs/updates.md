@@ -21,20 +21,53 @@ default for a new installation since 4.2, one switch to turn off): see
 |---|---|
 | Verify | The release's checksum list must carry a valid **signature** from the project's release key (the public key is built into your DENIS). A file that does not match the signed checksum is refused. A compromised GitHub account alone cannot push code to you. |
 | Test | The new program is asked for its version before anything is replaced; if it cannot run on this machine the update stops with nothing changed. |
-| Back up | A verified copy of your database is written to a `backups` folder beside the database (`denis-before-<version>-<time>.db`, owner-only; the newest five are kept). An attempt that stops before the switch removes its own copies again, and older copies are pruned only after a switch, so attempts that did not happen never push out the backups of updates that did. |
+| Back up | **From 4.6.0 on SQLite the copy belongs to the migration:** the new program, at its first start and before it changes anything, writes a verified copy of each database it is about to upgrade to the `backups` folder (`denis-before-<version>-<time>.db`, owner-only; the newest five per folder are kept; tenants in `backups/tenants/<id>/`). That covers every way of updating (this button, a package, a container image, a person replacing the program), and nothing can be written between the copy and the upgrade. The installer only checks first that the copies will fit and does not start the update otherwise: twice the size of each database (with its write-ahead log) that the new program upgrades, added up for all the databases whose copies go to the same disk; a database the new program does not upgrade needs no room. The new program checks again before each copy: twice the database's size, or once when an update installed by 4.5.x already holds a copy of that database (see [Free space for an update](#free-space-for-an-update)). If the copy cannot be made at start, the database is **not** upgraded and the start fails (the previous program still opens the untouched file); `DENIS_MIGRATE_WITHOUT_COPY=1` upgrades without the copy, at your own risk (Health says so). On PostgreSQL the installer still takes a `pg_dump` before the switch; an update made outside the built-in updater takes none there, so take one yourself. Updates installed by 4.5.x took the copy in the old program, as before. |
 | Switch | The old program is kept as `denis.previous`, the new one takes its place, and DENIS restarts **in place** (same process, same arguments). |
-| Confirm | The update counts as done when the new version has run for at least a minute **and** its mandatory parts work (see [How an update is confirmed](#how-an-update-is-confirmed)); time alone does not confirm it. If the new version fails to start twice, the **previous version comes back automatically**, together with the pre-update database if its format had changed; the console tells you what happened. |
+| Confirm | The update counts as done when the new version has run for at least a minute **and** its mandatory parts work (see [How an update is confirmed](#how-an-update-is-confirmed)); time alone does not confirm it. Until then (at most about eleven minutes after the new version has finished starting) DENIS starts no automatic response by itself; see [Never in the middle of an enforcement action](#never-in-the-middle-of-an-enforcement-action). If the new version fails to start twice, the **previous version comes back automatically**. From 4.6.0 the database is put back from its copy only when the previous version cannot use the upgraded one ([Going back without a restore](#going-back-without-a-restore-from-460)); the console tells you what happened. |
 
 Your data is not changed by updating: the database is migrated forward by the new version exactly as in any manual
 upgrade, after the backup exists. Only newer versions are offered; a downgrade is never installed.
 
 ## When an automatic rollback is not possible
 
+### Going back without a restore (from 4.6.0)
+
+Every database carries a **compatibility floor**: the oldest DENIS that can still use it (the settings row
+`schema.min_reader`, for example `{"schema": 65, "version": "4.6.0"}`). Most format changes only add things (a table, a
+column with a default) that an older DENIS simply does not look at; those leave the floor where it is. Only a change an
+older DENIS would misread raises it, and the release notes say when a release does. A DENIS at or above the floor opens a
+database even when its format number is newer than its own: nothing is migrated, the number is not changed, one
+warning in the log says so, and `GET /api/health` shows the database's format, the program's and the floor (field
+`ha.schema`).
+
+So when an update did not raise the floor and the new version has to go back, **only the program is swapped: nothing is
+restored and nothing recorded since the update is lost** (alerts, settings, the record of blocks still on devices). When
+it did raise the floor, the copy taken before the upgrade is put back as before; everything recorded after that copy
+is not in the restored database. The decision is made per database (the main one and each tenant's), and the rollback
+note says for each one whether it was kept or restored. While an update is not confirmed, the update status of the API
+says which it would be (`rollback_kind`: `swap`, `restore` with `copy_at`, the time of the copy, or `manual`; the
+console's update box does not show it yet in 4.6.0).
+
+Limits, stated plainly:
+
+* This works between two versions that both know the floor: **4.6.0 and later, on SQLite**. Going back from 4.6.0 to
+  4.5.x works as before (the copy is restored), because 4.5.x refuses every newer format number. The first update that
+  can go back without a restore is 4.6.0 to the version after it.
+* **PostgreSQL:** unchanged in 4.6.0. The floor is recorded and a program below it is refused with a message that names
+  the version needed, but an older program still refuses a newer schema number, and there is **no automatic return after
+  a schema change** (see the first bullet below).
+* That an older DENIS works on a newer additive database is **tested with automated tests** (the store's whole contract
+  list runs against such a database), not yet on a real installation: the first real case is 4.6.0 and the version after
+  it.
+
+### When it cannot go back by itself
+
 After a switch the new program must run for at least a minute and show that it works (see below). If it fails to start twice, the third start puts the previous
 program back (and, on SQLite, the pre-update database when its format had changed). Since 4.5.0 two cases (and since 4.5.2 a third, last in this list) are
 refused instead of half-done, and the new program keeps starting:
 
-* **PostgreSQL, the schema was migrated.** The old program refuses a schema newer than itself, so putting it back would
+* **PostgreSQL, the schema was migrated.** The old program refuses a schema newer than itself (also in 4.6.0, whatever
+  the compatibility floor says: PostgreSQL does not use the floor yet), so putting it back would
   leave both nodes unable to start. DENIS records the schema version before the update and the one the new program
   found after it opened the database; when they differ it does not put the old program back. The note (in the console's
   update box and in the log at every start) names both versions and the pre-update dump. To go back by hand: stop DENIS
@@ -127,6 +160,30 @@ running version has shown that its mandatory parts work:
   A version that recovers later is confirmed.
 * The confirmation is bound to the update it was started for (both versions and the recorded digests of the old and the new
   program); a marker of another update is never removed by it.
+* **Until the confirmation DENIS starts no automatic response by itself** (hold (b), see
+  [Never in the middle of an enforcement action](#never-in-the-middle-of-an-enforcement-action)); a person can still block,
+  and releases and expiries run. The hold ends at the confirmation, or at the latest eleven minutes after the
+  confirmation began (the ten minutes of the deadline plus a margin). Those minutes are counted from the moment the new
+  version has finished starting (its databases copied and upgraded, every tenant loaded), the same moment the ten-minute
+  deadline is counted from: until 4.6.0's review the hold was counted from the start of the process, so a start-up of more
+  than a minute (large databases to copy and upgrade) ended the hold before the deadline, while the version could still be
+  rolled back and its database restored from the copy, which would lose the record of a response started in between. A
+  version that never gets that far (a start-up that hangs) ends the hold 30 minutes after its start.
+
+### Free space for an update
+
+Each database that an update upgrades is copied first (on SQLite, see *Back up* above). Before it switches, the installer
+asks for **twice** the size of each such database and its write-ahead log (the `-wal` file beside it) to be free, added up
+for all the databases whose copies go to the same disk; a database whose format the new program does not change needs no
+room (the new program says which format it upgrades to). Twice, because a copy of a database that is still being written to
+can grow while it is made, and the disk must still have room for the database itself afterwards.
+
+At its first start the new program checks again, database by database: twice the size, or **once** when the update in
+flight was installed by DENIS 4.5.x and its installer already holds a full copy of exactly this database at its present
+format. Why: a 4.5.x installer took that copy before the switch without checking space, so a disk with between one and three
+times the database free would otherwise fail every start of the new version, and the start-up guard would put 4.5.x back.
+With the rule of once, the copy this start makes still has room; if the disk fills during the copy, the copy is removed and the
+database is not upgraded (it fails safe). (Verified by the tests of this build, with a simulated free space.)
 
 ### Turning the automatic return off
 
@@ -181,12 +238,28 @@ Changing *When* is audited as `update.auto_timing` with the value before and aft
 whose hour is skipped by the clock change (2 to 3 in central Europe) opens in the hour after the jump instead; on the
 night it ends, the repeated hour is just one more hour.
 
-**Never in the middle of an enforcement action.** An install does not start while an enforcement action (a block, a
-quarantine, a port change, or its removal, including *Enable port* and the switch write test) is being applied or
-rolled back. At the moment the program is replaced,
-DENIS waits up to a minute for running actions to end and lets no new one start until it has restarted (an action
-asked for in those seconds is refused with "DENIS is installing an update"; try again a minute later). If an action
-is still running after that minute, the update stops with nothing changed and is tried again shortly after.
+### Never in the middle of an enforcement action
+
+An update holds enforcement in two ways, named apart (4.6.0):
+
+| | Hold (a): the swap | Hold (b): not confirmed |
+|---|---|---|
+| How long | seconds: from just before the program is replaced until the new one runs | minutes: from the moment the installer checks space until the switch, and in the new version from its start until the update is confirmed, **at most about eleven minutes after the start-up has finished** (30 minutes after the start if the start-up never finishes) |
+| What waits | every write to a device: a block, a quarantine, a port change, its removal, an expiry, an extension, *Enable port*, the switch write test | only what DENIS starts by itself and that is not an undo: an automatic block by a rule or Autopilot, an automatic extension of a block, the Palo Alto re-registration |
+| What always runs | reads | **a release, an expiry, a check of a device, and every action a person asks for or approves** |
+| Running actions | waited for, up to a minute; otherwise the update stops with nothing changed and is tried again shortly after | not waited for: it only stops new automatic ones |
+| What you see | "DENIS is installing an update and restarts in a moment" (code `updating`) | "DENIS was updated a few minutes ago and has not confirmed the new version yet. It does not start responses by itself until then. You can apply this by hand, but if the update is then rolled back with its database copy, DENIS forgets that apply while the device keeps it: check the device after a rollback." (code `update_unconfirmed`) |
+
+Hold (a) is the hold of earlier versions; a release that is refused in those seconds runs again at the next pass of the
+expiry job. Hold (b) exists so that a version that has not shown it works does not change your network by itself: if
+it is rolled back, it has started no automatic response. An automatic response it refuses is not queued; it is recorded
+as not applied, and the next match after the confirmation acts. It ends when the update is confirmed, when an automatic
+return can no longer happen, or about eleven minutes after the start-up has finished in any case (30 minutes after the start if it never finishes); in the last two cases Health says that
+automatic responses were resumed although the update is not confirmed. `GET /api/health` shows the hold that is on
+(`ha.update_hold`: `swap` or `unconfirmed`), and so does the update status (`update_hold`). Alerts and notifications are
+not affected by either hold. (4.6.0 adds hold (b) and its two classes; which enforcement call is automatic and which a
+person's is decided by the enforcement gate from who started it: a rule, Autopilot or an automatic extension is
+automatic, a person's apply or approval is not; verified by reading the code of this build.)
 
 **What you are told** (the bell, and your notification channels by their minimum level):
 
@@ -385,7 +458,9 @@ window is marked **pre-release** next to its version, with its release notes fro
 **The warning, in full:**
 
 * a pre-release is for testing and may contain bugs;
-* a database that a pre-release has upgraded **may not open with an older program**;
+* a database that a pre-release has upgraded opens with an older program from 4.6.0 on **unless the pre-release raised the
+  compatibility floor** (the release notes say when it does; [Going back without a restore](#going-back-without-a-restore-from-460));
+  with a program before 4.6.0 it does not open;
 * the automatic backup that DENIS makes before every update is the way back (below);
 * please report problems on GitHub.
 

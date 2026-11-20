@@ -12,7 +12,17 @@ newest backup is too old. A backup on the same disk does not survive the disk: f
 (`….db.partial`) and gets its real name only once it is complete and the integration secrets are taken out: if it fails
 part-way (the disk fills up, say) the unfinished file is removed, and one left by a crash or a power loss is never
 listed, never counted as the last scheduled backup, never uploaded to an MSP, and is removed by the backup job at its
-next start. The list never offers a partial copy for restore. A database file that is damaged at start is reported with its path.
+next start (with the journal file SQLite may leave beside it). The list never offers a partial copy for restore. A database file that is damaged at start is reported with its path.
+
+**A backup while DENIS keeps recording (SQLite, since 4.5.4).** The copy is read on a database connection of its own,
+so capture, detection and the console keep writing while it runs; before 4.5.4 every write waited for the whole copy
+(measured at 374 MiB: the longest write 2.7 to 8.5 s). What it costs instead: the database's write-ahead log (the
+`denis.db-wal` file beside it) cannot be folded back into the database until the copy has ended, so it grows by what
+is written meanwhile and needs that room on the disk; the writes after the copy fold it back in, and the file is
+cut back to 32 MiB. The Health page
+names a copy that took 10 minutes or more or left a log of 1 GiB or more, and a log that is 1 GiB or more right now.
+A scheduled backup that fails (the disk fills up during the copy, say) removes nothing: the older backups are pruned
+only after a new one is complete, so the last good backup stays however often the attempt fails.
 
 From the command line:
 
@@ -188,10 +198,67 @@ step: one that fails (for example a statement timeout on a large first prune on 
 "pruning ... failed" and the others still run; it is tried again the next hour. On PostgreSQL the deletes run in chunks
 of 2,000 rows, as on SQLite.
 
+The ledger of received agent reports (4.5.4) keeps its own 7 days, whatever the period above is set to; per site at
+most 2,000 rows of reports that were applied whole and at most 20,000 of the others (since 4.6.0: the applied rows no
+longer push the gaps out) ([Gaps in what a remote site reported](#gaps-in-what-a-remote-site-reported)).
+
+The port health history of the switches (4.6.0: the traffic and error samples of each port and the record of each
+reading of a switch) has its own period: 8 days by default, 1 to 30, pruned every hour in chunks. It is set
+under *Data retention* in the console or through `port_history_days` of `PUT /api/retention`. A value saved by hand outside 1 to 30 reads as 8. A settings row that cannot
+be read prunes nothing that hour. The open conditions (a watched link that is down) are never pruned by age. With 50
+switches of 48 ports read every 5 minutes, 8 days are about 200 to 400 MB (best guess, not measured yet); see
+[Switches](switches.md#history-and-its-size).
+
+Four more periods belong to the health features of 4.6.0. Each is a key of the stored retention setting, has its own
+bounds and default, and is read on its own: a value that is out of range reads as that key's default and never makes
+another fall back. The defaults are a best guess, not measured. A settings row that cannot be read prunes nothing in
+that cycle. **All five can be set under *Data retention* in the console and through `PUT /api/retention` (administrators); a save keeps the keys it was not given.**
+
+| Key | What it keeps | Range | Default |
+|---|---|---|---|
+| `port_history_days` | raw traffic and error samples of the switch ports | 1 to 30 days | 8 |
+| `port_rollup_days` | the hourly figures of ports and switches (long history, up to a year) | 30 to 400 days | 90 |
+| `check_history_days` | the raw runs of [service checks](service-checks.md) | 1 to 30 days | 8 |
+| `check_rollup_days` | the hourly figures of service checks | 30 to 800 days | 400 |
+| `config_history_days` | the events of [configuration changes](config-changes.md) | 30 to 1,825 days | 400 |
+
+Raw samples of ports are deleted only for hours that were already rolled up (see [Switches](switches.md#history-and-its-size)).
+The hourly port tables are capped at 5,000,000 rows and the configuration events at 100,000 rows, the oldest going
+first.
+
 Kept without a time limit (documented, not pruned by any period): the audit log, the results of connection tests run
 by hand, the record of merged devices (it maps a merged device's old id to the one it became), the history of
 segmentation changes, and revoked API tokens, agent tokens and push subscriptions. They grow with what people do, not
 with traffic.
+
+## The RADIUS accounting receiver (4.6.0, experimental)
+
+DENIS's only inbound UDP port; off by default. What it accepts and why it is safe to leave off is in
+[Security](security.md#the-radius-accounting-receiver-460-experimental). How to set it up, on DENIS and on the equipment, is in
+[RADIUS accounting](radius-accounting.md).
+
+* **Switching it on.** An administrator lists the sources (one IP address and one shared secret of at least 16
+  characters each, at most 64 sources), chooses the listen address (for example this machine's address and port
+  1813) and switches the receiver on; that asks for the password again and is audited. At once (well under a second) the
+  service log says `RADIUS accounting: receiving on udp <address> from <n> source(s)`. Then point the equipment at
+  that address as one more accounting server. Your firewall must let UDP from the listed sources reach that port.
+* **When it cannot open the address** (in use, not an address of this machine, `0.0.0.0` without the explicit choice),
+  the log says `RADIUS accounting: cannot listen on udp ...` once with the reason; DENIS runs on and tries again every
+  few seconds.
+* **Changing a source or a secret** takes effect at once (well under a second): the receiver stops receiving, stores
+  and answers the records it has already received (for at most two seconds), and opens its port again with the new
+  list. Records sent during that restart are sent again by the equipment.
+* **Switching it off** needs no password; the port is closed at once (well under a second), after the records already
+  received are stored and answered. Sessions already recorded stay,
+  go stale when nothing is heard and end by themselves after seven days of silence.
+* **Retention.** Ended sessions are kept for `history_days` (30 by default, 1 to 365) of the receiver's own settings,
+  and beyond 200,000 rows the oldest ended ones go first; open sessions are never pruned. The hourly retention pass does
+  this (at most 10,000 rows a pass); a settings row that cannot be read deletes nothing that hour.
+* **After a restore** the shared secrets are not in the backup: enter each one again, or that source's records are not
+  read (they are dropped and counted).
+* **High availability:** only the node that leads runs jobs, so only it listens (best guess that nothing more is needed:
+  the equipment must send to the address that follows the leader; not tested on a pair).
+* **4.6.0: the main installation only.**
 
 ## Monitoring DENIS itself (Prometheus)
 
@@ -229,6 +296,22 @@ and for IP fragments of industrial traffic `denis_ot_fragments_reassembled_total
 `denis_ot_fragments_dropped_total{reason="timeout|limit|overlap|oversize|tiny|malformed"}`,
 `denis_ot_fragments_duplicate_total` and `denis_ot_checksum_mismatch_total{reassembled="false|true"}` (industrial
 messages with a wrong TCP/UDP checksum, still decoded; see the OT guide's limits).
+
+For the switches DENIS reads (4.6.0, port health): `denis_switch_read_fail_streak{switch="<id>"}`, failed attempts in a
+row to read a switch from this server (it says this server got no answer, not that the switch is down; one sample per
+switch in the list), and `denis_switch_read_lag_seconds{switch="<id>"}`, how late the newest scheduled reading of a
+switch started after it was due (no sample for a switch without a scheduled reading yet). The label is the switch's id,
+never its address or community. Useful alerts: `denis_switch_read_fail_streak >= 3` (the point at which "cannot be read"
+opens), `denis_switch_read_lag_seconds > 600` (with the default interval of 5 minutes: more than two intervals late, as
+the Health warning). See [Reading switches](#reading-switches-port-health-460).
+
+For service checks (4.6.0): `denis_checks_runs_total{outcome}` (runs since start by outcome: `ok`, `slow`, `wrong_answer`,
+`warning`, `no_answer`, `not_run`), `denis_checks_state{state}` (how many checks are in each of the four states, no
+sample per check), `denis_checks_skipped_total` (runs that waited because too many were in flight) and
+`denis_checks_last_pass_seconds` (seconds since the job last finished a pass; no sample before the first one; a value
+that keeps growing means the job has stopped). For configuration changes: `denis_config_events_total{kind}` (`changed`,
+`saved`, `restart_unsaved`) and `denis_config_unsaved` (switches whose changes are not saved). Names and addresses are
+never labels.
 
 Per capture interface (label `iface`): `denis_capture_dropped_packets_by_iface` (dropped between the kernel and
 DENIS) and `denis_capture_if_dropped_packets` (dropped by the network card or its driver before the capture saw
@@ -452,6 +535,64 @@ A long console query then no longer delays the writes, and the writes no longer 
 change. It is off by default; leave it unset unless a large installation's console feels slow while capture is busy.
 It has no effect with PostgreSQL.
 
+## What the four states mean
+
+Since 4.6.0 every thing DENIS monitors from this server (a switch, a port, a [service check](service-checks.md), a
+switch's [configuration](config-changes.md)) is shown in one of four states, from one place in the program, so that the
+Dashboard, Health and the equipment pages never say different things. Each state is judged **from this server** and
+travels with the time it was judged and since when it holds.
+
+| State (code) | Shown as | Means |
+|---|---|---|
+| `healthy` | Healthy | this server judged it within the last expected interval and found nothing wrong |
+| `degraded` | Degraded | it answered this server, and something about it is wrong: a condition in force, a wrong answer, a slow answer, a certificate about to end, unsaved configuration changes |
+| `not_reachable` | Not reachable from this server | this server asked and got no answer from the thing itself. It is always said "from this server". It never says "down" or "offline", because another place may still reach it |
+| `unknown` | Not known | it cannot be judged now: not asked yet, the last judgement is older than allowed, this server itself could not ask (no permission for ping, its own resolver failed, its main interface is failing; a switch the tenant's outbound policy does not allow, reason `not_allowed`), or a stored state this program does not know |
+
+* **Why?** Beside a state that is not *Healthy*, in Health's tables, on Configuration changes and on Service checks,
+  *Why?* opens a small panel: the reason the server gives, since when, where and when it was judged, and the ways to
+  the readings in Health and to the setup of that monitor.
+* **There is no fifth state.** "Offline" and "down" do not exist as states in the program (verified: no code path can
+  produce them, and a test scans the wording).
+* **No data is *Not known*, never "offline".** Something that nothing monitors (health switched off for a switch, a
+  disabled check, a switch whose watch is off) is *Not known* and is shown in grey as "Not monitored"; that is never an
+  item of *Needs attention*. Something switched on that has not been judged yet is *Not known* as well.
+* **A judgement that is too old is *Not known*.** After three intervals (a check: three intervals plus its timeout) the
+  last state is no longer shown as current, so a stopped job or a standby that took over never shows an old "Healthy".
+  A judgement dated further ahead of this server's clock than that age (at least 10 minutes) is *Not known*
+  too: the clock was stepped back after it was made (see "When the server's clock is stepped back" in
+  [switches.md](switches.md)), and it says nothing about now.
+* **When something is *Not reachable*, what hangs below it is not judged meanwhile.** The ports of a switch that cannot be
+  read are folded into one item, "Loss of monitoring", not listed as faults of their own.
+* **"This server cannot check" is not "Not reachable".** The first means no question left this server (for example it is
+  not allowed to send a ping): *Not known*. The second means a question was sent and nothing came back.
+* **The state is the same everywhere.** An unknown stored value reads as *Not known*, never as *Healthy*.
+
+## The Health page
+
+Health answers one question: can DENIS see, record and tell you? What is wrong on your network itself (an incident, a
+link that went down, a check that fails) is under **Needs attention** on the Dashboard; each of the two pages carries
+one line that points to the other. From 4.6.0 the page has five parts, always in this order:
+
+1. **The verdict**: "Everything DENIS needs is working." or the number of problems and notes, and when Health was read.
+2. **Problems** (`#health/problems`), only when there is one, in groups: *Network sign-ins*, *Service checks*,
+   *Configuration changes*, *Switches* and *DENIS itself* (everything else, disk and backups included). A **Problem**
+   needs a look; a **Note** is housekeeping and does not turn the menu badge red. Each one has its way there, for
+   example *Open Sign-ins*, which opens Network → Sign-ins on its Setup tab.
+3. **Monitoring** (`#health/monitoring`): one row per function, also for one that is off: *Capture*, *Switch readings*,
+   *Service checks*, *Network sign-ins* and *Configuration changes*, each with its state in words and one line. A function
+   that is off says **Off** in grey with **Set up**: off is a decision, not a fault. A row opens to that function's
+   detailed table (`#health/capture`, `#health/switches`, `#health/checks`, `#health/sign-ins`, `#health/config`); a
+   row whose function cannot work (a switch not reachable from this server, a receiver that cannot listen) opens by itself.
+4. **This server** (`#health/server`): version, database, free disk, backups, packets dropped, the last network scan;
+   the optional recording (east-west traffic, passive DNS, the internet connection watch, the shipped lists) with where
+   each one is set; *What DENIS cannot see* (one line while there is nothing to report, open by itself when there is)
+   and *Detection rules*.
+5. **Background work** (`#health/jobs`): periodic jobs, services and supervised tasks (open by itself when one has an
+   error), what is in the database, and this console's own status line.
+
+The page is read again every minute while it is open. What you opened stays open and the page does not move.
+
 ## Health warnings that point at data you cannot see
 
 The **Health** page lists problems first, in plain words, and `denis_health_warnings` counts them. These are the ones
@@ -471,6 +612,8 @@ that mean DENIS is working but part of what it should see is missing:
 | N notifications were not queued because too many were waiting | A channel that has been down for a long time reached 1,000 waiting messages (20,000 for all channels); the alerts are still in the console. |
 | Agent reports (a service line) | Agents are enrolled but none has reported for 6 hours. Advisory. The demo's two sites do not count. |
 | Saving devices and sightings (or east-west connections, or passive DNS names) to the database failed N times | A database write failed within the last 15 minutes: what was seen then is not saved. Check the free disk space and the database (on PostgreSQL: is the primary accepting writes?); the service log names the error. While writes fail, the **Database writes** service line is judged from the last flush that came with no new failure. |
+| The last backup needed *time* to copy the database, and the database's write-ahead log … grew to *size* meanwhile (4.5.4) | Advisory, SQLite. The last backup since DENIS started took 10 minutes or more, or the `denis.db-wal` file reached 1 GiB while it ran. Recording went on during the copy; the log is folded back in after it. Check the free disk space: the log needs that room during every backup. Shown until DENIS restarts or the next backup is quick and small. |
+| The database's write-ahead log … is *size* (4.5.4) | Advisory, SQLite. `denis.db-wal` is 1 GiB or more now. It is folded back in when nothing reads an older state of the database; if it stays this large, look for a program that keeps the database open (another `denis` command, a copy or backup tool) and check the free disk space. |
 | Part of the database could not be read for this page | The Health page could not read the database statistics or the backup settings. It still shows everything else; the figures that need the database are empty. |
 | *Job*: the last N attempts failed | A periodic job (Findings, Posture samples, Scheduled reports, Service probe, Tenant limits from the control store, Maintenance setting for notifications; advisory for Vulnerability data, the GeoIP database update, the Entra ID and Intune import, the vulnerability scanner import and, since 4.5, the Active Directory, Jamf Pro, Microsoft Defender, AWS, Azure and Google Cloud imports) failed three times in a row. What it keeps up to date is from its last completed run. The error is in the warning and under **Background work**. |
 | The background job *X* failed N times in a row (4.5) | One of the jobs that reconcile work items or merge joined devices keeps failing. The error is in the warning; the service log has more. |
@@ -480,7 +623,28 @@ that mean DENIS is working but part of what it should see is missing:
 | The export to *target* has not worked for *age* / The saved SIEM export settings do not pass this version's checks (4.5) | The SIEM or OpenObserve export has failed for 15 minutes, or its saved settings fail a check of this version (the export keeps running as configured). |
 | The local TLS authority in *dir* cannot be read (4.5) | `ca.pem`/`ca.key` are there but do not open; they are not replaced on their own (agents pin them). Restore them, or delete both to make a new one. |
 | N devices were deleted from the database while discovery still had them / N devices … were removed (4.5, advisory) | The live inventory dropped rows the database no longer had, or the aging pass of a nearly full site removed devices nothing referred to. Seen again, they come back as new devices. |
-| Reports of these agents went missing / Remote agents dropped N flow records / Two collectors report as the same agent (4.5) | A gap in an agent's report sequence, records its full buffers pushed out while the master could not take them, or two processes with one agent id (a cloned machine). |
+| Reports of these agents went missing / Remote agents dropped N flow records / Two collectors report as the same agent (4.5) | A gap in an agent's report sequence (from 4.5.4 read from the batch ledger, so a restart of the master does not clear it; shown for a day, with the number of reports and the age of the last gap), records its full buffers pushed out while the master could not take them, or two processes with one agent id (a cloned machine). |
+| Reports of these sites were interrupted on this master / failed every time and were set aside / were refused by this master (4.5.4) | A part or all of a report a remote site sent is not in this database. Each warning names the sites with a count and the age of the newest case, for a day; **Sites** lists every case of the last 7 days with its time span and reason. See [Gaps in what a remote site reported](#gaps-in-what-a-remote-site-reported). |
+| DENIS could not read these switches from this server for N readings in a row (4.6.0) | Three or more attempts in a row to read a switch that is switched on failed. This server gets no answer; that does not say the switch is down. Check the address, the SNMP credentials and the route from this server ([Troubleshooting](troubleshooting.md)). |
+| Switch readings are late (4.6.0) | The newest scheduled reading of a switch started more than two intervals after it was due. The switches are read one after another, so a slow or silent switch delays the others. |
+| The traffic counters of … were left out of some readings (4.6.0) | In at least 3 of the last 12 readings of a switch the counters took longer than their 5 seconds and were skipped. The port list and the topology were still read. |
+| … offers no traffic counters DENIS can use (4.6.0) | Port health is on, and the newest reading of the switch found no byte counter at all (neither 64-bit nor 32-bit). A port whose only counters are 32-bit ones, too small for its speed at this interval, says "Not offered by this switch" in its own row without this warning. |
+| … is not read: *reason* (4.6.0) | The newest attempt, from the last interval, was not allowed by a policy of this installation (the tenant's outbound policy). |
+| Service checks (4.6.0, codes `checks_job_stalled`, `checks_late`, `checks_icmp_not_permitted`, `checks_store_failing`; advice: `checks_passive_only`, `checks_near_limit`) | The job has not finished a pass for minutes; checks are running late; this server may not send ping (give the service `CAP_NET_RAW` or set `net.ipv4.ping_group_range`); the checks cannot be read from the database; this server was started passive-only; 90 or more of at most 100 checks are listed. Each is explained in [Service checks](service-checks.md#health-warnings-of-service-checks). |
+| Configuration changes (4.6.0, codes `config_partial`, `config_read_failing`; advice: `config_not_supported`) | Only part of a switch's configuration time stamps could be read; they could not be read for more than 3 readings; the switch offers none. Nothing is compared that was not read. See [Configuration changes](config-changes.md#health-warnings-and-states). |
+
+These Health rows are produced by the checks and the configuration watch themselves and shown on the Health page as in
+the console; their codes do not change. The other warnings new in 4.6.0 carry a stable `code` too (since the 4.6.0
+review): `switch_unreadable`, `switch_reads_late`, `switch_counters_skipped`, `switch_counters_not_offered`,
+`switch_not_allowed`, `db_migrated_without_copy`, `backup_copy_heavy`, `db_wal_large`, `east_west_capped`,
+`passive_dns_capped`, `flows_unchecked`, `nac_unlisted_moves`, `nac_ports_disabled`, `nac_plain_credentials`,
+`nac_invalid_config`, `agent_batch_interrupted`, `agent_batch_set_aside`, `agent_batch_refused`,
+`agent_batches_dropped`, `agent_batches_lost`. A script matches the code, never the sentence.
+
+A person who may read only some sites sees the warnings that name agents (reports that went missing, were interrupted,
+set aside, refused or given up at the site, dropped flow records, two collectors as one agent) only for those sites;
+the others are left out, not counted. The count of enforcement state changes outside DENIS's state table is shown on
+the Health page, not counted for the menu badge.
 
 **Background work** (at the bottom of the Health page, folded) lists each periodic job with its last completed run,
 its last attempt and the last error; each service line with its status and last good time; and each supervised task
@@ -489,6 +653,75 @@ so it survives a restart. When the Health page itself cannot be read (`/api/syst
 not be read" with the reason and the menu badge shows **!**, instead of keeping the last good page.
 
 These warnings clear when the cause stops. A restart clears the counters (not the cause).
+
+## Reading switches (port health, 4.6.0)
+
+Port health is Experimental; what it reads and shows is in [Switches](switches.md#port-health-traffic-errors-and-restarts-experimental-460).
+For the person who runs DENIS:
+
+* **The Health table *Switch readings*** has one row per switch in the list: its port health (on, off, or not decided
+  for a switch from before 4.6.0), the last reading and the last good one, how late the newest scheduled reading
+  started, failures in a row, the time it took, what became of the counters (read, partly, skipped, not offered, not
+  due yet, off), the ports sampled, and the last 24 hours (failed, skipped, not allowed). It is built from one row per
+  attempt to read a switch (table `switch_polls`), written for every switch with port health on or off. It says how
+  this server is doing at reading the switch, never whether the switch works.
+* **The read budget.** The switches are read one after another, one lock per switch (a port action's re-read waits on
+  the same lock). The counters are read inside the switch's reading, right after its port list, with a time limit of
+  5 seconds for all of them and one retry per request; when it runs out the counters are "skipped" for that reading and
+  the rest of the switch is read as always. They are read only when a port's last measurement is at least 4 minutes old,
+  so a **Read now** right after a scheduled reading, or an interval of 60 seconds, adds no second measurement. The
+  5 seconds and the 4 minutes are fixed in 4.6.0.
+* **Backoff.** A switch that failed three scheduled readings in a row is read only every second interval until a
+  reading succeeds; a successful **Read now** puts it back on the normal schedule at once. A reading that the tenant's
+  outbound policy does not allow writes at most one "not allowed" row per interval.
+* **High availability.** Only the active node reads switches; a node that loses its lease while a switch answers writes
+  nothing of that reading.
+* **Extra reads (4.6.0).** With port health on, a reading also asks for the processor, memory and PoE figures, and with
+  a Cisco switch's configuration watch on, for three time stamps. They run in a phase of their own with a 3-second limit
+  that lies inside the time the counters already had (so the per-switch lock is held no longer than before), one retry
+  per request, and each table cut at 256 rows. When the counters used their whole time the extras are skipped for that
+  reading ("not known", never 0 %). They never fail the reading. See [Switches](switches.md#device-figures-processor-memory-running-time-460).
+* **The hourly roll-up** runs in the hourly retention cycle on the active node, at most 48 hours per switch per pass.
+  A failure is written to the log and tried again the next hour; the raw samples it covers are kept until it succeeds.
+* **Metrics**: `denis_switch_read_fail_streak` and `denis_switch_read_lag_seconds`, see
+  [Monitoring DENIS itself](#monitoring-denis-itself-prometheus).
+* **Backup and restore.** The tables of port health (`port_samples`, `port_last`, `switch_polls`,
+  `infra_conditions`, and since 4.6.0 `port_link_changes`, `poe_ports`, `port_hourly`, `switch_hourly`) are part of the database and of every backup; they hold no credential (the error text of a
+  reading is stored free of secrets). The SNMP communities and SNMPv3 passwords are left out of backups like the other
+  integration secrets: after a restore, enter them again, or the readings of those switches fail and "cannot be read"
+  opens after three of them (best guess of what an operator sees; not tried). The restored history ends at the time of
+  the backup: when the hole is longer than three intervals (at least an hour), the first reading after the restore shows
+  "Not known: too long since the reading before" instead of an average across it, and the reading after that is
+  measured again. The conditions are as they were at the time of the backup and are judged again from the next reading.
+* **Erase all data** deletes the four tables with the rest of the inventory; removing a switch from the list deletes its
+  rows; the hourly prune keeps the [port history period](#retention).
+* **Going back.** Schema V66 keeps the compatibility floor: on SQLite a build that knows the floor but stops at V65
+  opens a database with the port health tables as it is and leaves them and their rows alone, so going back is a program swap and the
+  history is still there for the next update ([Going back without a restore](updates.md#going-back-without-a-restore-from-460)).
+  On PostgreSQL a build below the database's schema number refuses it in 4.6.0 whatever the floor says, and the way back
+  is the dump taken before the update. To remove the tables by hand, see [Rolling back V66](#rolling-back-v66) and, for the later tables, [V68](#rolling-back-v68).
+
+## Service checks and configuration changes (4.6.0, experimental)
+
+Both are Experimental and off until an administrator adds a check or switches the watch on for a switch. What they do is in
+[Service checks](service-checks.md) and [Configuration changes](config-changes.md). For the person who runs DENIS:
+
+* **High availability.** Only the active node runs checks, reads the switches and raises their notices. A result that
+  arrives after a node lost its lease is dropped, not written.
+* **Passive-only.** A server started with `--passive-only` runs no checks (Health says so); it still reads a switch that
+  an administrator configured, and that read carries the configuration time stamps when the watch is on.
+* **What a check sends.** Only to the targets listed, from this server's own addresses, see
+  [Security](security.md#service-checks-460-experimental). Plan a firewall rule for ICMP, the listed TCP ports and DNS
+  from this server if you filter outbound traffic.
+* **Backup and restore.** The tables of checks (`check_runs`, `check_state`, `check_hourly`) and of configuration changes
+  (`config_state`, `config_events`) are part of the database and of every backup. The list of checks is a setting
+  (`checks.list`) and is part of the settings; the industrial setting is `checks.ot_policy`. No password, secret or
+  configuration is in any of them. After a restore the checks run again from their next due time, and the first reading
+  of a switch's configuration after a restore is a first one again (it makes no event).
+* **Erase all data** deletes the tables of both; removing a check or a switch deletes its rows.
+* **Going back.** Schemas V68, V69, V70 and V71 keep the compatibility floor: a 4.6.0 build that does not know them uses
+  such a database as it is and leaves the new tables, columns and indexes alone (see [Going back without a restore](updates.md#going-back-without-a-restore-from-460)).
+  To remove them by hand: [V71](#rolling-back-v71), [V70](#rolling-back-v70), [V69](#rolling-back-v69), [V68](#rolling-back-v68).
 
 ## Is it your connection, or is it DENIS?
 
@@ -565,6 +798,41 @@ server): 1.5 s at 10,000 devices with no users, and over the 2-second cycle at 5
 measured again**, so the estimate of about 5,000 devices per site on PostgreSQL is **the old measurement on the old write
 path**; it is probably conservative now, and it is unverified on server hardware.
 
+### Gaps in what a remote site reported
+
+A remote agent sends its observations in numbered reports and sends a report again until the master acknowledges it.
+From 4.5.4 the master writes one row per report into a ledger (table `agent_batches`): which site, which run and number,
+the SHA-256 of the body, the time span its records cover, and **how far the master got with it**. The report itself is
+not stored. The ledger is what makes these cases visible and bounded:
+
+| What happened | What the master does | What you see |
+|---|---|---|
+| The master stopped or failed while it applied a report (a crash, a restart, a database error) | The agent sends the report again. The master carries on behind the last part it had started. The part that was started when it stopped is **not applied again** (it cannot tell whether it finished, and nothing is ever counted twice); everything after it is applied. | The report is listed as incomplete with the part that is missing (for example "flow records"). If it stopped before any counting part was started, the resend applies everything and nothing is listed. |
+| The master stopped and the agent never sent the report again (it gave up, or it was reinstalled) | After 6 hours without a resend the report is closed. | Listed as "interrupted and not sent again" from the part it stopped at. Before that, from 10 minutes on, as "waiting for the site to send it again". |
+| A report failed 10 times in a row with a program fault (a panic), also across restarts of the master | It is set aside: the agent is told to drop it, and nothing more of it is applied. A fault inside one counting part costs only that part: the resend leaves it out and applies the rest. | Listed as "set aside". Keep the service log and report it. |
+| Reports never arrived (the agent dropped them: the master was away too long, a report was too large or was refused) | The next report that arrives shows the hole in the numbers. | Listed as "N reports never arrived", with the time span between the report before and the report after. |
+| A second, different body arrived under a number that already has one | It is refused (one number, one body). If the first body was still unfinished, it is closed as incomplete. | Listed as "refused". Two collectors running with one agent's configuration (a cloned machine with its queue) are the usual cause. |
+
+Where: **Sites** shows "Incomplete data: N" under a site's last report time, with one line per case (time span, reason,
+report number) for 7 days; **Health** warns for a day; the bell gets a notice of category *agent* per site (at most
+one an hour, repeats counted), which follows your notification channels like every notice. A site's "last report"
+time alone does not tell you this: a site can report every few seconds and still have a gap.
+
+What this does not do (documented): it does not bring the missing part back, and it does not make the detector's own
+memory durable. Volume and baseline counts are kept in memory and saved on the detector's schedule, as for the local
+capture, so a crash of the master can lose a few minutes of them for reports the ledger calls applied. A step whose
+completion could not be written (the database went away at that moment) is treated as interrupted: the ledger errs
+on the side of "incomplete", never on the side of counting twice.
+
+Ledger rows are kept for 7 days after their last change, pruned every hour. Per site at most the newest 2,000 rows of
+reports applied whole are kept (at a report every 15 seconds about 8 hours; they only serve to recognise a resend)
+and at most the newest 20,000 of the others, so a gap stays listed for its 7 days (since 4.6.0; before, the applied
+rows counted against the same 2,000 and pushed a gap out after about 8 hours). At about 150 bytes a row this is
+about 3 MB per site at most (best guess, not measured). Deleting a site deletes its rows. **Sites** and **Health**
+read at most 100 cases per site (Sites lists the newest 20), so one site with many refused reports does not hide
+the others; when the ledger cannot be read, **Sites** still lists the sites and says that it cannot tell what is
+missing.
+
 ## Upgrading
 
 DENIS can update itself from GitHub releases (or, if GitHub cannot be reached, from the fallback host), with a backup
@@ -578,7 +846,32 @@ The database is upgraded in place, in one transaction per start on SQLite and on
 committed each step on its own): a step that fails, or a crash mid-upgrade, leaves the database at the version it had
 before the start, which the program you ran before can still open. A step can run twice: a column, table or index it
 adds that is already there (a database set back to an older version by hand) is left out instead of failing the start.
-A database newer than the program is refused with a clear message (never silently downgraded).
+
+**A database newer than the program** (4.6.0, SQLite): it depends on its compatibility floor, the oldest DENIS that can
+still use it ([Updates](updates.md#going-back-without-a-restore-from-460)).
+
+* The floor allows this program: the database is opened and used as it is. Nothing is migrated and the format number
+  is not written; one warning in the log says so, and `GET /api/health` shows `ha.schema` (`version` above `build`).
+* The floor is above this program, or the database has no readable floor: it is refused before anything in the file is
+  changed (not even its journal mode), with a message that keeps the words tools look for and names the version needed:
+  `database schema v70 is newer than this build (v66) and needs DENIS 4.8.0 or newer: a newer DENIS upgraded it in a way
+  this version cannot read. Run that version or a newer one, or restore the backup taken before the update together with
+  its secrets.key`. A program before 4.6.0 refuses every newer format number. On PostgreSQL a newer schema number is
+  refused in 4.6.0 whatever the floor says.
+
+**The copy before an upgrade** (4.6.0, SQLite). The program that upgrades a database first writes a verified copy of it,
+exactly as it was, to `<data dir>/backups/` (tenants: `backups/tenants/<id>/`; a database opened by a command without a
+data directory: a `backups` folder beside it), named `denis-before-<version>-<time>.db`, owner-only. The newest five per
+folder are kept; `pre-migration.json` in the same folder records which copy belongs to which upgrade. It holds a lock
+(`.pre-migration.lock`) while it upgrades: a second DENIS program that wants to upgrade the same database waits up to two
+minutes and then stops with "another DENIS program is upgrading this database". If another program writes to the
+database between the copy and the upgrade, the copy is taken again; after three rounds the start stops with "another
+DENIS program is writing to this database" and nothing is changed (stop the other program first). If there is not twice
+the database's size free in that folder, or the copy fails its check, **the database is not upgraded and the start
+fails**; the program you ran before still opens it. `DENIS_MIGRATE_WITHOUT_COPY=1` (environment only) upgrades without
+the copy, at your own risk: going back to the previous version then cannot restore that database, and Health and the
+log say so. No copy is made of a new, an in-memory or an up-to-date database, of an import or a backup copy that is
+being opened, or on PostgreSQL (take a `pg_dump` yourself before an update outside the built-in updater).
 
 **Going back from 4.4.** Schema V57 (4.4, the counts of trial mode, which 4.4.1 removed: no rule can be put in a trial any more, the column stays) adds one column, `rule_outcomes_daily.trial`
 (`INTEGER`/`BIGINT NOT NULL DEFAULT 0`, on SQLite and PostgreSQL alike), and nothing else; the trial records themselves
@@ -599,6 +892,11 @@ pair, the backup commands and how to stop both nodes are in
 [High availability](high-availability.md#upgrading-a-pair-to-44); the secrets are in
 [Security](security.md#upgrading-the-secret-format-44). The simplest way back stays the same: restore the copy taken
 before the update, together with its `secrets.key`.
+
+**Ways back from V65 on.** From the step after V65, a schema step that keeps the compatibility floor needs no hand
+procedure: the previous version (4.6.0 or later) opens the database as it is, so going back is **starting the previous
+version**. A "Rolling back Vnn" section is written only for a step that raises the floor; the release notes say which.
+Before V65 (the steps below), every step has its own procedure.
 
 ### Rolling back V59
 
@@ -727,6 +1025,282 @@ PRAGMA user_version = 61;
 What is lost: the column choice of each CSV list (those lists read their first column again). To go further back,
 continue with "Rolling back V61". The SQLite steps are run against a real file in `store/sqlite/tests_v62.rs`.
 
+### Rolling back V63
+
+Schema V63 (4.5.4, the ledger of received agent reports) adds one table, `agent_batches`, with three indexes, and
+nothing else: no existing table changes. A build that does not know V63 refuses the database ("newer than this
+build"); restoring the backup taken before the update is the simple way back. To go back by hand, stop DENIS on every
+node first, then:
+
+```sql
+-- PostgreSQL (one transaction)
+BEGIN;
+DROP TABLE agent_batches;
+UPDATE schema_version SET version = 62 WHERE version = 63;
+COMMIT;
+```
+
+```sql
+-- SQLite (sqlite3 denis.db)
+DROP TABLE agent_batches;
+PRAGMA user_version = 62;
+```
+
+What is lost: the ledger (which reports were interrupted, refused or never arrived over the last 7 days). No device,
+alert or setting is touched; the older build then acknowledges a resent report by its number alone, as it did before.
+The next start of a 4.5.4 build creates the table again, empty. To go further back, continue with "Rolling back V62".
+On PostgreSQL, `denis db undo-v58` refuses a database that is at version 63: do the steps above first. The SQLite
+steps are run against a real file in `store/sqlite/tests_v63.rs`.
+
+### Rolling back V64
+
+Schema V64 (4.5.4) adds two tables, `agent_outbox` and `agent_outbox_dropped`: the disk queue in which a remote agent
+keeps its reports until the master has acknowledged them (see
+[A site keeps collecting while the master is away](deployment.md#a-site-keeps-collecting-while-the-master-is-away)).
+They are created in every database and stay empty on a master. Nothing else changes. A build that does not know V64
+refuses the database ("newer than this build"). To go back by hand, stop DENIS first, then:
+
+```sql
+-- PostgreSQL (one transaction)
+BEGIN;
+DROP TABLE agent_outbox_dropped;
+DROP TABLE agent_outbox;
+UPDATE schema_version SET version = 63 WHERE version = 64;
+COMMIT;
+```
+
+```sql
+-- SQLite (sqlite3 denis.db, or the agent's own database)
+DROP TABLE agent_outbox_dropped;
+DROP TABLE agent_outbox;
+PRAGMA user_version = 63;
+```
+
+What is lost: on an agent, the reports that were still waiting for the
+master, and the count of the ones the queue had already given up; send them first if you can (start the agent with
+the master reachable and wait until the log stops saying that reports wait). On a master nothing is lost: the tables
+are empty there. The next start of a 4.5.4 build creates the tables again, empty. To go further back, continue with
+"Rolling back V63". The SQLite steps are run against a real file in `store/sqlite/tests_v64.rs`.
+
+### Rolling back V65
+
+Schema V65 (4.6.0) is a marker step: it changes no table. Its only effect is one settings row, `schema.min_reader`
+(`{"schema": 65, "version": "4.6.0"}`, the compatibility floor), written in the same transaction on SQLite and
+PostgreSQL (on PostgreSQL in the main schema and in each tenant's). V65 raises the floor: a build that does not know
+V65 refuses the database ("newer than this build"). To go back by hand, stop DENIS first, then:
+
+```sql
+-- PostgreSQL (one transaction; in a tenant schema too, with its search_path)
+BEGIN;
+SET LOCAL denis.fence_exempt = 'maintenance';  -- the settings table is behind the write fence
+DELETE FROM settings WHERE key = 'schema.min_reader';
+UPDATE schema_version SET version = 64 WHERE version = 65;
+COMMIT;
+```
+
+```sql
+-- SQLite (sqlite3 denis.db, a tenant's or the agent's own database)
+DELETE FROM settings WHERE key = 'schema.min_reader';
+PRAGMA user_version = 64;
+```
+
+Nothing is lost. The next start of a 4.6.0 build writes the row again. To go further back, continue with
+"Rolling back V64". The SQLite steps are run against a real file in `store/sqlite/tests_v65.rs`.
+
+### Rolling back V66
+
+Schema V66 (4.6.0) adds four tables for the health of the switches DENIS reads: `port_samples` (the traffic and error
+history of each port), `port_last` (the last reading of each port), `switch_polls` (one row per attempt to read a
+switch) and `infra_conditions` (the faults that are open, such as a watched link that is down), and one index on the
+notifications (`notifications_open`). Nothing else changes, and V66 keeps the compatibility floor: a 4.6.0 build that
+does not know V66 uses such a database as it is (SQLite; on PostgreSQL an older build refuses it; see [Going back without a restore](updates.md#going-back-without-a-restore-from-460)),
+it just does not write or prune the four tables. To remove them by hand anyway, stop DENIS first (on a database at
+V67 or newer, take those off first, the newest first, down to "Rolling back V67"), then:
+
+```sql
+-- PostgreSQL (one transaction; in a tenant schema too, with its search_path)
+BEGIN;
+DROP INDEX notifications_open;
+DROP TABLE infra_conditions;
+DROP TABLE switch_polls;
+DROP TABLE port_last;
+DROP TABLE port_samples;
+UPDATE schema_version SET version = 65 WHERE version = 66;
+COMMIT;
+```
+
+```sql
+-- SQLite (sqlite3 denis.db, a tenant's or the agent's own database)
+DROP INDEX notifications_open;
+DROP TABLE infra_conditions;
+DROP TABLE switch_polls;
+DROP TABLE port_last;
+DROP TABLE port_samples;
+PRAGMA user_version = 65;
+```
+
+What is lost: the port history and the record of switch readings; an open link or switch fault is forgotten, and its notice
+stays marked as open in the notification centre (nothing closes it any more). The next start of a build with V66
+creates the tables again, empty. To go further back, continue with "Rolling back V65". The SQLite steps are run against
+a real file in `store/sqlite/tests_v66.rs`.
+
+### Rolling back V67
+
+Schema V67 (4.6.0) adds one table for RADIUS accounting: `radius_sessions`, one row per network sign-in that the
+listed switches, controllers or RADIUS servers reported (who signed in, from which hardware address, on which access
+device and port, since when, and how it ended), with its indexes. Nothing else changes, and V67 keeps the compatibility
+floor: a 4.6.0 build that does not know V67 uses such a database as it is (SQLite; on PostgreSQL an older build refuses it; see [Going back without a restore](updates.md#going-back-without-a-restore-from-460)),
+it just does not write, prune or show the table. To remove it by hand anyway, stop DENIS first (on a database at V68 or
+newer, take those off first: "Rolling back V71", "Rolling back V70", "Rolling back V69", "Rolling back V68"), then:
+
+```sql
+-- PostgreSQL (one transaction; in a tenant schema too, with its search_path)
+BEGIN;
+DROP TABLE radius_sessions;
+UPDATE schema_version SET version = 66 WHERE version = 67;
+COMMIT;
+```
+
+```sql
+-- SQLite (sqlite3 denis.db, a tenant's or the agent's own database)
+DROP TABLE radius_sessions;
+PRAGMA user_version = 66;
+```
+
+Dropping the table drops its indexes with it. What is lost: the record of network sign-ins (the open ones and the
+history of ended ones). Nothing on the network changes, and a Disconnect that was sent stays in the list of actions.
+The next start of a build with V67 creates the table again, empty; the access devices fill it again with their next
+accounting records. To go further back, continue with "Rolling back V66". The SQLite steps are run against a real file
+in `store/sqlite/tests_v67.rs`.
+
+### Rolling back V68
+
+Schema V68 (4.6.0) extends the health of the switches DENIS reads: six columns on `switch_polls` (processor, memory,
+Power over Ethernet supply, and which source answered), two on `port_last` (how often a link changed, and when it last
+changed), and four tables: `port_link_changes` (one row per reading in which a port's link changed), `poe_ports` (the
+newest state of each PoE port), `port_hourly` and `switch_hourly` (the hourly figures that keep a long history small).
+Nothing else changes, and V68 keeps the compatibility floor: a 4.6.0 build that does not know V68 uses such a database
+as it is (SQLite; on PostgreSQL an older build refuses it; see [Going back without a restore](updates.md#going-back-without-a-restore-from-460)); it leaves the new
+columns empty and does not write or prune the four tables. To remove the tables by hand anyway, stop DENIS first (on a
+database at V69 or newer, take those off first: "Rolling back V71", "Rolling back V70", "Rolling back V69"), then:
+
+```sql
+-- PostgreSQL (one transaction; in a tenant schema too, with its search_path)
+BEGIN;
+DROP TABLE switch_hourly;
+DROP TABLE port_hourly;
+DROP TABLE poe_ports;
+DROP TABLE port_link_changes;
+UPDATE schema_version SET version = 67 WHERE version = 68;
+COMMIT;
+```
+
+```sql
+-- SQLite (sqlite3 denis.db, a tenant's or the agent's own database)
+DROP TABLE switch_hourly;
+DROP TABLE port_hourly;
+DROP TABLE poe_ports;
+DROP TABLE port_link_changes;
+PRAGMA user_version = 67;
+```
+
+The eight added columns stay: SQLite cannot remove a column on every version DENIS supports, and a build without V68
+never names them. Dropping `port_hourly` drops its index. What is lost: the hourly history of ports and switches, the
+record of link changes and the PoE port states. Nothing on the network changes. The next start of a build with V68
+creates the tables again, empty, and finds the columns as they were. To go further back, continue with "Rolling back
+V67". The SQLite steps are run against a real file in `store/sqlite/tests_v68.rs`.
+
+### Rolling back V69
+
+Schema V69 (4.6.0) adds three tables for service availability checks: `check_runs` (one row per run of a check: when,
+the outcome, a reason code and numbers such as the answer time, never text the target sent), `check_state` (the state of
+each check and when it is due) and `check_hourly` (the hourly figures). The checks themselves are a setting
+(`checks.list`), not a table, and stay. Nothing else changes, and V69 keeps the compatibility floor (SQLite; on PostgreSQL an older build refuses a newer
+database). To remove the
+tables by hand anyway, stop DENIS first (on a database at V70 or V71, take those off first: "Rolling back V71",
+"Rolling back V70"), then:
+
+```sql
+-- PostgreSQL (one transaction; in a tenant schema too, with its search_path)
+BEGIN;
+DROP TABLE check_hourly;
+DROP TABLE check_state;
+DROP TABLE check_runs;
+UPDATE schema_version SET version = 68 WHERE version = 69;
+COMMIT;
+```
+
+```sql
+-- SQLite (sqlite3 denis.db, a tenant's or the agent's own database)
+DROP TABLE check_hourly;
+DROP TABLE check_state;
+DROP TABLE check_runs;
+PRAGMA user_version = 68;
+```
+
+What is lost: the results and the history of the checks; an open notice of a check stays marked as open in the
+notification centre (nothing closes it any more). The list of checks stays. The next start of a build with V69 creates
+the tables again, empty, and the checks run again from their next due time. To go further back, continue with "Rolling
+back V68". The SQLite steps are run against a real file in `store/sqlite/tests_v69.rs`.
+
+### Rolling back V70
+
+Schema V70 (4.6.0) adds two tables for configuration change tracking: `config_state` (for each watched device, the
+result of the newest collection and the device's own time stamps it is compared against) and `config_events` (one row
+per change, save, or restart with unsaved changes), with two indexes. No configuration, command or user name is stored.
+Nothing else changes, and V70 keeps the compatibility floor (SQLite; on PostgreSQL an older build refuses a newer
+database). To remove the tables by hand anyway, stop DENIS first (on
+a database at V71, take V71 off first: "Rolling back V71"), then:
+
+```sql
+-- PostgreSQL (one transaction; in a tenant schema too, with its search_path)
+BEGIN;
+DROP TABLE config_events;
+DROP TABLE config_state;
+UPDATE schema_version SET version = 69 WHERE version = 70;
+COMMIT;
+```
+
+```sql
+-- SQLite (sqlite3 denis.db, a tenant's or the agent's own database)
+DROP TABLE config_events;
+DROP TABLE config_state;
+PRAGMA user_version = 69;
+```
+
+Dropping the tables drops their indexes with them. What is lost: the record of configuration changes and the state each
+device was compared against; the next collection after the upgrade is then a first one again (it makes no event). Nothing on the network changes. To go further back, continue with "Rolling back V69". The SQLite steps are
+run against a real file in `store/sqlite/tests_v70.rs`.
+
+### Rolling back V71
+
+Schema V71 (4.6.0) adds three indexes and nothing else: `radius_sessions_heard` (the session time job, which judges on
+DENIS's own clock), `radius_sessions_last` (the order of the Sign-ins list) and `config_events_detected` (the removal
+of old configuration events). No table, column or row changes, and V71 keeps the compatibility floor: a build that does
+not know V71 uses such a database as it is (SQLite; on PostgreSQL an older build refuses it). To remove the indexes by hand anyway, stop DENIS first, then:
+
+```sql
+-- PostgreSQL (one transaction; in a tenant schema too, with its search_path)
+BEGIN;
+DROP INDEX radius_sessions_heard;
+DROP INDEX radius_sessions_last;
+DROP INDEX config_events_detected;
+UPDATE schema_version SET version = 70 WHERE version = 71;
+COMMIT;
+```
+
+```sql
+-- SQLite (sqlite3 denis.db, a tenant's or the agent's own database)
+DROP INDEX radius_sessions_heard;
+DROP INDEX radius_sessions_last;
+DROP INDEX config_events_detected;
+PRAGMA user_version = 70;
+```
+
+Nothing is lost: only these reads get slower on a large table. The next start of a build with V71 creates the indexes
+again. To go further back, continue with "Rolling back V70". The SQLite steps are run against a real file in
+`store/sqlite/tests_v71.rs`.
+
 ### The delivery outbox has no switch
 
 From 4.4 the channel messages (the alert stream, grouped incidents) are written to the outbox in the same database
@@ -767,6 +1341,6 @@ URLs, keys, passwords, tokens) are never logged.
 
 Explanations that used to be printed on the console screens. The console shows a short version behind the small (i) button after the label it explains; "More in the docs" in it leads here.
 
-* Is DENIS itself in good shape? Problems are listed first, in plain words; the rest is what to look at when something seems slow or the disk fills up.
+* Health: problems come first, in groups. Then one row for each function, also for the ones that are off, then this server and its background work. See [The Health page](#the-health-page).
 * How often the newest local backup is also pushed to your configured backup upstream, independent of the schedule above.
 * 1 to 1095 days (3 years). 180 days (6 months) is a reasonable default; a busy network with flow accounting on can generate a large database over long periods, so keep this as short as your reporting needs allow.

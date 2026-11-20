@@ -105,4 +105,6 @@ The console shows a short line under each field and a short note behind its (i).
 * **DENIS's own earlier session.** DENIS names its Management sessions "DENIS". An earlier session of DENIS's own
   account under that name that still holds changes (a lost publish answer, a stop) is discarded by its id before the
   next write; one that cannot be discarded is named as DENIS's own ("An earlier Management session of DENIS ...").
+  From 4.6.0 this happens only when DENIS writes (an apply, a release, a removal), as the first recorded step of that
+  action; making a plan only reads the sessions and changes nothing on the Management Server.
   **[verify]** on a real server that `show-sessions` returns the session name.
