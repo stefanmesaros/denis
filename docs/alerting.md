@@ -254,6 +254,16 @@ show here too.
   demo shows them), as the reports do.
 * Notices are kept for 90 days (one still in force, such as a site that is offline, until it ends).
 
+### Infrastructure notices (4.6.0)
+
+*Infrastructure* is a category of the notification centre (the bell and its filters), used by [port health](switches.md#port-health-traffic-errors-and-restarts-experimental-460)
+(Experimental): a watched link that is down, a switch that restarted, a switch that cannot be read from this server, and
+the marks *errors* and *busy* on a port. These are **notices, not alerts**: they have no score, never open an incident,
+never start a detection rule, a response, a block suggestion or an Autopilot proposal, and never change anything on a
+switch. Which notice reaches which person and which channel is in the table under
+[what is announced](switches.md#port-health-how-a-switch-is-read-and-what-is-announced-460). Like any category, it can be
+hidden from your own bell under *Show in the bell*; the channels still send it.
+
 ## The generic webhook
 
 The body is JSON:
@@ -325,7 +335,61 @@ compare bodies.
 
 ## What an address-conflict alert saw
 
-An `arp_conflict`, `arp_mismatch` or `ndp_mismatch` alert names its evidence: the alert dialog shows a line such as "Seen as: an ARP reply on enx00e04c41bae6, VLAN 150" under "Why this score" (the kind of frame that made the claim, the capture interface, the VLAN when the frame was tagged, the Ethernet source, the agent that reported it, and the holder's last claim when the collector remembers it). The same facts are stored in the alert's `raw_details.evidence`, so they reach a webhook and the API. Alerts stored before 4.4.2 have no such line. The kinds and the exact shape are listed under `arp_conflict` in [detection-rules.md](detection-rules.md).
+An `arp_conflict`, `arp_mismatch` or `ndp_mismatch` alert names its evidence: the alert dialog shows a line such as "Seen as: an ARP reply on enx020000000001, VLAN 150" under "Evidence" (before 4.6.0 under "Why this score"; the kind of frame that made the claim, the capture interface, the VLAN when the frame was tagged, the Ethernet source, the agent that reported it, and the holder's last claim when the collector remembers it). The same facts are stored in the alert's `raw_details.evidence`, so they reach a webhook and the API. Alerts stored before 4.4.2 have no such line. The kinds and the exact shape are listed under `arp_conflict` in [detection-rules.md](detection-rules.md).
+
+## The alert dialog
+
+Since 4.6.0 an alert opens in one layout, in this order (verified in the console's own checks, `tools/ui-smoke.mjs`):
+
+* **The head:** the rule's name as the title, the severity in words, the score, the time and the state (*Open*,
+  *Acknowledged* or *Kept quiet*), and **×** to close. A screen reader announces the dialog by that title.
+* **The one sentence** of the alert, and for a quiet event why it was kept quiet.
+* **Facts:** the **device** (its name opens it, its hardware address, its noise profile), the **target** or **other party**
+  when the alert has one (for a scan: a private address on your network, or in none of your monitored networks), what was
+  **seen** (the ports, the addresses; for a rule without its own facts, its scored reasons) and **before**: how many alerts
+  of this rule for this device are in the list the console has loaded (not a count of all time).
+  An address in a fact line is described in words DENIS can support: *a private address on your network*, *a private
+  address in none of your monitored networks* (a scan rule's own wording), *a shared address (carrier-grade NAT or a VPN),
+  not a public one*, *a public address*. The class is worked out in the console from the address itself (verified in
+  `ui/alert-dialog.js`); a long list stops at a few entries and says "and N more".
+* **Guidance**, at most three lines: **If it is real**, **Normal if** and **Next step**, one sentence written for the rule.
+  The 15 rules that raise most often have one (a best guess at which rules those are: no field figures are collected); for
+  the others the third line is a link, *What to do*, to the rule's full advice, which is kept under *Investigate* for
+  every rule and still goes to e-mail and the other channels unchanged.
+* **Evidence**, when the rule has its own (connection evidence, a connection from the internet, network context,
+  segmentation, the zone at the time).
+* Closed sections, each with a one-line summary in its header: **Investigate** (the device's other alerts around this one,
+  the other party, who else contacted it, the incident; it opens by itself when the alert belongs to an incident),
+  **AI opinion** (see below), **Score and rule details** (each scored reason and how the rule judged the alert) and
+  **Notifications** (what became of each message; it opens by itself when one was given up). **History** lists who decided
+  what, when somebody did.
+  When [RADIUS accounting](radius-accounting.md) is on (Experimental) and a recorded network sign-in of the device covers the
+  time of the alert, *Investigate* has one line, *Signed in at the time of the alert: user, how, on which access device and
+  port*; if the record may belong to the device without being sure, the line says so instead. It opens the device's block
+  *Network sign-ins*. With accounting off, or no sign-in at that time, there is no line.
+* **The buttons**, which stay in view: **Acknowledge** (a menu with the reason: resolved, expected, false positive or none;
+  afterwards the button reads *Undo acknowledge*), **This is normal…**, **Respond…** only when DENIS can do something to this
+  device now (otherwise *Investigate* says why), **More** (Mute this rule for this device…, Open the rule, Open device, and a
+  named provider's actions) and **Close**. A viewer has Close only. On a phone the dialog fills the screen and Acknowledge
+  takes the full width.
+
+What moved, and where the old paths are now:
+
+* *Never alert on this again…* is **More → Mute this rule for this device…**, for administrators. The form now says the
+  expiry it really applies (90 days preselected, or 30 days, 1 year, no expiry); before, it said "permanent" while an ordinary
+  rule's exception ended after 90 days. Details under [Exceptions](detection-rules.md#exceptions).
+* Acknowledging as *Expected* or *False positive* no longer opens the exception form by itself (in the dialog and in the
+  list); the notice offers *Keep alerts like this quiet…*, which opens *This is normal*.
+* *Why this score* and *Why you got this* are one section, *Score and rule details*. The line "This alert scored N" is the
+  head's score. The alert's own row is no longer repeated in its own *Investigate* timeline.
+* The provider actions (*Allow this provider for this device*, *Allow for all devices of this profile*, *Acknowledge all
+  like this*) are entries of **More**, with their explanation as a second line.
+* *Assess & Explain with AI* is **Ask AI for an opinion**, in the body after *Investigate*. Its answer is a closed panel
+  whose header says the risk in words, the AI's classification and the provider ("not DENIS's own severity"). Inside: its
+  short reasoning, what it suggests checking, and *Ask a question about this alert…* for the follow-up. The AI's own
+  "What this means" and "If ignored" are no longer shown, because the guidance above says both in DENIS's reviewed words;
+  the API (`POST /api/ai/assess`) still returns `meaning` and `consequences`. The answer is not stored with the alert.
+* The row in the alert list keeps its Acknowledge button and reason picker.
 
 ## Details from the console
 

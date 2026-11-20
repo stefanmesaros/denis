@@ -280,13 +280,13 @@ Advertisements with a non-zero lifetime; held for an hour, like the IPv4 gateway
 `fe80::1` reused on several VLANs of a mirrored trunk are not conflicts. An address built from a hardware
 address (EUI-64) scores 20 lower for the device it was built from and 10 higher against any other claimant.
 
-*Evidence (4.4.2):* the alert names what it saw. The alert dialog shows one line under "Why this score", for example
-"Seen as: an ARP reply on enx00e04c41bae6, VLAN 150", and the alert's `raw_details.evidence` holds the same facts:
+*Evidence (4.4.2):* the alert names what it saw. The alert dialog shows one line under "Evidence" (before 4.6.0 under "Why this score"), for example
+"Seen as: an ARP reply on enx020000000001, VLAN 150", and the alert's `raw_details.evidence` holds the same facts:
 
 ```json
 "evidence": {
   "via": "arp_reply",
-  "interface": "enx00e04c41bae6",
+  "interface": "enx020000000001",
   "vlan": 150,
   "ethernet_source": "aa:bb:cc:00:00:01",
   "agent": "site-b",
@@ -325,7 +325,12 @@ addresses, including carrier-grade NAT (`100.64.0.0/10`, for example a mesh VPN'
 addresses a peer-to-peer partner exposes, are judged in a separate window with **doubled** thresholds, so a
 real sweep of a routed network still fires and a stranger's network does not (the alert says so). On one host, the
 Windows file-sharing set (ports 135, 137, 138, 139, 445) counts as one port, and UDP ports from 1024 up count only
-when there are at least 20 of them. The two thresholds cannot be set below 5; a saved lower value is raised to 5
+when there are at least 20 of them. TCP ports of the dynamic range (49152-65535) count as **one** port when they are
+most of the ports counted on that host (4.6.0): DENIS's traffic records keep the lower of a connection's two ports and
+not which side opened it, so a burst of short connections to a device that serves on a dynamic port shows the
+client's own, nearly consecutive source ports. A scan of service ports still counts every port, also with dynamic
+ports mixed in; a scan that only touches the dynamic range is not reported as a port scan (best guess: rare, a
+scanner tries service ports first). The host sweep (many addresses) is unchanged. The two thresholds cannot be set below 5; a saved lower value is raised to 5
 once, with an audit entry and a Health note.
 *Typical false positive:* a vulnerability scanner or monitoring server that legitimately sweeps the LAN — add it
 as an exception.
@@ -347,6 +352,13 @@ whose opener the capture proved by the TCP handshake count (east-west records wi
 guessed from port numbers; UDP never counts. The type is the register's, with your correction applied: a PC typed as a
 camera is fixed by correcting its type. IPv4 and IPv6.
 
+*Attempts (4.6.0):* a SYN the peer did not answer with a SYN-ACK (refused, dropped or filtered) is an attempt, not a
+session: the alert then says the device **tried to open** the service, the evidence says no connection was accepted
+(`accepted: false` in the alert, per peer too), and an attempt is never learned as a usual pair. The score stays the
+same: a field device that tries administration ports on its neighbours is what a spreading infection does, whether
+or not they answer. A connection carried over from an earlier capture window, and a record from an agent older than
+4.6.0, count as opened, as before.
+
 *Learning:* the pairs a device opens admin sessions to are learned while the site is in its learning period **and**
 for the first learning period after this rule first saw east-west data from the site (so turning east-west accounting
 on later starts with a day of learning, not a burst of alerts); the learning clock is saved and survives a restart.
@@ -365,6 +377,13 @@ domain controller, file server or SCADA server. File sharing (SMB) is not judged
 admin share cannot be told from a file share without reading the payload. Same handshake evidence as
 `iot_initiates_admin`; IPv4 and IPv6.
 
+*Attempts (4.6.0):* when the target answered none of the source's SYNs with a SYN-ACK (it refused, dropped or filtered
+them), the alert says the source **tried to open** the service, not that it opened it, the evidence says the
+connection was not accepted (`accepted: false`), and the score is 20 lower: an attempt on a high or critical device is
+still worth a look, but nothing was reached. An attempt is never learned as a usual administrator, so a later session
+from the same source is still judged once the cooldown is over. Known limit: a SYN in the last moment of a capture
+window whose SYN-ACK falls in the next window reads as an attempt (best guess: rare, the two are milliseconds apart).
+
 *Learning:* the sources of admin sessions are learned for **every** device, rated or not, so rating a server critical
 later does not report its usual administrators. Learning as `iot_initiates_admin` (site learning period plus the first
 learning period of east-west data); after it, a new source into a high or critical device is reported and learned,
@@ -372,7 +391,7 @@ and into any other device only learned. A source tagged **admin-workstation** (d
 an alert. At most 8 sources are kept per device (see the learning note of `iot_initiates_admin`).
 
 *Score:* 60 (medium); +10 when the target is rated critical; +10 when the source is not a computer, laptop, server,
-virtual machine, thin client, hypervisor or engineering workstation. *Cooldown:* once per source and target per 24
+virtual machine, thin client, hypervisor or engineering workstation; 20 less for an attempt the target did not accept. *Cooldown:* once per source and target per 24
 hours. Not on the never-quiet list. The alert is filed under the critical device; incidents name the source as the
 actor. Use `--rule-weight admin_into_critical=<weight>`.
 
@@ -562,7 +581,9 @@ so it is scoped to the sites you may change, audited, and keeps that owner's lat
 them), the source network with **Allow this provider** (for this device or for all devices of a
 noise profile); a port with **tcp/<port> on <device> is expected** in the alert's own section (administrators; it
 records the port as one the device normally serves to the internet, `POST /api/assets/{id}/public-inbound/allow`, and is
-written to the audit log). **Never alert on this again** still adds a permanent exception for the device. To judge one
+written to the audit log). **More → Mute this rule for this device…** in the alert dialog (called *Never alert on this
+again* before 4.6.0) still adds an exception for the device; it ends after the time you choose there (90 days unless you
+change it, or no expiry). To judge one
 device strictly, with no learning at all (every completed inbound connection alerts, whatever it did during learning),
 switch on **Alert on every connection from the internet** in the device panel's Overview (it adds the tag
 `alert-on-inbound`; editors).
@@ -1096,11 +1117,19 @@ is a common home for malware control servers and for remote-access back doors, a
 **What it needs.** Passive DNS (Settings, Network interfaces). **The list.** The providers come from a list that ships with
 DENIS (`data/ddns_suffixes.json`: a small versioned file with `version`, `updated` and `suffixes`; about 120 well-known
 providers, refreshed with each release and, only if you switch it on, automatically in between: see [Updating the shipped lists](#updating-the-shipped-lists); evidence: *best guess*, it is not complete). A name *under* a listed suffix matches; the
-provider's own site does not. The names a NAS maker gives its own devices (`synology.me`, `myqnapcloud.com`) are not on the
+provider's own site does not, and neither do the provider's own **service hosts** (4.6.0): the "what is my address" check and
+the update servers that a NAS or a router asks as a client of the provider (`checkip.dyndns.org`, `members.dyndns.org`,
+`dynupdate.no-ip.com`, `www.duckdns.org`, `api.dynu.com` and 17 more, the key `service_hosts` of the same file, at
+most 64; each one is named in the provider's own documentation or, marked *best guess* in the source, in a widely used update
+client). A lookup whose question name or CNAME target is such a host is not reported and not learned; a name of your own under
+the provider (`my-box.dyndns.org`) still is. A list fetched between releases cannot remove these hosts: the ones that shipped
+stay. The names a NAS maker gives its own devices (`synology.me`, `myqnapcloud.com`) are not on the
 list. **What it does not do.** It does not judge cameras, printers, TVs and other IoT devices, phones, computers with a private
 address, or a device that resolves names for others (a local DNS server: its lookups are its clients'). A device that used
 dynamic DNS while the network learned (the first `learning_secs` after passive DNS first reached DENIS) has learned it: the
-first use after that is reported once and learned. At most 16 devices are judged per 10-second window (a device that resolves
+first use after that is reported once and learned. What a device learned is saved with its baseline and kept across a
+restart (before 4.6.0 a device whose only learned fact was its use of dynamic DNS lost it at each restart, and its next use
+was reported again). At most 16 devices are judged per 10-second window (a device that resolves
 such a name does so again within minutes, so the others follow); a device that is not judged by type is remembered for an hour
 so that it costs nothing. *Score:* 45; 15 more on a server, a NAS or an industrial device.
 *Cooldown:* one alert per device (the first use is the only one). Not never-quiet; the breaker may pause it. Use
@@ -1792,12 +1821,17 @@ On the **Rules** page (administrators):
   rule is only logged, whatever the global minimum is. New settings include the burst size and window of
   `new_device_burst`, the repeat gaps of the OT rules and how many Purdue levels apart count as skipping.
 * **Exceptions**, per rule: see [Exceptions](#exceptions) below.
-* **Add exception**, on an alert itself (its row on the *Alerts* page, or its own detail dialog; administrators):
-  one click adds the right exception for that exact alert, without a trip to the Rules page, and acknowledges the
-  alert in the same step. What it adds depends on the rule: a device-scope exception for an ordinary rule; the
-  alerting device added to that IT rule's own exceptions (`it_watch`); or the **sender** (who sent the
-  command, found by MAC — not necessarily the device the alert is filed under) added to that OT rule's
-  allowed senders (`ot_command_watch`). It is a full exception: the reason is the alert itself and it ends in 90 days.
+* **Mute this rule for this device…**, on an alert itself (its detail dialog, under **More**; administrators; called
+  *Never alert on this again* before 4.6.0, and *Add exception* in older notes): adds the right exception for that exact
+  alert, without a trip to the Rules page, and acknowledges the alert in the same step. It asks first: the form says that
+  later alerts of the rule for that device are **not stored and not counted** (unlike *This is normal*, which keeps them,
+  quiet), asks for a reason (filled in with the alert itself) and a tick. What it adds depends on the rule: a device-scope
+  exception for an ordinary rule, which ends after the time chosen in the form (**30 days**, **90 days**, preselected,
+  **1 year** or **no expiry**); the alerting device added to that IT rule's own exceptions (`it_watch`); or the **sender**
+  (who sent the command, found by MAC — not necessarily the device the alert is filed under) added to that OT rule's
+  allowed senders (`ot_command_watch`). An IT or OT rule's own exceptions have **no expiry** (verified in the code: those
+  lists are not judged by an end date), and the form says so instead of offering a choice. Before 4.6.0 the confirmation
+  called the exception permanent although an ordinary rule's exception ended after 90 days.
 * **OT rules** ([OT guide](ot-guide.md#ot-rules)): tell DENIS which commands to alert on, for
   which targets, and from which senders never.
 
@@ -2084,13 +2118,16 @@ API tokens in the *alerts* area; the Configure class on a remote master, like th
 Two questions people ask about a rule: *why did I get this?* and *why did this not alert?* DENIS answers both from what it
 decided, without adding work for every packet. The work is done where a decision is made, never per packet or per record.
 
-![An alert dialog with Why you got this opened, and the Notifications block with one line per channel](img/alert-why.png)
+![An alert dialog with Why you got this opened, and the Notifications block with one line per channel (a picture from before 4.6.0, when the section was called Why you got this)](img/alert-why.png)
 
 * **Why you got this.** An alert raised in 4.4 or later carries, in its details, the settings that applied to it: the weight
   of the rule, the minimum score and where it came from (the rule's own, the one for all rules, or the standard one), whether
   quiet alerts were on and the noise profile of the device, the exceptions that were checked (named, at most eight, with the
-  count of the rest) and how many *This is normal* decisions were checked. The alert window shows them under **Why you got
-  this**, with a link to the rule. An alert stored before 4.4 has no such block and shows nothing there. It is written where an
+  count of the rest) and how many *This is normal* decisions were checked. Since 4.6.0 the alert window shows them in the
+  closed section **Score and rule details** (until 4.6.0 **Why you got this**, next to **Why this score**), under
+  *How the rule judged it*, after the scored reasons and with a link to the rule; a device in the list of checked exceptions
+  is named, not shown as `device:20`. The section's header says the score, the number of reasons, the minimum and that no
+  exception applied. An alert stored before 4.4 has no such block and shows only its scored reasons there. It is written where an
   alert is stored, and only for an alert that is raised; the rules themselves are not changed.
 * **Why it did not alert.** When a rule decides not to raise something it was about to, DENIS notes it: the rule, the device, the
   time and the reason. The last 64 such decisions of each rule are kept, and a count per reason. The same decision about the same

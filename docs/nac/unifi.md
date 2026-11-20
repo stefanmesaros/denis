@@ -237,6 +237,18 @@ places this way has no "Place it manually…" button: a person has no reason to 
 * The line on the map says *reported by the controller*: it is the console's word, not a cable DENIS saw, and nothing
   decides or loosens a response because of it. `GET /api/topology/controller-clients` carries it as `infra[].uplink`.
 
+## Configuration changes (4.6.0, Experimental)
+
+Off until you tick *Tell me when the configuration pushed to a device changes (Experimental)* for this connector. Every
+15 minutes DENIS reads the device list of the site (`GET {prefix}/api/s/<site>/stat/device`) with the connector's local
+account (GET only, nothing is written) and takes only each device's id and configuration version (`cfgversion`). It says
+**that the configuration the controller pushed to a device changed**, and for how many devices, never which one. This is
+a **partial** watch, and a change **can also follow an update of the controller or a device**. A device that is added or
+removed is not reported as a configuration change. DENIS never reads the site settings or the Wi-Fi networks (they hold
+secrets). It needs the local account: with the API key only it shows "not offered". Measured on a Cloud Gateway Ultra
+with a nanoHD (verified; the Network application version was not recorded); details, limits and what is still open:
+[Configuration changes](../config-changes.md#unifi-the-configuration-pushed-to-a-device).
+
 ## Details from the console
 
 The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
@@ -244,3 +256,4 @@ The console shows a short line under each field and a short note behind its (i).
 - **Quarantine port profile (name or id, optional)**: The switch port profile you made in the controller for quarantine: its native network is your quarantine VLAN and it carries no tagged networks. DENIS puts one port on it and puts the old profile back, and nothing else: what the VLAN allows is decided by your own rules. DENIS never creates or edits a port profile or a network. Leave empty to switch the port quarantine off for this controller.
 - **Never block these MAC addresses**: Addresses DENIS never blocks and never moves a switch port away from. List DENIS itself, your gateway and the controller here, as well as any other device DENIS must never cut off: a switch port with one of these behind it is refused.
 - **Allow DENIS to create firewall policies on this console**: Off by default. When on, and DENIS signs in with an API key, DENIS can add its own firewall policies (block only, named denis-... and marked DENIS managed), put them first in the order of their zone pair, and delete them again when the action ends. It never creates an allow policy and never changes a policy, zone or network it did not make. A wrong block can cut off traffic.
+- **Tell me when the configuration pushed to a device changes (Experimental)** (4.6.0): Off by default. Read only: every 15 minutes DENIS reads the configuration version the controller gives each device of the site, with the local account (not the API key), and says when the configuration pushed to a device changed. It keeps only short fingerprints and the number of devices, never names, addresses or settings. The version also moves after an update of the controller or a device. See [Configuration changes](../config-changes.md#unifi-the-configuration-pushed-to-a-device).

@@ -116,6 +116,18 @@ An Omada controller of any kind (a software controller on a PC, or an OC200/OC30
 * How fast the controller drops a blocked client, and whether a wired client behind an unmanaged switch is cut off, is not known.
 * Clients that do not appear in the controller's client list cannot be blocked.
 
+## Configuration changes (4.6.0, Experimental)
+
+Off until you tick *Tell me when a change is recorded in this site's audit log (Experimental)* for this connector. Every
+15 minutes DENIS reads the newest entry of the site's audit log (`GET /openapi/v1/{omadacId}/sites/{siteId}/audit-logs?page=1&pageSize=1`)
+with the connector's Open API app (GET only, nothing is written) and takes only its time. It says **that a change was
+recorded in the controller's audit log for this site**, never what changed or who did it: the entry's text, its old and
+new values and the person's name are dropped unread. The controller's global audit log is not used (it moves on web
+sign-ins). DENIS's own blocks and unblocks are written to the same site log and are marked as DENIS's own. How long the
+controller keeps its audit log was not measured; a log that was pruned or cleared is a new starting point, never a
+change. Measured on an Omada software controller with an ER605 and an EAP110 (verified; the controller version was not
+recorded); details, limits and what is still open: [Configuration changes](../config-changes.md#omada-the-sites-audit-log).
+
 ## Details from the console
 
 The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
@@ -124,3 +136,4 @@ The console shows a short line under each field and a short note behind its (i).
 - **Site (name or id)**: The one site of the controller this connector acts on.
 - **Never block these MAC addresses**: List DENIS itself, your gateway, the controller and any device that must never be cut off. A managed access point, switch or gateway of the site is refused anyway.
 - **Read the clients and devices this controller sees**: Read only. On by default for a new connector. A connector made before 4.3 reads clients only after an administrator ticks this.
+- **Tell me when a change is recorded in this site's audit log (Experimental)** (4.6.0): Off by default. Read only: every 15 minutes DENIS reads only the time of the newest entry of the site's audit log, with the same Open API app, and says when a new entry appeared. It never keeps what the entry says, its old or new values or who made it. DENIS's own blocks and unblocks are written to the same log and are marked as DENIS's own. See [Configuration changes](../config-changes.md#omada-the-sites-audit-log).

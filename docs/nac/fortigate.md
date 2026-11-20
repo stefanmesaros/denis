@@ -289,6 +289,7 @@ The console shows a short line under each field and a short note behind its (i).
 
 - **Quarantine address group name (optional)**: The address group you created for quarantine. DENIS moves a device into it and back, and nothing else: what the group may reach is decided by your own policies on the FortiGate. DENIS never creates an allow rule. Leave empty to switch quarantine off for this FortiGate.
 - **Allow DENIS to create deny rules on this firewall**: Off by default. When on, DENIS can create one deny policy per flow block on this FortiGate, at the top of the policy table, named denis-... and tagged DENIS managed, and delete it again when the action ends. It never creates an allow rule and never uses any interface or any address. A wrong deny rule can cut off traffic: switch this on only if you accept that.
+- **Tell me when watched parts of its configuration change (Experimental)**: Off by default. Read only: every 15 minutes DENIS reads the `revision` mark of 16 parts of the configuration (policies, addresses, services, interfaces, routes, IPsec VPN, DHCP, users, administrators, system settings) with the same API token and says when one of them changed, never what changed. A change in any other part is not seen. See [Configuration changes](../config-changes.md#fortigate-a-partial-watch).
 
 ## 4.5.0: checks and releases
 

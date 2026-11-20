@@ -58,7 +58,9 @@ firewall, and DENIS never takes it over.
    Optionally the quarantine pair. The static **Block address group name** is optional now. Press **Test connection**: it
    must say that the dynamic group was found with the right match, that the deny rule is first, and that the User-ID API is
    allowed. To prove the last one it registers DENIS's own probe tag `denis-probe-<id>` for `192.0.2.255` (a documentation
-   address that is never routed, matched by no group) and removes it again; nothing else is written.
+   address that is never routed, matched by no group) and removes it again; nothing else is written. This also works with
+   enforcement switched off, so that you can test before you switch it on; it is not done while DENIS installs an update
+   or on a cluster node that is not the leader, and the test then says that the User-ID permission was not tested now.
 8. CLI check afterwards: `show object registered-ip all` lists nothing of DENIS. After a block it lists the address with
    `denis-blocked-<id>`, and `debug object registered-ip show tag-source ip <address> tag all` shows the XML API as the source.
 
@@ -77,7 +79,7 @@ every second for up to 20 seconds) and only then ends the device's open sessions
 a dynamic group may not end sessions that are already open, and a session opened before the group has the address would
 stay allowed. The action counts as *enforced* only when DENIS has read the tag back from the firewall, the group lists
 the address and the setup still holds. If the group does not list the address in time, the action is *unconfirmed* (the
-tag stays, the sessions are ended once, and the next check confirms it when the group has caught up). A release removes exactly the tags of the action's record that the firewall
+tag stays, the sessions are ended once, and the next check confirms it when the group has caught up; that check ends the open sessions once more first, and since 4.6.0 it does so only while enforcement is switched on, DENIS is not being updated and this node is the leader: otherwise the action stays *unconfirmed* until a later check). A release removes exactly the tags of the action's record that the firewall
 still lists, then reads back. A lost answer leaves the action *unconfirmed*; **Check now** or a release settles it (both
 calls can be repeated safely). A release, a check and a re-registration read and write in the vsys the block was made in
 (its record says which), and every read of the registered addresses names that vsys.
@@ -119,7 +121,11 @@ tags and checks the setup of the group again. All there: the action shows when i
 group or its deny rule changed: the action is shown as *unconfirmed* at once, written to the audit log and notified. With
 *Register a tag again when the firewall lost it* (on by default) DENIS then registers a missing tag again, at most three
 times per action per hour, only while every safety check of a new block still allows the device (kill switch, lab
-switches, protected addresses, Hands off), and only a read-back that shows the tag makes the action enforced again. A
+switches, protected addresses, Hands off), and only a read-back that shows the tag makes the action enforced again. It
+does not count against the hourly limit (it is the same action). From 4.6.0 it also waits while DENIS installs an update
+and until the new version is confirmed (a few minutes): the action stays *unconfirmed* with that reason, and the next
+check after the confirmation registers the tag. The enforcement switch and this node's leadership are asked again right
+before the register. A
 changed setup is never "repaired" by DENIS: fix the group or the rule, and the next check confirms the action. When the
 firewall cannot be read (also its security rules, for example without the Configuration permission), or DENIS cannot use
 the connector (a deleted connector, an address the outbound policy refuses, no API key), nothing changes and the action
@@ -362,6 +368,16 @@ The API key is stored only in the encrypted secret store (`nac.panos.api_key`) a
 
 Instances from earlier versions keep working and nothing changes for them: the same block group, the same address objects (`denis-block-<ip>`), the same ledger rows, the same one commit per block. The old *Block…* and *Unblock…* buttons act as before. Records the old routes made are released through the old *Unblock…*; records of the new actions are released through the new action list. An old-route block is released from the static group its record names, also after the static group was cleared in the connector's form (4.2 makes it optional).
 
+## Configuration changes (4.6.0, Experimental)
+
+Off until you tick *Tell me when a commit happens or changes wait for one (Experimental)* for this firewall. Every 15
+minutes DENIS reads two operational `show` commands with the connector's API key (GET only, nothing is written):
+`show system last-commit-info` and `show config list change-summary`. It says **that a commit happened** (between two
+readings) and **whether changes wait for a commit** ("not committed since …", with a notice after the hours you chose).
+It never says what changed or who committed: it keeps only a short fingerprint of the first answer and "empty or not"
+of the second. Measured on a PA-220 with PAN-OS 10.1.14-h9 (verified); details, limits and what is still open:
+[Configuration changes](../config-changes.md#palo-alto-commits-and-changes-that-wait-for-one).
+
 ## Details from the console
 
 The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
@@ -377,6 +393,8 @@ The console shows a short line under each field and a short note behind its (i).
 - **Register a tag again when the firewall lost it**: On by default. DENIS reads the firewall's registered addresses every minute and right after it sees a restart. When the tag of an active block or quarantine is missing, the action is shown as unconfirmed at once, and with this on DENIS registers the tag again, at most three times per action per hour, only while every safety check still allows the device, and writes it to the audit log. Off: DENIS only shows the action as unconfirmed and notifies you.
 - **At most this many registered addresses**: DENIS refuses a new block or quarantine through a dynamic group when it already holds this many registered addresses on this firewall (default 200, from 1 to 1000). The firewall's own limit is shared with every other source (a PA-220 holds 1000); DENIS also refuses when the firewall is at 95 percent of it.
 - **Let the firewall remove a timed tag by itself (experimental)** (4.3): Off by default. When on, a block or quarantine through a dynamic group that has an end registers DENIS's tag with the firewall's own timeout, the end plus 15 minutes, so the firewall removes the tag by itself if DENIS is not running at the end. DENIS still releases the action at its end. Extend renews the timeout first and is refused (the end stays) when it cannot. A permanent action, or one longer than 30 days, gets no timeout. Experimental: the timeout itself was seen working on a PA-220 with PAN-OS 10.1.14-h9, DENIS's use of it has not yet been run on a firewall (see "The firewall's own timeout").
+
+- **Tell me when a commit happens or changes wait for one (Experimental)** (4.6.0): Off by default. Read only: every 15 minutes DENIS sends two `show` commands with the same API key, one for the last commit and one for the changes that wait for a commit, and says when a commit happened and whether changes wait for one. It never reads or stores the configuration, and never who committed. See [Configuration changes](../config-changes.md#palo-alto-commits-and-changes-that-wait-for-one).
 
 ## 4.5.0: checks, the dynamic group and commits
 

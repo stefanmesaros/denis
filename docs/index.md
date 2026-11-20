@@ -33,6 +33,11 @@ search box (it also works without JavaScript as an ordinary form: `/docs/search?
 | Let DENIS sort and explain alerts and ask you one question at a time (experimental); shadow mode, phone approval, AI options | [Autopilot](autopilot.md) |
 | Send events, audit log and inventory to OpenObserve, events/findings/audit to a SIEM (syslog: CEF/LEEF/JSON), or ECS documents to Elasticsearch/OpenSearch | [Export](export.md) |
 | See which switch port each device is plugged into (SNMP) | [Switches](switches.md) |
+| Check from the DENIS server that a service answers: a ping, a TCP port, a DNS question or a web page, and when its certificate ends (experimental) | [Service checks](service-checks.md) |
+| Be told when the configuration of a Cisco switch changed and whether it was saved, or, in part, of a FortiGate, Palo Alto, MikroTik, UniFi or Omada (not what changed or who; experimental) | [Configuration changes](config-changes.md) |
+| See who is signed in on which device from your switches' or RADIUS server's accounting records (802.1X, experimental) | [RADIUS accounting](radius-accounting.md) |
+| See how busy my switch ports are, their errors and restarts, and be told when a chosen link goes down (experimental) | [Switches › Port health](switches.md#port-health-traffic-errors-and-restarts-experimental-460) |
+| Read the Dashboard's "Needs attention" list | [Quick start › Needs attention](quickstart.md#2a-the-setup-guide-your-first-look-at-the-network), [Switches](switches.md#on-the-dashboard-and-the-health-page) |
 | Feed DENIS a mirror over RSPAN, ERSPAN, VXLAN or another tunnel | [Tunnel mirroring](tunnel-mirroring.md) |
 | See what DENIS cannot see, and where to put the sensor | [What DENIS cannot see](visibility.md) |
 | Understand why an IDS, IPS or endpoint product flags DENIS as a port scan, and what to do | [Security tools that may flag DENIS](security-tools.md) |
@@ -40,6 +45,7 @@ search box (it also works without JavaScript as an ordinary form: `/docs/search?
 | Back up and restore, load demo data, monitor DENIS itself, size an installation | [Operations](operations.md) |
 | Put the customer's logo, colours and day/night mode on the portal | [Branding](branding.md) |
 | Keep DENIS up to date (changelog, install now or later, automatic backup, remote agents, if GitHub is unreachable) | [Updates](updates.md) |
+| Update to 4.6 (the copy before the database is changed, automatic responses held until the update is confirmed, going back without a restore) | [Going back without a restore](updates.md#going-back-without-a-restore-from-460), [Never in the middle of an enforcement action](updates.md#never-in-the-middle-of-an-enforcement-action) |
 | Update to 4.4 (the one-way change of stored secrets, the way back, new rules that arrive switched off) and see what 4.4.0 does not do | [Upgrading to 4.4](updates.md#upgrading-to-44), [Known limits in 4.4.0](updates.md#known-limits-in-440) |
 | Update to 4.3 (what changes for administrators, the abuse.ch key) and see what 4.3.0 does not do | [Upgrading to 4.3](updates.md#upgrading-to-43), [Known limits in 4.3.0](updates.md#known-limits-in-430) |
 | See what was tested on real equipment and what only on a simulator | [Enforcement validation](nac/validation.md) |

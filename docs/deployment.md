@@ -6,9 +6,17 @@
 |---|---|---|
 | Web UI + API | `127.0.0.1:8080` | HTTPS (certificate created by DENIS), sign-in required; this machine only. `--listen` / `DENIS_LISTEN` changes it |
 | Agent ingest | *off* | enable with `--ingest-listen 0.0.0.0:8081`; per-agent bearer tokens |
+| RADIUS accounting receiver (4.6.0, Experimental) | *off* | one UDP port that only receives accounting records (1813 is the port the standard names); set up under *Network → Sign-ins → Setup*, no default address, your firewall must let the access devices reach it: [RADIUS accounting](radius-accounting.md) |
 
 DENIS is one binary. `denis run` is the whole system for one network (collector, detection, UI). Add
 `denis agent` processes for extra sites.
+
+## The first screen: the Setup guide
+
+On a new installation an administrator's first menu entry is the **Setup guide** (`#start`). Since 4.6.0 it is one page: the
+quick start of 4.4 and the setup guide checklist are merged. It asks where DENIS gets your network from, then shows one
+checklist and a first look. Old addresses (`#setup`, `#setup-guide`, `#quickstart`) open the same page. See
+[Quick start](quickstart.md#2a-the-setup-guide-your-first-look-at-the-network).
 
 ## Installing on a Linux server (a permanent service)
 
@@ -429,6 +437,67 @@ The agent's settings can also come from the environment (`DENIS_MASTER`, `DENIS_
 installed service and the Docker image are configured. `packaging/denis-agent.service` is the service file the
 installer uses; it needs no editing.
 
+### A site keeps collecting while the master is away
+
+From 4.5.4 an agent that was set up once does not need the master to start or to keep its data.
+
+* **Start.** Before it starts collecting, the agent asks the master once (`/api/v1/ping`). If the master **cannot be
+  reached** (the name does not resolve, the connection or the TLS handshake fails, it times out, or a proxy answers
+  with an error) the agent starts anyway, says `collecting, master unreachable since ...` in its log and keeps
+  trying. The start stops only when the master **refuses** the agent (HTTP 401: the token is unknown or revoked;
+  403: not an agent's token) or when the agent's own configuration cannot be read (no token, an unreadable CA file).
+  A first enrolment with a one-time code still needs the master: the code is exchanged there.
+* **Queue on disk.** Every report is written into the agent's own database (table `agent_outbox`) before it is sent
+  and deleted when the master acknowledges it. A report that waits is sent again unchanged, also after a restart of
+  the agent or of its machine, with the same run id and number, so the master does not count it twice. When the
+  master is back, the waiting reports go out oldest first, about one a second.
+* **Bounds.** The queue keeps at most 512 MiB of reports (`--outbox-max-mb`, `DENIS_AGENT_OUTBOX_MAX_MB` in
+  `/etc/denis/agent.env`; at least 64) and no report longer than 72 hours. Past a bound the **oldest** reports are
+  dropped and counted. 512 MiB is a best guess, not a measured figure: a quiet site stays far below it for the
+  whole 72 hours, a busy site with `--flows` may reach it sooner. The database file grows by what waits and does
+  not shrink again on its own; plan the disk for the bound.
+* **Honest gaps.** The agent's next report tells the master how many reports were dropped and which time span they
+  covered. The master records it in its ledger of received reports (on **Sites**, under "Incomplete data", and as a
+  notice), writes it to the audit log (`agent.batches_dropped`) and shows it in **Health** for seven days ("Remote
+  sites gave up reports they could not deliver to this master ..."). Since 4.6.0 this also holds for a report the
+  master refused (as too large, or after failing on it 20 times): what it carried is told once, by the master
+  itself or by the agent's next report. When the dropped reports belonged to a run
+  the master had already heard from, Sites also shows the hole in their numbers ("never arrived"); both lines then
+  describe the same reports (best guess: the agent does not say which numbers it dropped). The traffic records of that
+  span are missing at the master; devices are not, because the agent sends every device again once the master
+  answers. Alerts for what happened during an outage are raised when the reports arrive, not when it happened.
+* **Stop and restart.** A planned stop (`systemctl stop denis-agent`, an update) writes the last collection window
+  into the queue and offers what waits to the master for a few seconds; what is not acknowledged by then is sent
+  by the next start; a send that hangs at that moment is not waited for (4.6.0). A crash or a power cut loses at most
+  what was collected since the last report was written (one report interval, or up to a minute while reports wait),
+  never a report that was written: since 4.6.0 each write of a report to the queue is synced to disk (one sync per
+  report interval). Reports queued under another agent id (the agent was enrolled again with a new `--id` and kept
+  its data folder) are dropped at the start and counted, because the master refuses them for this token (4.6.0).
+* **A busy master.** When the master answers "too many reports right now" (HTTP 429) or "retry shortly" (HTTP 503
+  with `Retry-After`: it is not the leader of a pair, or its database failed for a moment), the agent keeps the
+  report, waits as long as the master asks and stays `reporting`; such a report is never dropped for it (4.6.0).
+  Since 4.6.0 a master answers an error of its own database that way instead of with HTTP 500, which an agent
+  counts and, after 20 in a row for one report, drops the report for. A 503 without `Retry-After` (a proxy in front
+  of a master that is down) counts as "master unreachable".
+* **Status.** `agent-status.json` in the agent's data folder (for the installed service
+  `/var/lib/denis-agent/agent-status.json`) says `reporting`, `collecting_master_unreachable` or
+  `collecting_master_refuses`, since when, why, how many reports wait and how many were dropped since the start,
+  and `reporter_restarts`. It holds no token and no address.
+* **The report loop is watched.** If the part of the agent that builds and sends reports fails (an error in the
+  program), it is started again after a short pause and the failure is counted: in `agent-status.json`
+  (`reporter_restarts`), in the agent's log, and on the master as a notice for the site and an audit row
+  (`agent.reporter_restarted`). What that part held in memory at that moment (at most about one report interval of
+  records) is lost; reports already on disk are not. If it fails more than 5 times within 10 minutes the agent ends
+  with an error, so that systemd or OpenRC starts it again.
+* **A report the master refuses.** When the master refuses a report as unacceptable (HTTP 400 or 422) its records
+  are dropped, but its devices are sent again with a later report (at most 3 times an hour, so a device the master
+  refuses itself does not make every report a refused one).
+
+What is checked and how (verified by automated tests against the real ingest code and a local listener, not on a
+real WAN link or with the installed service): a start with nothing listening at the master's address, a restart in
+the middle of an outage, the queue at its size and age bound, a 401 at the start, a planned stop. The 512 MiB
+default and the catch-up time after a long outage are not measured.
+
 ### Windows and macOS
 
 There is no agent installer for Windows or macOS yet. `packaging/install.sh` is Linux only (systemd, OpenRC, or `--no-service`). The
@@ -829,6 +898,12 @@ The database contains your network inventory and password hashes: protect it lik
 Stop DENIS, replace the binary, start it. The database migrates itself on start (**one-way**: older builds refuse
 a newer database): back it up first.
 
+From 4.6.0 on SQLite, the new program writes a verified copy of each database to the `backups` folder before it upgrades
+it, whichever way you updated. If that copy cannot be made, the database is not upgraded. While an update is not yet
+confirmed, DENIS starts no automatic response by itself (a person can still act). When the update has to go back and the
+database format allows it, only the program is swapped; otherwise the copy is put back. The details, and what is different
+on PostgreSQL, are in [Updates](updates.md).
+
 ## Resource use
 
 Sized for one /24 up to ~1000 hosts per collector. Flow accounting captures every IPv4 frame on the interface;
@@ -903,7 +978,8 @@ stays out of the process list).
 | `--capture-batch-ms` | yes | off | mirror interfaces receive packets in batches of up to this many milliseconds (10-250) instead of one by one; see [Capture buffer](#capture-buffer-on-a-busy-mirror) |
 | `--sweep-interval` | yes | 300 | seconds between ARP sweeps |
 | `--rescan-interval` | yes | 1800 | minimum seconds between port scans of one host |
-| `--passive-only` | yes | off | never transmit ARP, ICMP, TCP probes (nor the IPv6 discovery below) |
+| `--passive-only` | yes | off | never transmit ARP, ICMP, TCP probes (nor the IPv6 discovery below); a configured [RADIUS accounting](radius-accounting.md) receiver still listens and answers the records sent to it |
+| `--no-capture` | yes | off | open no capture at all (no interface, no mirror port) and send nothing (implies `--passive-only`): for a test or a rehearsal on a machine that must not watch its network; the console and the other jobs run as usual |
 | `--flows` | yes | off | account traffic to and from outside the subnet and decode industrial protocols |
 | `--profile it\|ot` | yes | `it` | `ot` listens only and turns on traffic analysis; see the [OT guide](ot-guide.md) |
 | `--active` | yes | off | with `--profile ot`, allow a gentle, slow ARP sweep |
@@ -952,6 +1028,7 @@ stays out of the process list).
 | `--no-msp-management` | run | off (`DENIS_NO_MSP_MANAGEMENT`) | no remote management by an MSP in this process, whatever the console says; see [MSP management](msp-management.md) |
 | `--master`, `--token`, `--master-ca`, `--master-ca-pem`, `--allow-plain-http`, `--id`, `--name`, `--site`, `--report-interval` | agent | `--report-interval` 15 | where and how an agent reports; see [Multiple sites](#multiple-sites-agents). `--token` can come from `DENIS_AGENT_TOKEN` |
 | `--no-self-update` | agent | off | never take an update from the master's command; the agent still reports its version (*env* `DENIS_AGENT_NO_SELF_UPDATE`); see [Updating remote agents](updates.md#updating-remote-agents) |
+| `--outbox-max-mb N` | agent | `512` | the most disk the reports waiting for the master may take, in MiB (at least 64); past it, or after 72 hours, the oldest are dropped and the master is told (*env* `DENIS_AGENT_OUTBOX_MAX_MB`); see [A site keeps collecting while the master is away](#a-site-keeps-collecting-while-the-master-is-away) |
 
 One more flag is hidden from `--help`: `--ot-l2=false` stops decoding layer-2 industrial protocols (GOOSE, PROFINET
 DCP Set). It is on by default and only exists as an escape hatch.

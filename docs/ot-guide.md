@@ -155,6 +155,10 @@ Set **Purdue level** (0–5, 3.5 for the DMZ) and **Zone / cell** per device (Ed
 tab, the matrix and reports, so you can spot, for example, an office-level (L4) device talking to a controller
 (L1) directly.
 
+A switch's own state is not an OT rule: a link that is down, a switch that restarted, a port with errors come as
+[port health](switches.md#port-health-traffic-errors-and-restarts-experimental-460) notices (Experimental, 4.6.0, off
+until you turn it on per switch) and in the Dashboard's *Needs attention* list; they never change anything on the switch.
+
 ## OT alerts
 
 | Rule | When | Score |

@@ -24,6 +24,9 @@ IOS** the 802.1Q trunk mode of each port (CISCO-VTP-MIB `vlanTrunkPortDynamicSta
 `vtpVlanTable`, else the ports' access VLANs). Port control uses these to warn about trunks, aggregation members and
 infrastructure (by hand only, with warnings to tick); nothing else draws on them.
 
+With port health on for a switch (Experimental, 4.6.0), the same reading also takes the traffic and error counters of
+its ports and the switch's uptime, read only: see [Port health](#port-health-traffic-errors-and-restarts-experimental-460).
+
 A poll only ever reads, always with the read community (SNMPv2c) or the read user (SNMPv3). DENIS sends **one kind of
 SET**: `ifAdminStatus` of **one port**, only for a switch you gave a separate **write community** or **write user**, only when an **administrator asks and confirms** with
 their password (see [Disabling a port](#disabling-a-port)). A switch without a write community is never written to.
@@ -278,7 +281,11 @@ change). Then it sends the SET and **reads the port back**:
   read right before a port action pages a Cisco switch's
   VLANs like the regular poll (its own *VLANs per poll*, continuing where the last poll stopped);
 * a list DENIS cannot read (the register, the address-conflict alerts, the active actions, the confirmed gateways, the
-  port marks and the interfaces of a device: `unreadable`): it is never read as empty;
+  port marks and the interfaces of a device: `unreadable`): it is never read as empty. The address-conflict alerts are
+  asked about the devices behind the port only (its forwarding table, its LLDP neighbours, a device placed by hand):
+  an alert DENIS cannot read, or more alerts about one device than one answer holds without one that names it,
+  refuses that device's port, not the rest of the switch. When the Respond menu cannot judge a port, it says so
+  (`unreadable`) instead of showing it without refusals;
 * a device whose identity is in doubt: an open **address-conflict** alert, or its MAC learned on **more than one access
   port** right now (MAC cloning, a man in the middle: the port may be the victim's). Find the right port by hand;
 * a device or address on the **hands-off** list, or a protected device behind the port;
@@ -505,6 +512,25 @@ is an error, never an empty list: nothing is forgotten, and the poll loop waits 
 * **Cisco VLANs carried over (4.5).** The entries of a VLAN one poll did not reach are taken over from the previous poll only
   when that poll read the same device (chassis id, name, sysObjectID) and is at most three hours old. Otherwise the VLAN counts
   as not read, and port actions on its ports are refused.
+* **A quiet device the switch forgot (4.6.0).** A switch drops a MAC address that sends nothing for its ageing time (often
+  five minutes), so a television or a receiver that is on but quiet would lose its port on the map and be drawn under the
+  gateway as "unplaced". The map then draws it on the port where it was last really seen, marked *last seen on this port*
+  (`via: "remembered"` in `GET /api/topology`), when all of this holds:
+  * DENIS itself saw the device on the network in the last 15 minutes (capture, ARP, DHCP or an agent). The memory never
+    makes a device present; a device DENIS has not seen in the last 15 minutes is not drawn there.
+  * Nothing in the current reading places it: no switch learns it on a port that places devices, and it does not announce
+    itself. The switch it was last seen on does not list it on any port now. The current reading always wins.
+  * The last sighting is at most 30 minutes old, it is the newest one stored for that MAC, it was on an access port known by
+    its number (ifIndex), and that port is still up, its link has not changed since, and it is an access port now.
+  * The port is not an uplink. A port that ever learned another switch's or a router's own address (an LLDP link to a
+    switch DENIS reads, the spanning-tree root port or a blocked port, a CDP or LLDP neighbour that is network equipment,
+    or the address of network equipment in its forwarding table or in the stored history of that port) stays an uplink for
+    seven days, also across a failed read. This memory is kept in the program (at most 4,096 ports) and starts again
+    after a restart from the stored history. Sightings on such ports are never used.
+
+  A Wi-Fi observation of a controller wins over a remembered port. The remembered place is for the map and the device's
+  panel only: the response dialog, port actions, the change log and every rule use the current reading alone. Tested
+  against fixtures, not yet on real equipment.
 * **One poll of a switch at a time (4.5).** The poll loop, *Read now* and the read before a port action take turns, and a
   reading never replaces a newer one.
 
@@ -581,7 +607,7 @@ Since 4.5 every change of the cables, the port marks (unmanaged, mirror), the co
 tiers is one read-change-write step: two administrators changing different items both keep their change, and a stored
 list that cannot be read refuses the change (500) instead of saving an empty list over everything.
 
-Setup (Network → Setup, step 5, *Cables DENIS is not sure about*) asks its questions from them and lists *Networks and firewalls* (which firewall routes which
+Setup (Network → Network setup, step 5, *Cables DENIS is not sure about*) asks its questions from them and lists *Networks and firewalls* (which firewall routes which
 network, and whether DENIS also sees it is that network's gateway). The API is `GET /api/topology/relations`, `POST /api/topology/links`
 and `DELETE /api/topology/links/{id}` (see the API reference).
 
@@ -610,6 +636,366 @@ offered only for switches that answered a bridge-port map). Four detection rules
 someone else, neighbours coming and going) are logged and shown in the drawer but do not alert.
 The history can be browsed: `GET /api/topology/changes` and `GET /api/assets/{id}/locations` ([API](api.md)).
 
+## Port health: traffic, errors and restarts (Experimental, 4.6.0)
+
+With port health on for a switch, DENIS also reads how busy each port is, whether it counts errors, and whether the
+switch restarted; it keeps a short history per port, and it tells you when a link you chose goes down or when it cannot
+read the switch any more. It is **Experimental**: it has been tested against a stand-in switch only, not yet against a
+real one (see [What is verified, and what is not](#what-is-verified-and-what-is-not)). In this version that means:
+
+* **Off for a switch that was there before the update**, until an administrator turns it on. Its row in *Network* →
+  *Equipment* says "Off. DENIS reads the ports of this switch but not how busy they are." with **Turn on**. A card above
+  the table (*Traffic and errors*, administrators of the whole installation only) offers **Turn on for all**, **Choose…**
+  and **Leave them off** for every switch nobody decided for yet, and the [setup guide](quickstart.md#2a-the-setup-guide-your-first-look-at-the-network)
+  shows the step *Turn on traffic and error counters* while there is one. *Leave them off* is a decision too: those
+  switches leave the card, and each can be turned on later in its row.
+* **On for a switch added later**: the tick *Read traffic and error counters (read only)* is already set in the add
+  form. Untick it to leave the counters off for that switch.
+* **Read only.** DENIS sends only read requests (`GET`, `GETNEXT`, `GETBULK`) with the read community or the read user;
+  nothing is written to the switch for this and the write credential is never used.
+* **About 30 more read requests per reading** (best guess: it depends on the number of ports and on how many rows the
+  switch puts in one answer), to the switch's management address only, inside the normal reading and with its own time
+  limit of 5 seconds.
+* **Read by this DENIS server**, from the management network, never by the agent of a remote site. A switch at a remote
+  site is read only if this server has a route or a VPN to its management address (and a firewall in between lets UDP
+  port 161 through from this server). The console says "Read from this DENIS server" on every switch and, for a switch
+  bound to a remote site, "This server needs a route or a VPN to the switch's management address."
+* **History of 8 days** of samples by default (1 to 30) and, since 4.6.0, hourly figures for up to a year, see
+  [History and its size](#history-and-its-size).
+* **The thresholds are fixed in this version** and are not settings: errors in 3 of the last 4 good readings, use at or
+  above 90 % of the link speed in 3 of 4 (the mark ends when all 4 are below 80 %), a watched link down on 2 readings in a
+  row, a switch that cannot be read after 3 scheduled failed readings in a row; see also the processor, memory, PoE and
+  link-change rows below.
+
+### What is read
+
+Standard IF-MIB over SNMP v2c and v3 (RFC 2863), with the switch's uptime (RFC 3418, and RFC 2790 where the switch has
+it). The identifiers are those of the MIB texts (documented); which ones a given model really offers is not known until
+a real switch is read.
+
+| Object | What for |
+|---|---|
+| `ifHCInOctets`, `ifHCOutOctets` (64 bit) | bytes in and out of each port: the traffic. Used whenever the switch has them |
+| `ifInOctets`, `ifOutOctets` (32 bit) | the same, only when the switch gives no 64-bit counter at all |
+| `ifInErrors`, `ifOutErrors`, `ifInDiscards`, `ifOutDiscards` | errors and discards in and out |
+| `ifCounterDiscontinuityTime` | the switch's own mark that a port's counters started again |
+| `sysUpTime`, `hrSystemUptime` | the time of the reading on the switch's clock, and whether the switch restarted |
+
+Since 4.6.0 a reading also asks for the switch's processor, memory and Power over Ethernet figures, and for the link-change
+evidence of each port ([Device figures](#device-figures-processor-memory-running-time-460), [Power over
+Ethernet](#power-over-ethernet-460), [A link that keeps changing](#a-link-that-keeps-changing-460)); and, for a Cisco
+switch with the watch switched on, three configuration time stamps ([Configuration changes](config-changes.md)).
+
+The port list itself (name, label, link, switched on or off, type, speed) is the one every reading already takes
+([What DENIS reads](#what-denis-reads)); nothing is read twice. The counters are read only when a port's last measurement
+is about 4 minutes old (see *One path for every reading*), so a **Read now** right after a scheduled reading sends no counter request.
+
+**32-bit counters.** A 32-bit byte counter starts again at zero after 4 GiB, and DENIS cannot see how often that
+happened between two readings. It trusts such a counter only while the time between two readings is under half of
+what the port needs at full speed to count to the top. At the default interval of 5 minutes that holds for a 10 Mbit/s
+port only; a faster port with 32-bit counters only reads "Not offered by this switch" (worked out from the rule in the
+code, documented). Most managed switches have the 64-bit counters (best guess).
+
+### What a port shows
+
+The open row of a switch lists its interfaces in four groups: **Ports** (the physical ones), **Link aggregations**,
+**VLAN interfaces** and **Other interfaces** (bridge, tunnel, loopback and every type DENIS does not know). Ports and link
+aggregations keep a history; VLAN and other interfaces show their current reading only. A port without a label on the
+switch shows its name only (no empty brackets). *Show as a table* gives the same as a table with sortable columns.
+
+**Link speed and measured traffic are two different things**, and the console never puts them in one column without a
+label: the **link speed** is what the port can carry (2.5 Gbit/s reads "2.5 Gbit/s"; "unknown" when the switch does not
+say, or gives only the 32-bit maximum, which by RFC 2863 means "faster than this"); **traffic in** and **traffic out**
+are the average measured between two readings, and **use** is the higher of the two as a share of the link speed (not
+known when the speed is not known). Errors and discards are the counts between the two readings.
+
+A click on a port opens its card: the current values (under "Now", or "Last known values (not current)"), the charts
+**Last 24 hours** and **Last 7 days**, the changes DENIS saw on the port (link up and down, switched on and off, speed),
+the devices plugged in (a quiet device the map only remembers on this port is listed apart, under **Last seen here**:
+the switch does not list it now, and the port-off control above it acts on what is plugged in now), and **Tell me when
+this link goes down**.
+
+### When a value is not known
+
+DENIS never shows a zero it did not measure. Each port's reading is in one of these states, in words, never by colour
+alone (the API's `state` in brackets):
+
+| The console says | It means |
+|---|---|
+| a number (`current`) | the newest two readings gave a good measurement |
+| Measuring: needs two readings (`measuring`) | the first reading after switching on, after a break, or of a new port: a rate needs two |
+| Not known: the switch restarted or its counters started again (`unknown`, `reset`) | the uptime went back, or the port's own discontinuity mark moved; the next reading is good again |
+| Not known: the port list of the switch changed (`unknown`, `renumbered`) | the switch gave this port number to another port (another name or type) |
+| Not known: the reading was not plausible (`unknown`, `implausible`) | more traffic than the port can carry, the two clocks disagree, or no time passed: DENIS does not show it |
+| Not known: too long since the reading before (`unknown`, `gap`) | more than three intervals (at least an hour) between the two readings, so an average would hide too much |
+| Partly read (`partial`) | the switch answered only part of the byte counters |
+| Not offered by this switch (`unsupported`) | no byte counters, or only 32-bit ones that are too small for this port |
+| Skipped (`skipped`) | DENIS left the counters out of this reading (they took longer than 5 seconds), or the reading was not allowed |
+| Last known *time* (`stale`) | no newer measurement for more than two sample spacings and a minute (a sample spacing is the interval, or the interval plus 4 minutes when the interval is shorter than 4 minutes: counters are measured at most every 4 minutes); the number shown is old and labelled so. A port without link whose counters did not move counts as measured at every reading. A measurement dated more than two intervals (at least 10 minutes) ahead of the server's clock is stale too (see *When the server's clock is stepped back*) |
+| Could not be read from this server (`failed`) | the last attempt to read the switch failed; the last known numbers are shown apart, with their time |
+| Counters are off for this switch (`off`) | port health is off for this switch |
+
+A failed reading says "DENIS could not read switch … from this server". It never says that the switch, or the devices
+behind it, are down: this server got no answer, and that is all it knows.
+
+**Gaps in a chart.** A stretch of a chart without a good measurement is drawn hatched as a gap, never as zero, and the
+list *Gaps in this chart* under the chart (and the tooltip) gives the reason in words (the switch restarted or its
+counters started again, the port list changed, not plausible, too long since the reading before, partly read, skipped,
+not offered, measuring) and the time of the last valid measurement before it. A port that had no link is a measured
+zero, not a gap ("No link"). A stretch of more than three chart steps in which the switch was not read at all is
+"Loss of monitoring: the switch was not read from this server". The 24-hour chart has steps of 5 minutes, the 7-day chart
+of 35 minutes.
+
+### Watching a link
+
+On a port's card, an administrator of the whole installation ticks **Tell me when this link goes down** (at most 64 links
+per switch; physical ports and link aggregations, uplinks included). DENIS then says when the link is down on two
+readings in a row, and again when it is up on two readings in a row ("Recovered after …"). A port someone switched off
+is not a fault: an open notice for it is withdrawn without a "recovered". The watch is kept by the port's number and its
+name: when the switch gives the port another number (after a restart or a module change) and exactly one port has the
+old name, the watch moves there; when none or several have it, the link is not judged until it is ticked again. While
+the switch cannot be read, its watched links are "not known", not down. The ports and VLANs watched for *moves* (above)
+are a separate list.
+
+### The events, and what they are not
+
+Three events go through the bell and your channels, the same way as a capture interface that goes down: **a watched
+link is down**, **a switch restarted** (once per restart, only when the uptime went back and the evidence is strong, see
+below) and **a switch cannot be read from this server** (after three scheduled failed readings in a row; it closes with
+the first good reading). The two marks, **errors** and **busy**, are shown in Equipment and on the Dashboard and go to
+the bell only, for editors and administrators. The numbers and the full table are in [Port health
+conditions](#port-health-conditions-460).
+
+They are **notices**, category *Infrastructure*: never an alert, never an incident, never the start of a detection rule,
+a rule response, a block suggestion or an Autopilot proposal, and never a reason to change anything on a switch. Who
+sees which notice and what goes to the channels (each channel's minimum, maintenance mode, PagerDuty resolve) is in
+[how a switch is read, and what is announced](#port-health-how-a-switch-is-read-and-what-is-announced-460).
+
+### On the Dashboard and the Health page
+
+The Dashboard's **Needs attention** list shows at most eight lines, most important first: open security incidents, a
+watched link that is down, a switch or a site that cannot be read, a capture interface that is down, a site's reports
+that are incomplete, and the port marks. Each line says what happened, where, since when, how DENIS knows ("Read over
+SNMP from this DENIS server", the last attempt and the last valid reading) and where to click. A switch this server
+cannot read is **Loss of monitoring**: the state of the switch itself is not known, and the port conditions of that
+switch are folded into that one line. An empty list says what is being watched and what is not (switches read, how
+many with counters, watched links, sites reporting), not "all good". Each person sees only the sites they may read. The
+answer behind it is [`GET /api/attention`](api.md#needs-attention).
+
+An open security incident always comes first, whatever its priority, and only then the rest by severity: a flood of
+operational items (fifty links down, sixty checks that fail) never pushes an incident out of the list. Why: an
+incident is a person or a program acting on your network, and the operational items around it are often its
+consequence or its noise; an incident marked "review" is still one a person has to look at. The conditions of a switch
+that is paused, or whose port health is off, are not listed: such a switch is "Not monitored". When the list of service
+checks cannot be read, one line says so instead of showing no check at all.
+
+The **Health** page has a table **Switch readings**: per switch the last reading, the last good one, how late the readings
+are, failures in a row, what happened to the counters and the last 24 hours in numbers, with warnings when a switch cannot
+be read, when readings are late, when counters are skipped or not offered, and when a policy does not allow a reading
+([Operations](operations.md#health-warnings-that-point-at-data-you-cannot-see)).
+
+### Device figures: processor, memory, running time (4.6.0)
+
+With port health on, a reading also asks for the switch's own figures (read only, in the same reading, in a phase of its
+own with a 3-second limit that lies inside the time the counters already had, one retry per request, and at most 256 rows
+of any one table). Which of these a given switch offers is **best guess**: the identifiers are those of the MIB texts
+(documented), and nothing has been read from a real switch.
+
+| Figure | Asked in this order | Object |
+|---|---|---|
+| Processor load | only of a switch DENIS recognises as Cisco: `cpmCPUTotal5minRev` (CISCO-PROCESS-MIB, `1.3.6.1.4.1.9.9.109.1.1.1.1.8`); then `hrProcessorLoad` (HOST-RESOURCES-MIB, mean over the processors); then `100 - ssCpuIdle` (UCD-SNMP-MIB) | percent |
+| Memory use | only of a Cisco switch: pool 1, "Processor", of CISCO-MEMORY-POOL-MIB (`ciscoMemoryPoolUsed` and `Free`; on IOS XE it may describe only one process's pool, best guess); then the `hrStorageRam` rows of `hrStorageTable`; then `memTotalReal` and `memAvailReal` (UCD-SNMP-MIB) | percent of the total |
+| Running time | `sysUpTime` and `hrSystemUptime`, which every reading already took | shown as a figure since 4.6.0 |
+
+The console shows the figure with the source that answered (`GET /api/switches/{id}/device-health` names it under
+`sources`). A figure the switch does not offer is "Not offered by this switch" and nothing is judged. A figure that
+could not be read this time (the time ran out, the switch went silent) is "not known": an open mark goes grey and a clear
+one stays clear. Neither is ever shown as 0 %, and neither says the switch is down.
+
+**Reading a table raises the switch's processor load** (documented by Cisco for large SNMP tables; best guess for other
+makes), so a figure taken during a reading includes DENIS's own reading. That is why the 5-minute figure is preferred and
+why `cpu_high` is a **mark** (bell only, never a message to a channel): the processor at or above 90 % in 3 of the last 4
+readings that knew it, ending when all 4 are below 80 %. `mem_high` is the same with 90 % and 85 %. The thresholds are
+fixed in 4.6.0.
+
+### Power over Ethernet (4.6.0)
+
+If the switch offers POWER-ETHERNET-MIB (RFC 3621, documented; which models implement it is best guess), a reading also
+asks for each PoE group's power, status, consumption and usage threshold and, only when there is a group, each PoE port's
+detection status and class.
+
+* **State and class, not watts.** The standard MIB has no figure for the power of one port, so DENIS shows a PoE port's
+  state (disabled, searching, delivering power, fault, test, other fault) and class, and says so (documented).
+* **`poe_fault`** (a mark, bell only): a port reports a fault while its power is switched on, in 2 readings in a row.
+  **`poe_budget`** (a mark, bell only): the supply reports a fault, or its use is at or above the switch's own threshold
+  (90 % of its power when it gives none) in 3 of the last 4 readings.
+* **Which port is it?** RFC 3621 does not say how a PoE port (group and number) relates to an interface. DENIS maps one
+  only when exactly one physical interface's name ends in `/<port>` within that module, or when the switch has one group
+  and as many PoE ports as physical ports; otherwise the PoE port is listed by its own number and not mapped. Every
+  answer says how it was mapped (`name` or `position`), and it is **best guess** (verified only against a stand-in).
+* A switch with no PoE answers "not offered", not an error. `GET /api/switches/{id}/poe` answers `200` with
+  `"offered": false`.
+
+### A link that keeps changing (4.6.0)
+
+A reading records a **link change** for a port when its link state differs from the reading before, or when its own
+"last change" time moved while the switch did not restart (both columns are IF-MIB, RFC 2863, documented). The raw numbers
+of the switch's clock are compared, so a restart or a wrapped uptime counter is "no evidence", never a change (verified).
+A link that bounced three times between two readings is **one** recorded change, which is all a reading can see.
+
+* The port's card shows the **number of link changes in the last 24 hours**.
+* For a link you watch, the condition **`flapping`** opens at 3 recorded changes in 60 minutes and closes when 60 minutes
+  pass without one (bell and channels). Before 4.6.0 a link that bounced between readings opened nothing; whether the
+  count matches what a person would call flapping on a real switch is best guess.
+
+### History and its size
+
+Two kinds of history are kept.
+
+* **Samples**, the traffic and error numbers of each reading and the record of each reading: **8 days** by default, 1 to
+  30, pruned every hour by their own period (independent of the period for events and alerts). The period is
+  `port_history_days`, set under *Data retention* in the console or through `PUT /api/retention`.
+* **Hourly figures** (4.6.0), for a long history that does not cost a row per port and reading: `port_hourly` and
+  `switch_hourly` hold one row per port and hour (traffic, errors, how many seconds were good or not known, link changes,
+  and the highest use) and one per switch and hour (processor, memory, PoE). They are kept `port_rollup_days` (30 to 400,
+  90 by default; set the same way, see [Operations](operations.md#retention)) and at most 5,000,000
+  rows, the oldest hour first.
+
+An hour is rolled up once it is at least two hours old (more with a long reading interval), at most 48 hours per switch
+and per pass, so a long stop catches up over several passes. An hour in which a port has no reading writes no row for that
+port: a chart shows a hole there, never a guessed "down". **Raw samples are removed only for hours already rolled up**, so
+a roll-up that fails or falls behind loses nothing that the settings keep (verified). The roll-up spreads a reading that
+straddles an hour exactly as a chart does, so a chart from hours equals a chart from samples over the same range up to
+rounding (verified).
+
+A port's chart and a switch's figures chart offer **24 hours, 7 days, 30 days, 90 days and a year**
+(`?range=24h|7d|30d|90d|1y`), at most 300 buckets. The answer says where the data came from (`source`: `samples`,
+`hourly` or `mixed`) and from when data exists (`kept_from`); a range longer than what is kept is drawn from `kept_from`
+on, not padded.
+
+**Size** (best guess, not measured): with 50 switches of 48 ports read every 5 minutes, 8 days of samples are about 200 to
+400 MB more in the database. The hourly figures of one 48-port switch with every port active are 48 x 24 = 1,152 rows a
+day, about 104,000 in 90 days (arithmetic). A switch removed from the list takes its rows with it; the rows of a port the
+switch no longer lists go when its history has aged out. *Erase all data* deletes them too.
+
+### Port health conditions (4.6.0)
+
+With health on for a switch, DENIS keeps these kinds of condition for it. Each reading of the switch is judged as bad,
+good, neither, not known, or nothing to judge, and the condition moves by the table below (it is generated from the
+code). A reading that failed is "not known" for every port: an open fault stays and greys, a clear port opens nothing,
+and the switch itself is only "cannot be read from this server" after three scheduled failures in a row. DENIS never
+says that a switch, or a device behind it, is down because a reading failed. A port that someone switched off is
+"nothing to judge": an open fault on it is withdrawn without a "recovered" message. So is an `errors` or `busy` mark on
+a port whose link is no longer up (an unplugged cable): a port without link has no traffic to judge, and leaving the
+mark "not known" would grey it, and the whole switch, for as long as the port stays unplugged. Tested against a stand-in switch
+only.
+
+<!-- port-conditions:begin -->
+
+| Condition | About | Bad when | Good when | Bad readings in a row to open (B) | Good readings in a row to close (G) | Channels |
+|---|---|---|---|---|---|---|
+| `unreadable` | a switch | a scheduled reading failed | a reading succeeded | 3 | 1 | bell and channels |
+| `link_down` | a watched link | the link is down, not present or lower layer down while the port is switched on | the link is up | 2 | 2 | bell and channels |
+| `errors` | a port with a history | errors in or out in at least 3 of the last 4 good samples | no error in the last 4 good samples | 1 | 1 | bell only |
+| `busy` | a port with a history and a known speed | use at or above 90 % in at least 3 of the last 4 good samples | use below 80 % in the last 4 good samples | 1 | 1 | bell only |
+| `flapping` | a watched link | 3 or more recorded link changes in the last 60 minutes | no link change in the last 60 minutes | 1 | 1 | bell and channels |
+| `cpu_high` | a switch that offers its processor load | processor at or above 90 % in at least 3 of the last 4 readings that knew it | below 80 % in the last 4 readings that knew it | 1 | 1 | bell only |
+| `mem_high` | a switch that offers its memory use | memory use at or above 90 % in at least 3 of the last 4 readings that knew it | below 85 % in the last 4 readings that knew it | 1 | 1 | bell only |
+| `poe_fault` | a PoE port | the port reports a fault while its power is switched on | the port delivers power, searches or is disabled | 2 | 2 | bell only |
+| `poe_budget` | a switch that offers its PoE supply | the supply is faulty, or its use is at or above the switch's own threshold (else 90 % of its power) in at least 3 of the last 4 readings | below that in the last 4 readings | 1 | 1 | bell only |
+
+| From | Bad | Good | Neither | Not known | Nothing to judge |
+|---|---|---|---|---|---|
+| clear | `pending` n=1; at n = B: `open`, **opened** | clear | clear | clear | clear |
+| `pending` | `pending` n+1; at n = B: `open`, **opened** | clear | `pending` | clear | clear |
+| `open` | `open` | `recovering` n=1; at n = G: clear, **recovered** | `open` | `unknown` | clear, **withdrawn** |
+| `recovering` | `open` (no new event) | `recovering` n+1; at n = G: clear, **recovered** | `recovering` | `unknown` | clear, **withdrawn** |
+| `unknown` | `open` (no new event) | `recovering` n=1; at n = G: clear, **recovered** | `unknown` | `unknown` | clear, **withdrawn** |
+
+<!-- port-conditions:end -->
+
+### Port health: how a switch is read, and what is announced (4.6.0)
+
+Tested against a stand-in switch only; no real switch has been read with it yet.
+
+**One path for every reading.** The schedule and **Read now** read a switch the same way, one after the other (one
+lock per switch, which the re-read before a port action waits on too). With health on, the traffic and error counters
+are read inside the same reading, right after the port list, with their own time limit of 5 seconds; when that runs
+out the counters are "skipped" for that reading and the rest of the switch is read as always. Counters are read only
+when a port's last measurement is about 4 minutes old (3 minutes 30 seconds: one tick of the loop of slack, since the
+measurement is taken a moment after the reading starts), so a **Read now** right after a scheduled reading (or a poll
+interval of 60 seconds) adds no second measurement: the next reading measures the whole span. A whole reading may take
+at most the interval and never more than 2 minutes; a switch that stops answering half-way is cut there, the tables it
+did not reach are marked incomplete (the reading is "read with a table cut short"), and the next switch is read on
+time. Only a cut of the port names themselves leaves a watched link "not known"; a cut alias, speed or status table
+does not. DENIS only reads
+(`GET`, `GETNEXT`, `GETBULK`) with the read community or the read user; the write credential is never used for this.
+
+**Every attempt is recorded.** Each reading writes one row of its outcome: read, no answer from this server, refused
+or another error, not allowed by the tenant's outbound policy (at most one such row per interval), or read with a
+table cut short; and what became of the counters (read, partly, skipped, not offered by the switch, not due yet, off).
+Health and the switch's port card read these rows. They are written for every switch, with health on or off.
+
+**When readings fail.** A switch that failed three readings in a row is read every second interval until a reading
+succeeds (a successful **Read now** puts it back on the normal schedule at once). "Cannot be read" opens after three
+**scheduled** failures in a row; a failed **Read now** never opens it (someone trying a wrong password by hand), a
+successful one closes it. The notice says what this server saw: "DENIS could not read switch … from this server". It
+never says that the switch, or a device behind it, is down or offline.
+
+**The state of a switch** (Health, Network -> Equipment, the map, a device's page) is judged from its newest attempt.
+A switch whose newest attempt was not allowed by the tenant's outbound policy is *Not known* (reason `not_allowed`:
+nothing was asked), never *Healthy*. After a failed attempt that has not yet made it "cannot be read" (fewer than three
+in a row), the switch keeps its last state as of the last reading that read it, and that state goes stale on its own
+when no reading succeeds for three intervals and two minutes. A condition kind this version does not know (written by
+a newer version) is *Not known*, never left out. Health's "not allowed" warning stays while the refused rows keep
+coming (also when the switch is tried every second interval after failures), and a switch that is not allowed is not
+listed as "could not be read N times".
+
+**When the server's clock is stepped back.** DENIS stamps every reading with this server's clock. When that clock was
+ahead and is then corrected (NTP fixing a wrong hardware clock, a virtual machine restored from a snapshot), the stored
+stamps lie in the future. A stamp more than two intervals, and at least 10 minutes, ahead of the clock is taken as such
+a step: scheduled readings and **Read now** go on as if the last reading were not there, the snapshot of the switch is
+saved again, the counters are due, new rows are stamped with the corrected time, and a state judged from such a stamp
+reads *Not known* (stale) until a new reading arrives. Why: otherwise nothing would be read, and a stopped job would
+still show *Healthy*, for as long as the clock had been ahead. A small correction (a few seconds) is not a step. The
+future rows stay in the history until real time passes them, so a chart can end in a short gap there.
+
+**`--passive-only` and the OT profile.** A switch you added is read whatever these say, counters included: it is one
+address you entered, read with the read credential only, not a probe of the network. If an installation must send
+nothing at all, do not add switches to it. The per-network probing overrides (no port scan, no ping) do not apply to
+SNMP to a configured switch either. A tenant's outbound policy does: an address outside it is not read.
+
+**High availability.** Only the active node reads switches; a node that loses its lease while a switch answers writes
+nothing of that reading.
+
+**What is announced.** The conditions above become notices in the bell, category **Infrastructure**, and go to the
+channels through the usual path (each channel's minimum, maintenance mode, the cap; a PagerDuty incident is resolved
+when the condition ends):
+
+| Notice | Who sees it | Channels |
+|---|---|---|
+| Switch {switch} cannot be read from this server, and "can be read again" | everyone who may read the switch's site | yes (`warn`) |
+| Link {port} of {switch} is down, and "is up again" | everyone who may read the switch's site | yes (`high`) |
+| Switch {switch} restarted (the uptime went back and most counters started again) | everyone who may read the switch's site | yes (`warn`) |
+| Port {port} of {switch} has errors / is busy, and their end | editors and administrators | bell only |
+
+A condition with nothing left to judge (health switched off, the switch paused or removed, the link no longer
+watched, the port switched off) closes its notice without a message of its own. Each condition keeps one notice while
+it lasts, whatever the port is renamed to (the key is the switch id and the port number). If DENIS stops between
+recording a change and raising its notice, the notice is raised at the next pass of the switch loop (within 30
+seconds); a notice raised twice is one row in the bell.
+
+**Never an action.** These are notices, not alerts and not incidents: no detection rule, no rule response, no block
+suggestion and no Autopilot proposal starts from them, and nothing is ever changed on a switch because of them.
+
+**The change log** (*Changes* on the switch, `GET /api/topology/changes`) also records a port's link going up or down
+between two scheduled readings (`port_link`), a restart of the switch (`switch_restart`), a restart of its SNMP agent
+only (`snmp_restart`, no notice) and the 497-day wrap of its uptime (`uptime_wrap`).
+
+**History.** Samples and reading rows are kept 8 days by default (1 to 30 days, `port_history_days` of
+`PUT /api/retention` or the console's *Data retention* page) and pruned every hour; the rows of a
+port the switch no longer lists go when its history is gone ([History and its size](#history-and-its-size)).
+
 ## What is verified, and what is not
 
 The SNMP client (BER encoding and decoding, GET, GETBULK and GETNEXT walks) is tested against byte sequences worked out
@@ -636,6 +1022,22 @@ by VLAN** were tested on the **Catalyst 2960-X** (`vmVlan`, the VLAN checks, ext
 and SNMPv3, and otherwise against the stand-in switch. Not tried on any real switch: a Q-BRIDGE `dot1qPvid` write alone
 moving a port on a switch that is not Cisco, and what the bounce does to a real device. That is why quarantine by VLAN on
 a switch that is not Cisco is labelled experimental.
+
+**Port health (4.6.0)** has been tested against the stand-in switch only: the counters, the samples, the "not due yet"
+rule, a watched link going down and up, a switch that stops answering, a restart, and the high-availability checks. No
+real switch has been read with it yet, so which counters a given model offers, how often it updates them and how it
+reports a restart are not known.
+
+The additions of 4.6.0 (processor, memory, PoE, link changes and the hourly roll-up) have been tested the same way, against the
+stand-in switch only: a switch that offers none of them (all "not offered", the reading still succeeds), a switch that stops
+answering inside the extra phase (the reading and its samples are still written), three link bounces between readings
+opening one `flapping`, a 64 GiB memory figure without overflow, the roll-up equal to the samples, and a roll-up that fails
+losing nothing. **Not verified:** which real model offers which processor, memory or PoE object and with what numbers
+(Cisco, Hewlett Packard Enterprise, D-Link, TP-Link and others differ); whether `cpmCPUTotal5minRev` and the memory pool
+describe the whole switch on IOS XE and on a stack; the PoE-port-to-interface mapping on any real switch; and how much
+extra load the extra reads put on a small switch.
+
+What the four states of a monitored switch, check or configuration mean is in [Operations](operations.md#what-the-four-states-mean).
 
 ## SNMPv3
 

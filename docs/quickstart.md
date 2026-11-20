@@ -50,20 +50,27 @@ The first start creates an administrator and prints a **one-time password**. Cop
 Open **https://localhost:8080** (DENIS uses HTTPS by default; your browser will warn once about the certificate DENIS created: see [Deployment](deployment.md#reaching-the-ui-securely-https-is-on-by-default) to trust it or use your own). Sign in as `admin` and choose your own password (at least 12 characters).
 Lost it later? `denis user reset admin` on the same machine prints a new one-time password.
 
-On a new installation the first screen is **Start**. It is one short path, and the next section describes it. The **Dashboard**
-and the **Devices** page fill up within seconds either way.
+On a new installation the first screen is the **Setup guide**. It is one short path, and the next section describes it. The
+**Dashboard** and the **Devices** page fill up within seconds either way.
 
 ![The Devices tab](img/devices.png)
 
-## 2a. The Start page: your first look at the network
+## 2a. The setup guide: your first look at the network
 
-Start appears in the menu for an administrator of a **new** installation (an installation that was updated from an earlier
-version does not get it by itself; open it under *Settings → Getting started → Open the setup guide*). It shows five stages: *Install*, *Open the
-console*, *Connect your network*, *First result* and *First decision*, each with the minutes it took.
+Since 4.6.0 the quick start (the *Start* page of 4.4) and the setup guide (the checklist that used to open as a window) are
+**one page, the setup guide**, with one checklist. It is the first menu entry for an administrator until somebody marks it
+done, on a new installation and on one that was updated (where it replaces the window that opened by itself). An
+administrator who signs in and has not finished is taken to it, unless the address names another page or *Remind me
+later* was pressed in this browser. You can always open it again under *Settings → System → Setup guide → Open the setup guide*.
+Old links (`#start`, `#setup`, `#setup-guide`, `#quickstart`) all open it.
 
-![The first question of the Start page: where DENIS gets your network from, with controller, own network, mirror port and example data to tick](img/start-question.png)
+On a new installation it starts with five stages: *Install*, *Open the console*, *Connect your network*, *First result* and
+*First decision*, each with the minutes it took.
 
-1. **Where do I get my network from?** Tick everything you have: a **controller or firewall** DENIS can read (UniFi, Meraki,
+![The first question of the setup guide: where DENIS gets your network from, with controller, own network, mirror port and example data to tick](img/start-question.png)
+
+1. **Where do I get my network from?** (new installations only; on an updated one it is behind *Change how DENIS gets
+   your network*.) Tick everything you have: a **controller or firewall** DENIS can read (UniFi, Meraki,
    Omada, FortiGate, MikroTik, Proxmox, Hyper-V, a Cisco 9800 wireless controller), the **machine's own network** (always on),
    a **mirror (SPAN) port**, or **example data** (a made-up company, clearly marked). Then answer whether DENIS may ask the
    devices on this network who they are (ARP and ping every five minutes; industrial devices are never pinged). Your
@@ -74,18 +81,48 @@ console*, *Connect your network*, *First result* and *First decision*, each with
    are marked *Experimental*. The first read takes a minute or two; the page then shows what was read.
 3. **Who should hear from DENIS?** One e-mail address and your mail server. DENIS sends a test e-mail only when you press
    the button, and the password is stored encrypted. You can instead use Slack, Teams or a webhook under *Alerting*.
-4. **Your network, first look.** Three numbers (devices, unknown devices, devices no management tool knows), a short list of
-   what to do next, what DENIS is **not** seeing (for example: without a mirror port it sees which devices exist, not
-   who they talk to), and what is on and off (blocking is off, nothing is sent to us).
+4. **The checklist.** DENIS judges every step itself from what is really configured; it never takes a click as proof. Each
+   step has one sentence, one button and, once it is done, the proof (for example "Capture is running on eth0"). It says
+   *Done*, *To do* or *Skipped* in words. An administrator can skip a step (and take the skip back); the skips are kept for
+   the whole installation. The **first steps**, in this order, and only those that apply:
+   * *Remove the example data* (only while it is loaded).
+   * *DENIS is watching your network*: a capture interface is running (not shown on a console that only views a copy).
+   * *Your device list*: DENIS has seen at least one real device (example devices never count).
+   * *Be told about alerts*: an enabled notification channel (a syslog or SIEM export alone tells nobody).
+   * *Read one switch (read only)*, optional: a switch added and read once, with a read-only SNMP community or SNMPv3
+     user. The step offers the **traffic and error counters** (*Experimental*, as in *Network → Equipment*): they are read,
+     never written, by this DENIS server from the switch's management address, so a switch at a remote site needs a route
+     or a VPN to it. Shown only to an administrator of the whole installation.
+   * *Turn on traffic and error counters*: only while switches from before 4.6.0 have no decision about counters yet.
+   * *Your first investigation*: the first decision (an alert acknowledged, a device marked known or given an owner).
 
-![The first look of the Start page: the five stages, three numbers, what to do next, what DENIS is not seeing and what is on and off](img/start-first-look.png)
+   No step asks for a credential with write rights: a read-only installation can finish the whole guide.
+   Under **When you have time** (closed until the first steps are done or skipped): what nothing manages, sign-in
+   security, your colleagues, backups and reports, naming your three most important devices, reading a controller and a
+   mirror port (both optional), and your branding (optional).
+5. **Your network, first look.** Three numbers (devices, unknown devices, devices no management tool knows), what DENIS is
+   **not** seeing (for example: without a mirror port it sees which devices exist, not who they talk to), and what is on
+   and off (blocking is off, nothing is sent to us).
+
+![The first look of the setup guide: the five stages, the checklist, three numbers, what DENIS is not seeing and what is on and off](img/start-first-look.png)
 
 On a phone the same page is one column, with the cards one under the other:
 
-![The first look of the Start page on a phone, 375 pixels wide](img/start-phone.png)
+![The first look of the setup guide on a phone, 375 pixels wide](img/start-phone.png)
 
-Press **I am done with the quick start** when you are finished; Start then leaves the menu. The full checklist stays under
-*Settings → Getting started → Open the setup guide*.
+Press **Mark the setup guide as done** when you are finished; it then leaves the menu and no longer opens by itself (for
+everyone). A guide marked done under an earlier version counts as done. The steps keep saying what DENIS sees when you open
+it again. A person who is not an administrator who opens the page (for example from the Dashboard of an installation
+without devices) sees a short read-only version: the first steps and whether each is done, without numbers or buttons.
+
+**After the guide: the Dashboard's "Needs attention" list (4.6.0).** Near the top of the **Dashboard** is one short list,
+at most eight lines with the most important first: open security incidents, a watched switch link that is down, a switch
+or a site that cannot be read, a capture interface that is down, a site's reports that are incomplete. Each line says
+what happened, where, since when, how DENIS knows, and has the button to the page where you act. When the list is empty
+it says what is being watched and what is not (switches read, how many with traffic counters, watched links, sites
+reporting), not "all good". Each person sees only the sites they may read. A switch this server cannot read shows as
+*Loss of monitoring*: the state of the switch itself is then not known. Switch lines come from
+[port health](switches.md#port-health-traffic-errors-and-restarts-experimental-460) (Experimental).
 
 **The weekly summary.** If you turn it on (on Start, or under *Alerting*), DENIS sends one e-mail a week with counts: new
 and unknown devices, alerts by severity, what it could not see and the next thing to do. It contains no device addresses.
@@ -106,12 +143,8 @@ a clean slate; see [Operations](operations.md#demo-data-and-starting-clean-erase
 
 ## 4. The first hour: what to set, in this order
 
-On an installation that did not start with the Start page above (an update from an older version), the first time an
-administrator signs in, the **setup guide** opens by itself: a checklist of your network, sign-in
-security, notifications, colleagues, backups and branding. Each item turns green when it is really done (DENIS checks
-what is configured, it does not take your word for it), and each has a button to the right page. **Remind me later**
-closes it until your next sign-in; **Mark as done** stops it opening (for everyone). You can open it again any time
-under *Settings* → *Getting started* → *Open the setup guide*. The list below is the same job in more detail.
+The [setup guide](#2a-the-setup-guide-your-first-look-at-the-network) is the short version of this list. The list below is
+the same job in more detail.
 
 1. **Look at what was found.** Open **Devices**. Each row has an icon, a risk score, the address, the
    manufacturer and a guessed type and operating system. Click a device to see *why* DENIS thinks so.

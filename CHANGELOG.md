@@ -6,6 +6,20 @@
      paths, rule or file names, or internal groundwork. Below it is the full technical record, kept
      here only. tools/pre-release.sh checks this. -->
 
+## 4.6.0
+
+- Configuration changes (Experimental, off until you switch it on per device): DENIS tells you that a change was observed, not what changed or who made it. Cisco switches: a change, and whether it was saved. Palo Alto: a commit, and changes that wait for one. MikroTik: the router's change history. Omada: the site's audit log. FortiGate and UniFi in part only (a fixed list of tables; what the controller pushes to devices).
+- Service checks (Experimental): ping, a port, a DNS question or a web page, asked from the DENIS server. A service that stops answering raises one notice, never an alert.
+- Switch ports (Experimental, read only, off for switches you already have): traffic, errors, restarts, processor, memory, PoE and link changes, with 90 days of hourly figures (up to 400). A link you watch tells you when it goes down; the Dashboard has a "Needs attention" list.
+- Network sign-ins (802.1X, Experimental, off by default): DENIS receives accounting records from your switches or RADIUS server and shows who is signed in on which device. First verified on a Catalyst 2960-X. It never answers a sign-in and cannot end a session.
+- A clearer console: Network is Map, Equipment, Service checks, Sign-ins, Configuration changes, Response, Network setup. The RADIUS settings are under Network, Sign-ins, Setup. Health has five fixed parts.
+- A switched-off function does no work: the sign-in receiver only rereads its settings while off, and opens its port at once when you save.
+- Alerts are easier to read: facts first, then what to do. You can mute a rule for one device until a stated time.
+- Updates are safer: the database is copied before it is changed (from 4.5: room for one copy), automatic responses wait until the update is confirmed (up to about 11 minutes after start-up). From 4.6.0 on going back is often a program swap; back to 4.5 restores the copy.
+- Blocks and quarantines go through one checked path that honours the kill switch and the update hold. A remote branch keeps what it saw while the master is away.
+- Fixes: audit rows of failed sign-ins are limited; a person limited to one site gets full alert lists; links built from data are checked; DENIS's own scan no longer raises the scan alert.
+- Behaviour changes: the RADIUS settings moved (the old address leads there); "Checks" is now "Service checks" and Network "Setup" is "Network setup"; viewers have no setup page entry; updates show the setup page once. New run flag --no-capture (no capture, for tests).
+
 ## 4.5.3
 
 - Updates are confirmed by health, not by a timer. After an update the new version is kept only when its mandatory parts work: the console answers, the database accepts a write, capture runs (a quiet network is fine) and an agent has delivered a report. If they do not, DENIS says so and, with the automatic return on, goes back to the previous version. A lost connection to the master alone never causes a return. The automatic return can be turned off (--auto-rollback off); the documentation describes the manual way.
