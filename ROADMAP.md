@@ -1,7 +1,7 @@
 # Roadmap and known gaps
 
 DENIS aims to be an honest, self-hostable alternative to the asset-visibility products that cost six figures a
-year. This is what is still missing, in order. Pull requests welcome. The current release is 4.4.0.
+year. This is what is still missing, in order. Pull requests welcome. The current release is 4.6.0.
 
 ## 4.1.0: delivered; what is in, what is experimental, what is not built
 
@@ -310,14 +310,23 @@ One release carries the base above and the features below, in this order of work
 
 Work split (owner decision of 2026-11-16): Fable agents write the design and the specification, Opus agents implement and test. The design analysis is in docs-internal/v5/design.md (internal).
 
-## 4.6.1 (planned; items raised after the 4.6.0 code review and by the owner, 2026-11-19)
+## 4.6.1 (delivered 2026-11-22; the release notes are in CHANGELOG.md)
 
-Fixes and small changes only; nothing here changes stored data or an API except by an additive field.
+A review release: the fixes the owner marked as needed before the first sale from two independent whole-code audits of 4.6.0 (honest reading of equipment, truthful console states, MSP link changes that finish, detection that does not lose alerts, safer updates and agents, hardening of the web layer), the cheap release gates and a second reading of enforcement and the web layer. What did not fit moved to 4.6.2.
+
+## 4.6.2 (planned; what did not fit into 4.6.1, owner decision 2026-11-21)
 
 1. **"Quiet device looks up a new domain" and time sources.** A NAS that takes its time from the NTP pool resolves a different volunteer server (a reverse name such as an ISP or hobby host) many times; each one is a "new domain" for the rule. The rule should ignore the names of time sources of a device that already talks `udp/123`. Found on a Synology NAS on 2026-11-19 (verified: the name was a member of the NTP pool).
 2. **"This is normal" with no expiry.** The quick button from an alert allows 1 to 365 days (default 90); a longer or open-ended exception today needs Rules → Exceptions. Offer "no expiry" on the quick button for administrators only, with a clear warning that such an exception hides later alerts of the same kind for good.
-4. **Left over from the 4.6.0 code review (not regressions):** port health on a real switch (CPU and memory figures of net-snmp agents, PoE port naming on stacks and uplink modules, the counter time budget on switches with many virtual interfaces); one unreadable address-conflict alert stops identity linking for the tenant (deliberate in 4.6.0, to be narrowed); a Check Point leftover-session check that can discard another DENIS instance's session; the delay before a dependent service check is announced when its parent is slow; cost-only items of the poll loops.
-6. **Measurements on real equipment still owed:** MikroTik configuration changes made through REST and the effect of a reboot, UniFi Wi-Fi, firewall and port-profile changes, port health on a real switch, 802.1X Disconnect and EAP sign-ins.
+3. **Left over from the 4.6.0 code review (not regressions):** port health on a real switch (CPU and memory figures of net-snmp agents, PoE port naming on stacks and uplink modules, the counter time budget on switches with many virtual interfaces); one unreadable address-conflict alert stops identity linking for the tenant (deliberate in 4.6.0, to be narrowed); a Check Point leftover-session check that can discard another DENIS instance's session; the delay before a dependent service check is announced when its parent is slow; cost-only items of the poll loops.
+4. **Measurements on real equipment still owed:** MikroTik configuration changes made through REST and the effect of a reboot, UniFi Wi-Fi, firewall and port-profile changes, port health on a real switch, 802.1X Disconnect and EAP sign-ins.
+5. **Idle cost.** A feature that is off does no work: first a test that counts store calls of an idle default tenant over ten simulated minutes, then early exits in the busiest idle jobs (delivery, MSP, the switch loop, Autopilot housekeeping, notification channels).
+6. **Enforcement: one acceptance fixture and the remaining connector kinds.** A local fake connector with durable device state tests apply, extend and rollback with a restart between steps; then the kinds that still ask the gate only before their first write ask it between steps too (one kind at a time, each behind the fixture). The rest of the old-path preview truthfulness (what a connector says while a change is only requested).
+7. **PostgreSQL.** The backup test with a long dump and the lease clock across a paused virtual machine, if high availability is offered to customers.
+8. **Build environment.** Pin the compiler and the base images by digest; remove the capture permission from the release workflow's tests after one green CI run without it.
+9. **MSP pairing code covers the address.** A new code version (`dml3.`) whose four words also vouch for the address in the code; a customer on an older version keeps the old code with a prominent request to compare the address (shown since 4.6.1), until it updates. The relay of a master started with `--report-to` after the link is disconnected is decided with this item.
+10. **Tests without real time.** The tests that measure time (scheduling latency, a time budget, a busy wait) get a virtual clock; they failed on slow release runners in 4.6.1 and had to be repeated. A stress run of the test suite under load becomes an optional step of the release gate.
+11. **Larger structure work from the 4.6.0 audits**, taken one item at a time when the code is touched anyway: one settings cache per tenant, the old block routes as an adapter, transition tables that refuse new forward moves, ledger side rows inside the move, bounded tables with counters on Health, retention as one declaration per table, durable receipts for MSP remote operations, upgrade check from real old databases.
 
 ## 5.0.0 (planned): evidence
 

@@ -8,7 +8,7 @@ version is in [Deployment › PostgreSQL and a second node](deployment.md#postgr
 **Before you start:**
 
 * High availability needs PostgreSQL. A SQLite install is never a pair.
-* **High availability is Experimental in 4.4.** It is tested with a database container, with two processes on one
+* **High availability is Experimental** (since 4.4, and still in 4.6). It is tested with a database container, with two processes on one
   machine and in a local fault lab (a Patroni cluster in Docker), not on managed or clustered PostgreSQL. The table
   [Where things stand](#where-things-stand-in-44) says what is covered and what is not.
 * It needs the PostgreSQL build of DENIS. A build without it refuses `--database-url`. No self-build is needed: a ready-made PostgreSQL build is attached to every release from 4.2.1 (`denis-pg-x86_64-unknown-linux-musl`, `denis-pg-aarch64-unknown-linux-musl`): static, signed like the others, so nothing needs to be built. `sudo bash install.sh --postgres` installs it, and it updates itself to the PostgreSQL build of each new release. `denis --version` ends with `(postgresql)` when it is that build.
@@ -43,7 +43,7 @@ version is in [Deployment › PostgreSQL and a second node](deployment.md#postgr
 | Delivery queue (schema V59) | At least once, never exactly once | Tested on PostgreSQL 16 including failover and flood tests; see [Delivery](#delivery-is-at-least-once-not-exactly-once) |
 | Data key per tenant, key changes | Tested on SQLite and PostgreSQL 16 | [Key management](key-management.md); the pair runbook has not been run on two real machines |
 | Control schema and tenants on PostgreSQL | **Experimental** until measured | Tested in containers and with two processes. Nothing measured with 10, 50 or 100 tenants, and no number is promised |
-| Managed PostgreSQL service (for example a cloud Multi-AZ instance) | **Not covered yet** | The run on a managed service is still to do; it happens after the 4.4.0 release, not before. Its DNS switch, proxies, TLS chain, maintenance events and latency between zones are untested |
+| Managed PostgreSQL service (for example a cloud Multi-AZ instance) | **Not covered yet** | The run on a managed service is still to do. Its DNS switch, proxies, TLS chain, maintenance events and latency between zones are untested |
 | Connection poolers in transaction mode | **Not supported** | Session locks and session settings need session pooling or a direct connection |
 
 Going back after an upgrade (the backup, the one-way change of the secret format, the commands that undo it) is on one
@@ -406,7 +406,7 @@ document has a stable id. Alerts older than 24 hours are never sent, which limit
 Automatic enforcement on a pair runs only on the leader. The fence closes the database side of a leader that lost its
 lease in the middle of a write, but an action already sent to a switch, firewall or other device cannot be recalled, so
 treat [automation](enforcement.md#automation) on a pair with care while high availability is Experimental.
-Since 4.5.2 the ASA, FMC, FDM, Check Point, UniFi and FortiGate connectors ask the lease again immediately before every request that changes something leaves, also after a wait or a repeat (a rate-limit pause, a new sign-in, the wait between two vendor tasks), so a node that lost the lease sends nothing more; a request that had already been sent is read back by the new leader. The other connectors still ask between the steps of an action only, so a step that has started can finish after the lease is lost.
+Since 4.5.2 the ASA, FMC, FDM, Check Point, UniFi and FortiGate connectors, since 4.5.3 Palo Alto and since 4.6.0 MikroTik and RADIUS CoA ask the lease again immediately before every request that changes something leaves, also after a wait or a repeat (a rate-limit pause, a new sign-in, the wait between two vendor tasks), so a node that lost the lease sends nothing more; a request that had already been sent is read back by the new leader. The other 13 connectors ask the lease before their first write; after that, Cisco Catalyst 9800, Meraki, Omada, SonicWall and WatchGuard ask it between the steps of an action only (a step that has started can finish after the lease is lost), and AWS, Azure, Hyper-V, Juniper, NSX-T, OPNsense, Proxmox and the SNMP switches do not ask it again, so their whole sequence can finish after the lease is lost. The table per connector is in [Enforcement › Active responses](enforcement.md#active-responses).
 
 ## The write fence (4.4)
 

@@ -222,6 +222,7 @@ never treated this way.
 Bytes sent outside in a 5-minute window exceed the device's own average by ≥3 standard deviations (the
 deviation is floored so very regular devices do not alert on trivial changes; buckets under 5 MB are ignored).
 Score 40 + 10 per extra deviation. An incident is not learned as the new normal. One alert per device per hour.
+An alert that could not be stored is raised again at the next tick (up to three times).
 
 *Memory and floors:* the average only remembers about a day, so after a quiet day an ordinary upload looked
 huge. DENIS therefore also keeps the device's own **peak per day for 14 days**: once it knows three days, a transfer
@@ -235,7 +236,8 @@ device that is not a server or NAS.
 
 ### `unusual_hours`: active when it never is *(needs `--flows`)*
 After a week of history, activity (≥ 50 kB) in an hour of the day that holds less than 2% of the device's
-history. Local time. Score 30–60. Six-hour cooldown.
+history. Local time. Score 30–60. Six-hour cooldown. An alert that could not be stored is raised again at the next tick
+(up to three times).
 
 ### `arp_conflict` / `arp_mismatch`: address hijacking
 Two devices claim one IP address within 5 minutes of each other, or an ARP message has an inconsistent sender
@@ -341,7 +343,8 @@ One sender requests at least 20 distinct local addresses by ARP within two minut
 port — ARP requests are broadcast, so it is visible from any switch port. Score 70, +1 per address beyond the
 threshold (capped at +20). The gateway is exempt outright (it routinely re-ARPs its whole client table); a
 discovery tool (Fing, a router's own "network map" feature, Home Assistant, a UniFi controller) seen sweeping
-during the learning period is remembered and never judged again.
+during the learning period is remembered and never judged again. A sweep that is over in a few seconds is seen too:
+the capture passes on every distinct address a sender asks for (up to 32 per sender every 5 seconds).
 
 ### `iot_initiates_admin`: an IoT device opens an admin session *(needs east-west accounting or a mirror port)*
 A camera, printer, TV, smart-home gadget, phone, tablet or industrial field device (PLC, RTU, drive, sensor, building
@@ -447,7 +450,8 @@ restarts (`router_advertisers_v6`). A challenger to the router's address is `arp
 A device that was online in ≥90% of hours over the last week (and observed ≥48 h) has not been seen for
 `--silent-minutes` (default 120). Score 45, +15 for routers/NAS/servers/cameras, +10 if it was essentially
 never offline, −10 for private-MAC devices. One alert per outage; an info event when it returns. If a remote
-agent stops reporting, **one** `agent_offline` alert is raised instead of one per device.
+agent stops reporting, **one** `agent_offline` alert is raised instead of one per device. Either alert is raised again at
+the next check when it could not be stored.
 *Needs active sweeps:* disabled under `--passive-only`.
 
 ### `rogue_dhcp`: a new DHCP server
@@ -461,7 +465,8 @@ every client a wrong gateway or DNS server, so this is worth knowing about on th
 A DHCP server DENIS already knows starts handing out a different router (option 3) or DNS server (option 6) than
 it did before — the DNSChanger/GhostDNS pattern, invisible to `rogue_dhcp` since the server's MAC never changes.
 Score 60, or 75 when the new DNS server is a public address no device on the network already uses. Learned fresh
-per server, learning period or not, and persisted across restarts; one alert per server every six hours.
+per server, learning period or not, and persisted across restarts; one alert per server every six hours. When the alert
+cannot be stored, the previous router and DNS server are kept as the baseline, so the next reply raises it again.
 *Typical false positive:* none really — an administrator switching DNS providers or replacing a router is exactly
 what this is meant to surface, and it is a single acknowledgeable alert.
 
@@ -532,7 +537,8 @@ never count as a change. When a basis shows a different family on a device that 
 days, and the family it replaces had been stable for at least 7 days, that is a flip: base 55, +15 if a second basis
 flipped in the same batch, +20 if the address also moved switch port within the hour (the MAC-clone pattern), −20 for
 virtual machines, hypervisors and single-board computers, which get re-imaged often. A younger memory is just replaced,
-silently. One alert per device every 24 hours, and it joins the *arrival* step of the `hostile_newcomer` incident: a
+silently. When the alert cannot be stored, the previous memory is put back, so the next observation raises it again.
+One alert per device every 24 hours, and it joins the *arrival* step of the `hostile_newcomer` incident: a
 cloned identity that then probes is the same story as a stranger that probes. JA3 and the DHCP parameter list are
 deliberately not used (too volatile).
 *Typical false positive:* a re-installed machine, a dual-boot, a device behind a different NAT or VPN. *Investigate:*
@@ -642,7 +648,8 @@ One real sender floods DHCP DISCOVER/REQUEST messages claiming at least 20 disti
 client hardware addresses within five minutes — the Yersinia/dhcpstarv class of attack, and the textbook first
 half of "starve the real server, then answer as a rogue" (pairs naturally with `rogue_dhcp`). Not subject to
 learning or the gateway exemption. Score 85, +1 per identity beyond the threshold. The claimed (fake) addresses
-are never turned into assets — only the real sender is looked up and judged.
+are never turned into assets — only the real sender is looked up and judged. A burst that is over in seconds is
+seen too: the capture passes on every distinct claimed address of a sender (up to 32 per sender every 5 seconds).
 *Typical false positive:* a MAC-NAT Wi-Fi extender relaying DHCP for its own handful of clients never reaches the
 20-identity threshold in five minutes.
 
@@ -1599,7 +1606,8 @@ Details and examples are in the [OT guide](ot-guide.md). In short:
   Engineering laptops typed as *computer* are deliberately not judged by this rule.
 * `ot_write_escalation`: a path that **only ever read** from an industrial device starts **writing** to it: how a
   monitoring connection turns into a controlling one. Score 60, +10 for an industrial target, +15 with control
-  commands. Never during the learning period; once per pair per six hours (adjustable).
+  commands. Never during the learning period; once per pair per six hours (adjustable). When the alert cannot be stored,
+  its writes are taken back, so the next write raises it again.
 * `ot_goose_conflict`: the same IEC 61850 **GOOSE control block** (its `gocbRef` name) is published from **two
   different source MAC addresses** at the same time: a spoofed or injected publisher (GOOSE has no authentication
   without IEC 62351) or a duplicated device. Score 60, +15 when one address is a locally administered (made-up) one,

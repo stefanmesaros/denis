@@ -319,6 +319,27 @@ compare bodies.
   own system (and for local testing). A password over SMTP with no encryption is refused.
 * Text from the network (device names, hostnames) is escaped for each target so it cannot inject mentions or
   markup.
+* A message goes to the address in the channel and nowhere else: since 4.6.1 a receiver that answers with a redirect
+  (HTTP 3xx) is not followed. The attempt counts as refused (it is not retried) and the channel shows the status.
+  Point the channel at the final address.
+
+### Local targets
+
+**Settings → Notifications → Local targets → Refuse local targets** (4.6.1): while it is on, notification channels,
+integrations (CMDB, cloud, scanners, SIEM, AI) and enforcement connectors do not connect to this host itself (loopback,
+the addresses of its own interfaces), to link-local addresses (such as the cloud metadata service `169.254.169.254`) or
+to `0.0.0.0/8`. Private networks (10/8, 172.16/12, 192.168/16, fd00::/8) stay allowed: your switches, firewalls and
+receivers live there. A refused test answers with the code `outbound_local_refused` and says where to change it.
+
+* A **new installation** of 4.6.1 or later starts with it **on**. An installation **upgraded** from an earlier version
+  keeps connecting as before (the switch is off) until an administrator switches it on.
+* A receiver or relay on the DENIS host itself (a local mail relay on `localhost:25`, ntfy on the same machine) needs
+  the switch off.
+* A DENIS that is started with a proxy in its environment (`HTTPS_PROXY`) keeps using the proxy; the proxy then makes
+  the connection, so for web requests through it the rule cannot be applied (documented limit).
+* Only the installation's administrators can change it, never an MSP over the management link, and it applies at once.
+  A customer's console on a multi-tenant installation follows the MSP's rules instead
+  ([multi-tenancy](multi-tenancy.md)).
 
 ## Also available
 

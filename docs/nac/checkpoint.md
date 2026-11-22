@@ -57,7 +57,7 @@ Objects and rules that carry your DENIS install's marker but belong to no active
 
 ## The old routes
 
-The old block and unblock buttons behave as before: host object `denis-block-<ip>`, member of the block group, publish, install (an unblock also deletes the host object, with a second publish and install). They write the same ledger rows (no action type) and an unblock through them closes only those rows. They do not check for other administrators' unpublished changes (they never did).
+The old block and unblock buttons behave as before: host object `denis-block-<ip>`, member of the block group, publish, install (an unblock also deletes the host object, with a second publish and install). They write the same ledger rows (no action type) and an unblock through them closes only those rows. They do not check for other administrators' unpublished changes (they never did). From 4.6.1 a block or unblock through them is confirmed from the group only when its publish and install ended well; when either failed, timed out or got no usable answer (for example an error page of a proxy in front of the Management Server), the action stays *unconfirmed*, because the gateways may still enforce the last installed policy.
 
 ## Removing everything by hand
 

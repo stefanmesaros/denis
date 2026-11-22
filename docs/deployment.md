@@ -182,7 +182,10 @@ sudo journalctl -u denis | grep -A4 "FIRST START"
 ```
 
 (`SHA256SUMS.sig` is an Ed25519 signature of `SHA256SUMS`; the installer checks it with the project's release key.
-To check it yourself: the key is in `src/update_key.rs`, and `openssl pkeyutl -verify -rawin` verifies it.)
+To check it yourself: the key is in `src/update_key.rs`, and `openssl pkeyutl -verify -rawin` verifies it. From 4.6.1
+the first line of `SHA256SUMS` is `# denis-release <version>`, signed with the rest: check that it names the release you
+downloaded. `sha256sum -c` skips it as a comment; the installer refuses a list of 4.6.1 or later that does not name
+the release it asked for.)
 
 Or **build from source** (needs [Rust](https://rustup.rs)): `sudo apt install build-essential libpcap-dev`,
 `cargo build --release` (the static build: [below](#building-the-static-program-yourself)), `sudo install -m755 -o denis -g denis target/release/denis /usr/local/lib/denis/denis`
@@ -284,10 +287,12 @@ Start DENIS with `--no-tls --secure-cookies --public-url https://denis.example.c
 DENIS refuses any `Host` name it does not know (protection against DNS rebinding); `--public-url` tells it the public
 name is fine and it is also what [passkeys](security.md#passkeys) are bound to. Caddy passes the original `Host` on by
 default; with nginx use `proxy_set_header Host $host;` and `proxy_set_header X-Forwarded-For $remote_addr;` (DENIS uses
-the last `X-Forwarded-For` entry, from a proxy on this machine only, to rate-limit sign-in attempts per client). Keep
-the proxy on the same machine, or name a proxy on another machine (a load balancer) in `DENIS_TRUSTED_PROXIES` or
-`--trusted-proxy` (addresses or CIDR ranges, comma-separated; 4.5): without it every client behind that proxy shares its address for the
-sign-in limits ([Security](security.md#sign-in-limits-and-lock-out)).
+the last `X-Forwarded-For` entry to rate-limit sign-in attempts per client and in the audit log). Name the proxy in
+`DENIS_TRUSTED_PROXIES` or `--trusted-proxy` (addresses or CIDR ranges, comma-separated): `--trusted-proxy 127.0.0.1`
+for a proxy on this machine (needed on a new installation since 4.6.1; an upgraded one still takes the header from a
+proxy on this machine without it, and Health asks to name it), or the address of a proxy on another machine (a load
+balancer). Without it every client behind that proxy shares its address for the sign-in limits
+([Security](security.md#sign-in-limits-and-lock-out)).
 
 ## Users and roles
 
@@ -445,7 +450,10 @@ From 4.5.4 an agent that was set up once does not need the master to start or to
   reached** (the name does not resolve, the connection or the TLS handshake fails, it times out, or a proxy answers
   with an error) the agent starts anyway, says `collecting, master unreachable since ...` in its log and keeps
   trying. The start stops only when the master **refuses** the agent (HTTP 401: the token is unknown or revoked;
-  403: not an agent's token) or when the agent's own configuration cannot be read (no token, an unreadable CA file).
+  403: the token is not valid for this agent) or when the agent's own configuration cannot be read (no token, an
+  unreadable CA file). **While it runs**, the same two answers mean the same thing (since 4.6.1; before, a 403 counted
+  as "master unreachable"): the agent says `collecting_master_refuses`, keeps collecting and keeps its reports on
+  disk, and sends them once it is started with a token the master accepts.
   A first enrolment with a one-time code still needs the master: the code is exchanged there.
 * **Queue on disk.** Every report is written into the agent's own database (table `agent_outbox`) before it is sent
   and deleted when the master acknowledges it. A report that waits is sent again unchanged, also after a restart of
@@ -480,9 +488,12 @@ From 4.5.4 an agent that was set up once does not need the master to start or to
   counts and, after 20 in a row for one report, drops the report for. A 503 without `Retry-After` (a proxy in front
   of a master that is down) counts as "master unreachable".
 * **Status.** `agent-status.json` in the agent's data folder (for the installed service
-  `/var/lib/denis-agent/agent-status.json`) says `reporting`, `collecting_master_unreachable` or
-  `collecting_master_refuses`, since when, why, how many reports wait and how many were dropped since the start,
-  and `reporter_restarts`. It holds no token and no address.
+  `/var/lib/denis-agent/agent-status.json`) says `reporting`, `collecting_master_unreachable`,
+  `collecting_master_refuses` or (since 4.6.1) `stopped` after a planned stop, since when, why, how many reports wait
+  and how many were dropped since the start, and `reporter_restarts`. `updated_at` is when the state last changed;
+  `alive_at` (4.6.1) is when the running agent last wrote the file, at least every 5 minutes. A file whose `alive_at`
+  is more than 15 minutes old and that does not say `stopped` belongs to an agent that ended without a planned stop (a
+  crash, a kill, a power cut). It holds no token and no address.
 * **The report loop is watched.** If the part of the agent that builds and sends reports fails (an error in the
   program), it is started again after a short pause and the failure is counted: in `agent-status.json`
   (`reporter_restarts`), in the agent's log, and on the master as a notice for the site and an audit row
@@ -515,7 +526,7 @@ box or in Docker on the site's network.
   [HTTPS](#reaching-the-ui-securely-https-is-on-by-default)), and the agent pins the master's CA with
   `--master-ca` / `--master-ca-pem`. Across the Internet, a firewall rule limiting the port to the agents'
   addresses, or a VPN (WireGuard/Tailscale/SSH tunnel), is still worth adding. Repeated bad tokens from one
-  address are throttled.
+  address are throttled; a valid token is never refused for its address.
 * The listener can also be switched on from the console (*Settings → Capture → Network interface*, "Accept
   remote agents at"); like the interface choice, it needs a restart to take effect.
 * Give each site its own learning period; the master handles it automatically.

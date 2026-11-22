@@ -112,6 +112,7 @@ OPENRC_INIT=/etc/init.d/denis
 OPENRC_AGENT_INIT=/etc/init.d/denis-agent
 LOGDIR=/var/log/denis
 STATIC_MIN_VERSION="4.1.1"  # the first release with the static builds (denis-*-unknown-linux-musl)
+SUMS_RELEASE_MIN_VERSION="4.6.1"  # the first release whose signed SHA256SUMS names it ("# denis-release <version>")
 INIT=systemd                # systemd, openrc or none; decided by detect_init below (the tests keep systemd)
 
 VERSION="" PORT="" LOCAL_ONLY=0 DRY=0 NOSIG=0 UNINSTALL=0 PURGE=0 NOSERVICE=0 STATIC=0 POSTGRES=0 STANDARD=0 FLAVOUR=""
@@ -304,6 +305,22 @@ ver_lt() {  # is version $1 older than $2? (numbers only: 4.1.1-rc.1 counts as 4
     [ "$((10#${x[i]:-0}))" -gt "$((10#${y[i]:-0}))" ] && return 1
   done
   return 1
+}
+
+sums_release_ok() {  # does the signed list $1 belong to release $2? (4.6.1: its line "# denis-release <version>")
+  # A list that names the release must name exactly $2; a list without the line is taken only for a release older
+  # than SUMS_RELEASE_MIN_VERSION (signed before the line existed). Says why on stderr when it does not.
+  local want="${2#v}" named
+  named=$(sed -n 's/^# denis-release //p' "$1" | tr -d '\r')
+  if [ -z "$named" ]; then
+    ver_lt "$want" "$SUMS_RELEASE_MIN_VERSION" && return 0
+    echo "the signed list does not name its release (every release from $SUMS_RELEASE_MIN_VERSION on does)" >&2
+    return 1
+  fi
+  if [ "$(printf '%s\n' "$named" | sort -u)" != "$want" ]; then
+    echo "the signed list belongs to release $(printf '%s' "$named" | tr '\n' ' ' | sed 's/ $//'), not to $want" >&2
+    return 1
+  fi
 }
 
 choose_libc() {  # sets LIBC (gnu or musl) and LIBC_WHY; $1 = the release, for the fallback of older ones
@@ -788,6 +805,10 @@ else
   fi
   say "Signature OK (signed with the DENIS release key)"
 fi
+# the signed list must be the list of the release asked for: an older, correctly signed release served under a newer
+# number is refused here (4.6.1)
+why=$(sums_release_ok "$TMP/SHA256SUMS" "$VERSION" 2>&1) \
+  || die "THE SIGNED LIST IS NOT THE ONE OF $VERSION: $why. Nothing was installed."
 ( cd "$TMP" && grep " denis-$TARGET\$" SHA256SUMS | sha256sum -c - >/dev/null ) \
   || die "THE CHECKSUM DOES NOT MATCH: the download is damaged or altered. Nothing was installed."
 say "Checksum OK"
@@ -982,9 +1003,8 @@ ExecStart=/usr/local/lib/denis/denis run --db /var/lib/denis/denis.db
 Restart=on-failure
 RestartSec=5
 
-# /var/lib/denis, owned by the service user, and readable/writable by no one else: the database
-# holds TOTP secrets and every integration credential in plaintext settings rows
-# (SECURITY_ARCHITECTURE_REVIEW.md M10).
+# /var/lib/denis, owned by the service user, and readable/writable by no one else: it holds the
+# database and secrets.key, the key that seals the stored credentials and authenticator secrets.
 StateDirectory=denis
 StateDirectoryMode=0700
 UMask=0077

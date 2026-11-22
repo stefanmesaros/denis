@@ -91,6 +91,11 @@ Remotely, at any level (the request is refused before it runs, whatever the MSP 
    MSP creates at Full, or whose temporary password it reset, belongs to the MSP only for as long as the MSP is
    connected at Full: it is **switched off** (not deleted) and its sessions end the moment you press Disconnect, unlink
    the MSP or lower the level, and it is listed under Settings, MSP management with "Switch back on" (it asks for your password).
+   One case keeps it on: when it is the last enabled administrator of the installation, because DENIS never locks you
+   out of your own console. Disconnect, the level change and `denis msp-link off` then say so (`code`
+   `msp_made_not_all_off`, a high notice "Accounts made by the MSP are still on"); create an administrator of your own
+   and DENIS switches the account off within five minutes. An account that you had already switched off yourself when
+   the link ended is left as it is, and switching it on again on the Users page is your decision.
 5. Change single sign-on or any rule for signing in.
 6. Change the TLS certificate, the listen addresses, the allowed hosts, the public address or the capture interfaces.
 7. Download, upload or restore backups, export a tenant, erase data or switch demo mode. It may raise how many
@@ -227,6 +232,31 @@ pushed. If the link is cut while the MSP is creating an account, the account is 
 
 Automatic enforcement that a technician switched on for a policy ends with the link too: it is removed when the MSP is
 disconnected, unlinked or lowered below Full, so you have to opt in again yourself.
+
+**Notification channels the MSP added or redirected** (4.6.1). At Configure a technician may add a notification channel
+or change one; every alert and notice goes to a channel, so a channel the MSP **added**, or whose **destination** it
+changed (the address, the recipients, the account), is announced at once and pushed ("The MSP added or changed a
+notification channel", `msp_channel_made`), and listed under Settings, MSP management. It is **switched off** (not
+deleted) when you disconnect or unlink the MSP or lower the level to Read or Off, with a high notice "Notification
+channels the MSP made were switched off" and the audit entry `msp.channels.disabled`; lowering from Full to Configure
+keeps it. Switch it back on under Settings, Notifications (**Enable**): any edit of the channel by one of your own
+administrators makes it yours (`msp.channel.vouched`) and it stays on from then on. The five-minute check switches off
+such a channel that is still on while the level is below Configure. A change of only its name, score or wording is not
+a new destination and is not recorded. If the list cannot be read, the channel a technician just added is switched off
+at once (`msp.channel.unrecorded`).
+
+**A stop half way is repaired** (4.6.1). The level change, its audit entry (`msp.level.changed`, `msp.disconnected`,
+`msp.unlinked`) and switching off what the MSP made are separate writes. The level is always written first, so the MSP
+loses its access before anything else happens, and the change is recorded until every step is done. If DENIS stops in
+the middle (a crash, a restart, a database error), it finishes the change at the next start and checks again every
+five minutes: a lowering, a Disconnect or an Unlink is completed, a raise that was never written is dropped, and the
+audit log gets `msp.link_change.repaired` (an audit entry written by the repair carries `"repaired": true`). A new
+change made before the repair ran finishes the interrupted one first. The same
+check switches off every account the MSP made that is still on while the level is below Full, whatever left it on. If
+the list of accounts the MSP made cannot be read, DENIS says so instead of showing an empty list
+(`made_users_unreadable` in `GET /api/msp-link`), never writes over it, and switches a new account the MSP makes off at
+once (`msp.user.unrecorded`), because it could not be switched off later. This is documented and covered by tests; it
+was not checked against a database that fails on real hardware.
 
 ### Co-approval ("four eyes")
 

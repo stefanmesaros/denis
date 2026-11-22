@@ -1,4 +1,5 @@
-# Ubuntu/Debian systemd unit. UNTESTED under systemd so far: validate with
+# Ubuntu/Debian systemd unit. packaging/install.sh writes this same unit (since 0.1.3; a test keeps the two
+# equal, src/packaging.rs). Check a hand-made change with
 #   systemd-analyze verify denis.service
 # Install:
 #   sudo useradd --system --no-create-home --shell /usr/sbin/nologin denis
@@ -39,9 +40,8 @@ ExecStart=/usr/local/lib/denis/denis run --db /var/lib/denis/denis.db
 Restart=on-failure
 RestartSec=5
 
-# /var/lib/denis, owned by the service user, and readable/writable by no one else: the database
-# holds TOTP secrets and every integration credential in plaintext settings rows
-# (SECURITY_ARCHITECTURE_REVIEW.md M10).
+# /var/lib/denis, owned by the service user, and readable/writable by no one else: it holds the
+# database and secrets.key, the key that seals the stored credentials and authenticator secrets.
 StateDirectory=denis
 StateDirectoryMode=0700
 UMask=0077

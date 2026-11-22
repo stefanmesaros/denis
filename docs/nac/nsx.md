@@ -114,6 +114,12 @@ The console shows a short line under each field and a short note behind its (i).
 ## 4.5.0: checks and releases
 
 * **A group deleted by hand** lets the release of a host block or a quarantine close: nothing of DENIS's is left in it
-  (it used to be refused for ever).
+  (it used to be refused for ever). Since 4.6.1 this holds in the domain the action was made in (the plan records it); the
+  release and the read-back go to that domain even if the connector's domain was edited since. An action of the older block
+  route records no domain: a group not found there is "cannot tell", and the action stays open for you to check and resolve
+  by hand.
+* **4.6.1: a group read DENIS cannot read is never written over.** A reply that is not a group with its revision is an
+  error, not an empty group; every group edit carries the revision it was built from (NSX refuses it when the group changed
+  meanwhile: best guess from the documentation, not verified on a real NSX Manager), and DENIS edits a group once at a time.
 * **`partial_success` is not "realized".** NSX Manager reports some hosts without the change; the step is *unknown* with
   "realized on some hosts only", and the action stays *not confirmed* until NSX reports full success.

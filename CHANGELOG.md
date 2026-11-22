@@ -6,6 +6,18 @@
      paths, rule or file names, or internal groundwork. Below it is the full technical record, kept
      here only. tools/pre-release.sh checks this. -->
 
+## 4.6.1
+
+- Safer actions on your equipment: when a firewall, switch or controller gives an empty, unreadable or unknown answer, DENIS now says it cannot tell, and never "released" or "done". A change that disappeared is closed only after two readings. A block on Cisco ASA, FMC or Check Point that was edited or could not be read is no longer closed as removed. A busy switch is refused before anything is sent.
+- More honest states: an interrupted port bounce shows Partly done; a WatchGuard block shows Requested until DENIS can read the Firebox (best guess: a Cloud list entry may need a deploy); a PAN-OS commit with nothing to commit is checked against the running configuration. Existing WatchGuard blocks show Not confirmed at their next check.
+- The console never shows a failed request as off, undone or resolved. It also asks the server less while Autopilot, block suggestions and the MSP link are off.
+- MSP: lowering, disconnecting or removing a link is finished even if it stops half way (at the next start or within five minutes); accounts and notification channels an MSP made are switched off with it and reported if that fails. When pairing, compare the MSP's address as well as the four words.
+- Detection: six one-shot rules no longer lose an alert that could not be stored; address sweeps no longer hide counting rules; Health warns when traffic accounting reaches its limit.
+- Updates and agents: the rollback record survives a crash, restarts are counted only during the first day, a second DENIS on the same database is refused, tenants that failed to load show on Health, an agent restarted during an update download says nothing was changed.
+- Database: schema 72 adds six indexes; merging devices works with directory and scanner data; a late acknowledgement cannot lose a newer notice.
+- Hardening of the web console, the agent port, phone approval and the capture path (connection and time limits, redirects, proxy headers).
+- Behaviour changes for NEW installations: notification channels, integrations and connectors refuse local addresses (Settings, Notifications), and a local reverse proxy must be named with --trusted-proxy. Upgraded installations keep their behaviour.
+
 ## 4.6.0
 
 - Configuration changes (Experimental, off until you switch it on per device): DENIS tells you that a change was observed, not what changed or who made it. Cisco switches: a change, and whether it was saved. Palo Alto: a commit, and changes that wait for one. MikroTik: the router's change history. Omada: the site's audit log. FortiGate and UniFi in part only (a fixed list of tables; what the controller pushes to devices).

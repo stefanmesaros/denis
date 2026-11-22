@@ -133,12 +133,18 @@ All of this is in memory, so a restart clears the counters (the *known addresses
 * **MSP operators (4.5).** Operator sign-in on the MSP console has the same two protections as console users: an address
   the operator signed in from in the last 30 days is not refused by the 25-guess lock from all addresses, and attempts
   in flight take their place in the count before the password is checked.
-* **Behind a proxy on another machine (4.5).** `X-Forwarded-For` is used from a proxy on the same machine (as before) and
-  from the addresses or ranges named in the environment variable `DENIS_TRUSTED_PROXIES` (comma-separated, for example
-  `DENIS_TRUSTED_PROXIES=10.1.0.0/16,192.0.2.10`), or with `denis run --trusted-proxy 10.1.0.0/16` (the same setting). From such a peer the client is the right-most entry that is not
-  itself a trusted proxy. Without it every client behind a load balancer shares its address, and one guesser uses up
-  the per-address limits above for everybody. Name only the proxies themselves: anything listed may set the client
-  address. Not set: nothing changes.
+* **Behind a proxy (4.5, 4.6.1).** `X-Forwarded-For` is used from the addresses or ranges named in the environment
+  variable `DENIS_TRUSTED_PROXIES` (comma-separated, for example `DENIS_TRUSTED_PROXIES=127.0.0.1,10.1.0.0/16`), or with
+  `denis run --trusted-proxy 10.1.0.0/16` (the same setting), and from a proxy on the same machine once any is named.
+  From such a peer the client is the right-most entry that is not itself a trusted proxy. Without it every client behind
+  a proxy shares its address, and one guesser uses up the per-address limits above for everybody. Name only the
+  proxies themselves: anything listed may set the client address.
+  * **Nothing named.** A **new installation** (4.6.1 or later) ignores the header, also from a proxy on this machine:
+    otherwise any program that reaches the console from this machine (a tunnel, a plain port forwarder) could choose
+    the address its sign-in attempts are counted under. An installation **upgraded** from an earlier version keeps
+    taking it from a proxy on this machine, as before. Either way, while a proxy on this machine sends the header and
+    is not named, Health says so: name it with `--trusted-proxy 127.0.0.1`, or ignore the header everywhere with
+    `--trusted-proxy none`.
 * **Confirming it is you (4.5).** An administrator who resets another person's password or authenticator app, removes
   their passkeys, raises a role, enables an account, deletes one, or links or unlinks a single sign-on identity is asked
   for their own password again when their sign-in is older than 10 minutes (the answer is HTTP 403 `step_up_required`;
@@ -146,6 +152,15 @@ All of this is in memory, so a restart clears the counters (the *known addresses
   session (in memory: a restart asks again). Removing one's own passkey asks the same way. An MSP technician on the MSP
   console proves it with a fresh second factor of the operator session or the operator password; over the management
   channel the fresh second-factor proof of the MSP stands in, as for enforcement.
+* **Connections the console and the agent port keep open (4.6.1).** A client that only opens connections cannot use up
+  the process: request headers must arrive within 20 seconds (the same timer ends a kept-alive connection that waits
+  that long for its next request; the browser opens a new one), a TLS handshake within 10 seconds, and a connection on
+  which nothing moves in either direction for 15 minutes is closed. Each listener holds at most half of what the
+  process may open (between 256 and 4096; `DENIS_WEB_MAX_CONNECTIONS`), and the console at most 256 from one address
+  (`DENIS_WEB_MAX_CONNECTIONS_PER_ADDRESS`, `0` = no such bound; not counted for a proxy on this machine, and not on
+  the agent port, where many sites can share one address). A connection over a bound is closed at once and the log says
+  so. Long polls of the MSP channel and downloads stay within these times. Verified by a test on 127.0.0.1 (idle and
+  half-sent requests are closed within the bound); not measured on real hardware under load.
 
 ## What a master accepts from an agent
 
@@ -168,7 +183,9 @@ broken or hostile agent cannot fill the master or poison its detection:
 * **Quarantine.** If applying the same batch crashes the master's detection 10 times in a row, the batch is refused as
   malformed so the agent drops it instead of retrying for ever. An ordinary store error (the database busy or briefly
   unavailable) is not counted towards this: such a batch is retried, and nothing is lost in a short database outage.
-* **Bad tokens** from one address: more than 10 a minute are refused.
+* **Bad tokens** from one address: more than 10 a minute are refused. A token that is valid is never refused for the
+  address it comes from, so several sites behind one address keep reporting. A token the master cannot check at
+  that moment (its database briefly unavailable) is answered with a retry (503) and does not count as a bad one.
 
 **Relays to an MSP (`--report-to`).** A customer's master sends its devices and alerts to the MSP's master as one
 site, and the MSP's master keeps every customer machine reached that way in its own sub-site (at most 256 per

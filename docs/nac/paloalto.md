@@ -239,7 +239,11 @@ group, each with a commit; the action counts as enforced only when DENIS has rea
 the change. *Block flow* writes one deny security rule at the top of the rulebase (and its address and service objects) with
 a partial commit of `denis-api`. *End sessions* runs `clear session` for the address and changes no configuration. **Extend**
 sets the new end from now, not added to the old end, and needs your password. A commit that is still running when DENIS stops
-waiting leaves the action *unconfirmed*; **Check now** or a release settles it.
+waiting leaves the action *unconfirmed*; **Check now** or a release settles it. When the firewall answers a commit with
+"nothing to commit", DENIS reads the running configuration again before it calls the change published (4.6.1): if the running
+configuration does not show DENIS's change (for example a partial commit for an administrator the change is not listed
+under), nothing was published, DENIS undoes its own edits in the candidate configuration, and the block fails or the release
+stays open; if it cannot read the running configuration, the action is *unconfirmed*.
 
 **If something fails**
 

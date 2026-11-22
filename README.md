@@ -202,6 +202,14 @@ register and the monitored networks under Settings, Capture: six of the console'
 <img src="docs/img/settings-capture.png" width="32%" alt="Settings, Capture: capture interfaces, three monitored networks with their port scan and ping settings, and Active probing">
 </p>
 
+4.6.1 (2026-11-22) is a review release: equipment that answers badly is read honestly (an empty or unknown answer is
+"cannot tell", never "released"; a change that disappeared is closed after two readings), the console never shows a failed
+request as good news, MSP link changes are finished even when they stop half way, six one-shot detection rules no longer
+lose an alert, updates and agents are safer, and the web console, the agent port and phone approval are hardened. New
+installations refuse local addresses for notification channels, integrations and connectors and need `--trusted-proxy`
+for a reverse proxy on the same computer; upgraded installations keep their behaviour (see the
+[changelog](CHANGELOG.md)).
+
 New in 4.6: port health for switches (traffic, errors, restarts, processor, memory, PoE and link changes, with hourly
 figures kept 90 days by default, up to 400), service checks (ping, a TCP port, a DNS question or a web page, asked from the DENIS server),
 configuration change tracking (that a change was observed, not what changed or who: Cisco switches, Palo Alto, MikroTik and
@@ -343,9 +351,9 @@ Gemini, see AI.md) and a real local Ollama instance.
   only with hand-built frames and integration tests, not real ICMPv6/NDP traffic or a real raw-socket
   send. Real IPv6 alert-noise data may also show the scoring wants IPv6-specific tuning (see IPV6.md
   for the complete, itemised accounting).
-* PostgreSQL and high availability (Experimental in 4.4): built and tested with PostgreSQL 16 in containers, with two
+* PostgreSQL and high availability (Experimental since 4.4, still in 4.6): built and tested with PostgreSQL 16 in containers, with two
   processes on one machine and in a local fault lab (Patroni cluster, `tools/ha-lab/`) — not yet run on two real
-  machines, nor on a managed PostgreSQL service (that run happens after the 4.4.0 release). Two lab scenarios (a half-open link to the database) are fixed but still
+  machines, nor on a managed PostgreSQL service (that run is still to do). Two lab scenarios (a half-open link to the database) are fixed but still
   to confirm in the lab. Tenants on PostgreSQL are built but not measured with 10, 50 or 100 tenants.
 * The enforcement connectors. All 22 connector kinds are wired and can be configured. Some actions were tried on real
   equipment (a Cisco Catalyst 2960-X, a FortiGate 40F, a Palo Alto PA-220, a MikroTik E50UG, a UniFi gateway with an access

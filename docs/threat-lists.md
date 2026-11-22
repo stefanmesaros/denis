@@ -390,7 +390,8 @@ and false positives are in [Detection rules](detection-rules.md).
 * **What cannot be seen.** Only plain DNS: DNS over HTTPS or TLS, and a resolver on a link DENIS does not capture, hide the name. An
   `https` web address matches nothing, because the path of an HTTPS request is invisible; its host can be matched as a name.
 * **One alert per device and entry per six hours.** Nothing is learned: the rules judge from the first sighting, also during the
-  learning period.
+  learning period. The six hours start only once the alert was built: a device that cannot be read for a moment is judged again
+  at its next sighting.
 * **The action of the list** decides what else happens. `alert`: nothing. `prepare_block` and `auto_block` (Experimental, off by
   default): the rule also queues a prepared block, one per list and entry and at most 50 waiting, so that a poisoned list cannot flood
   the queue. The queue is read by the block step (below), which turns a proposal into a prepared block only once its alert is

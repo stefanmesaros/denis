@@ -68,6 +68,8 @@ A user name (plain configuration), a password (`nac.asa.password`) and optionall
 
 The ledger row is written before anything changes (`unconfirmed`), the audit entry before the connector is touched, and each command is a step. A release or an automatic end removes by name and marker and reads the configuration back; if the ASA refuses, the action stays active and DENIS tries again, with growing waits, and tells you.
 
+The regular check of active actions (4.6.1) reads the ASA the same way. A deny line that is still in the list but no longer at the top, or no longer as DENIS wrote it (for example with `log` or `inactive` added), and a DENIS object that is still in the block group but whose address or marker was changed, keep the action active and are shown as changed outside DENIS; the release still removes them. Only when no remark and no deny line of the action is left (a flow), or the group no longer holds DENIS's object (a membership), is the action closed as removed outside DENIS. An access list or group that cannot be read, or is not found under its name, is *cannot tell*, never *removed*.
+
 Objects and lines that carry your DENIS install's marker but belong to no active action (for example after a database restore) are listed as orphans, with a button to remove them. Objects with another install's tag, and anything without the marker, are never listed as DENIS's and never removed.
 
 ## Removing everything by hand

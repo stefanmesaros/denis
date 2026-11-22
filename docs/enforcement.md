@@ -238,7 +238,22 @@ The common ones:
 Other situations:
 
 * **`unconfirmed`.** DENIS did not get a clear answer. Use the action's *check* (or *Check now* on a switch port) to read the
-  device back. A confirmed change stays active; one that is gone becomes `restored_elsewhere`.
+  device back. A confirmed change stays active; one that is gone becomes `restored_elsewhere` (since 4.6.1 only after a second
+  reading that agrees, see *Drift*).
+* **The device could not tell (4.6.1).** An answer DENIS cannot read (an empty or unparsable reply to a read), or a group that
+  is no longer found under the name the action recorded (renamed or deleted on PAN-OS or FortiGate, or an NSX group outside
+  the domain the action was made in), is "cannot tell", never "released": the release removes nothing and the action stays
+  open (*The firewall has no group … any more*). Check the device; if the address is not blocked any more, mark the action
+  resolved by hand. DENIS also never writes a group from such an answer.
+* **A switch that stays busy (4.6.1).** DENIS makes one change at a time on each switch. A block or a release that still finds
+  another DENIS change running there after a 30-second wait is refused before anything is sent (*Another DENIS change is still
+  running on this switch*); try again. Before 4.6.1 it went on after the wait.
+* **The record could not be written (4.6.1).** A change that went to the device but whose result the database did not take is
+  answered as *not confirmed*, never as done; an unblock of the older block routes whose record cannot be marked first does not
+  touch the device. An automatic action (a rule, Autopilot, a list) asks again right before it writes whether its source may
+  still act (automation on, the rule unchanged and still automatic, its administrator or MSP link still allowed), and sends
+  nothing if not. If the tag that marks DENIS's objects on devices cannot be read, the action is refused (`owner_tag`); a new
+  tag is never made in its place.
 * **`rollback_failed`.** DENIS could not undo it, and it is still in force. DENIS retries on its own; you can retry now or,
   if you removed it on the device yourself, mark it resolved by hand (the password is needed). Look at the device and at the
   action's steps before doing either. A removal that waits because someone else has changes pending on the device (PAN-OS
@@ -251,7 +266,10 @@ Other situations:
 * **An orphan is listed.** An object named `denis-...` on a device is not accounted for. Check that it really is DENIS's,
   then remove it through the API.
 * **Drift (`restored_elsewhere`).** Someone changed the device by hand, or it restarted. DENIS does not reapply. Start a new
-  action if you still want it.
+  action if you still want it. Since 4.6.1 one reading without the change does not close the action: the row stays as it is
+  and says so (*The device did not show DENIS's change this time*, `absent_once` in its verification), and the next check (at
+  least a minute later, usually the next hourly pass) closes it only if the change is still not there. A reading that shows
+  the change in between starts over. The release stays possible all the while.
 * **A repeated request.** A request sent twice returns the first answer with `"replayed": true` and does not touch the device
   a second time. An apply that was refused before anything was written (a missing tick, a reason too short, the hourly
   limit) does not use its plan up: sending it again answers the same refusal, or goes ahead once the cause is gone (4.5).
@@ -270,7 +288,10 @@ Other situations:
   themselves. While a freshly installed version is not confirmed yet (a few minutes), only what DENIS would start by
   itself waits: an automatic block by a rule, a list or Autopilot is not made (`update_unconfirmed`, the suggestion stays
   for a person, nothing is queued), and the re-registration of a lost Palo Alto tag and the repair of a MikroTik name
-  chain wait for the next check after the confirmation. What a person asks for, releases and expiries run. A write test
+  chain wait for the next check after the confirmation. Releases, expiries and what a person asks for run, with one
+  exception from 4.6.1: while going back from that update would put the database back from its copy, a person's new
+  block, quarantine or port switched off is refused too (`update_unconfirmed_restore`, nothing is sent or recorded; the
+  restored copy would not know it while the device keeps it; see docs/updates.md). A write test
   of a switch and the removal of a leftover object are refused on a cluster node that is not the leader (`not_leader`),
   and an extend is refused when enforcement was switched off after the dialog was opened.
 * **A removal that answers with an error.** Before a removal is called failed, DENIS reads the device back: when the change
@@ -362,8 +383,10 @@ same path, with the rule as the actor:
   enforcement switch off stops it without suspending it. The administrator who switched a rule's automatic response on
   for real is checked too: one who lost the permission or was switched off sends that rule back to "prepare", with a
   notice. A rule still in its trial only writes down what it would have done, so it never suspends automation.
-* **Leader only.** On a cluster only the leader acts. DENIS cannot yet fence a leader that lost its lease, so treat
-  automation on a cluster with extra care.
+* **Leader only.** On a cluster only the leader acts. The database refuses the writes of a leader that lost its lease
+  (the write fence, Experimental like the whole pair), but a change already on its way to a device cannot be recalled,
+  and 13 connectors do not ask the lease again before every request (see [Active responses](#active-responses)), so
+  treat automation on a cluster with extra care.
 
 ### Undo
 
@@ -645,11 +668,21 @@ refusal (nothing changed, so a lease lost at its retry is still "not sent"), a c
 connect, TLS handshake or policy: also "not sent", seen by a probe around the HTTP agent's transport, `nac_kit::wire`), and everything else, which
 stays "unknown" and is read back (a request whose first byte left, an earlier request that may be in place, a transport without a probe). The
 earlier possible effect is its own flag, so a refused retry never hides an earlier request that may have been applied. A save the ASA did not take
-(`write memory`) leaves the change in the running configuration; the result now says so in words, not only as a skipped step. Not covered: the
-connectors that still ask only between steps and through the instance lock (AWS, Azure, Cisco WLC, Hyper-V, Juniper, Meraki, NSX, Omada,
-OPNsense, Proxmox, SNMP, SonicWall, WatchGuard): a lease lost inside one of their steps lets that step finish.
+(`write memory`) leaves the change in the running configuration; the result now says so in words, not only as a skipped step. Not covered:
+the other 13 connectors. They ask the gate (the lease, and the kill switch where the purpose asks it) before their first write only; what
+they ask after that, per connector (documented from the code, 4.6.1):
 
-Since 4.6.0 the nine connectors above cannot send a change any other way: a request that changes something needs a ticket that only the
+| Connector | Asked before the first write | Asked between steps |
+|---|---|---|
+| Cisco Catalyst 9800 (WLC), Meraki, TP-Link Omada, WatchGuard | the gate | the lease, after each step it records |
+| SonicWall | the gate; the lease and the kill switch again once it holds the device | the lease, after each step it records |
+| OPNsense | the gate; the lease and the kill switch again once it holds the device | nothing |
+| AWS, Azure, Hyper-V, Juniper, NSX-T, Proxmox, SNMP switches | the gate | nothing |
+
+So on these connectors a lease lost, or the kill switch switched off, while an action is under way lets the step under way finish, and on
+the connectors that ask nothing between steps, the rest of the sequence as well.
+
+Since 4.6.0 the nine connectors that ask the lease at the last moment cannot send a change any other way: a request that changes something needs a ticket that only the
 gate's permit for that action hands out, and a request that comes without one is refused before anything is sent (documented; checked by
 source scans and by tests against simulated devices, not on real equipment). Two writes were found this way and now go through the gate:
 the Palo Alto hourly check ended the open sessions of an unconfirmed tag block without asking the update holds, the lease or the kill

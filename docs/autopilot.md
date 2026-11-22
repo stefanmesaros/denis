@@ -271,6 +271,10 @@ same checks, the kill switch, the hourly limit, the ledger and the audit log.
   answer of "likely benign" ends it.
 * It never acts on OT devices, network or server infrastructure, the gateway, DENIS itself, a device you marked
   sensitive, or anything the guards refuse (uplinks, protected addresses, the address you are signed in from).
+* A block suggestion of a rule is acted on no further than the rule would act by itself (4.6.1): its response is set to
+  respond automatically and is live, it is not an industrial (OT) rule, it was not edited in the last 24 hours, an IT rule
+  matched twice at least 10 minutes apart, and the suggestion is still open and not put off with "Not now". A rule set to
+  wait for a person keeps a person in the loop.
 * One device per action. It never blocks a flow, never switches off a port and never ends sessions.
 * It cannot name a device, a connector, an address, a time or a setting. The model's answer is a closed form: one
   suggestion id and, at most, an action you already allowed. Anything else in it is refused and written to the audit log.

@@ -178,7 +178,16 @@ live discovery does not.
   notification channels, branding, rule settings, agent tokens and the **audit log** (which records that the erase
   happened and who did it). You must type `ERASE ALL DATA` to confirm. **It cannot be undone: take a backup first.**
   (`POST /api/data/erase` with `{"confirm": "ERASE ALL DATA"}`; with DENIS stopped, `denis erase --yes`, which also
-  forgets what was learned.)
+  forgets what was learned. From 4.6.1 `denis erase` refuses while DENIS runs on that database.)
+
+**One DENIS per database (4.6.1).** `denis run` on SQLite and `denis agent` hold a lock for as long as they run:
+`denis-run.lock` in the data folder and `<database>.run.lock` beside the database file. A second `denis run` on the same
+data folder or the same database file stops at once with "another DENIS process is already running on this data" and
+changes nothing. The lock is an operating-system lock on an open file, so it goes when the process ends in any way (also
+a crash or a power cut); the files stay and are reused. On a file system that cannot lock (some network shares) DENIS
+logs a warning and starts without the check. A PostgreSQL pair takes no such lock (its nodes may share a folder; the
+leader lock in the database decides). If DENIS cannot set up its stop signals (SIGTERM, Ctrl-C) the log says so and it
+keeps running; before 4.6.1 that looked like a clean stop right after the start.
 
 ## Retention
 
@@ -613,6 +622,7 @@ that mean DENIS is working but part of what it should see is missing:
 | Agent reports (a service line) | Agents are enrolled but none has reported for 6 hours. Advisory. The demo's two sites do not count. |
 | Saving devices and sightings (or east-west connections, or passive DNS names) to the database failed N times | A database write failed within the last 15 minutes: what was seen then is not saved. Check the free disk space and the database (on PostgreSQL: is the primary accepting writes?); the service log names the error. While writes fail, the **Database writes** service line is judged from the last flush that came with no new failure. |
 | The last backup needed *time* to copy the database, and the database's write-ahead log … grew to *size* meanwhile (4.5.4) | Advisory, SQLite. The last backup since DENIS started took 10 minutes or more, or the `denis.db-wal` file reached 1 GiB while it ran. Recording went on during the copy; the log is folded back in after it. Check the free disk space: the log needs that room during every backup. Shown until DENIS restarts or the next backup is quick and small. |
+| These tenants could not be loaded when DENIS started and are not running (4.6.1) | An MSP master with tenants: a tenant whose database or settings could not be opened at the start is not running, and its console and agents get HTTP 503 until DENIS is restarted. The log says why for each one (code `tenants_not_loaded`). |
 | The database's write-ahead log … is *size* (4.5.4) | Advisory, SQLite. `denis.db-wal` is 1 GiB or more now. It is folded back in when nothing reads an older state of the database; if it stays this large, look for a program that keeps the database open (another `denis` command, a copy or backup tool) and check the free disk space. |
 | Part of the database could not be read for this page | The Health page could not read the database statistics or the backup settings. It still shows everything else; the figures that need the database are empty. |
 | *Job*: the last N attempts failed | A periodic job (Findings, Posture samples, Scheduled reports, Service probe, Tenant limits from the control store, Maintenance setting for notifications; advisory for Vulnerability data, the GeoIP database update, the Entra ID and Intune import, the vulnerability scanner import and, since 4.5, the Active Directory, Jamf Pro, Microsoft Defender, AWS, Azure and Google Cloud imports) failed three times in a row. What it keeps up to date is from its last completed run. The error is in the warning and under **Background work**. |
@@ -719,9 +729,9 @@ Both are Experimental and off until an administrator adds a check or switches th
   configuration is in any of them. After a restore the checks run again from their next due time, and the first reading
   of a switch's configuration after a restore is a first one again (it makes no event).
 * **Erase all data** deletes the tables of both; removing a check or a switch deletes its rows.
-* **Going back.** Schemas V68, V69, V70 and V71 keep the compatibility floor: a 4.6.0 build that does not know them uses
-  such a database as it is and leaves the new tables, columns and indexes alone (see [Going back without a restore](updates.md#going-back-without-a-restore-from-460)).
-  To remove them by hand: [V71](#rolling-back-v71), [V70](#rolling-back-v70), [V69](#rolling-back-v69), [V68](#rolling-back-v68).
+* **Going back.** Schemas V68, V69, V70, V71 and V72 keep the compatibility floor: a 4.6.0 build that does not know them
+  uses such a database as it is and leaves the new tables, columns and indexes alone (see [Going back without a restore](updates.md#going-back-without-a-restore-from-460)).
+  To remove them by hand: [V72](#rolling-back-v72), [V71](#rolling-back-v71), [V70](#rolling-back-v70), [V69](#rolling-back-v69), [V68](#rolling-back-v68).
 
 ## Is it your connection, or is it DENIS?
 
@@ -945,6 +955,9 @@ refuse them: undo every split in the console first (device panel, *Undo the spli
 SELECT COUNT(*) FROM assets WHERE l2_domain <> '';   -- must be 0
 ```
 
+On a database at V61 or newer, take the newer steps off first, newest first; in particular "Rolling back V72" removes
+the index `assets_agent_mac_dom`, which names `l2_domain` (SQLite refuses to drop the column while it exists).
+
 ```sql
 -- PostgreSQL (one transaction)
 BEGIN;
@@ -1151,7 +1164,7 @@ listed switches, controllers or RADIUS servers reported (who signed in, from whi
 device and port, since when, and how it ended), with its indexes. Nothing else changes, and V67 keeps the compatibility
 floor: a 4.6.0 build that does not know V67 uses such a database as it is (SQLite; on PostgreSQL an older build refuses it; see [Going back without a restore](updates.md#going-back-without-a-restore-from-460)),
 it just does not write, prune or show the table. To remove it by hand anyway, stop DENIS first (on a database at V68 or
-newer, take those off first: "Rolling back V71", "Rolling back V70", "Rolling back V69", "Rolling back V68"), then:
+newer, take those off first: "Rolling back V72", "Rolling back V71", "Rolling back V70", "Rolling back V69", "Rolling back V68"), then:
 
 ```sql
 -- PostgreSQL (one transaction; in a tenant schema too, with its search_path)
@@ -1182,7 +1195,7 @@ newest state of each PoE port), `port_hourly` and `switch_hourly` (the hourly fi
 Nothing else changes, and V68 keeps the compatibility floor: a 4.6.0 build that does not know V68 uses such a database
 as it is (SQLite; on PostgreSQL an older build refuses it; see [Going back without a restore](updates.md#going-back-without-a-restore-from-460)); it leaves the new
 columns empty and does not write or prune the four tables. To remove the tables by hand anyway, stop DENIS first (on a
-database at V69 or newer, take those off first: "Rolling back V71", "Rolling back V70", "Rolling back V69"), then:
+database at V69 or newer, take those off first: "Rolling back V72", "Rolling back V71", "Rolling back V70", "Rolling back V69"), then:
 
 ```sql
 -- PostgreSQL (one transaction; in a tenant schema too, with its search_path)
@@ -1217,7 +1230,7 @@ the outcome, a reason code and numbers such as the answer time, never text the t
 each check and when it is due) and `check_hourly` (the hourly figures). The checks themselves are a setting
 (`checks.list`), not a table, and stay. Nothing else changes, and V69 keeps the compatibility floor (SQLite; on PostgreSQL an older build refuses a newer
 database). To remove the
-tables by hand anyway, stop DENIS first (on a database at V70 or V71, take those off first: "Rolling back V71",
+tables by hand anyway, stop DENIS first (on a database at V70 or newer, take those off first: "Rolling back V72", "Rolling back V71",
 "Rolling back V70"), then:
 
 ```sql
@@ -1250,7 +1263,7 @@ result of the newest collection and the device's own time stamps it is compared 
 per change, save, or restart with unsaved changes), with two indexes. No configuration, command or user name is stored.
 Nothing else changes, and V70 keeps the compatibility floor (SQLite; on PostgreSQL an older build refuses a newer
 database). To remove the tables by hand anyway, stop DENIS first (on
-a database at V71, take V71 off first: "Rolling back V71"), then:
+a database at V71 or V72, take those off first: "Rolling back V72", "Rolling back V71"), then:
 
 ```sql
 -- PostgreSQL (one transaction; in a tenant schema too, with its search_path)
@@ -1298,8 +1311,46 @@ PRAGMA user_version = 70;
 ```
 
 Nothing is lost: only these reads get slower on a large table. The next start of a build with V71 creates the indexes
-again. To go further back, continue with "Rolling back V70". The SQLite steps are run against a real file in
-`store/sqlite/tests_v71.rs`.
+again. On a database at V72, take V72 off first ("Rolling back V72"). To go further back, continue with "Rolling back
+V70". The SQLite steps are run against a real file in `store/sqlite/tests_v71.rs`.
+
+### Rolling back V72
+
+Schema V72 (4.6.1) adds six indexes and nothing else: `assets_agent_mac_dom` (finding a device by its hardware address,
+once per address on every switch reading), `state_log_ts` (the removal of old state history), `sessions_expires` (the
+removal of expired sign-ins), `asset_sightings_collector` (the devices one collector saw lately),
+`deliveries_state_updated` (the removal of old deliveries and the count of the ones given up on) and
+`nac_action_steps_open` (the response extensions still waiting for the device). No table, column or row changes, and V72
+keeps the compatibility floor: a build that does not know V72 uses such a database as it is (SQLite; on PostgreSQL an
+older build refuses it). To remove the indexes by hand anyway, stop DENIS first, then:
+
+```sql
+-- PostgreSQL (one transaction; in a tenant schema too, with its search_path)
+BEGIN;
+DROP INDEX assets_agent_mac_dom;
+DROP INDEX state_log_ts;
+DROP INDEX sessions_expires;
+DROP INDEX asset_sightings_collector;
+DROP INDEX deliveries_state_updated;
+DROP INDEX nac_action_steps_open;
+UPDATE schema_version SET version = 71 WHERE version = 72;
+COMMIT;
+```
+
+```sql
+-- SQLite (sqlite3 denis.db, a tenant's or the agent's own database)
+DROP INDEX assets_agent_mac_dom;
+DROP INDEX state_log_ts;
+DROP INDEX sessions_expires;
+DROP INDEX asset_sightings_collector;
+DROP INDEX deliveries_state_updated;
+DROP INDEX nac_action_steps_open;
+PRAGMA user_version = 71;
+```
+
+Nothing is lost: only these reads get slower on a large table. The next start of a build with V72 creates the indexes
+again. To go further back, continue with "Rolling back V71". The SQLite steps are run against a real file in
+`store/sqlite/tests_v72.rs`.
 
 ### The delivery outbox has no switch
 

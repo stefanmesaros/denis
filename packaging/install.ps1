@@ -122,9 +122,8 @@ $exe = Join-Path $InstallDir 'denis.exe'
 
 Write-Host "==> Preparing $DataDir (restricted to Administrators and SYSTEM)"
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
-# The Windows equivalent of StateDirectoryMode=0700 / UMask=0077 on the systemd units
-# (SECURITY_ARCHITECTURE_REVIEW.md M10): the database holds TOTP secrets and every integration
-# credential in plaintext settings rows.
+# The Windows equivalent of StateDirectoryMode=0700 / UMask=0077 on the systemd units: the folder
+# holds the database and secrets.key, the key that seals the stored credentials and authenticator secrets.
 icacls $DataDir /inheritance:r | Out-Null
 icacls $DataDir /grant:r "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" | Out-Null
 

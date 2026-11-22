@@ -63,7 +63,10 @@ Limits, stated plainly:
 ### When it cannot go back by itself
 
 After a switch the new program must run for at least a minute and show that it works (see below). If it fails to start twice, the third start puts the previous
-program back (and, on SQLite, the pre-update database when its format had changed). Since 4.5.0 two cases (and since 4.5.2 a third, last in this list) are
+program back (and, on SQLite, the pre-update database when its format had changed). From 4.6.1 a start counts as a failed
+start only within 24 hours of the install, and not while an agent runs and waits for its master (state *confirmed pending
+master*): restarts after a power cut or a reboot during a long outage no longer bring the previous version back. A version
+judged degraded (see [How an update is confirmed](#how-an-update-is-confirmed)) still goes back at its next start. Since 4.5.0 two cases (and since 4.5.2 a third, last in this list) are
 refused instead of half-done, and the new program keeps starting:
 
 * **PostgreSQL, the schema was migrated.** The old program refuses a schema newer than itself (also in 4.6.0, whatever
@@ -83,7 +86,9 @@ refused instead of half-done, and the new program keeps starting:
 Once the copies are ready the marker is rewritten as "restoring" and the program is put back; each database is then
 switched with one rename (the replaced one, with its write-ahead log, stays beside it as `...failed-<time>`; the
 restored database never meets the old log). The rollback counts as done, and the marker is removed, only when every
-database is confirmed back. If it is interrupted, or one tenant cannot be switched, the marker stays and the next
+database is confirmed back. From 4.6.1 the note and the record that keeps an automatic update from installing the same
+version again are written (and synced) before the marker is removed, and the installer syncs the new program and
+`denis.previous` to the disk before it switches, so a power cut at the wrong moment cannot leave an empty program file. If it is interrupted, or one tenant cannot be switched, the marker stays and the next
 start finishes the restore; the note says what is still open. The marker also records which databases the rollback means
 to put back and the format each was at then, and the retry keeps to that:
 
@@ -150,7 +155,8 @@ running version has shown that its mandatory parts work:
 * **A master that cannot be reached** (connection refused, timeout, no route: a WAN outage) is not the new version's fault.
   The agent's state is **confirmed pending master** (`/api/health` field `update`, the console note and
   `update-status.json` in the backup folder). The marker stays, **nothing is rolled back** however long the outage lasts, and
-  the version is confirmed by the first delivered report. (Best guess: DENIS cannot tell from the agent whether the master
+  the version is confirmed by the first delivered report. From 4.6.1 a restart of the agent in this state (a power cut, a
+  reboot) is not counted as a failed start either. (Best guess: DENIS cannot tell from the agent whether the master
   is down for a reason of its own; it treats every transport failure alike.) A master that answered and refused the report
   (a rejected batch, HTTP 500, a rejected token) is a failed send: degraded.
 * **Degraded** is a mandatory part that failed after the first minute, or one that is still not ready after ten minutes.
@@ -161,8 +167,9 @@ running version has shown that its mandatory parts work:
 * The confirmation is bound to the update it was started for (both versions and the recorded digests of the old and the new
   program); a marker of another update is never removed by it.
 * **Until the confirmation DENIS starts no automatic response by itself** (hold (b), see
-  [Never in the middle of an enforcement action](#never-in-the-middle-of-an-enforcement-action)); a person can still block,
-  and releases and expiries run. The hold ends at the confirmation, or at the latest eleven minutes after the
+  [Never in the middle of an enforcement action](#never-in-the-middle-of-an-enforcement-action)); releases and expiries
+  run, and a person can still block unless going back from the update would put the database back from its copy (then
+  a new block by hand waits too, from 4.6.1). The hold ends at the confirmation, or at the latest eleven minutes after the
   confirmation began (the ten minutes of the deadline plus a margin). Those minutes are counted from the moment the new
   version has finished starting (its databases copied and upgraded, every tenant loaded), the same moment the ten-minute
   deadline is counted from: until 4.6.0's review the hold was counted from the start of the process, so a start-up of more
@@ -221,8 +228,10 @@ bar offers a newer line (4.3.0) and a patch of the running line (4.2.4) is the o
 patch cannot be skipped on its own: switch automatic security updates off, or choose a daily window, to hold it back.
 
 **How.** Exactly the steps of a manual install, nothing skipped or weakened: the signature on `SHA256SUMS` must
-verify with the release key built into the program, the file must match the signed checksum, the new program must
-report its version, the database is backed up, the old program is kept, and the previous version comes back by
+verify with the release key built into the program, the signed list must be the list of the release being installed
+(from 4.6.1 its first line is `# denis-release <version>`; a list of 4.6.1 or later without that line, or naming another
+release, is refused, while a list of an older release, signed before the line existed, is still taken), the file must
+match the signed checksum, the new program must report its version, the database is backed up, the old program is kept, and the previous version comes back by
 itself if the new one does not start. DENIS looks for a release with its regular check (every six hours, and at once
 when you switch the setting on); when GitHub's newest release is a new minor version, it reads GitHub's release list
 to find the newest release of the line that runs (from usedenis.com only the newest stable release is available, so
@@ -245,10 +254,10 @@ An update holds enforcement in two ways, named apart (4.6.0):
 | | Hold (a): the swap | Hold (b): not confirmed |
 |---|---|---|
 | How long | seconds: from just before the program is replaced until the new one runs | minutes: from the moment the installer checks space until the switch, and in the new version from its start until the update is confirmed, **at most about eleven minutes after the start-up has finished** (30 minutes after the start if the start-up never finishes) |
-| What waits | every write to a device: a block, a quarantine, a port change, its removal, an expiry, an extension, *Enable port*, the switch write test | only what DENIS starts by itself and that is not an undo: an automatic block by a rule or Autopilot, an automatic extension of a block, the Palo Alto re-registration |
-| What always runs | reads | **a release, an expiry, a check of a device, and every action a person asks for or approves** |
-| Running actions | waited for, up to a minute; otherwise the update stops with nothing changed and is tried again shortly after | not waited for: it only stops new automatic ones |
-| What you see | "DENIS is installing an update and restarts in a moment" (code `updating`) | "DENIS was updated a few minutes ago and has not confirmed the new version yet. It does not start responses by itself until then. You can apply this by hand, but if the update is then rolled back with its database copy, DENIS forgets that apply while the device keeps it: check the device after a rollback." (code `update_unconfirmed`) |
+| What waits | every write to a device: a block, a quarantine, a port change, its removal, an expiry, an extension, *Enable port*, the switch write test | what DENIS starts by itself and that is not an undo: an automatic block by a rule or Autopilot, an automatic extension of a block, the Palo Alto re-registration. From 4.6.1 also a person's **new** block, quarantine or port switched off, but only while going back from the update would put the database back from its copy (the update status says `rollback_kind: restore`) |
+| What always runs | reads | **a release, an expiry, *Enable port*, an extension, a check of a device**, and a person's new change while going back would only swap the program |
+| Running actions | waited for, up to a minute; otherwise the update stops with nothing changed and is tried again shortly after | not waited for: it only stops new ones |
+| What you see | "DENIS is installing an update and restarts in a moment" (code `updating`) | for an automatic response: "DENIS was updated a few minutes ago and has not confirmed the new version yet. It does not start responses by itself until then. A person can still apply this by hand, unless going back from the update would put the database back from its copy." (code `update_unconfirmed`); for a person's new change while going back would restore the copy: "... If the update is rolled back now, DENIS puts its database back from the copy taken before the update and would forget this change while the device keeps it, so new blocks, quarantines and ports switched off wait until the update is confirmed (at most about eleven minutes). Releases and expiries still run. Nothing was changed; try again after the confirmation." (code `update_unconfirmed_restore`) |
 
 Hold (a) is the hold of earlier versions; a release that is refused in those seconds runs again at the next pass of the
 expiry job. Hold (b) exists so that a version that has not shown it works does not change your network by itself: if
@@ -257,7 +266,22 @@ as not applied, and the next match after the confirmation acts. It ends when the
 return can no longer happen, or about eleven minutes after the start-up has finished in any case (30 minutes after the start if it never finishes); in the last two cases Health says that
 automatic responses were resumed although the update is not confirmed. `GET /api/health` shows the hold that is on
 (`ha.update_hold`: `swap` or `unconfirmed`), and so does the update status (`update_hold`). Alerts and notifications are
-not affected by either hold. (4.6.0 adds hold (b) and its two classes; which enforcement call is automatic and which a
+not affected by either hold.
+
+**Why a person's new block waits too (4.6.1).** When the new version has upgraded a database, going back from it puts
+that database back from the copy taken just before the upgrade. Everything recorded after the copy is gone from DENIS,
+but a block, a quarantine or a port switched off in those minutes stays on the device: DENIS would no longer know it,
+show it or end it. Until 4.6.0 the refusal text only warned about this; from 4.6.1 such a change is refused with nothing
+changed (no record, no request to the device) while that rollback is still possible, and it can be made again as soon
+as the update is confirmed. A release, an expiry, *Enable port* and an extension are never held: undoing must always be
+possible. While going back would only swap the program (the database format did not change, or the previous version can
+read the upgraded one), nothing is lost by going back and a person's change runs as before. Two cases are not covered:
+with `--auto-rollback off`, after hold (b) has ended, a rollback you start by hand that restores the copy still forgets
+what was applied in between (check the device afterwards); and a PostgreSQL installation whose schema changed is
+restored by hand from its dump (`rollback_kind: manual`), so the same applies there. (Verified by tests of this
+build; not tried on a real update.)
+
+(4.6.0 adds hold (b) and its two classes; which enforcement call is automatic and which a
 person's is decided by the enforcement gate from who started it: a rule, Autopilot or an automatic extension is
 automatic, a person's apply or approval is not; verified by reading the code of this build.)
 
@@ -566,7 +590,10 @@ the old version back by itself if the new one does not start. It **refuses**:
 * everything, if it was started with `--no-self-update` (the site's own switch, also `DENIS_AGENT_NO_SELF_UPDATE=1`).
 
 If an update fails, the agent keeps running its old version and reports the error; the master shows it under **Sites**
-and does not push the same version again.
+and does not push the same version again. If the agent was stopped or restarted while it was still downloading or
+checking the new version (before its program was replaced), it says so after the start ("did not finish ... nothing
+was changed"), and the update can be asked for again (since 4.6.1; before, this read as "installed but still running
+the old version").
 
 **Manual update needed.** Where an agent cannot replace its own program, it says so instead of trying, and the console
 shows **Manual update needed** with the reason:
@@ -577,6 +604,10 @@ shows **Manual update needed** with the reason:
 * the program carries file capabilities (`setcap`), which an updated file would lose (use systemd's
   `AmbientCapabilities` instead);
 * no signed release is published for the platform (Windows, for example) or the build has no release key.
+
+A request made before the agent said so is withdrawn with its next report, whatever the source of the build, so the
+agent is not shown as **requested** for ever (since 4.6.1; a request for the download from the internet used to stay
+until somebody pressed Cancel).
 
 An agent older than 4.1 does not report this state and cannot take a command: the master shows "older than 4.1" and
 you update it by hand once; every later update can be done from the console.

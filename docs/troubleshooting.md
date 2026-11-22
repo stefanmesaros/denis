@@ -52,7 +52,9 @@ received an MSP relay sync cannot be joined.
 Check `denis agent-token list` (revoked?), the master's `--ingest-listen` address and firewall, that the agent
 id matches the token, and that the agent can reach `https://MASTER:8081/api/v1/ping` with the token (and has the master's CA: `--master-ca`).
 From 4.5.4 the agent tells the two cases apart at its start. `the master ... rejected the token (401)` (or `refused
-this agent (HTTP 403)`) stops the start: issue a new token on the master (Sites, Add agent). Everything else
+this agent (HTTP 403)`) stops the start: issue a new token on the master (Sites, Add agent). The same answer while
+the agent runs (a token revoked meanwhile) makes it say `collecting, the master refuses this agent since ...`: it keeps
+collecting and keeps its reports on disk until it is started with a token the master accepts. Everything else
 (`collecting, master unreachable since ...` with the reason: a name that does not resolve, connection refused, a
 timeout, a TLS error) does not stop it: the agent collects and keeps its reports on disk. A **TLS error that does not
 go away** (`certificate`, `UnknownIssuer`) is a wrong or missing `--master-ca`, not an outage: the agent will collect

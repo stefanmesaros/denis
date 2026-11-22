@@ -336,6 +336,8 @@ real switch.
 * **An interrupted bounce is finished.** If DENIS stops between "port off" and "port on" of a bounce (a restart, an update,
   a crash), the action's steps say so. The release moves the VLAN back and switches the port on again, with the step
   "the bounce that DENIS started was not finished". A port someone switched off after a bounce that did finish stays off.
+  Until it is released, such an action is shown as **Partly done**, never as in force: the port is in the quarantine VLAN
+  but still off (4.6.1). Check now and the hourly check say so; DENIS does not switch the port on by itself.
 * **A bounce whose "off" did not happen says so** with the result: the device may keep its old address until it renews it.
 * **Same switch, same address.** Every action records the switch's address. When the switch's entry in Settings points
   at another address since, the release and the read-back refuse ("the switch's settings changed") and send nothing to the

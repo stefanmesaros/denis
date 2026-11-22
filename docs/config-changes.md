@@ -77,7 +77,9 @@ saved" (verified).
   failed reading can never make a "change" and never hides the baseline (verified; a test per rule).
 * **The first reading** after you switch the watch on makes no event: there is nothing to compare with (verified).
 * **A restart of the switch.** The uptime goes back, so the old numbers mean nothing: DENIS starts a new baseline and
-  does not call it a change (verified). If changes were not saved at the restart, the event `restart_unsaved` says so,
+  does not call it a change (verified). From 4.6.1 an uptime shorter than the time since the reading before also counts
+  as a restart (the switch started after that reading, even if it has since been up longer than at the baseline; best
+  guess from the code, not yet seen on a real switch). The same test is used by the port readings. If changes were not saved at the restart, the event `restart_unsaved` says so,
   and an open "not saved" notice closes without a second message (it never says "saved now": the changes are lost).
   The 497-day wrap of the uptime is not a restart: a new baseline, no `restart_unsaved`, and changes that waited keep
   their time (verified in DENIS's tests).
