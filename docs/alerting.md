@@ -161,7 +161,9 @@ to a channel.
   profile. **Acknowledge all like this** closes every open alert of the same kind about the same provider from the
   last 7 days (never for the kinds above).
 * **This is normal** (an alert's dialog; editors and administrators): acknowledges the alert as expected behaviour and
-  stores an exception for 90 days (1 to 365). *This rule on this device*, *this rule, this device and this
+  stores an exception for 90 days (1 to 365; an administrator of the whole installation may also choose *No expiry*,
+  with a warning that it hides later alerts of the same kind for good until it is removed, 4.6.2). *This rule on this
+  device*, *this rule, this device and this
   destination*, or *everything ordinary on this device*. A later alert it covers is kept quiet (reason
   `owner_exception`, with who made the exception), never dropped: **Show quiet** lists it, the daily digest and the
   counters count it, and `GET /api/rules/normal/suppressed` lists them per exception. Remove an exception on the Rules
@@ -239,7 +241,9 @@ show here too.
   gets at most 30 ordinary notices in ten minutes, then one message that more are waiting; enforcement and MSP
   messages (an MSP remote session included) and, since 4.5, every `high` notice (a failed backup, a connector DENIS
   cannot reach) are never held back by that limit and do not count toward it. The limit is counted in memory and
-  starts again after a restart.
+  starts again after a restart. When DENIS cannot read the list of channels (the database does not answer, or a channel's sealed
+  secret cannot be opened, for example after a restore with another key) or the device edits, a notice is not taken
+  as "for nobody": it stays *Waiting to be sent*, the log says why, and it is sent once the list can be read (4.6.2).
 * Each notice says under it whether it reached the channels (4.5): *Waiting to be sent*, *Sent to the channels*, *Not
   delivered to every channel*, *Could not be delivered to any channel* or *Not sent: maintenance mode was on*. A
   notice shown in the bell only, or that no channel takes, says nothing.

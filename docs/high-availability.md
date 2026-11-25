@@ -355,6 +355,11 @@ and `options=-c statement_timeout=...`).
 | Idle-in-transaction timeout | `DENIS_PG_IDLE_IN_TRANSACTION_TIMEOUT_SECS` | 60 | A transaction left open |
 | Leader-lock session statement timeout | `DENIS_PG_LOCK_SESSION_STATEMENT_TIMEOUT_SECS` | 5 | The leader lock's own statements (idle-in-transaction there is twice this; DENIS stops waiting 3 s later) |
 
+When DENIS stops waiting for a call that was still queued behind others on its connection (a stalled server), the call
+is taken back and never runs later (since 4.6.2): an error answered for it means it was not carried out. A call that had
+already started is ended by the server's statement timeout; DENIS reports it as an error that may still have been
+written.
+
 Database migrations at start-up lift the statement and lock limits for their own transaction, because a migration can be
 long and can wait for the other node.
 
@@ -373,6 +378,25 @@ If the answer says another node leads, is an error, or does not arrive within ab
 and exits; your service manager starts it again as standby. This check runs on its own thread, apart from the
 console's and the jobs' work, so a database link that has gone silent cannot delay it. Once the lease has run out,
 `/api/health` no longer answers `leader`, even before the process has exited.
+
+**The clocks of the lease (4.6.2).** The lease is measured on two clocks of the node, and it ends when either says so:
+
+* a clock that never goes back and keeps counting while the machine is suspended (`CLOCK_BOOTTIME` on Linux,
+  `CLOCK_MONOTONIC` on macOS). Before 4.6.2 it was a clock that stops while the machine sleeps, so a leader that was
+  suspended and resumed saw its old lease as valid for the rest of its three seconds;
+* the wall clock. A virtual machine paused by its host does not see either clock move while it is paused (best guess:
+  this is how KVM and VMware present time to a paused guest). When the wall clock is set right on resume (the
+  hypervisor's time synchronisation, chrony or NTP), the lease has run out at once and the node sends nothing until its
+  next good check. A wall clock that is set back never lengthens the lease; one that is stepped forward pauses the
+  node's external effects for up to one second, until the next check.
+
+Each check also reads the database's own clock (`clock_timestamp()`). When the database's clock moved on by more than
+the lease (three seconds) beyond what the node's own clock saw between two checks, the node stood still meanwhile: the
+log says "this node stood still for about N s while the database's clock went on". The node stays the leader in that
+case, because nobody took over (the check found the same leader mark). What is left: a paused node whose wall clock
+is not set right on resume can still act for the rest of its lease (at most three seconds) until its first check after
+the resume; its database writes are refused meanwhile if another node has taken over. Tested with clocks moved by the
+tests; a real paused virtual machine has not been measured with this version (scenario `s5b_paused_leader` in the lab).
 
 Everything that has an effect outside the database checks the lease immediately before it acts: sending a notification
 (every channel and the webhook), grouping an alert into an incident and notifying about it, exporting to OpenObserve,
@@ -406,7 +430,7 @@ document has a stable id. Alerts older than 24 hours are never sent, which limit
 Automatic enforcement on a pair runs only on the leader. The fence closes the database side of a leader that lost its
 lease in the middle of a write, but an action already sent to a switch, firewall or other device cannot be recalled, so
 treat [automation](enforcement.md#automation) on a pair with care while high availability is Experimental.
-Since 4.5.2 the ASA, FMC, FDM, Check Point, UniFi and FortiGate connectors, since 4.5.3 Palo Alto and since 4.6.0 MikroTik and RADIUS CoA ask the lease again immediately before every request that changes something leaves, also after a wait or a repeat (a rate-limit pause, a new sign-in, the wait between two vendor tasks), so a node that lost the lease sends nothing more; a request that had already been sent is read back by the new leader. The other 13 connectors ask the lease before their first write; after that, Cisco Catalyst 9800, Meraki, Omada, SonicWall and WatchGuard ask it between the steps of an action only (a step that has started can finish after the lease is lost), and AWS, Azure, Hyper-V, Juniper, NSX-T, OPNsense, Proxmox and the SNMP switches do not ask it again, so their whole sequence can finish after the lease is lost. The table per connector is in [Enforcement › Active responses](enforcement.md#active-responses).
+Since 4.5.2 the ASA, FMC, FDM, Check Point, UniFi and FortiGate connectors, since 4.5.3 Palo Alto, since 4.6.0 MikroTik and RADIUS CoA, and since 4.6.2 every other connector ask the lease again immediately before every request that changes something leaves, also after a wait or a repeat (a rate-limit pause, a new sign-in, the wait between two vendor tasks), so a node that lost the lease sends nothing more, a release included; a request that had already been sent is read back by the new leader. Since 4.6.2 the same question also asks the kill switch and the update hold for a request that applies or extends (never for a release). What each connector counts as one request is in [Enforcement › Active responses](enforcement.md#active-responses). Two old SNMP routes ask the lease once, at their start, not before each request: the release of a port action made before the action path (it reads the port, then sets it back) and the write test of a switch.
 
 ## The write fence (4.4)
 
@@ -444,6 +468,11 @@ What you may see and what to do:
   plain SQL file) sets it itself before its settings rows, so it can be restored with
   `psql -v ON_ERROR_STOP=1 --dbname=<empty database> < <file>`; the file creates the `public` schema, so drop the one
   a new database comes with first (`DROP SCHEMA public;`). Verified on PostgreSQL 16 (4.5.0 test run).
+  Since 4.6.2 this backup runs on a database connection of its own, and the transaction that holds its snapshot is
+  exempt from the idle-in-transaction limit (`DENIS_PG_IDLE_IN_TRANSACTION_TIMEOUT_SECS`, 60 s): before, a backup whose
+  `pg_dump` took longer than that limit (or longer than the 150 s call limit) failed at its last step and its file was
+  removed. A backup may now take up to six hours. Verified on PostgreSQL 16 in a container with a dump held up by a
+  lock for more than a minute, and restored.
 * **Give DENIS a schema or a database of its own.** The fence is attached to the DENIS tables only, never to a table of
   another application, but DENIS still assumes it owns its schema (it changes the tables in it at every upgrade). Do not
   share the schema with another application. A tenant's database role has no right at all on the election table or on

@@ -210,6 +210,16 @@ installations refuse local addresses for notification channels, integrations and
 for a reverse proxy on the same computer; upgraded installations keep their behaviour (see the
 [changelog](CHANGELOG.md)).
 
+4.6.2 (2026-11-25) brings a new Dashboard (six numbers that each open their list, Needs attention in groups, all trends on
+one page, and a bar of a chart opens the list cut to that time). Every kind of connector now asks the kill switch and the
+high-availability lease before each request of a change, and a change that stops half way ends as "not confirmed", never
+as in force. Read-back is honest: a block that was changed or is only partly there is reported so, and a release that
+cannot find the object says it cannot tell. A WatchGuard block counts as in force only after a completed deployment, and a
+port action needs the device to have been alone on its port for 7 days. Detection reads the device before it learns, so a
+failed database read no longer loses an alert. The MSP pairing code `dml3.` also covers the address, and a Disconnect or an
+Unlink stops what a master reports to its MSP. The signed file of the shipped lists (dynamic DNS and file-share domains)
+is now published with every release, and on PostgreSQL a long backup completes and a paused leader stops acting at once.
+
 New in 4.6: port health for switches (traffic, errors, restarts, processor, memory, PoE and link changes, with hourly
 figures kept 90 days by default, up to 400), service checks (ping, a TCP port, a DNS question or a web page, asked from the DENIS server),
 configuration change tracking (that a change was observed, not what changed or who: Cisco switches, Palo Alto, MikroTik and
@@ -252,7 +262,7 @@ customers ([quick start](docs/quickstart.md), [detection rules](docs/detection-r
 | Zones & segmentation policies | Group devices into zones (by subnet, type, tag or a pin), write allow-list and zone-boundary policies, and a live `segmentation_violation` rule that judges every observed flow against them — a zone × zone matrix shows what's actually covered, honestly separating "nothing seen" from "not covered" when east-west recording is off. A new policy starts in a silent record-only mode; "freeze this device's behaviour" turns its own observed traffic into a reviewable draft, never saved until confirmed |
 | Control coverage | Which devices your directory, device-management, scanning and endpoint-protection tools do and do not reach, shown per device as managed / scanned / protected, with "no match" and "not managed" kept separate, tracked over time against goals you set — see [docs/coverage.md](docs/coverage.md) |
 | One workflow for alerts, incidents and findings | Acknowledge, resolve or reopen an alert, incident or finding with a required reason, every decision written to a log; an incident's decision reaches its own alerts only, never findings or other incidents — see ALERT_INCIDENT_FINDING.md |
-| Dashboard | 12 clickable KPI tiles, trend charts, risk/severity/type breakdowns, recent alerts, most at-risk devices — the home screen. New in 4.6: one **Needs attention** list (at most eight lines, an open security incident always first, then a watched link that is down, a switch or site that cannot be read, a capture interface that is down and the port marks), each line saying how DENIS knows; an empty list says what is watched and what is not, not "all good" |
+| Dashboard | The home screen, everything on one page: six numbers that each open their list (open incidents, open alerts, high risk devices, findings, needs review, devices), a short summary, one **Needs attention** list in groups (an open security incident first, then faults, monitoring, data gaps and notes; at most three lines per group and seven in all), one panel of top exposures, recent alerts and findings, and the trends; a bar of New devices or Alerts raised opens that list cut to that time. Each line says how DENIS knows; an empty list says what is watched and what is not, not "all good" |
 | SNMP topology | Switch ports, LLDP neighbours, MAC-to-port physical map, over SNMPv2c or SNMPv3 (a read-only user; Cisco switches are read per VLAN). Tried on two real switches (a Cisco Catalyst and a D-Link), not per vendor. New in 4.3: any managed switch with standard SNMP can be read, and its port control is Experimental ([switches](docs/switches.md)) |
 | Network section | *Network* has, since 4.6, **Map** (zoom, search, groups, cables that DENIS marks confirmed, best guess or set by hand), **Equipment** (one table of every switch, firewall and controller, with a product-first *Add equipment*), **Service checks**, **Sign-ins**, **Configuration changes**, **Response** and a guided **Network setup** in seven steps. UniFi and Meraki controllers can show the clients they see on the map, read only (Meraki is Experimental). The **Health** page has five fixed parts: the verdict, problems grouped, one monitoring row per function (also for one that is off), this server, and background work |
 | Port health (Experimental) | New in 4.6, read only over the existing SNMP read path: per port the traffic in and out, use, errors and discards, link changes and a link that keeps changing, PoE; per switch processor, memory and restarts. 8 days of samples by default (1 to 30) and hourly figures kept 90 days by default (up to 400). Tick a link to be told when it goes down. The events are notices, never alerts. Off for the switches you already have, on for a switch added later; read by the DENIS server, not by a remote agent. Tested against a stand-in switch only, not yet on a real switch ([switches](docs/switches.md#port-health-traffic-errors-and-restarts-experimental-460)) |
@@ -497,8 +507,10 @@ restore, and a stop of the service that saves its last window (see [CHANGELOG.md
 Experimental), the *Needs attention* list, the new Network menu and Health page, one setup guide, safer updates (a copy before
 the migration, a compatibility floor, automatic responses held until the update is confirmed), remote sites that keep their data
 while the master is away and a master that no longer loses a batch processed only in part, and the fixes of a large code review.
-Next: 4.6.1 (fixes and the measurements on real equipment still owed: port health on a real switch, MikroTik and UniFi
-configuration changes), then 5.0.0, which adds no features and measures DENIS at about 100, 500 and 1,000 devices; ending an
+Next: 4.6.3 (step-up before a threat list acts by itself, the further hardening items that need a console change or
+equipment, the reading of the code no pass has covered yet, an upgrade check from real old databases, and lab runs and the
+measurements on real equipment still owed: port health on a real switch, MikroTik and UniFi configuration changes, the
+RADIUS disconnect), then 5.0.0, which adds no features and measures DENIS at about 100, 500 and 1,000 devices; ending an
 802.1X session and storing configurations with their differences come later (ROADMAP.md). Still owed before a
 commercial launch: an independent penetration test and verification on real equipment, listed in ROADMAP.md. A
 packaged Windows collector, Qualys import and SAML are also open. OIDC single sign-on is built, but its exchange with an

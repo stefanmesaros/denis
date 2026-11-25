@@ -895,11 +895,27 @@ denis backup /backups/denis-$(date +%F).db --db /var/lib/denis/denis.db
 Restore by stopping DENIS and copying the backup over the database file. Events, alerts and trend samples are
 pruned after the retention period: `--retention-days` (default 90) until an administrator saves a value under
 *Settings → Data → Data retention* (1 to 1095 days; the console proposes 180), which then wins. The register,
-baselines, accepted risks, saved reports and the audit log are never pruned by retention. The **decision log** (who
+baselines, accepted risks and the audit log are never pruned by retention; saved reports keep their newest (below). The **decision log** (who
 acknowledged, resolved or re-opened which alert or incident, when and why) has its own period under the same heading:
 1095 days (3 years) unless an administrator changes it (90 to 3650 days, or 0 to keep it for ever). It outlives the
 alerts and incidents it is about, and only its own age prunes it: deleting or merging a device and *Erase all data*
 leave it in place, because it holds no personal data beyond the user names and the notes people typed.
+
+**What is kept and for how long** (4.6.2). Every table of the database has one declared rule, shown under *Settings → Data →
+Data retention → What is kept and for how long* and returned by `GET /api/retention` as `tables[]` (`{table, kept: {kind,
+…}, note}`; `note`, from 4.6.2, says in English what an exception keeps longer or a cap removes sooner, and is absent
+when there is none). A test fails when a new table has none. The clean-up runs once an hour. In short:
+
+| Kept | Tables |
+|---|---|
+| The general period above | alerts and incidents (`events`, `incidents`; an incident nobody resolved, and its alerts, are kept up to 365 days longer), trend samples (`metrics`), connections (`edges`), released enforcement actions and their steps, decided block suggestions, the switch location history and its change log |
+| Their own period above | observed names (at most the general period), the decision log, the port history and port hours (at most the newest 5,000,000 hours), the service check runs and hours, the configuration changes (at most the newest 100,000), ended RADIUS accounting sessions |
+| A fixed age | notifications 90 days (at most 50,000; one still in force is kept), capture samples 90 days, decided Autopilot proposals and decisions 90 days (a decision an open proposal names stays with it), identity suggestions 90 days (accepted and expired ones; an open one stays while it is open, a rejected one for good), rule outcome counts 400 days, posture history 1,100 days, resolved findings 180 days, deliveries 90 days (delivered ones 30; at most 200,000 finished ones), the agent batch ledger 7 days |
+| As long as what they belong to | what DENIS knows about a device (sightings, baselines, conversations, links, identity), a user's passkeys, TOTP and site access, an agent's token, a list's entries |
+| Until an administrator changes them | the register of devices, settings, users, API tokens, zones and policies, threat lists, posture goals |
+| The newest only | the connection tests (`connection_tests`, the newest 200), saved reports: the scheduled ones by *Keep the newest* (12 by default), the ones made by hand by *Keep the newest reports made by hand* (50 by default), each kind on its own; the oldest go when a new report is saved, noted in the audit log |
+| The current state only | switch and port readings now, imports from inventory and vulnerability tools (replaced at every import of their source; the rows of a source that was switched off stay until it is synchronised again), service check state (removed with its check), sign-in sessions |
+| **For ever** | the **audit log** (`audit`), the segmentation history (`segmentation_history`), device merges (`device_merges`) and phone subscriptions of Autopilot (`push_subscriptions`, kept as revoked). Nothing deletes these rows yet; a period for the audit log is an open owner decision |
 
 The database contains your network inventory and password hashes: protect it like the service itself
 (owner-only permissions).
@@ -1040,6 +1056,12 @@ stays out of the process list).
 | `--master`, `--token`, `--master-ca`, `--master-ca-pem`, `--allow-plain-http`, `--id`, `--name`, `--site`, `--report-interval` | agent | `--report-interval` 15 | where and how an agent reports; see [Multiple sites](#multiple-sites-agents). `--token` can come from `DENIS_AGENT_TOKEN` |
 | `--no-self-update` | agent | off | never take an update from the master's command; the agent still reports its version (*env* `DENIS_AGENT_NO_SELF_UPDATE`); see [Updating remote agents](updates.md#updating-remote-agents) |
 | `--outbox-max-mb N` | agent | `512` | the most disk the reports waiting for the master may take, in MiB (at least 64); past it, or after 72 hours, the oldest are dropped and the master is told (*env* `DENIS_AGENT_OUTBOX_MAX_MB`); see [A site keeps collecting while the master is away](#a-site-keeps-collecting-while-the-master-is-away) |
+
+`--industrial-decoding=false` (4.6.2) stops decoding every industrial protocol (Modbus, S7, DNP3, IEC 104, EtherNet/IP and the
+others, GOOSE, PROFINET DCP Set, Sampled Values) on a network that has none; flow accounting, LLDP and CDP stay. It is on by
+default. On `run` it is only the default: *Settings → Capture → Network interface → Advanced → Industrial protocols* switches it at once; on
+`agent` it is the only switch. While it is off, Health shows one note about it (with a link to the setting), the status
+answer has `industrial_decoding: false` and `/metrics` has `denis_industrial_decoding 0`.
 
 One more flag is hidden from `--help`: `--ot-l2=false` stops decoding layer-2 industrial protocols (GOOSE, PROFINET
 DCP Set). It is on by default and only exists as an escape hatch.

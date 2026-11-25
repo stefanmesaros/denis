@@ -6,6 +6,20 @@
      paths, rule or file names, or internal groundwork. Below it is the full technical record, kept
      here only. tools/pre-release.sh checks this. -->
 
+## 4.6.2
+
+- A new Dashboard: six numbers that each open their list, a short summary, Needs attention in groups, and one panel of top exposures, alerts and findings. All trends are on the page, and a bar of New devices or Alerts raised opens that list cut to that time. It loads less and asks the server less often.
+- Safer actions on your equipment: every change to a firewall, switch, controller or cloud now passes the kill switch and the high-availability lease before each request, and one that stops half way ends as not confirmed, never as in force. A block that was changed or is only partly there is reported so, and a release that cannot find the object says it cannot tell. A port action needs the device to have been alone on its port for 7 days. A name block whose name resolves to a protected address stays in force and DENIS tells you once. A WatchGuard block is confirmed after a completed deployment.
+- Detection: a failed database read no longer loses an alert, a VLAN change on a port is reported, and devices you typed as industrial are never scanned. Settings, Capture has a switch for industrial decoding. DENIS does less work while a feature is off.
+- MSP: the pairing code dml3 also covers the address, and an older code is refused once a customer has paired with dml3. After Disconnect or Unlink nothing is sent, and what happened meanwhile is not sent later.
+- Health says could not be read instead of nothing wrong. PostgreSQL: the backup of a long dump no longer fails, and a suspended leader stops acting at once.
+- Access: the settings of the AI assistant, IP enrichment and the import integrations, and the AI usage figures, are read by administrators only.
+- Metrics: the channel series carry the new label channel_id. A tenant console lists the process-wide figures without values.
+- Single sign-on: an http:// issuer on another host stops working after the update; change it to https:// in Settings, Sign-in & security, Single sign-on.
+- Reports made by hand: the newest 50 are kept (up to 1,000 under Reports); older ones go at the next save.
+- Erase all data also clears the CMDB, imported findings, connection tests, device merges and the address cache.
+- Shipped lists: when none has been published for the release, Settings, Data says so calmly and Health does not warn.
+
 ## 4.6.1
 
 - Safer actions on your equipment: when a firewall, switch or controller gives an empty, unreadable or unknown answer, DENIS now says it cannot tell, and never "released" or "done". A change that disappeared is closed only after two readings. A block on Cisco ASA, FMC or Check Point that was edited or could not be read is no longer closed as removed. A busy switch is refused before anything is sent.

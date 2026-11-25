@@ -96,6 +96,7 @@ Objects and lines that carry your DENIS install's marker but belong to no active
 ## Limits
 
 * IPv4 only.
+* A flow block whose lines are still at the top of a list that is no longer bound to an interface or global (replaced with another `access-group`) stops nothing: from 4.6.2 the check shows it as a deviation, not in force, and the release still removes the lines. A binding that cannot be read is "cannot tell".
 * A flow rule stops new connections that enter the interface the list is bound to. It does not stop traffic inside one subnet, and does not cut open connections.
 * Block device and quarantine do nothing until **your own** access rule refers to the group.
 * One ASA at a time per connector; a failover pair is one connector pointed at the active unit.
@@ -119,3 +120,10 @@ The console shows a short line under each field and a short note behind its (i).
 * **An object in use elsewhere** (`no object network` refused) no longer fails the release: the membership or the ACL
   lines are the block; the object is listed as left behind. The read-back of a release asks only for those.
 * Only DENIS's own `extended deny` lines count as DENIS's lines above its rule.
+
+## 4.6.2: a group or access list that is not found under its name
+
+Documented from the code. A release whose block group is not found under the name the action recorded while DENIS's object
+is still on the ASA, or whose access list reads empty while DENIS's objects of the flow are still there (the group or list
+renamed or rebuilt), removes nothing and is not "released": the action stays open (*The firewall has no group … any more*,
+*The firewall has no access list … any more*). The read-back of such a release is "cannot tell".

@@ -146,7 +146,8 @@ All of this is in memory, so a restart clears the counters (the *known addresses
     is not named, Health says so: name it with `--trusted-proxy 127.0.0.1`, or ignore the header everywhere with
     `--trusted-proxy none`.
 * **Confirming it is you (4.5).** An administrator who resets another person's password or authenticator app, removes
-  their passkeys, raises a role, enables an account, deletes one, or links or unlinks a single sign-on identity is asked
+  their passkeys, raises a role, enables an account, deletes one, or links or unlinks a single sign-on identity (from
+  4.6.2 also one who creates an account, or gives a person more access on a site) is asked
   for their own password again when their sign-in is older than 10 minutes (the answer is HTTP 403 `step_up_required`;
   the console then asks for the password and repeats the request). A right password counts for 10 minutes for that
   session (in memory: a restart asks again). Removing one's own passkey asks the same way. An MSP technician on the MSP
@@ -157,8 +158,8 @@ All of this is in memory, so a restart clears the counters (the *known addresses
   that long for its next request; the browser opens a new one), a TLS handshake within 10 seconds, and a connection on
   which nothing moves in either direction for 15 minutes is closed. Each listener holds at most half of what the
   process may open (between 256 and 4096; `DENIS_WEB_MAX_CONNECTIONS`), and the console at most 256 from one address
-  (`DENIS_WEB_MAX_CONNECTIONS_PER_ADDRESS`, `0` = no such bound; not counted for a proxy on this machine, and not on
-  the agent port, where many sites can share one address). A connection over a bound is closed at once and the log says
+  (`DENIS_WEB_MAX_CONNECTIONS_PER_ADDRESS`, `0` = no such bound; not counted for a proxy on this machine). On the agent
+  port, where many sites can share one address, one address may hold at most half of the listener's total (4.6.2; `DENIS_WEB_MAX_CONNECTIONS_PER_ADDRESS=0` switches this bound off too). A connection over a bound is closed at once and the log says
   so. Long polls of the MSP channel and downloads stay within these times. Verified by a test on 127.0.0.1 (idle and
   half-sent requests are closed within the bound); not measured on real hardware under load.
 
@@ -386,9 +387,10 @@ until one of your administrators pairs with it, and the properties that matter:
   and a test fails the build): the link itself, the audit log, your administrators, sign-in policy, TLS, backups,
   secrets and where this master sends its data. Dangerous operations (users, tokens, restart, update, enforcement) need a
   second factor proven at the MSP in the last 10 minutes, and optionally your administrators' approval (co-approval).
-* **Nothing the MSP makes outlives it.** An account it creates or resets is switched off, and an automatic-enforcement
-  opt-in it set is removed, when you disconnect, unlink or lower the level below Full. Moving an integration to another
-  address never keeps its saved key, and the MSP cannot lower how many backups are kept.
+* **Nothing the MSP makes outlives it.** An account it creates, resets, switches on or raises is switched off, and an
+  automatic-enforcement opt-in it set is removed, when you disconnect, unlink, pair with another MSP or lower the level
+  below Full. Moving an integration to another address never keeps its saved key, the MSP cannot lower how many backups
+  are kept or shorten a retention period, and it cannot give or take the credential DENIS changes a switch with.
 * **Loud.** A new account, a changed level, a request waiting for approval and an enforcement by the MSP are sent to
   your notification channels. The approval screen shows the request as it will run (path, query, body with secrets
   masked), and the approval is bound to what was shown.
@@ -479,6 +481,13 @@ What the console page itself does so that one person's session does not reach th
 ## Single sign-on links (4.5)
 
 A single sign-on is matched to an account by the identity provider's issuer and the person's `sub`, never by email.
+
+* From 4.6.2 a backup made without secrets (the default) leaves the client secret of the single sign-on settings out,
+  like every integration credential: after a restore the notice at the top of Settings asks for it again
+  (*Single sign-on*), and single sign-on works again once it is entered.
+* From 4.6.2 the issuer URL must be an `https://` address. `http://` is accepted only for a provider on the DENIS
+  machine itself (`127.0.0.1`, `[::1]`, `localhost`); a saved `http://` address of another host is refused at
+  sign-in until it is changed to `https://`.
 
 * The first sign-in of a new identity creates a viewer account named after the email and links it, in one database
   step: a failure can no longer leave an account without its link.
@@ -595,7 +604,10 @@ types a correct first code. Ten **recovery codes** are shown once.
 * **Requiring it.** *Settings* → **Sign-in & security**: require a second step (an authenticator app *or* a passkey) for
   nobody, administrators, or everybody. Whoever is required and has none is asked to set one up at their next request,
   and nothing else works until they have (API tokens are not affected). While it is required, a person cannot turn their
-  only second step off.
+  only second step off. From 4.6.2 a person whom the requirement covers and whose only second step is a passkey (no
+  authenticator app switched on) signs in with the passkey: the password alone is answered like a wrong one, as for an
+  account limited to passkeys. Where passkeys cannot work on this start (no public address, or a new one the passkeys
+  were not made for), the password with the code the requirement asks for is the way in again.
 * **Lost phone:** an administrator resets the person's authenticator app (*Users* → *Reset*, or
   `DELETE /api/users/{id}/totp`); the person is signed out, signs in with the password (or a passkey) and sets it up again.
   When nobody who could do that can sign in any more, the same reset is on the host's command line:
@@ -775,7 +787,7 @@ Explanations that used to be printed on the console screens. The console shows a
 * A rough sense of how much these features have actually been used — a call count and, when the provider's own response reported one, its token count. Not exact billing information; check your provider's own dashboard for that.
 * Adds an "Explain with AI" button to alerts and findings: one plain-language summary per click. Never automatic — only called when you click the button, sending only that one alert or finding's own summary, reasons and device label. From 4.6.0 an alert's prompt also carries DENIS's own description of each address the alert names (at most 12): this device's own address, private (and whether it is inside a network DENIS monitors), shared address space (carrier-grade NAT or a VPN), link-local, loopback, multicast, reserved or public, the name of a device of the same site the inventory holds for it, and who opened the connections when the rule records that. The model is told to use these descriptions and never to call an address external or public unless DENIS says it is public. The same lines are part of what the follow-up sends and of its "What will be sent" list.
 * Adds an "Ask AI for an opinion" button to alerts (called "Assess & Explain with AI" before 4.6.0; shared with Device behavioral analysis below) and contributes the assessment section: what it means, a triage read (likely benign / suspicious / requires investigation), what could happen if ignored, and concrete next steps — plus the AI's own plain-language risk estimate, shown alongside (never in place of) DENIS's own severity. Since 4.6.0 the alert dialog shows the risk, the classification, the reasoning and the suggested checks, and not the AI's "what it means" and "if ignored" (DENIS's own guidance says both); the answer still carries them. Advisory only; DENIS never acts on any of it itself. Only called when you click the button, sending the same alert data as the explanation feature above. Under the answer, editors can ask up to six follow-up questions about the same alert (one provider call each, answers of at most 350 tokens). Each carries the same facts as the assessment plus a shortened copy of it, the last few questions and answers of the thread, and, if the person typed one, a note of at most 1000 characters under "What I know", sent as an unverified claim that never changes DENIS's severity or score. A "What will be sent" list shows this before every question. The conversation is not stored; only a note the person ticks "Also keep this as a note on the alert" for (or saves with "Save note only") is kept, in the alert's decision log, visible to everyone who can see the alert, and recorded in the audit log by length, never by wording. The AI's own answers are never stored. Counted in the usage numbers below; no separate switch.
-* Adds an "AI Security Summary" card to the dashboard: a short overview of the last day's alert activity. Never generated by opening or refreshing the dashboard — a background job regenerates it on its own, only when there has been meaningful new alert activity since the last one, at most every few minutes.
+* Adds the AI view to the Dashboard's Summary (a switch **AI | Facts**, AI chosen first): a short overview of the last day's alert activity. Never generated by opening or refreshing the dashboard — a background job regenerates it on its own, only when there has been meaningful new alert activity since the last one, at most every few minutes.
 * Adds an "Ask DENIS" button next to "Scan now": a panel that stays open while you move between screens, for five kinds of request — ask about recent alert activity ("What changed in the last 24 hours?"), hunt for a destination across every device's own traffic history ("Has anything talked to 1.2.3.4?"), jump straight to a screen or Settings page ("Take me to Topology", "Open the SSO settings"), ask a how-to question answered from the real documentation ("How do I add a switch?"), or ask what it can do. The AI never answers from facts it invented, acts on a setting, or takes any action itself — for a search it only ever chooses how to search, and DENIS runs that search itself; for a how-to question it only ever describes one real documentation page. Only called when you ask a question.
 * Adds an "AI Security Summary" section to your periodic reports (Settings → AI → Security reports): devices, new devices, alert activity, standing findings and accepted risks over the report's period, in plain language. Written once, when a report is generated and saved — on its existing schedule, or "Generate now" — never on a separate timer of its own, and never for "Open a live report without saving it" (that link stays instant and free). If the AI call fails, the report is still generated without a summary.
 * Contributes a "Behavior change" section to the same "Assess & Explain with AI" button, for alerts that describe a change from one device's own established pattern (new destination, new port, unusual hours, unusual traffic volume): what the device normally does, compared with what just changed. Only offered on those alert kinds — DENIS already decided the change was meaningful before this button ever appears. Only called when you click it.

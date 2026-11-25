@@ -150,7 +150,7 @@ retention), `GET /api/assets/{id}/dns-names` (one device's own rows), `GET
 
 Passive DNS is the only place where DENIS **records** names. Reading the TLS server name of a connection and the host and
 path of a plain-HTTP request (4.5, for the [administrator threat lists](threat-lists.md#reading-server-names-and-web-addresses-opt-in))
-is a different, second switch (*Settings -> Network interfaces -> Server names and web addresses*; `--capture-names` on an
+is a different, second switch (*Settings -> Capture -> Network interface -> Advanced -> Server names and web addresses*; `--capture-names` on an
 agent), off by default, and it records **nothing** of its own: the names are compared with your lists and forgotten, so it has
 no retention and no "delete all" button. Since 4.5.0 a server name read in a connection to an address that raises a threat-list
 address alert is copied into that alert's connection evidence, labelled *Observed TLS SNI* or *Observed HTTP Host*; to make that

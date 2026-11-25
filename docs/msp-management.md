@@ -24,7 +24,7 @@ lists, as the customer sees them, in the customer's own version.
 
 ### Pairing
 
-**With an invitation (4.4).** Your MSP sends you a **link** (or a code that starts with `dml2.`, or a QR code of the link) and
+**With an invitation (4.4).** Your MSP sends you a **link** (or a code that starts with `dml3.` or `dml2.`, or a QR code of the link) and
 reads you **four words** by phone. Open the link in your DENIS console: it lands on *Settings, MSP management* with the code
 already in place and shows the MSP's name and its address. **Type the four words** the MSP read to you (the console shows none),
 choose the level (the MSP's suggestion is filled in, you decide), what the MSP may do with rules it sends, type your password
@@ -39,6 +39,24 @@ not before, and an invitation that was used, revoked or has expired is worth not
 match (wrong words, an expired or used invitation) stops before anything is stored. From a shell:
 `DENIS_LINK_CODE=<code> denis msp-link connect --phrase "<the four words, typed>"` (without `--phrase` it only shows who the code
 is from and stores nothing; for an invitation the fingerprint alone is not enough).
+
+**What the four words cover (4.6.2).** An invitation code comes in two versions, and the console shows which one under
+*Code* before you pair, and under *Paired with* afterwards:
+
+* **`dml3.`** (from 4.6.2): the four words cover **everything in the code except its one-time token**: the address your
+  master connects to, the private CA (its SHA-256 and where it is published), the MSP's name and key, the link and the
+  invitation's expiry and suggestions. If the words match, the address is the one your MSP put in the code; a code
+  with any of it changed is refused with the code `words_mismatch`, like mistyped words, and nothing is stored or sent.
+* **`dml2.`** (4.4 to 4.6.1, and for a customer whose version the MSP does not know): the four words cover the MSP's key
+  and the link, not the address. The console asks you to compare the address with the one your MSP reads out.
+
+Your MSP's DENIS makes a `dml3.` code when your master reported DENIS 4.6.2 or newer, or when your link was already
+made with one; otherwise a `dml2.` code, unless your MSP chooses `dml3.`. Once this master paired with an MSP by a
+`dml3.` code, an older code (`dml2.`, or a `dml1.` link code) of the same MSP or for the same link is refused here
+(`code_downgrade`), also after a Disconnect and after pairing with another MSP (this master remembers its last 32
+such pairings), and the MSP's console does not make one for you. A DENIS older than 4.6.2 cannot check a `dml3.` code: its console says the code is
+not valid (or, opened as a link, does not pick the code up). From 4.6.2 a code of a newer version than this DENIS knows is answered with *Update DENIS to pair with this
+code* (`newer_code`).
 
 **With a link code (`dml1.`, as before).**
 
@@ -56,7 +74,7 @@ sealed with this installation's secret key and is never shown again.
 
 From a shell, without the console: `DENIS_LINK_CODE=<code> denis msp-link connect` prints the fingerprint and stores
 nothing; run it again with `--fingerprint "<what you compared>"` to pair (`--level read|configure|full`, `--rule-push off|ask|accept`, `--replace` to pair
-again). A running master picks the link up within a few seconds.
+again). A running master picks the link up within ten seconds (a link paired in the console at once).
 
 A new link starts at **Read and write** (`configure`). Enforcement boxes start **unticked**. Co-approval starts **off**.
 
@@ -66,7 +84,7 @@ You choose what the MSP may do. The role the MSP gives a technician on its side 
 
 | Level | What the MSP may do |
 | --- | --- |
-| Off | Nothing. The mirror of devices and alerts (`--report-to`) is not affected. |
+| Off | Nothing. A master started with `--report-to` also stops sending its devices and alerts to the MSP (the mirror) while the level is Off (4.6.2), and what happens while it is Off is never sent later. |
 | Read only | Look at everything the console shows. Optionally only some of your remote sites. |
 | Read and write (`configure`) | Also change rules, policies, zones, integrations, alerts, incidents, reports, retention, notification channels, the settings of your sites and the update mode of your agents. Secrets can be written but never read. |
 | Full | Also manage users who are not administrators, **create administrators**, issue agent tokens, **restart and update this master**, and, only for the actions you tick, enforcement. Each of those needs a second-factor proof at the MSP from the last 10 minutes. |
@@ -95,22 +113,31 @@ Remotely, at any level (the request is refused before it runs, whatever the MSP 
    out of your own console. Disconnect, the level change and `denis msp-link off` then say so (`code`
    `msp_made_not_all_off`, a high notice "Accounts made by the MSP are still on"); create an administrator of your own
    and DENIS switches the account off within five minutes. An account that you had already switched off yourself when
-   the link ended is left as it is, and switching it on again on the Users page is your decision.
+   the link ended is left as it is, and switching it on again on the Users page is your decision. From 4.6.2 an account
+   the MSP switches on again or gives a higher role is listed the same way (*switched on*, *role raised*), a new reset or
+   switch-on by the MSP makes a listed account the MSP's again, and when one of your administrators switches a listed
+   account on on the Users page it is yours and leaves the list.
 5. Change single sign-on or any rule for signing in.
 6. Change the TLS certificate, the listen addresses, the allowed hosts, the public address or the capture interfaces.
 7. Download, upload or restore backups, export a tenant, erase data or switch demo mode. It may raise how many
-   backups are kept, but never lower it (lowering deletes the oldest ones at once).
-8. Read stored secrets, or move a secret between installations. That includes pointing an integration at another
+   backups are kept, but never lower it (lowering deletes the oldest ones at once). In the same way (4.6.2) it may make
+   a retention period (*Settings → Data retention*) longer, never shorter: a shorter one deletes the older history at
+   the next clean-up (`403`, `code` `msp_retention_shorter`).
+8. Give DENIS a way to change a switch, or take it away (4.6.2): adding, changing or clearing a switch's write
+   community or SNMPv3 write user, removing a switch that has one, or giving it another address, is refused at every
+   level (`403`, `code` `msp_switch_write`). Your administrator confirms "DENIS can no longer undo its own blocks on this
+   switch"; the MSP never does. The MSP may still add switches DENIS only reads, and edit their other settings.
+9. Read stored secrets, or move a secret between installations. That includes pointing an integration at another
    address while keeping its saved key: the AI provider's local address, and a connector's address, must be sent with
    every credential again, or an administrator here does it.
-9. Change where this master sends its data (`--report-to`, `--backup-upstream`).
-10. Anything served to somebody without a session (shared report links, phone approval links) and the operator pages.
-11. Anything that would itself be forwarded over another management channel (one hop only).
-12. Ask a device on your network what it is (Network → Equipment → **Add equipment** → *Find out*, new in 4.3). That request
+10. Change where this master sends its data (`--report-to`, `--backup-upstream`).
+11. Anything served to somebody without a session (shared report links, phone approval links) and the operator pages.
+12. Anything that would itself be forwarded over another management channel (one hop only).
+13. Ask a device on your network what it is (Network → Equipment → **Add equipment** → *Find out*, new in 4.3). That request
     starts from your network and goes to a device address, so it is made only by one of your own administrators, never
     remotely and never with an API token.
 
-13. Take back the rules it sent. (Your choice about which rules it may send is yours, but a technician with the administrator
+14. Take back the rules it sent. (Your choice about which rules it may send is yours, but a technician with the administrator
     role, through a link at *Read and write* or above, may answer an offer and change that choice for a customer that has no
     administrator of its own, with a fresh second factor for a more permissive one, and it is in your audit log; keep the link at *Read
     only* to keep every decision with your own people. See [Sending rules to customers](#sending-rules-to-customers).)
@@ -245,6 +272,12 @@ such a channel that is still on while the level is below Configure. A change of 
 a new destination and is not recorded. If the list cannot be read, the channel a technician just added is switched off
 at once (`msp.channel.unrecorded`).
 
+**Pairing again** (4.6.2). Pairing with another link (*replace*: another MSP, or a new invitation) first ends the old
+link as Disconnect does, with its audit entry `msp.disconnected`: the accounts the old MSP made are switched off and its
+automatic-enforcement opt-ins removed, so nothing it made or switched on carries over to the consent you give the new
+link. Pairing the same link again, or a link of the same MSP (the same address), keeps the technicians you blocked. A
+rule a technician switched to automatic acts only under the consent of that technician's own MSP.
+
 **A stop half way is repaired** (4.6.1). The level change, its audit entry (`msp.level.changed`, `msp.disconnected`,
 `msp.unlinked`) and switching off what the MSP made are separate writes. The level is always written first, so the MSP
 loses its access before anything else happens, and the change is recorded until every step is done. If DENIS stops in
@@ -278,7 +311,16 @@ throws it away. It is off by default; switching it off asks for your password.
   them, and the MSP states that number itself: blocking cannot stop an MSP that lies. Use Disconnect if you do not trust it.
 * **DISCONNECT** (any administrator, one click, no password) sets the level to Off. The channel drops within seconds, the
   next request is refused. `denis msp-link off` does the same from a shell and works with the console unreachable.
-  Bringing the MSP back needs an administrator's password.
+  Bringing the MSP back needs an administrator's password. Since 4.6.2, Disconnect, Unlink and `denis msp-link off`
+  also stop the mirror at once, without a restart: a master started with `--report-to` sends no devices and alerts to
+  the MSP from the moment the change is recorded (it reads the link before each send), and the console's MSP page says
+  *Not reporting*. Raising the level again, or pairing again after an Unlink (with the same MSP or another one), starts
+  the mirror again **from that moment**: the alerts raised and the device changes made while the link was off are never
+  sent, also not later. That part is lost to the MSP by design: switching the link off means the MSP is not told what
+  happened meanwhile. The periodic full copy of the register (every six hours) then sends the devices as they are at that
+  time. A master that relays with `--report-to` and was never
+  paired is not affected. The link status (`GET /api/msp-link`) gives `relay_held`: `disconnected`, `unlinked`,
+  `unreadable` (the link cannot be read, so nothing is sent until it can), or `null`.
 * **Unlink** forgets the MSP completely (its key, the stored token, the blocked list), and the rule offers it sent that
   nobody answered. Pairing with another link does the same for the old link's offers: an offer is only ever shown and
   accepted under the link that sent it.
@@ -371,10 +413,18 @@ From a shell, with the same effect:
 
 ```
 denis msp customer add acme --name "Acme" --host acme.portal.example --url https://msp.example:9000 --invite
-denis msp customer invite acme [--replace] [--address https://denis.acme.example:8443]
+denis msp customer invite acme [--replace] [--address https://denis.acme.example:8443] [--code dml3|dml2]
 ```
 
 Both print the four words, the long fingerprint, the code (and a link when `--address` is given).
+
+**Which code (4.6.2).** An invitation is a `dml3.` code, whose four words also cover the address in it, when the
+customer's master reported DENIS 4.6.2 or newer, or when its link was already made with a `dml3.` code. When the
+customer's version is not known (a new customer, or one that never connected), it is a `dml2.` code, which every DENIS
+from 4.4 on can pair with: then read the customer the address too (the invitation shows it). You can choose `dml3.`
+yourself (*Code* in the dialogs, `--code dml3`) when you know the customer runs 4.6.2 or newer; an older DENIS says the
+code is not valid, or does not pick it up from the link. A `dml2.` code is refused for a customer that can check `dml3.` (`dml3_required`). The customers
+table shows the version of each customer's latest invitation.
 
 **The earlier code, still available.** On the operator page (`/operator.html`), as an administrator of the default tenant with a
 second factor proven in the last 10 minutes: *Administer your customers, Add a customer*; or from a shell:

@@ -69,7 +69,7 @@ Rules that the policy inherits from a parent access policy, and prefilter rules,
 ## Tokens, domains and limits of the API
 
 * **Sign-in.** DENIS signs in with the account's name and password (Basic authentication, one token request) at the start of each action and keeps no token afterwards. Use an account for DENIS alone: another sign-in with the same account can end DENIS's token in the middle of an action. A token lasts 30 minutes; when one expires in the middle of an action DENIS refreshes it (up to three refreshes), then signs in again. The password goes only into the `Authorization` header of the token request, is read from the encrypted secret store, and is never logged or written to the ledger.
-* **Domains.** Without a domain name the account's default domain is used. A domain given by name or UUID is looked up in the list the FMC returns at sign-in, and DENIS refuses to run when the account has no access to it.
+* **Domains.** Without a domain name the account's default domain is used. A domain given by name or UUID is looked up in the list the FMC returns at sign-in, and DENIS refuses to run when the account has no access to it. While the connector has active actions, a change of the domain is refused like a change of the address (*active enforcement actions*): their release would look in the other domain. The same holds for the domain of a Check Point Multi-Domain server.
 * **Rate limit.** The FMC API accepts about 120 requests a minute from one address (**[verify]**). DENIS paces itself under it. When the FMC answers 429 it waits for the `Retry-After` it is given (at most 30 seconds, at most three times) and repeats the request, which was not processed. When the waiting runs out the action is refused with nothing changed, never marked "unknown".
 * **Lists** are read page by page, at most 40 pages of 200.
 * **Lost answers.** A write that the FMC accepted but whose answer was lost is *unknown*: DENIS reads the result back, and the object names are deterministic, so a retry finds what is already there instead of making a second one.
@@ -141,3 +141,37 @@ The console shows a short line under each field and a short note behind its (i).
 * **One token per FMC and user.** The clients of DENIS share one token in the process (best guess from the
   documented behaviour that a new sign-in of the same user can end the earlier token), so a read-back no longer ends
   the token of an action that waits for its deployment. The pacing window is still per client.
+
+## 4.6.2: renamed objects and unreadable answers
+
+Documented from the code; not tried on an FMC.
+
+* The dynamic object and the network group of an action are found by their name, then by the id the action recorded, so a
+  rename in FMC is followed by the release. One found under neither, while DENIS's host is still there, is "cannot tell":
+  nothing is removed and the action stays open.
+* DENIS's host in the group with another address or an edited description is a deviation, not gone; a host left in place
+  because its description was edited does not hold back the release.
+* A 200 answer whose body cannot be read, a mapping list missing from an answer that does not say it is empty
+  (`paging.count` 0), and a mapping whose address DENIS cannot read are errors, never "no mapping".
+
+* A deny rule of a flow block renamed in FMC (it still carries DENIS's marker and names the action's own hosts) is a
+  deviation, never "gone"; the release removes it. A host of the flow whose description was edited is left by the release and
+  no longer holds back its read-back.
+* "Never deployed" is no longer decided from DENIS's own steps alone. When they record no deployment but the block changed
+  the group or the access policy, the release (or the undo of a failed block) first reads the pending changes: if the
+  block's change is no longer pending on every device, a deployment DENIS did not make published it. DENIS records that
+  (*published by another deployment*), deploys the removal after the usual check for other people's changes, and the
+  release is confirmed only when nothing of it is pending any more. From 4.6.2 the check for other people's changes stops
+  such a release before anything is changed only when the block's change is positively pending nowhere (every device's
+  pending list read). When DENIS cannot tell (a list it cannot read, a device that shows nothing about the block), it takes
+  its own change out of the pending configuration all the same, so that nobody's next deployment puts the block into
+  force; its deployment then waits as for other people's changes and the release stays open until it is deployed. Best
+  guess: what an FMC lists as pending after an add and a removal that were never deployed was not tried.
+* A flow block whose access policy (the one recorded with the action) was deleted on the FMC: its rules went with it. The
+  check reads the block gone (closed after the second reading, as always), and a release removes the hosts and is
+  confirmed. Any other failure to read the policy stays "cannot tell" and a refusal. From 4.6.2 the action also records
+  the FMC domain it was made in: a policy that is not found while DENIS signs in to another domain (the connector's
+  *Domain* setting changed, or the account's default domain did) is "cannot tell", because the rules may still deny in
+  the first domain. A block made before 4.6.2 records no domain and reads "gone" only while DENIS signs in to the
+  account's default domain; in another domain it is "cannot tell" with its own sentence (nothing need have changed:
+  DENIS cannot tell which domain the block was made in), and a person checks on the FMC and marks the action resolved.

@@ -490,3 +490,11 @@ tester guide).
 
 See [Switches](../switches.md#disabling-a-port) for the safety model (re-poll before plan, blast radius, the self-lockout
 refusals, the uplink and LAG warnings to tick, drift detection).
+
+## 4.6.2: the standard write test needs an answer to its SET
+
+The standard write test writes the value a spare port already has, so reading the port back cannot tell an applied write from
+one the switch never answered (an SNMPv2c agent stays silent on a wrong community). Since 4.6.2 the test passes only when the
+switch answered the SET without an error; no answer, or an answer that did not confirm the value, is "unconfirmed" with the
+SET's own sentence (documented from the code; a wrong community answered by silence is documented SNMP behaviour, best guess
+for a given switch).

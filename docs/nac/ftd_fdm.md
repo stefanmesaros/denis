@@ -115,3 +115,21 @@ The console shows a short line under each field and a short note behind its (i).
   A job that ended FAILED is still withdrawn without a deployment, as before.
 * Only DENIS's own **deny** rules count as "DENIS's rules above its rule" (a rule named like DENIS's that allows
   does not).
+
+## 4.6.2: renamed groups, edited objects and deployment proof
+
+Documented from the code; not tried on an FTD.
+
+* A block group not found under its name while DENIS's object is still there is "cannot tell" for the check and the release
+  (nothing is removed). DENIS's object in the group with another address or an edited description is a deviation, not gone;
+  the release takes it out of the group, leaves the object and is confirmed without waiting for the object to go.
+* A release is confirmed by its own deployment (or by a pending list that holds nothing of DENIS's), never by the deployment
+  of the block.
+* When DENIS's own steps record no deployment of the block but the pending list holds the removal of DENIS's object (someone
+  else's deployment published it), the release or the undo of a failed block deploys the removal, after the check for other
+  people's changes. Such a release is confirmed only when nothing of the action is pending; a list that cannot be read is
+  "cannot tell".
+
+* A deny rule of a flow block renamed on the device (it still names the action's own objects) is a deviation, never "gone";
+  the release removes it. An object of the flow whose description was edited is left by the release and no longer holds back
+  its read-back.

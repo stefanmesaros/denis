@@ -78,6 +78,11 @@ combines several conditions at the same time — type, location, vendor and owne
 register) plus a substring of the OS guess — so "type is computer, location is Office 11, OS contains Unix" narrows to
 exactly that. Both are per-browser and only change what is *shown*; **Devices CSV** always exports everything.
 
+**First seen {from} – {to}**: a bar of **New devices** on the Dashboard opens the list cut to the devices first seen
+in that time, with a chip that says so; **×** on the chip shows the whole list again. The same list has its own address,
+`#assets/first/<from>-<to>` (Unix seconds, the end not included), so it can be bookmarked or sent to a colleague. A
+device deleted or merged since is in neither the bar nor the list.
+
 On a large network the list is rendered lazily: past a few hundred devices, filtering, sorting and grouping still
 run over every device, but only the rows near where you are scrolled are actually drawn, so the table stays smooth
 with thousands of devices. Smaller networks look and behave exactly the same as before.

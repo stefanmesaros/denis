@@ -29,7 +29,9 @@ There is no exploit, no password guessing and no vulnerability probing. "Vulnera
 comparing banners and ports it already read against its own data, or from importing a scanner's results;
 neither sends anything additional to the devices.
 
-Industrial devices (OT) are never pinged, port-scanned or banner-read, in any profile.
+Industrial devices (OT) are never pinged, port-scanned or banner-read, in any profile. A device counts as industrial when
+DENIS identified it so or when an administrator set an industrial type in its register entry (from 4.6.2; a device seen
+only by a remote agent is protected by what the agent identifies).
 
 ## Why a security tool may react
 
@@ -78,7 +80,7 @@ altogether. The port scan and the ping can also be switched off in the console, 
 | Never probe some ranges | `--exclude 10.20.0.0/24` (repeatable). Hosts there are still observed passively |
 | Probe less often | `--sweep-interval` (seconds between sweeps, minimum 30) and `--rescan-interval` (minimum seconds between port scans of one host). Raising them to, say, 3600 and 86400 lowers the number of alerts, not their nature |
 | Skip Telnet, MySQL/MariaDB, SMB and MSSQL banner reads | `--no-extended-banners` |
-| Keep the certificate and web page probe off | it is off unless an administrator switches it on (Settings → Network → Certificates and web pages) |
+| Keep the certificate and web page probe off | it is off unless an administrator switches it on (Settings → Capture → Certificates and web pages) |
 | Avoid IPv6 discovery traffic | leave `--ipv6` off (the default) |
 | Avoid manual full scans | do not press **Scan now**; it forces a port scan of every host regardless of the rescan interval |
 
@@ -131,7 +133,7 @@ the values already in force). The log and the Health page say so until the setti
 
 ### Other probes that follow the switches
 
-The **certificate and web page probe** (own opt-in switch, Settings → Network → Certificates and web pages) obeys the
+The **certificate and web page probe** (own opt-in switch, Settings → Capture → Certificates and web pages) obeys the
 port scan switch: it does not connect to a host on a network whose port scan is off. The **connection stability
 test** sends no pings when ping is off for the network of its target (the gateway or the public resolver), with
 `--passive-only`, or on a console that does not capture itself (a viewer, or a tenant's console fed by agents); the

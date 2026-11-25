@@ -172,7 +172,9 @@ live discovery does not.
   If a removal stops part-way (a database error), the demo still shows as loaded; press **Remove demo data** again
   to finish: every step takes only what is still there.
 * **Erase all data**: for when you have finished exploring, or are moving from a trial to the real network. It deletes
-  **every device, edit, alert, baseline, communications record, trend sample and remote site**, forgets what was
+  **every device, edit, alert, baseline, communications record, trend sample and remote site**, and (from 4.6.2) the
+  imported directory, cloud and scanner rows, the connection tests, the history of merged devices and the cache of
+  address lookups; it forgets what was
   learned (including the known DHCP, DHCPv6 and router-advertisement servers, sweepers, address pairs and the rules' own
   learning clocks), and starts a **new learning period**. It keeps user accounts and sign-in methods (passkeys, API tokens),
   notification channels, branding, rule settings, agent tokens and the **audit log** (which records that the erase
@@ -191,10 +193,16 @@ keeps running; before 4.6.1 that looked like a clean stop right after the start.
 
 ## Retention
 
+Every table of the database has one declared rule of how long its rows are kept (4.6.2): *Settings → Data → Data
+retention → What is kept and for how long* lists them, `GET /api/retention` returns them as `tables[]`, and the summary is
+in [Deployment](deployment.md#data-backup-and-retention). The audit log, the segmentation history and device merges are
+kept for ever: nothing deletes them yet. Of the connection tests the newest 200 are kept.
+
 *Settings → Data → Data retention* (administrators) sets how long events, alerts and trend samples are kept
 (1 to 1095 days) before DENIS deletes them on its own, within the hour, no restart. Until a value is saved there
-the `--retention-days` flag (default 90) applies. The asset register, baselines, accepted risks, saved reports
-and the audit log are not affected by retention. The same page sets how long the **decision log** is kept (who
+the `--retention-days` flag (default 90) applies. The asset register, baselines, accepted risks
+and the audit log are not affected by retention; saved reports keep their newest, scheduled ones by the schedule's
+number and the ones made by hand 50 unless an administrator chooses another number (4.6.2, *Reports*). The same page sets how long the **decision log** is kept (who
 acknowledged, resolved or re-opened which alert or incident, when and why): 1095 days (3 years) by default, 90 to 3650
 days, or 0 to keep it for ever. It is independent of the period above, so a decision can still be read after its alert
 has been deleted. Nothing else removes decision-log rows: not deleting or merging a device, not *Erase all data*
@@ -235,10 +243,9 @@ Raw samples of ports are deleted only for hours that were already rolled up (see
 The hourly port tables are capped at 5,000,000 rows and the configuration events at 100,000 rows, the oldest going
 first.
 
-Kept without a time limit (documented, not pruned by any period): the audit log, the results of connection tests run
-by hand, the record of merged devices (it maps a merged device's old id to the one it became), the history of
+Kept without a time limit (documented, not pruned by any period): the audit log, the record of merged devices (it maps a merged device's old id to the one it became), the history of
 segmentation changes, and revoked API tokens, agent tokens and push subscriptions. They grow with what people do, not
-with traffic.
+with traffic. Of the results of connection tests run by hand the newest 200 are kept, the oldest going first.
 
 ## The RADIUS accounting receiver (4.6.0, experimental)
 
@@ -274,7 +281,8 @@ DENIS's only inbound UDP port; off by default. What it accepts and why it is saf
 `GET /metrics` exposes counts and health in the Prometheus text format: devices (total, online, by type), open
 alerts by severity, findings by severity, learning time left, remote sites and how long ago each reported,
 failing exports and notification channels, maintenance mode, uptime. It contains **no device names, addresses or
-alert text**.
+alert text**. One scrape is computed at a time: a scrape that arrives while another is computed waits for it and gets
+the same text.
 
 It needs the same sign-in as the console. The counts are of every site, so only someone who may read every site gets
 them: a person held off a site, or a token made by one, gets `403`. For Prometheus, create a **viewer API token**
@@ -290,21 +298,33 @@ scrape_configs:
       - targets: ["denis.example.com"]
 ```
 
-Useful alerts: `denis_channel_failing == 1` (a notification channel is broken), `denis_export_failing == 1`,
+Useful alerts: `denis_channel_failing == 1` (a notification channel is broken; the `channel` label is the channel's
+name, and since 4.6.2 the label `channel_id` carries its id, as in Settings), `denis_export_failing == 1`,
 `denis_site_last_report_age_seconds > 900` (a remote site went quiet), `denis_alerts_unacknowledged{severity="high"} > 0`,
-`denis_health_warnings > 0` (the Health page has something to say), `denis_backup_age_seconds > 172800` (no backup for two days),
+`denis_health_warnings > 0` (the Health page has something to say: it counts every warning the page lists for an
+administrator of every site, RADIUS, service checks, configuration watch, the MSP link, noisy rules and updates included
+from 4.6.2; `denis_health_warnings_by_level{level="warning"}` counts only those that colour the Health badge red, and
+`{level="advisory"}` the housekeeping ones), `denis_channels_unreadable == 1` (from 4.6.2: the saved notification
+channels cannot be read, for example after a restore with another secret key, so no notice is sent; the scrape goes on
+without the channels' gauges), `denis_backup_age_seconds > 172800` (no backup for two days),
 `denis_capture_dropped_packets` rising (the capture cannot keep up). Also exposed: `denis_database_bytes`, `denis_disk_free_bytes`.
 
 Gauges and counters for the conditions in the next section: `denis_capture_parser_panics`,
 `denis_panics_caught_total{stage="capture_parse|capture_thread|flow_detection|new_asset_detection|detector_tick|agent_ingest"}`
-(every panic DENIS caught and survived; anything above 0 is a bug to report), `denis_signal_buffer_saturated`,
+(every panic DENIS caught and survived; anything above 0 is a bug to report; counters of the whole process like this one
+carry their values on the installation's own console only; a tenant's console lists them without a value), `denis_signal_buffer_saturated`,
 `denis_clock_skewed_agents`, `denis_snmp_incomplete_switches`, `denis_notifications_dropped`, and, for the
 industrial layer-2 decoders, `denis_ot_sv_sampled_out_total` (Sampled Values frames skipped by the one-per-second
 sampling) and `denis_ot_l2_appid_refused_total` (control blocks refused because a device already has the most it keeps),
 and for IP fragments of industrial traffic `denis_ot_fragments_reassembled_total`,
 `denis_ot_fragments_dropped_total{reason="timeout|limit|overlap|oversize|tiny|malformed"}`,
 `denis_ot_fragments_duplicate_total` and `denis_ot_checksum_mismatch_total{reassembled="false|true"}` (industrial
-messages with a wrong TCP/UDP checksum, still decoded; see the OT guide's limits).
+messages with a wrong TCP/UDP checksum, still decoded; see the OT guide's limits). From 4.6.2 also `denis_industrial_decoding` (`1` while
+this console's own capture decodes the industrial protocols, `0` while that is switched off),
+`denis_new_asset_queue_depth` (inventory flushes waiting for new-device detection; past its cap the newer ones keep only
+their new devices) with `denis_new_asset_queue_trimmed_total` (flushes whose other signals were dropped because
+new-device detection was too far behind), and `denis_topology_ambiguous_mac_total` (a hardware address seen on a switch
+bound to no site that devices of two or more sites share: nothing was attached to it).
 
 For the switches DENIS reads (4.6.0, port health): `denis_switch_read_fail_streak{switch="<id>"}`, failed attempts in a
 row to read a switch from this server (it says this server got no answer, not that the switch is down; one sample per
@@ -604,8 +624,12 @@ The page is read again every minute while it is open. What you opened stays open
 
 ## Health warnings that point at data you cannot see
 
-The **Health** page lists problems first, in plain words, and `denis_health_warnings` counts them. These are the ones
-that mean DENIS is working but part of what it should see is missing:
+The **Health** page lists problems first, in plain words, and `denis_health_warnings` counts them. A part of the
+database that cannot be read while the page is built is said ("Part of the database could not be read for this page"),
+never shown as "nothing wrong"; from 4.6.2 this covers every read of the page. When the enforcement actions cannot be
+read the page says that DENIS cannot tell whether ports are disabled or actions are overdue or failed to be removed, and
+when the notification channels cannot be read it says so too. These are the ones that mean DENIS is working but part
+of what it should see is missing:
 
 | Warning says | Meaning and what to do |
 |---|---|
@@ -623,6 +647,7 @@ that mean DENIS is working but part of what it should see is missing:
 | Saving devices and sightings (or east-west connections, or passive DNS names) to the database failed N times | A database write failed within the last 15 minutes: what was seen then is not saved. Check the free disk space and the database (on PostgreSQL: is the primary accepting writes?); the service log names the error. While writes fail, the **Database writes** service line is judged from the last flush that came with no new failure. |
 | The last backup needed *time* to copy the database, and the database's write-ahead log … grew to *size* meanwhile (4.5.4) | Advisory, SQLite. The last backup since DENIS started took 10 minutes or more, or the `denis.db-wal` file reached 1 GiB while it ran. Recording went on during the copy; the log is folded back in after it. Check the free disk space: the log needs that room during every backup. Shown until DENIS restarts or the next backup is quick and small. |
 | These tenants could not be loaded when DENIS started and are not running (4.6.1) | An MSP master with tenants: a tenant whose database or settings could not be opened at the start is not running, and its console and agents get HTTP 503 until DENIS is restarted. The log says why for each one (code `tenants_not_loaded`). |
+| Industrial decoding is switched off on this collector (4.6.2) | A note, not a problem: someone switched it off under *Settings → Capture → Network interface → Advanced → Industrial protocols* or started DENIS with `--industrial-decoding=false`. Industrial protocols are not decoded and the industrial rules see nothing new; traffic accounting, LLDP and CDP are not affected. The note links to the setting and goes away as soon as decoding is on again (code `industrial_decoding_off`; `/metrics` `denis_industrial_decoding 0`). |
 | The database's write-ahead log … is *size* (4.5.4) | Advisory, SQLite. `denis.db-wal` is 1 GiB or more now. It is folded back in when nothing reads an older state of the database; if it stays this large, look for a program that keeps the database open (another `denis` command, a copy or backup tool) and check the free disk space. |
 | Part of the database could not be read for this page | The Health page could not read the database statistics or the backup settings. It still shows everything else; the figures that need the database are empty. |
 | *Job*: the last N attempts failed | A periodic job (Findings, Posture samples, Scheduled reports, Service probe, Tenant limits from the control store, Maintenance setting for notifications; advisory for Vulnerability data, the GeoIP database update, the Entra ID and Intune import, the vulnerability scanner import and, since 4.5, the Active Directory, Jamf Pro, Microsoft Defender, AWS, Azure and Google Cloud imports) failed three times in a row. What it keeps up to date is from its last completed run. The error is in the warning and under **Background work**. |
@@ -764,6 +789,23 @@ days and reopens automatically if the problem comes back.
 A work item made from an [incident](incidents.md#related-findings)'s *Related findings* remembers which incident it was
 tracked from ("From incident #12", a link) and keeps that when the incident is later resolved or ages out; a work item
 made from the Findings page or a device panel has none.
+
+## What DENIS does while a feature is off (4.6.2)
+
+A feature that is switched off, or has nothing to work on, does no work in the background beyond a short look now and
+then. Measured with a test that runs the background jobs of a new installation (no channel, no switch, no enforcement
+action, Autopilot off, no MSP link) for ten simulated minutes: about 420 database accesses instead of about 1,640
+(verified by the test `idle_cost_tests`; it fails when a job gets busier again). What you can notice:
+
+| Job | While idle | When it starts working |
+|---|---|---|
+| Notifications | the waiting notices are still sent; the device list is read only when a channel has new alerts | unchanged |
+| Delivery outbox | an empty outbox is looked at once a minute instead of every 5 seconds | at once when DENIS queues a message; a retry that waits keeps the 5 seconds |
+| Timed enforcement actions | with no action in the ledger, one read every 10 seconds and no write | the first action is handled as before: it ends on time |
+| Autopilot (off) | the clean-up runs once an hour instead of every minute | every minute again while a proposal from before is still open, snoozed or approved, so it still ends on time |
+| Autopilot phone replies (ntfy) | looked for once a minute while Autopilot is off or no paired ntfy channel approves | every 5 seconds once one does |
+| Switch polling | with no switch listed, one read of the list every 30 seconds and a full pass every 10 minutes | a switch saved in the list is read at the next pass |
+| MSP link | with no link, or the link off, the link is read every 10 seconds instead of every 2 | a pairing in the console connects at once; one from the command line within 10 seconds |
 
 ## How big can one installation be?
 

@@ -30,7 +30,8 @@ source card). What was checked, and against what, is in [what was verified](nac/
 Cloud inventory (Azure, AWS, GCP) is shown as context on a device but is not a control. A device's
 owner and review state stay findings (`critical_no_owner`, `unreviewed`), not matrix columns.
 
-**How the imports run (4.5.0).** Each import (Active Directory, Jamf Pro, Defender for Endpoint, Azure, AWS, GCP)
+**How the imports run (4.5.0).** Each import (Active Directory, Jamf Pro, Defender for Endpoint, Azure, AWS, GCP, and
+from 4.6.2 the Entra ID / Intune import too, also for *Sync now* and on the HA leader only)
 keeps the record of its last run: when it was last tried, when it last succeeded, its last error and how many runs in a
 row failed. The import's settings API returns it (`last_run`, see [API](api.md)), so a sync that keeps failing can
 be seen and not only in the server log. Only one sync of a source runs at a time; a *Sync now* while the scheduled one runs answers
@@ -40,7 +41,10 @@ failure. It runs on the HA leader only. A listing that stops early is not taken 
 still names a next page is followed, a listing longer than the page cap, an empty Jamf page before the reported total,
 and a next-page link to another address than the configured one end the sync with an error, and nothing of that source
 is imported or removed. The Jamf server address must be `https://`, and a GCP key file must name Google's own
-`https://…googleapis.com` token endpoint.
+`https://…googleapis.com` token endpoint. From 4.6.2 the Active Directory search is paged (500 objects per page), so a
+domain with more computers than the domain controller returns in one answer (1,000 by default) is imported; more
+than 200,000 computer objects under the base DN end the sync with an error. The imports write the shared table one at
+a time, so one import never removes rows another one is storing at that moment.
 
 A source manages only some platforms: Jamf, Apple; Active Directory, Windows; Defender, everything but
 Android. DENIS reads the platform from its guess of the operating system (or the one you entered).

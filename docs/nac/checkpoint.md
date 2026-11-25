@@ -47,7 +47,7 @@ Check these against Check Point's documentation for your version before relying 
 3. **Flow blocks (optional).** Tick *Allow DENIS to create deny rules on this firewall* only if you accept that DENIS writes access rules here. It is off by default; turning it on needs your password again, like turning on enforcement. Name the **access layer** (default `Network`) where DENIS puts its rules at the top. A rule in a layer above, or an inherited rule from a higher policy, can still pass traffic before DENIS's rule is looked at, and DENIS cannot see it.
 4. **An administrator for DENIS** (or an **API key**, R81.20 and later), with a permission profile that may read and edit the objects and the access layer, publish, install the policy on the gateways, and **read other administrators' sessions** (for the check above; whether a profile may read sessions is **[verify]**). Use an account of its own, and turn on the Management API (*Manage & Settings → Blades → Management API*).
 5. **The policy package and the gateways.** Name the policy package and the gateway or cluster objects the install targets (at least one).
-6. **In DENIS** (*Network → Equipment → Add a connector → Check Point*): **base URL**, **authentication mode**, **username** (password mode), the **secret** (stored sealed as `nac.checkpoint.password` or `nac.checkpoint.api_key`), the **domain** (Multi-Domain only), the **policy package**, the **gateways**, the **block group**, the optional **quarantine group** and **access layer**, and the addresses never to block.
+6. **In DENIS** (*Network → Equipment → Add a connector → Check Point*): **base URL**, **authentication mode**, **username** (password mode), the **secret** (stored sealed as `nac.checkpoint.password` or `nac.checkpoint.api_key`), the **domain** (Multi-Domain only), the **policy package**, the **gateways**, the **block group**, the optional **quarantine group** and **access layer**, and the addresses never to block. While the connector has active actions, a change of the domain is refused like a change of the base URL: their release would look in the other domain.
 
 ## What DENIS records
 
@@ -57,7 +57,7 @@ Objects and rules that carry your DENIS install's marker but belong to no active
 
 ## The old routes
 
-The old block and unblock buttons behave as before: host object `denis-block-<ip>`, member of the block group, publish, install (an unblock also deletes the host object, with a second publish and install). They write the same ledger rows (no action type) and an unblock through them closes only those rows. They do not check for other administrators' unpublished changes (they never did). From 4.6.1 a block or unblock through them is confirmed from the group only when its publish and install ended well; when either failed, timed out or got no usable answer (for example an error page of a proxy in front of the Management Server), the action stays *unconfirmed*, because the gateways may still enforce the last installed policy.
+The old block and unblock buttons behave as before: host object `denis-block-<ip>`, member of the block group, publish, install (an unblock also deletes the host object, with a second publish and install). They write the same ledger rows (no action type) and an unblock through them closes only those rows. They do not check for other administrators' unpublished changes (they never did). From 4.6.1 a block or unblock through them is confirmed from the group only when its publish and install ended well; when either failed, timed out or got no usable answer (for example an error page of a proxy in front of the Management Server), the action stays *unconfirmed*, because the gateways may still enforce the last installed policy. From 4.6.2 this is kept on the action's own steps, so it also holds for the next attempt: a second release (or block) that finds the group already as wanted installs the policy instead of skipping, and is confirmed only once that install ended well.
 
 ## Removing everything by hand
 
@@ -108,3 +108,13 @@ The console shows a short line under each field and a short note behind its (i).
   From 4.6.0 this happens only when DENIS writes (an apply, a release, a removal), as the first recorded step of that
   action; making a plan only reads the sessions and changes nothing on the Management Server.
   **[verify]** on a real server that `show-sessions` returns the session name.
+
+## 4.6.2: a renamed group and an edited host
+
+Documented from the code. A block group not found under its name while DENIS's host object is still there is "cannot tell":
+the release removes nothing and stays open, the check shows that it cannot tell. DENIS's host in the group with an edited
+comment or address is a deviation, not gone; the release takes it out of the group.
+
+A group answered without its list of members is an answer DENIS cannot read, never an empty group (for a row of the old
+route too: its release then removes nothing and is not "released"). A drop rule of a flow block renamed in SmartConsole (it still carries DENIS's comment and names the action's
+own hosts) is a deviation, never "gone"; the release removes it.

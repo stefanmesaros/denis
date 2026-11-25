@@ -84,7 +84,7 @@ The WinRM password is stored only in the encrypted secret store (`nac.hyperv.pas
 
 ## Existing instances
 
-Instances from earlier versions keep working and nothing changes for them: the same VM name as the target, the same cmdlets in the same order (read the ACL list, add both entries in one script, read it back), the same ledger row with the ACL list as found, and the old *Block…* and *Unblock…* buttons act as before. The connection test only checks that the configuration is complete: there is no harmless WinRM request that does not name a VM, so the host is first contacted when you plan a block. Records the old routes made are released through the old *Unblock…*; records of the new actions are released through the new action list. What changed is only who writes the record: the ledger row is now written by the enforcement orchestrator, which also applies the hourly cap and the kill switch and stamps the row with the connector instance.
+Instances from earlier versions keep working: the same VM name as the target and the same cmdlets (read the ACL list, add both entries in one script, read it back). Since 4.6.2 the old route resolves the name to the one VM that has it (two VMs with one name are refused), records that VM's id with the block, and addresses the writes, the read-back and the release by that id (`Get-VM -Id`): a VM renamed later, or another VM given its old name, does not make the release reach another machine. A block recorded before 4.6.2 has no id; its release goes by the name and is refused while two VMs have that name. The rest is as before: the same ledger row with the ACL list as found, and the old *Block…* and *Unblock…* buttons act as before. The connection test only checks that the configuration is complete: there is no harmless WinRM request that does not name a VM, so the host is first contacted when you plan a block. Records the old routes made are released through the old *Unblock…*; records of the new actions are released through the new action list. What changed is only who writes the record: the ledger row is now written by the enforcement orchestrator, which also applies the hourly cap and the kill switch and stamps the row with the connector instance.
 
 ## Where is it plugged in (4.4)
 
@@ -128,3 +128,13 @@ The console shows a short line under each field and a short note behind its (i).
   is still running the command answers with a timeout fault, and DENIS asks again for up to a minute in all. A busy
   host no longer looks unreachable. A write that runs out of that minute is left to finish on the host (its shell is
   not ended); a read that runs out is ended.
+
+## 4.6.2: the port ACL list, half a block, and the record of actions
+
+Documented from the code; a lab run on the host settles what `ConvertTo-Json` prints for the two fields.
+
+* The port ACL list is read with its two enum fields cast to text, and an answer DENIS cannot read is an error, never "no
+  entries": the release then removes nothing and says so, and the regular check is "cannot tell".
+* Half of an isolation (one of the two deny entries) or of a flow block is a deviation, never "gone".
+* When DENIS cannot read its own record of actions, the "already held" checks refuse and the orphan list fails instead of
+  naming every DENIS ACL as an orphan.

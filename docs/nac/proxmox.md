@@ -124,3 +124,16 @@ The console shows a short line under each field and a short note behind its (i).
 * **Quarantine by IP set follows the address.** The entry is the guest's address at the time of the block. When the
   guest's configuration or agent shows that it no longer holds that address, the action stays active with a notice;
   the entry may now hit another machine. Release it and quarantine the guest again.
+
+## 4.6.2: options not set, renamed sets and half a block
+
+Documented from the code; a lab run settles what an unset input policy means on a guest.
+
+* The plan records which firewall options the guest had not set; the release puts those back as not set (the API's
+  `delete`), never as ACCEPT. A row made before 4.6.2 is restored as before.
+* A quarantine IP set that is not listed under its name (renamed, or deleted) is "cannot tell": the release removes nothing
+  and the action stays open. An IP set list or entry list that is not a list is an error, never "no such set".
+* A flow block with a rule missing, disabled, edited or pushed down while another of DENIS's rules is still there, and an
+  isolation with one DROP policy left while the firewall is on, or with its DROP policies kept while the guest's firewall
+  was switched off (they act again once it is switched on), are deviations, never "gone".
+* When DENIS cannot read its own record of actions, the "already held" checks refuse.

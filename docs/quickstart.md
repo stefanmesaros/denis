@@ -115,9 +115,10 @@ everyone). A guide marked done under an earlier version counts as done. The step
 it again. A person who is not an administrator who opens the page (for example from the Dashboard of an installation
 without devices) sees a short read-only version: the first steps and whether each is done, without numbers or buttons.
 
-**After the guide: the Dashboard's "Needs attention" list (4.6.0).** Near the top of the **Dashboard** is one short list,
-at most eight lines with the most important first: open security incidents, a watched switch link that is down, a switch
-or a site that cannot be read, a capture interface that is down, a site's reports that are incomplete. Each line says
+**After the guide: the Dashboard's "Needs attention" list.** Near the top of the **Dashboard** is one short list in
+groups, the most important first: open security incidents, faults (a watched switch link that is down), monitoring (a
+switch or a site that cannot be read, a capture interface that is down), data gaps (a site's reports that are
+incomplete) and notes. At most three lines per group and seven in all are shown; **Show all** opens a group. Each line says
 what happened, where, since when, how DENIS knows, and has the button to the page where you act. When the list is empty
 it says what is being watched and what is not (switches read, how many with traffic counters, watched links, sites
 reporting), not "all good". Each person sees only the sites they may read. A switch this server cannot read shows as

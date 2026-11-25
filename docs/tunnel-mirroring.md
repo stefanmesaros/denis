@@ -2,7 +2,7 @@
 
 DENIS learns what is on a network from the frames it sees. The simplest way to show it a switch's
 traffic is a local mirror (SPAN) port cabled into a spare network card (`--mirror-iface`, or
-Settings > Network interfaces). This page covers the other ways a mirror reaches DENIS:
+Settings > Capture > Network interface). This page covers the other ways a mirror reaches DENIS:
 
 | Delivery | What the collector receives | DENIS option |
 | --- | --- | --- |
@@ -178,7 +178,7 @@ monitored network. Set `--tunnel-source` to the sender's address, and also restr
 the collector with a firewall (and, in a cloud, a security group or network security group that
 allows UDP 4789 only from the mirror source).
 
-On `run`, **Settings > Network interfaces > Mirror tunnels** switches the same four kinds on and
+On `run`, **Settings > Capture > Network interface > Advanced > Mirror tunnels** switches the same four kinds on and
 off. A saved choice wins over the command line (also a saved "none"); it applies after DENIS
 restarts, like the interface choice, because the kernel filter is built when the capture opens. The
 session, VNI and source allowlists are command-line only.

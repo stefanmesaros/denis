@@ -581,13 +581,21 @@ internet side on top (the gateway, then what is behind it). It is where you chec
 correct it once at setup, and later it just shows. Every cable says how DENIS knows it, in words and by the line pattern (never by
 colour alone):
 
-* **confirmed** (solid): the equipment announces it itself, over LLDP or CDP, on a port with one neighbour.
+* **confirmed** (solid): the equipment announces it itself, over LLDP or CDP, on a port with one neighbour, and DENIS can
+  tell which equipment it is: by an address of its chassis that DENIS knows for that equipment, or, for a switch DENIS reads,
+  because that switch announces this one back. From 4.6.2 a neighbour that is matched only by the name or the management
+  address it sends is a **best guess** (medium: one frame can carry any name or address), does not mark the port as a
+  link between switches and does not keep the forwarding tables from placing that equipment. Names and addresses are
+  matched on the announcing switch's own site only, a name that two switches of one site share matches neither, and each
+  site has its own network boxes on the layer 3 view (two branches that both use 192.168.1.0/24 are two networks).
 * **best guess** (dashed, with how sure: high, medium, low): from the forwarding tables. A port that carries only one device's own
   addresses is that device's cable (high). A switch DENIS reads whose own address is learned on a shared port is guessed to be behind it
   (medium); other equipment seen only there is guessed to be behind that switch, port not known (low). A switch that reads no forwarding
   table of its own (the D-Link DGS-1100) is placed from the other switches' view. Two or more neighbours announcing on one port are
   relayed by equipment in between, so they are not called cabled there.
-* **set by hand** (dotted): a cable an administrator drew, or a port marked as leading to unmanaged equipment.
+* **set by hand** (dotted): a cable an administrator drew, or a port marked as leading to unmanaged equipment. The mark
+  holds when it spells the port differently from the switch (`Gi1/0/5` for `GigabitEthernet1/0/5`): what is learned on
+  the port is drawn behind the mark's box (from 4.6.2; before, it was lost from the map).
 
 A firewall that DENIS also reads as a switch, or whose interfaces are one device in the register, is one box. Where DENIS is not sure it
 says so under **Where DENIS is not sure** and offers the choices (*Yes, that is right*, *Choose the cable myself…*, *A switch or
@@ -773,17 +781,20 @@ sees which notice and what goes to the channels (each channel's minimum, mainten
 
 ### On the Dashboard and the Health page
 
-The Dashboard's **Needs attention** list shows at most eight lines, most important first: open security incidents, a
-watched link that is down, a switch or a site that cannot be read, a capture interface that is down, a site's reports
-that are incomplete, and the port marks. Each line says what happened, where, since when, how DENIS knows ("Read over
-SNMP from this DENIS server", the last attempt and the last valid reading) and where to click. A switch this server
-cannot read is **Loss of monitoring**: the state of the switch itself is not known, and the port conditions of that
+The Dashboard's **Needs attention** list shows what needs a person: open security incidents, a watched link that is
+down, a switch or a site that cannot be read, a capture interface that is down, a site's reports that are incomplete,
+and the port marks. The items are in groups, always in this order: security incidents, faults, monitoring, data gaps
+and notes (a site's incomplete reports are a data gap, a switch this server cannot read is monitoring). At most three
+lines per group and seven in all are shown; **Show all** under a group opens the rest of it. Each line says the
+severity, what happened, its state, since when, and **Open**; a click on the line shows its details: where, since when,
+how DENIS knows ("Read over SNMP from this DENIS server", the last attempt and the last valid reading) and the next
+step. A switch this server cannot read is **Loss of monitoring**: the state of the switch itself is not known, and the port conditions of that
 switch are folded into that one line. An empty list says what is being watched and what is not (switches read, how
 many with counters, watched links, sites reporting), not "all good". Each person sees only the sites they may read. The
 answer behind it is [`GET /api/attention`](api.md#needs-attention).
 
-An open security incident always comes first, whatever its priority, and only then the rest by severity: a flood of
-operational items (fifty links down, sixty checks that fail) never pushes an incident out of the list. Why: an
+An open security incident always comes first, whatever its priority, and inside each group the items go by severity:
+a flood of operational items (fifty links down, sixty checks that fail) never pushes an incident out of the list. Why: an
 incident is a person or a program acting on your network, and the operational items around it are often its
 consequence or its noise; an incident marked "review" is still one a person has to look at. The conditions of a switch
 that is paused, or whose port health is off, are not listed: such a switch is "Not monitored". When the list of service

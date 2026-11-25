@@ -135,3 +135,10 @@ The console shows a short line under each field and a short note behind its (i).
   swap and puts the old groups back even when EC2's answer still lags behind.
 * **The old route refuses** an instance any of whose interfaces carries the quarantine or the isolation group or a DENIS
   tag from another action: its release would otherwise put that action's group back.
+
+## 4.6.2: only EC2's "not found" proves an interface gone
+
+Documented from the code. A successful answer that does not list a recorded interface (an empty or cut answer, another
+shape) is "cannot tell"; only EC2's `InvalidNetworkInterfaceID.NotFound`, asked where the action was made, proves it gone. An
+answer without the interface set is an error, never an empty list. The action also records the endpoint it was made through;
+when the connector uses another one, "not found" is "cannot tell" as well.

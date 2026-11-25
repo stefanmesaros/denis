@@ -458,7 +458,7 @@ tick "an HTTPS address counts as its host" to compare its host. IPv6 connections
 
 ### Reading server names and web addresses (opt-in)
 
-Off by default, switched on by an administrator **per collector**, like passive DNS: *Settings -> Network interfaces -> Server
+Off by default, switched on by an administrator **per collector**, like passive DNS: *Settings -> Capture -> Network interface -> Advanced -> Server
 names and web addresses* for this console's own capture (takes effect at once, saved), `--capture-names` for a remote agent
 (the console's setting is not pushed to an agent; the agent decides for itself). It does something only with the wide flow
 capture (`--flows`, a mirror interface), and only while at least one list holds names (otherwise a name is compared with nothing

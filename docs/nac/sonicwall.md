@@ -97,3 +97,9 @@ The console shows a short line under each field and a short note behind its (i).
   commit since DENIS's first read is not overwritten; the last-member rule is checked on that read too.
 * Every write path takes the same device hold as FortiGate and PAN-OS (per firewall address, not per connector
   instance).
+
+## 4.6.2: a renamed group and a changed address object
+
+Documented from the code. A block group not found under its name while DENIS's address object is still there is "cannot
+tell": the release removes nothing and stays open. The regular check tells a changed member from a removed one: DENIS's name
+in the group with another address is a deviation, gone only when the name is not in the group.

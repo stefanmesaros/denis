@@ -67,34 +67,57 @@ Settings; alert channels are under *Settings → Notifications*); the ☰ button
 
 ![Dashboard](img/dashboard.png)
 
-The home screen, and the first thing you see after signing in — and, since the standalone Trends page was folded
-into it, the one screen that answers both "what needs attention right now" and "what has this network been doing".
-With an AI provider configured and **Settings → AI → Dashboard AI summary** on, an **AI Security Summary** card sits
-at the very top: a short, plain-language read of recent alert activity, written only when it actually changes (not on
-every page load), never what drives alerting itself.
+The home screen, and the first thing you see after signing in. It answers, from the top down: does something need me
+now, what is it, and what has this network been doing. Everything is on the page; nothing is folded away or behind a
+tab.
 
-Below that: twelve at-a-glance counts (devices, online/offline, needs review, open alerts, high-severity alerts, OT
-devices, high-risk devices, findings needing attention, accepted risks, sites, new devices in the chosen period) —
-click any of them to jump straight to the filtered list behind it — and four donut breakdowns (devices by risk, open
-alerts by severity, devices by type, findings by severity — click a segment or its legend entry to drill into exactly
-what it shows). Next, **Top exposures today**: the devices with a serious standing fact (a known-exploited or
-critical vulnerability, unsupported software, an open incident, a high-severity finding), ranked, each with every
-point listed and where it comes from — the top five, and **Show all** for the rest ([how it is ranked](concepts.md#top-exposures-today)).
-Then three lists of what actually needs a look right now: recent alerts, the most at-risk devices, and standing
-findings.
+* **Notices**, one line each: the learning period, new rules that are waiting, Autopilot (Experimental).
+* **Six numbers**, always the same six: open incidents (and how old the newest is), open alerts (how many high and
+  medium), high risk devices (of all), findings needing attention (by severity), needs review (and the new devices of
+  the last 24 hours), devices (online now and offline). Each is a link to its filtered list. Red is kept for open
+  incidents and a high open alert, amber for standing work, and a colour always comes with a mark and a word. A number
+  that is not known yet is a grey bar; one that could not be read says "not known", never 0.
+* **Summary**: yesterday in one sentence and the facts that are not numbers (what is left to review today, the
+  posture goals not met, the sites that report, the OT devices). With an AI provider configured and **Settings → AI →
+  Dashboard AI summary** on, a switch **AI | Facts** sits at its right with AI chosen first; your choice is remembered in
+  this browser. The AI text is written only when the alerts change, never on a page load, and never drives alerting.
+  With AI off there is no switch and nothing mentions AI.
+* **Needs attention**: what needs a person, in groups (security incidents, faults, monitoring, data gaps, notes), one
+  line per item: the severity as a word and a mark, what it is (an incident by its number, title, device and number of
+  alerts), its state, since when, and **Open**. A click on the line shows its details: where, since when, how DENIS
+  knows, and the next step. At most three lines per group and seven in all are shown; **Show all** opens a group. The
+  line about DENIS itself ("DENIS itself: 1 problem. Open Health") sits at the right of the heading.
+* **One panel with three lists**: **Top exposures today** (the devices with a serious standing fact, each with its
+  strongest reason; [how it is ranked](concepts.md#top-exposures-today); the device panel shows every reason),
+  **Recent alerts** and **Findings needing attention**. The three columns have the same number of rows (two to five),
+  so a short list never leaves a hole; **Show all** opens the full page.
+* **Trends**, with the period at the right of its heading (last 24 hours by default, 7 days, 30 days): **Devices
+  online** (with the devices in the register as a dashed line; the space between is offline), **New devices**,
+  **Devices by type** (one strip; a part or its legend opens Devices with that type, and **OT devices** opens the OT
+  page), **Traffic** (received and sent outside the network; needs `--flows`) and **Alerts raised**, then **Top
+  talkers** and **Posture**. Top talkers are totals since each device's own traffic baseline, not a period (hover a
+  bar for that device's own start); the gateway and this monitoring host are left out automatically, and **×** hides
+  a device for everyone. Posture is always 30 days.
 
-The rest of the page is the former Trends page, over the same period you pick at the top (24 hours / 7 days / 30
-days): eight charts — devices online, devices offline, devices in the register, new devices, traffic sent outside the
-network, traffic received, total traffic, and alerts raised (traffic needs `--flows`) — followed by **Top talkers**:
-which devices have sent and received the most, from each device's own traffic baseline. Unlike the charts above it,
-this is a live leaderboard, not a period (a device seen longer naturally shows more; hover a bar for that device's
-own start). The gateway and this monitoring host are left out automatically, since traffic naturally funnels through
-them; click **×** on any device to hide it from all three lists too.
+A time chart is one control: point at it, tap it, or reach it with **Tab** and choose a time with **←**, **→**, **Home**
+and **End**. The line under the chart says that time, its value and what a click opens. A bar of **New devices** opens
+Devices cut to the devices first seen then, and a bar of **Alerts raised** opens All alerts cut to the alerts raised
+then (each with a chip that says so; a mouse click opens it at once, a tap first shows the line with its link, **Enter**
+opens it from the keyboard). The bars of these two charts are counted from the devices' first-seen times and the alerts'
+own times, the way the lists are cut, so a bar and its list say the same number. **Show as a list** under them lists
+every time that is not empty. A past point of **Devices online** and a bar of **Traffic** open nothing and say why:
+only the counts are kept for a past time, not which devices were online or which device sent the bytes (Top talkers
+shows the devices).
+
+The parts of Trends are read when they come near the screen, and again at most once a minute while they are on it and
+the browser tab is not hidden (another period or another site is read at once); the AI summary is read at most once a
+minute too. The numbers and Needs attention follow the console's usual refresh. A part that could not be read says so,
+with **Try again**, and keeps what it showed before: it is never shown as empty or as switched off.
 
 ![Top talkers](img/top-talkers.png)
 
-Every number on this page is drawn from state the console already has, so opening it costs nothing extra beyond its
-own trend-chart request. Every other tab is unchanged and still one click away in the sidebar.
+The numbers and lists are drawn from state the console already has; Trends cost their own requests only when you
+scroll to them. Every other tab is still one click away in the sidebar.
 
 ## Tables: columns
 
@@ -212,7 +235,10 @@ this" — which is sent with the question as an unverified claim and never chang
 **What will be sent** shows the exact text before it goes. The conversation is not kept when you close the alert;
 tick *Also keep this as a note on the alert* (or use *Save note only*) to put your note under *History*, where
 everyone who can see the alert reads it. **Continue in Ask DENIS** takes the alert along to the Ask DENIS panel.
-**Alerts CSV** (a button, next to *show acknowledged*) exports the list.
+**Alerts CSV** (a button, next to *show acknowledged*) exports the list. A bar of **Alerts raised** on the Dashboard opens
+*All alerts* cut to the alerts raised in that time, acknowledged ones shown too, with a chip **Raised {from} – {to}**
+(**×** clears it); the address is `#alerts/time/<since>-<until>` (Unix seconds, the end not included), and a time
+older than the alerts the console holds is read from the server.
 
 **Investigate**, a collapsible section in the same dialog, shows the alert in context: the device's other events an
 hour either side, what DENIS recorded between the device and the alert's other party, which other devices contacted
@@ -604,8 +630,8 @@ client or an auditor.
   last month's is still there next month, exactly as it was.
 * **Schedule** (administrators): every week or every month, covering a period you choose, optionally e-mailed as a
   link when ready. The list says under each scheduled report whether it was e-mailed ("E-mailed to 3") or why not
-  (no public URL, no e-mail channel, or the mail server's error); one attempt is made per report. DENIS keeps the newest N scheduled reports and removes older ones; reports you made by hand are
-  never removed. Deleting a report is an administrator's action and goes to the audit log.
+  (no public URL, no e-mail channel, or the mail server's error); one attempt is made per report. DENIS keeps the newest N scheduled reports and removes older ones; of the reports you made by
+  hand it keeps the newest 50 (*Keep the newest reports made by hand*, 1 to 1,000), each kind on its own. The oldest beyond these numbers are removed when a new report is saved (also the first time after the update to 4.6.2, when more than 50 reports made by hand are kept), and each such removal is one entry in the audit log (`report.prune`: how many, and the limit). Deleting a report is an administrator's action and goes to the audit log.
 * **Share…** (administrators) turns on a link that opens the report **without signing in** — the dialog says so
   plainly; **Stop sharing** invalidates it immediately.
 * With *Settings → AI → Security reports* on, a saved report also carries a short AI-written summary; the live

@@ -1,7 +1,7 @@
 # Roadmap and known gaps
 
 DENIS aims to be an honest, self-hostable alternative to the asset-visibility products that cost six figures a
-year. This is what is still missing, in order. Pull requests welcome. The current release is 4.6.0.
+year. This is what is still missing, in order. Pull requests welcome. The current release is 4.6.2.
 
 ## 4.1.0: delivered; what is in, what is experimental, what is not built
 
@@ -314,19 +314,42 @@ Work split (owner decision of 2026-11-16): Fable agents write the design and the
 
 A review release: the fixes the owner marked as needed before the first sale from two independent whole-code audits of 4.6.0 (honest reading of equipment, truthful console states, MSP link changes that finish, detection that does not lose alerts, safer updates and agents, hardening of the web layer), the cheap release gates and a second reading of enforcement and the web layer. What did not fit moved to 4.6.2.
 
-## 4.6.2 (planned; what did not fit into 4.6.1, owner decision 2026-11-21)
+## 4.6.2 (delivered 2026-11-25; the release notes are in CHANGELOG.md)
 
-1. **"Quiet device looks up a new domain" and time sources.** A NAS that takes its time from the NTP pool resolves a different volunteer server (a reverse name such as an ISP or hobby host) many times; each one is a "new domain" for the rule. The rule should ignore the names of time sources of a device that already talks `udp/123`. Found on a Synology NAS on 2026-11-19 (verified: the name was a member of the NTP pool).
-2. **"This is normal" with no expiry.** The quick button from an alert allows 1 to 365 days (default 90); a longer or open-ended exception today needs Rules → Exceptions. Offer "no expiry" on the quick button for administrators only, with a clear warning that such an exception hides later alerts of the same kind for good.
-3. **Left over from the 4.6.0 code review (not regressions):** port health on a real switch (CPU and memory figures of net-snmp agents, PoE port naming on stacks and uplink modules, the counter time budget on switches with many virtual interfaces); one unreadable address-conflict alert stops identity linking for the tenant (deliberate in 4.6.0, to be narrowed); a Check Point leftover-session check that can discard another DENIS instance's session; the delay before a dependent service check is announced when its parent is slow; cost-only items of the poll loops.
-4. **Measurements on real equipment still owed:** MikroTik configuration changes made through REST and the effect of a reboot, UniFi Wi-Fi, firewall and port-profile changes, port health on a real switch, 802.1X Disconnect and EAP sign-ins.
-5. **Idle cost.** A feature that is off does no work: first a test that counts store calls of an idle default tenant over ten simulated minutes, then early exits in the busiest idle jobs (delivery, MSP, the switch loop, Autopilot housekeeping, notification channels).
-6. **Enforcement: one acceptance fixture and the remaining connector kinds.** A local fake connector with durable device state tests apply, extend and rollback with a restart between steps; then the kinds that still ask the gate only before their first write ask it between steps too (one kind at a time, each behind the fixture). The rest of the old-path preview truthfulness (what a connector says while a change is only requested).
-7. **PostgreSQL.** The backup test with a long dump and the lease clock across a paused virtual machine, if high availability is offered to customers.
-8. **Build environment.** Pin the compiler and the base images by digest; remove the capture permission from the release workflow's tests after one green CI run without it.
-9. **MSP pairing code covers the address.** A new code version (`dml3.`) whose four words also vouch for the address in the code; a customer on an older version keeps the old code with a prominent request to compare the address (shown since 4.6.1), until it updates. The relay of a master started with `--report-to` after the link is disconnected is decided with this item.
-10. **Tests without real time.** The tests that measure time (scheduling latency, a time budget, a busy wait) get a virtual clock; they failed on slow release runners in 4.6.1 and had to be repeated. A stress run of the test suite under load becomes an optional step of the release gate.
-11. **Larger structure work from the 4.6.0 audits**, taken one item at a time when the code is touched anyway: one settings cache per tenant, the old block routes as an adapter, transition tables that refuse new forward moves, ledger side rows inside the move, bounded tables with counters on Health, retention as one declaration per table, durable receipts for MSP remote operations, upgrade check from real old databases.
+What did not fit into 4.6.1 (owner decision 2026-11-21), widened by the owner on 2026-11-24. Delivered:
+
+1. **The new Dashboard:** six number tiles, one Summary, Needs attention in groups, one panel of lists, all Trends on the page, and every chart a control that opens the list cut to that time. New pictures in the documentation; the website pictures follow with the website update.
+2. **Every connector kind between the steps of a change:** all 22 kinds ask the gate (lease, kill switch, update hold) before each request of an apply or an extend; a release is never stopped by the kill switch; a change that stops half way ends as a deviation or "not confirmed". An acceptance fixture with a fake device and restarts between steps tests apply, extend and rollback. Each kind still needs one run on real equipment before it is called verified.
+3. **Honest read-back** (the findings of the second reading pass, high and medium first): a release that cannot find the object reads "cannot tell"; a block that is present but changed, or half there, is a deviation; an answer that cannot be read is never an empty list. A WatchGuard block is confirmed only by a completed deployment. A port action needs the device to have been alone on its port for 7 days.
+4. **Detection that reads before it learns:** a failed database read no longer loses an alert; names of NTP Pool time sources are not judged as new domains; a VLAN change on a port is reported; devices typed as industrial are never scanned; a switch for industrial decoding.
+5. **"This is normal" with no expiry** for administrators of the whole installation, with a warning.
+6. **MSP:** the pairing code `dml3.` also vouches for the address; a Disconnect, an Unlink or `denis msp-link off` stops what a master reports with `--report-to`.
+7. **PostgreSQL:** the backup with a long dump completes, and the high-availability lease counts the time a paused machine stood still.
+8. **Idle cost:** a feature that is off does no work, with a test that counts the store calls of an idle tenant.
+9. **Tests without real time** (virtual and paused clocks) and a stress run of the library tests under load (`tools/stress-tests.sh`).
+10. **Quick items:** plurals in console texts, saves of switch lists that keep entries made meanwhile, weight 0 in segmentation, a retention declaration for every table (documentation and console), manual reports kept up to a limit (50 by default, up to 1,000).
+11. **The signed lists** (`lists.json`) are built, verified and signed by the release job and published on the mirror.
+
+Not done in 4.6.2, moved on:
+
+* To 4.6.3 (see there): step-up for uploading an entry file to a threat list; the hardening items that need a design, a console change or equipment; the relay address check against the paired MSP; the larger structure work from the 4.6.0 audits; lab runs and the measurements on real equipment (port health on a real switch, MikroTik and UniFi configuration changes, 802.1X Disconnect and EAP sign-ins).
+* Still open, not yet given a release: the leftovers of the 4.6.0 code review (port health details of net-snmp agents and stacks, identity linking after one unreadable address-conflict alert, the Check Point leftover-session check, the delay of a dependent service check); pinning the release images, the compiler and third-party actions by digest, and removing the capture permission from the release workflow's tests; the dependency watch with an owner and deadlines; release key protection in the GitHub settings (needs the owner).
+* To 4.7: sealing the single sign-on secret at rest, with a raised reader floor.
+
+## 4.6.3 (planned; owner decisions of 2026-11-24)
+
+1. Further hardening of sign-in confirmations and of the actions that change what DENIS blocks by itself, of the checks before a block and of directory imports (listed privately until fixed).
+2. Paging of the list of imported scanner findings (a page size changes what existing callers get, so it needs a store method in both databases and a console change).
+3. A check of the RADIUS disconnect request on real equipment, and the further hardening items of the second reading pass that need equipment or a console change (listed privately).
+4. The rest of the PostgreSQL store, read line by line (about 20,000 lines), and the test files, which no reading pass has covered.
+5. Upgrade check from real old databases (binaries or databases of 4.1, 4.4, 4.5 and 4.6.0), the durable record of a dropped span with its notices in one step (batch ledger), and the measurements nobody has made yet (idle store calls per tenant, hold time of the detector lock, baseline flush at full size, packets per second of one capture thread, 100, 500 and 1,000 devices).
+6. The rest of the second reading pass: the code of the capture, parsing, flow, inventory, SNMP, port health, RADIUS and service-check areas that was read once, the bodies of the store conformance cases, and the test files.
+7. MSP relay: a master started with `--report-to` checks the address it reports to against the MSP it is paired with.
+8. SNMP: the remaining paths (the old port restore and the write test) take a ticket per request like every other path.
+9. The findings of the two whole-code audits and of the reading and review passes that did not fit 4.6.2 (the work lists are kept privately, the largest groups): the rest of the hardening items that need a design, a console change or equipment; one place for each cache, scheduler and rule table instead of copies; the old block routes as an adapter; tables that refuse an unlisted state move; a durable receipt for remote MSP operations; a second accepted release key and a restore command; the measurements at 100, 500 and 1,000 devices.
+10. Reading of the code that only the first audit read (capture and parsing, flows, the industrial decoders, inventory, SNMP, port health, RADIUS, service checks, about 45,000 lines), of the conformance cases and of every test file; a check that each fix of 4.6.2 is complete.
+11. Known test gap: the high-availability tests that start two real nodes share one database and one leader lock and fail when run in parallel; they pass one at a time and are not part of the release gate. Give each pair its own database.
+12. Lab runs: Hyper-V port ACL answer, Proxmox firewall options of a guest, SNMP port bounce, OPNsense, FMC pending changes, and a kill switch set in the middle of a change on Palo Alto, FortiGate and MikroTik.
 
 ## 5.0.0 (planned): evidence
 

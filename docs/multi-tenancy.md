@@ -37,7 +37,12 @@ Other commands: `denis tenant list`, `denis tenant suspend <id>` / `resume <id>`
 **Suspending a tenant stops everything, without a restart.** A running `denis run` notices the change
 within a few seconds: the tenant's agents get `503`, its console refuses requests, and every one of
 its background jobs (notification channels, SIEM export, port-control connectors, cloud and scanner
-imports, backups, Autopilot and its phone subscribers) is stopped. Nothing is deleted, and the agents
+imports, backups, Autopilot and its phone subscribers) is stopped. Two jobs keep running, because a
+suspension stops new work and never the way back: the one that releases enforcement actions when their
+time ends, and the one that compares the action ledger with the equipment. A block set for an hour still
+ends after the hour while the tenant is suspended. From 4.6.2 the second one only reads and releases while the tenant
+is suspended (or no longer in the control store): a block that was weakened on the device is not put back, and the
+action says why (*This tenant is suspended*). Nothing is deleted, and the agents
 keep their spool and send it after a resume. `resume` accepts the agents again at once and starts the
 jobs that can be rebuilt; the few that own something that cannot be rebuilt (one-off tasks) stay
 stopped until the next restart of DENIS.

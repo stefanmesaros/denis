@@ -122,3 +122,15 @@ The console shows a short line under each field and a short note behind its (i).
   write that still meets it is refused with a sentence about the NSG, not about a network interface.
 * **The old route refuses** a VM any of whose interfaces carries the quarantine or the isolation NSG or a DENIS mark
   from another action.
+
+## 4.6.2: flow blocks, other directories and status answers
+
+Documented from the code; not tried on Azure.
+
+* A flow block of which a rule is missing, edited, unfinished or overtaken by an allow rule, while another of its rules is
+  still there, is a deviation, never "gone". The release still removes what is left.
+* An action records the Resource Manager address and the directory it was made in. When the connector uses another one, an
+  interface or NSG that is not found is "cannot tell": the release removes nothing and the action stays open.
+* An `Azure-AsyncOperation` status answer without a status is not "succeeded": DENIS polls on, and a poll that runs out is
+  unknown.
+* The old routes write an interface with its `etag`, so a change made since DENIS read it is refused, not overwritten.

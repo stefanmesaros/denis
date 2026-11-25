@@ -29,7 +29,9 @@ Every rule DENIS makes has the id and display name `denis-<tag>-<id>`, two NSX t
    * it must be the **first policy of its category**. DENIS refuses a policy that has another policy of the same category before it. The **Emergency** category is evaluated before all others and is the right place. A policy of an earlier category (Ethernet, Emergency, Infrastructure, Environment come before Application) is evaluated first and can still decide first: DENIS can only warn about that;
    * DENIS puts its rules at the lowest free sequence numbers below every rule that is not DENIS's. If your own rules in that policy start at number 0, or leave no number free before them, DENIS refuses. The simplest policy is one that holds nothing but DENIS's rules.
 4. **NSX Manager account.** Create an account for DENIS and give it a role that can read and write groups and security policies of the domain. **[verify]** The built-in *Security Engineer* role does this; it is broader than DENIS needs, and NSX-T has no way to build a narrower role by hand. For a connector that only blocks and quarantines through groups (no rules) the same role is needed for the group write. Reading, testing and releasing need the same account.
-5. **Domain id.** NSX-T's single-site default is `default`.
+5. **Domain id.** NSX-T's single-site default is `default`. Each action records the domain it was made in, and its release
+   and read-back go there. While the connector has active actions, a change of the domain id needs the same confirmation
+   as a change of the groups or the policy.
 6. Fill in the connector: *Base URL*, *username*, *password* (secret), *domain id*, *block group id*, optionally *quarantine group id* and *security policy for DENIS deny rules*, and the IP addresses never to block.
 7. **Flow blocks:** tick *Allow DENIS to create deny rules on this firewall* only if you accept that DENIS writes rules on this NSX Manager. It is off by default, and DENIS will not create or delete any rule while it is off. It needs the security policy id above. Changing it needs your password. A wrong deny rule can cut off traffic.
 
@@ -98,7 +100,7 @@ With **Read the virtual machines of this host (read only)** ticked (ticked for a
 
 Limits and what is left out:
 
-* At most 20 pages of 1000 rows per list, one request at a time, inside a time limit; read every 5 minutes. A longer list, a page that is missing or the time limit makes the read partial.
+* At most 5,000 rows of each list of machines, interfaces and ports (and 4,000 segments), read in pages of 1000, one request at a time, inside a time limit; read every 5 minutes. A list longer than that stops at the bound (since 4.6.2: before, up to 20 pages were read and all but 5,000 rows dropped without a word); a longer list, a page that is missing or the time limit makes the read partial, so a machine that was cut is never marked gone. Each list is reduced to what DENIS keeps before the next is read.
 * The virtual machine and interface lists are needed; if the ports or segments list is missing, the read is partial and shows no address and no segment.
 * The host is shown by its NSX `host_id` (its display name is not read). Only the first IPv4 address binding of a port is shown; a VLAN is shown from that binding, else from a segment with exactly one VLAN id.
 * Only the Local Manager's inventory; Federation, containers (Kubernetes), physical servers and Edge nodes are not read.

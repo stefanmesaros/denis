@@ -73,7 +73,7 @@ The API secret is stored only in the encrypted secret store (`nac.opnsense.api_s
 
 ## Existing instances
 
-Instances from earlier versions keep working and nothing changes for them: the same block alias, the same raw address entry, the same apply and the same loose `kill_states` call, the same ledger rows. The old *Block…* and *Unblock…* buttons act as before. Records the old routes made are released through the old *Unblock…*; records of the new actions are released through the new action list.
+Instances from earlier versions keep working and nothing changes for them: the same block alias, the same raw address entry, the same apply and the same loose `kill_states` call, the same ledger rows. The old *Block…* and *Unblock…* buttons act as before. Records the old routes made are released through the old *Unblock…*; records of the new actions are released through the new action list. A record of the old route keeps the alias it was made in, and its release and read-back use that alias, also when the *Block alias* setting was changed since (4.6.2); while such records are active the setting cannot be changed.
 
 ## Details from the console
 

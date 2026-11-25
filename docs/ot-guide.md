@@ -22,8 +22,16 @@ denis run --profile ot --iface eth1
   50 ms per address).
 * **Traffic analysis on**: industrial protocols are decoded and a communications matrix is built.
 * In *any* profile, devices identified as industrial (by protocol, vendor or type) are **never pinged or
-  port-scanned**. Use `--exclude 10.20.0.0/24` (repeatable) to forbid probes to whole ranges; they are still
+  port-scanned**, and neither is a device whose type an administrator set to an industrial one in its register entry
+  (PLC, HMI, RTU and the others; from 4.6.2, within a minute of the save; until DENIS has read those types once after its
+  start, no device of the register is pinged or port-scanned). Use `--exclude 10.20.0.0/24` (repeatable) to forbid probes to whole ranges; they are still
   observed passively.
+
+Industrial decoding is **on by default** in every profile. On a network without industrial equipment it can be switched
+off under *Settings → Capture → Network interface → Advanced → Industrial protocols* (at once, no restart) or with `--industrial-decoding=false`;
+then no frame reaches an industrial decoder, the industrial rules see no new conversations, and flow accounting, LLDP and
+CDP stay as they are. While it is off, the Health page says so in one note (not a problem) with a link to the
+setting, and `/metrics` has `denis_industrial_decoding 0`.
 
 ### Where to connect
 
@@ -234,7 +242,7 @@ overload setting (*warn only*) neither is paused, and with the advanced opt-in t
 | Rule | Data it needs | Where it comes from | If the data is missing |
 |---|---|---|---|
 | `ot_time_source_changed` | an NTP exchange (UDP 123) between two of your devices, or an NTP flow from an industrial device to an outside address, or an IEC 104 clock synchronisation command (type 103) | east-west accounting or a mirror port that carries traffic between devices; traffic analysis (`--flows`); the IEC 104 decoder | the kind of evidence that is missing is not judged; the rule stays silent for it. A device's first source is learned without an alert |
-| `ot_register_range` | the start address and the number of registers of Modbus/TCP write requests (functions 5, 6, 15, 16, 22, 23) | the industrial decoders (Settings → Network interfaces), on a mirror port or tap that sees the Modbus traffic | no decoder, no judgement; a path that never wrote while the site learned learns its first range silently |
+| `ot_register_range` | the start address and the number of registers of Modbus/TCP write requests (functions 5, 6, 15, 16, 22, 23) | the industrial decoders (Settings → Capture → Network interface → Advanced), on a mirror port or tap that sees the Modbus traffic | no decoder, no judgement; a path that never wrote while the site learned learns its first range silently |
 
 Everything else of a request stays unread (no values are kept).
 
@@ -469,7 +477,7 @@ file are only checked for well-formedness and discarded.
 
 * This is a file you provide, not something DENIS verifies. If the file is out of date, devices will correctly look "not in the SCL".
   A device listed as *not in the SCL* is a question to ask, not a finding.
-* Sampled Values are only decoded when that is switched on (Settings, Network interfaces), and the mirror port must carry the
+* Sampled Values are only decoded when that is switched on (Settings, Capture, Network interface, Advanced), and the mirror port must carry the
   segment: an IED listed as not seen may simply be on a segment the mirror does not cover.
 * The multicast address in a `GSE` or `SMV` element is the *destination*. DENIS does not record a frame's destination, so
   the engineered MAC is stored and shown for reference but a publisher is matched by its control block reference and its own

@@ -126,3 +126,16 @@ or changed in the Dashboard, and nothing it reads decides or loosens a response.
 The console shows a short line under each field and a short note behind its (i). The full explanation of each field is here.
 
 - **Quarantine group policy (name or id, optional)**: The group policy you made in the Dashboard for quarantine. DENIS sets a client's policy to it and puts the old policy back, and nothing else: what the group policy allows is your own definition, and DENIS never creates or edits a group policy. Leave empty to switch quarantine off for this network.
+
+## 4.6.2: the network of the block, unknown clients and policies that cannot be given back
+
+Documented from the code; not tried on a Dashboard.
+
+* A release and its read-back look in the network the block was made in (recorded with the action), not in the network the
+  connector names today.
+* A release of a client the Dashboard does not know there (404: forgotten, or the API key cannot see it) is "cannot tell",
+  never "released": the action stays open. Check the client's policy and mark the action resolved by hand.
+* A link-aggregation list that is not a list refuses a port; a group-policy list that cannot be read refuses a block of a
+  client that is in a group policy.
+* A block of a client whose policy DENIS cannot write back as it is (anything but Normal, Whitelisted or a group policy, such
+  as a policy per SSID) is refused at the plan, so a release never fails for good.

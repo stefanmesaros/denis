@@ -126,3 +126,9 @@ The console shows a short line under each field and a short note behind its (i).
 - **Username**: A local user of the controller; give it only the rights this needs.
 - **Never act on these MAC addresses**: List DENIS itself, your gateway, the controller and any device that must never be cut off. An access point of the controller is refused anyway.
 - **Read the clients and devices this controller sees**: Read only. On by default for a new connector. A connector made before 4.3 reads clients only after an administrator ticks this.
+
+## 4.6.2: answers that cannot be read
+
+Documented from the code; not tried on a controller. A 200 answer that is not JSON, or not an object that holds the list,
+is an error: the access point check refuses instead of reading "no access points", and the look after the disconnect says
+the table could not be read instead of "the client is gone".

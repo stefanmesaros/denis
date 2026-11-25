@@ -33,6 +33,12 @@ described in [Making the rules fit your network](#making-the-rules-fit-your-netw
 All rules are **rule-based and explainable**: each alert shows the factors that produced its score. Scores are
 0–100; below `--min-score` (default 30) an event is only logged. Each rule can be scaled or disabled:
 `--rule-weight <rule>=<weight>` (`0` disables, `0.5` halves, up to `5`).
+A rule at weight `0` raises nothing. From 4.6.2 a rule that learns nothing while it watches (`mining_pool`,
+`anonymizer_contact`, `dns_threat_domain`, `inbound_then_fetch`, `gateway_changed`, `lifecycle_device_seen`, `mac_flood`,
+`ot_cross_cell`, `ot_offhours_command`, `ot_remote_access_path`) is not run at all at weight `0`, so it costs nothing and
+keeps no gap between alerts: switched on again, it alerts at the next match. Every other rule keeps learning in silence at
+weight `0` (what a device usually contacts, which tools and protocols it uses), so switching it on again does not start
+with a burst of "first time" alerts. `anonymizer_contact` follows the weight of `threat_list_match` until it has its own.
 
 Rule names for `--rule-weight`: `new_device`, `new_destination`, `volume_anomaly`, `new_port`,
 `unusual_hours`, `arp_conflict`, `device_silent`, `rogue_dhcp`, `new_device_burst`, `threat_list_match`,
@@ -848,7 +854,7 @@ entry of a list matches nothing (unless the list ticks "an HTTPS address counts 
 `threat_list_domain`), and the list shows how many such entries it holds. Only the first request of a plain-HTTP connection is seen.
 The alert keeps the listed entry, never the visited address (a visited address can hold personal data).
 
-This rule needs the capture of plain-HTTP requests: *Settings -> Network interfaces -> Server names and web addresses* (off by
+This rule needs the capture of plain-HTTP requests: *Settings -> Capture -> Network interface -> Advanced -> Server names and web addresses* (off by
 default; `--capture-names` on an agent). Only the host and the path of the first request of a connection on port 80, 8000,
 8008, 8080, 8081 or 8888 are read; **the query string is cut when the request is read** (a token in a URL is never kept) unless
 an administrator also ticks keeping it in memory for the match, and no header but `Host` is read. Nothing is stored. It shares
@@ -1109,7 +1115,10 @@ the learning period and in the last three days), an uplink to another of your sw
 root, a link-aggregation member, a trunk or a management port, a telephone (a PC is usually plugged into it; a desk phone that announces bridge together with telephone, as Cisco and Polycom phones do, is a phone with a PC port, not a switch, unless it also announces router or access-point capability) or an end host.
 A switch tracked for less than the learning period is not judged (its first poll lists every neighbour). **Raised or only
 recorded.** It is raised on a port you marked **watched** (Switches page) or when the device announces **router** capability;
-otherwise the alert is stored with severity *info* and shows in the event log, not in the alert list. *Score:* 55; 15 more on a
+otherwise the alert is stored with severity *info* and shows in the event log, not in the alert list. A neighbour on a port
+that is not watched gets no register entry of its own: when it is not in the register, the alert is filed under the
+switch's own device with the neighbour's hardware address in it (when the switch is not in the register either, the log says
+so). *Score:* 55; 15 more on a
 watched port; 10 more for router capability; 10 more when end devices were learned on that port before. *Cooldown:* one alert
 per device (capture) or chassis (switch) per 7 days. Not never-quiet; the breaker may pause it. Use
 `--rule-weight rogue_network_device=<weight>`. *Typical false positive:* an approved desk switch or access point.
@@ -1121,7 +1130,7 @@ per device (capture) or chassis (switch) per 7 days. Not never-quiet; the breake
 **What it detects.** A server, NAS, hypervisor, virtual machine, industrial device or workstation looks up a name under a
 dynamic-DNS service (`my-box.duckdns.org`) for the first time. Dynamic DNS lets anyone give a changing address a free name; it
 is a common home for malware control servers and for remote-access back doors, and a business server rarely needs it.
-**What it needs.** Passive DNS (Settings, Network interfaces). **The list.** The providers come from a list that ships with
+**What it needs.** Passive DNS (Settings, Capture, Network interface, Advanced). **The list.** The providers come from a list that ships with
 DENIS (`data/ddns_suffixes.json`: a small versioned file with `version`, `updated` and `suffixes`; about 120 well-known
 providers, refreshed with each release and, only if you switch it on, automatically in between: see [Updating the shipped lists](#updating-the-shipped-lists); evidence: *best guess*, it is not complete). A name *under* a listed suffix matches; the
 provider's own site does not, and neither do the provider's own **service hosts** (4.6.0): the "what is my address" check and
@@ -1155,7 +1164,17 @@ is in it. The set lives in memory, so after a restart a candidate is first check
 database (a few checks per window): a domain the site resolved before is never reported. **What it does not do.** It does not
 judge a device that looked up many new domains while the network learned (more than 24: a mail server, a crawler: it is "chatty"
 and never judged), a device newer in the register than the learning period, a device that resolves names for others, local-only
-names (`.local`, `.lan`, `.arpa`), dynamic-DNS names (their own rule) or failed lookups. *Score:* 45; 10 more on an industrial
+names (`.local`, `.lan`, `.arpa`), dynamic-DNS names (their own rule) or failed lookups. **Time sources (4.6.2).** A device
+that takes its time from the NTP Pool (`pool.ntp.org`, also the vendor zones such as `0.synology.pool.ntp.org`) is handed a
+different volunteer server again and again, and some devices then look up that server's own name (often a reverse name of an
+internet provider or a hobby host), which is new to the site each time. Such a name is not judged when the device talks NTP
+(UDP port 123 is among the ports it was learned to use, from traffic analysis) and one of the name's addresses is one the
+same device was given for a pool name in the last 24 hours, by a resolver that answers for other devices of the site too
+(seen in the site's DNS traffic). It is not added to the set of known domains either. The pool names
+themselves are judged as before, a device that does not talk NTP is judged as before, and so is a new domain of an NTP
+device on an address no pool answer gave. After a restart of DENIS the pool answers are forgotten until the device looks
+up a pool name again (*best guess:* NTP clients do so when they pick a new server). Found on a Synology NAS (*verified:*
+the looked-up name was a member of the NTP Pool). *Score:* 45; 10 more on an industrial
 device. *Cooldown:* one alert per device per 24 hours; the domain is known from then on. Not never-quiet; the breaker may pause
 it. Use `--rule-weight new_domain_for_server=<weight>`. *Typical false positive:* a software vendor or cloud service added to a
 server. *Investigate:* what runs on the device that could have asked; look the domain up (who registered it, when).
@@ -1525,7 +1544,7 @@ name of the condition it does not know. Device conditions name a device by its n
 and refuses a number that does not exist here. *Templates* is a library of ready rules (versioned `name@n`, for example *Remote
 desktop to the internet*, *Controller talks to the internet*, *Industrial write at night*, and, Experimental, *Admin sessions spread,
 then a big upload*): each opens the editor filled in, with a draft that has conditions and no name of its own yet. Imports and
-exports are audited (`rules.import`, `rules.export`, ids only), and over a management link they are the same class as the other
+exports are audited (`rules.import`, `rules.export`, ids only; the same selection at most once per account and hour), and over a management link they are the same class as the other
 rule changes (Configure; a dry run too).
 
 ![The templates: ready-made rules, each opening the editor filled in](img/rule-templates.png)
@@ -1877,7 +1896,9 @@ An exception tells one rule to stay quiet about something. Since 4.4 every excep
   you renew it (a new expiry counted from now, one audit entry) or delete it (the only way it goes, one audit entry).
   While it is expired, an alert it would have covered is raised as usual and the judgements say **exception expired**,
   naming it, instead of saying nothing. The Rules page shows a small line when exceptions end within 14 days or have ended.
-* **Who and when.** The exception records who made it and when. Creating one keeps the authorization it always had (the
+* **Who and when.** The exception records who made it and when. DENIS fills these in itself, from the account that
+  saves it, in every way an exception is made (the form, `PUT /api/rules`, an import with a reason, an Ask DENIS draft); a request
+  cannot name another maker or raise the last-matched figures, and a list sent back keeps what is stored. Creating one keeps the authorization it always had (the
   administrator; a remote link needs the Configure class); the expiry choices add no extra step. An administrator limited
   to some sites can add, renew and delete only exceptions of the sites they may change (a site exception, or a device on
   such a site) and sees only those of the sites they may read; one that names no site is for a reader of every site.
@@ -1890,9 +1911,11 @@ An exception tells one rule to stay quiet about something. Since 4.4 every excep
 * **Old files.** A rules file, an export or a stored setting from before 4.4 imports unchanged: its exceptions have no
   expiry and no reason, are shown as **no expiry**, and apply exactly as before. Importing does not ask for a reason of an
   exception of the old shape (a file that carries a `format_version` this DENIS reads is an import, and an exception in it
-  with only a kind, a value and a note, or with a reason of its own, is kept as it is); any other *new* exception sent to
-  `PUT /api/rules` without a reason is refused, and without an `expires_at` it gets the 90 days. An export carries every new field, the last-matched figures included, and
-  they come back on import.
+  with only a kind, a value and a note is kept as it is; one with a reason of its own keeps its reason and expiry, but
+  its maker is the account that imports it and its last-matched figures start at none); any other *new* exception sent to
+  `PUT /api/rules` without a reason is refused, and without an `expires_at` it gets the 90 days. An export carries every
+  new field, the last-matched figures included; since 4.6.2 an import through `PUT /api/rules` does not take the maker
+  or the figures from the file.
 * **API.** `GET /api/rules/exceptions?rule=&kind=&site=&state=&text=` (`state` is `active`, `expiring` for the next 14 days,
   `expired` or `no_expiry`; `site=local` is the local network; an exception that names no site applies to every site and is listed for each) lists every exception the caller may read, with `id`, `rule`,
   `kind`, `value`, `site`, `reason`, `expires_at`, `state`, `created_by`, `created_at`, `last_matched_at` and `match_count`,
@@ -1981,7 +2004,10 @@ alerts. Repeats are suppressed by cooldowns, so an alert is not a flood.
 
 In an alert's dialog, **This is normal…** (editors and administrators) closes the alert as expected behaviour and keeps
 later alerts like it out of the list. You choose how wide (*this rule on this device*; *this device and this destination*;
-*everything ordinary on this device*) and for how long (90 days by default, 1 to 365), with an optional note. Nothing is
+*everything ordinary on this device*) and for how long (90 days by default, 1 to 365), with an optional note. An
+administrator of the whole installation (not a site administrator, not an API token) may also choose **No expiry
+(administrators only)** (4.6.2): the console then warns that such an exception hides later alerts of the same kind for good,
+until someone removes it under *Rules → Suppressed by "This is normal"*, where it is listed as *No expiry*. Nothing is
 deleted: the covered alerts are stored as quiet entries with the reason and who made the exception, **Show quiet** lists
 them, and the daily digest and the counters count them. It never covers what must always be seen: address-claim and
 new-device alerts, a risky port, a threat-list address, a large transfer, your own rules (they have their own exceptions)
@@ -2191,6 +2217,21 @@ some data (a fault in DENIS, counted under *errors* on Health) gives back what i
 save, so that data alerts when it is seen again. A device whose baseline could not be saved is tried again at the next
 saves (three in all).
 
+**A device that cannot be read for a moment does not cost its alert.** A rule names the device in its alert, so it reads
+the device's row; that read can fail for a moment (a busy database, a lost PostgreSQL connection, a fail-over). From 4.6.2
+the rules that remember something read the device first: `rogue_dhcp`, `rogue_ra`, `threat_list_match`, `arp_conflict`,
+`arp_mismatch`, `ndp_mismatch`, the IPv6 address conflict, `segmentation_violation`, `dns_resolver_changed` and
+`inbound_from_public` then raise nothing, learn nothing and arm no repeat limit, so the next sighting alerts (two
+exceptions: the prompt count of `segmentation_violation` is counted before the read, and the note of a resolver that moved
+with a prefix change is set before it, so the next device of that resolver says it) (a risky port
+of `inbound_from_public` that is not raised because of the minimum score keeps its way through the holds as well). `new_destination`, `new_destination_v6`, `new_port` and
+`ot_internet_exposure` give back what the flow window taught them, as for an alert that could not be stored. A
+`volume_anomaly` or `unusual_hours` finding waits for the device and is raised at a later check once the device can be
+read; after 15 minutes without a read (or when more than 1,024 findings wait) it is given up without an alert and its
+repeat limit lifted, so the next hour can raise it again. A failed read is logged, at most one line every five minutes,
+which says how many failed since the last line and what happens to the finding; a finding that is given up has a log line
+of its own (at most one every five minutes, with the rule, the device and how many were given up since the last line).
+
 **What a restart keeps.** Baselines, the learning periods and the learning clocks of the rules, the known DHCP, DHCPv6
 and router-advertisement servers, the known sweepers and address pairs, industrial conversations, the devices waiting
 for their `new_device` alert (saved within 5 seconds) and the paused rules come back after a restart or on the other server of a
@@ -2231,7 +2272,13 @@ this**: the lists in use are the ones that came with the version, whatever was f
 * **Signed.** The file is signed with the release key, like the program; a copy whose signature does not verify is not read.
 * **The previous list stays.** A copy that is older than the list in use, much smaller (less than half), has too many invalid names or
   does not read is refused whole, and the reason is shown. Only a newer, valid list is used.
-* **Health** shows the last good update and the last failure, and warns when it has not worked for two weeks.
+* **Not published yet is not a failure (4.6.2).** A release that carries no `lists.json` (4.6.0 and 4.6.1 did not; from 4.6.2 each
+  release does) makes the hosts answer "not found" (HTTP 404). When every host DENIS asks answers that, the page says *No newer list
+  has been published yet* with the time of the last check, in plain text and not as a warning; the previous lists stay in use and
+  the next check is the weekly one (or the one after an update of DENIS). A "not found" from one host while the other fails in
+  another way (no connection, a server error) is still a failure, as are a copy that does not verify and an older copy.
+* **Health** shows the last good update and the last failure, and warns when it has not worked for two weeks. A list that was never
+  published is not counted as "has not worked".
 * It does not change the **threat list sources** (abuse.ch, Spamhaus, the Tor exit list), which stay off until switched on one by
   one, and it does not touch the abuse.ch Auth-Key (kept only for ThreatFox and URLhaus, shown under Settings, Data, Threat list
   sources).

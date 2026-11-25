@@ -160,6 +160,11 @@ the name now and refuses the block when any answer is an address DENIS never blo
 address, DENIS's, the administrator's or the equipment's own, a DNS resolver), naming the addresses. The plan says that the addresses
 can change after the block is applied. On MikroTik DENIS's chain also never drops those addresses later; on FortiGate a later answer
 is FortiOS's own (see [FortiGate](nac/fortigate.md)). PAN-OS matches the name in a URL category and is not affected.
+While such a block is in force, the hourly check of the actions resolves the name again (a resolver that does not answer within
+a few seconds is "cannot tell" for that hour; a check that runs long continues with the next names in the next hour). When the
+name now resolves to an address DENIS never blocks, DENIS says so in a notice, once for each set of addresses. The block stays
+in force until a person releases it (the notice says so), whoever made it: a person, a rule or the autopilot. DENIS never lifts it
+on its own for this; a release by hand is always possible, and a timed block still ends when its time is up.
 
 What a name block does **not** do: it works on the name the device asks for. A device that resolves names elsewhere (DoH, DoT), uses a
 cached answer, connects by address or hides the server name (ECH) can still get through. It blocks the **site, never a path**: a web
@@ -245,6 +250,41 @@ Other situations:
   the domain the action was made in), is "cannot tell", never "released": the release removes nothing and the action stays
   open (*The firewall has no group … any more*). Check the device; if the address is not blocked any more, mark the action
   resolved by hand. DENIS also never writes a group from such an answer.
+* **More kinds that tell "cannot tell" from "released" (4.6.2).** The same rule now holds for the Cisco ASA (a block group or
+  an access list that is not found under its name, or reads empty, while DENIS's objects are still there), FDM, Check Point,
+  Juniper SRX and SonicWall (a group or address set not found under its name while DENIS's object is there), FMC (a group or
+  dynamic object is looked up by its name and then by the id the action recorded, so a rename in FMC is followed; one found
+  under neither is "cannot tell"), and MikroTik (a table read answered with something that is not a list). An answer of FMC
+  that cannot be read, or a mapping whose address DENIS cannot read, is never "no mapping" (documented from the code).
+* **Present but changed is a deviation (4.6.2).** An object that is still in force but was edited on the device keeps the
+  action open as a deviation; it is never read as gone, and the second reading does not close it: DENIS's object still in the
+  block group with another address or an edited description or comment (Check Point, Juniper SRX, SonicWall, FDM, FMC), a
+  MikroTik list entry or flow rule whose comment no longer carries DENIS's marker, a disabled MikroTik list entry, and a
+  MikroTik drop rule narrowed by another matcher (an interface, a port). A MikroTik entry or rule that lost the marker is not
+  removed by the release, which says so and stays open: check it on the router. On the Juniper SRX the release takes an object
+  whose description was edited out of the address set and leaves the object (listed as left behind); before 4.6.2 that release
+  was refused for good.
+* **The controllers and clouds read the same way (4.6.2).** A release that cannot find what it is to undo is "cannot tell" on
+  these kinds too: a TP-Link Omada controller or the Meraki Dashboard that no longer knows the client (Meraki is also asked in
+  the network the block was made in, not in today's setting), an AWS answer that does not list a recorded interface (only
+  EC2's own "not found" proves it gone), an Azure interface or NSG not found while the connector now uses another Resource
+  Manager address or directory than the action was made with, and a Proxmox quarantine IP set that is not listed under its
+  name. The action stays open; check the device and mark it resolved by hand. An answer DENIS cannot read is never an empty
+  list: the Hyper-V port ACL list (read with its two fields as text), the Proxmox IP sets, the Cisco 9800 controller's lists
+  and the Meraki link aggregations (the port is then refused). A Meraki block of a client whose policy DENIS cannot write
+  back as it is (a policy per SSID) is refused at the plan. A Proxmox guest option that was not set before the isolation is
+  put back as not set, never as ACCEPT. Documented from the code; the Hyper-V and Proxmox points wait for a lab run.
+* **Half of a block is a deviation (4.6.2).** A block made of several parts of which some are still there is a deviation,
+  never "gone": an Azure flow block with a rule missing, edited or overtaken by an allow rule, half of a Hyper-V isolation
+  or flow block, a Proxmox flow block with a rule missing or pushed down, and a Proxmox isolation with one DROP policy left
+  while the firewall is on. A MikroTik Wi-Fi access-list entry or static DNS entry whose comment lost DENIS's marker, and an
+  FDM or FMC deny rule renamed on the device (still naming the action's own objects), read the same way; the renamed rule is
+  removed by the release, the MikroTik entries are left for a person to check.
+* **FDM and FMC deployments (4.6.2).** The release of an FDM block is confirmed by the release's own deployment, or by a
+  pending list that holds nothing of DENIS's; the deployment of the block itself no longer counts as proof. When DENIS's own
+  steps record no deployment but someone else's deployment published the block (on FDM the pending list then holds the removal
+  of DENIS's object), the release or the undo of a failed block deploys the removal, after the usual check for other people's
+  changes, and the release is confirmed only when nothing of the action is pending.
 * **A switch that stays busy (4.6.1).** DENIS makes one change at a time on each switch. A block or a release that still finds
   another DENIS change running there after a 30-second wait is refused before anything is sent (*Another DENIS change is still
   running on this switch*); try again. Before 4.6.1 it went on after the wait.
@@ -297,6 +337,11 @@ Other situations:
 * **A removal that answers with an error.** Before a removal is called failed, DENIS reads the device back: when the change
   is gone (it was already removed, or the device answered "not found"), the action is *Released* and the device's answer
   is quoted (4.5).
+* **Changing the object a connector writes to while it has active actions** (4.6.2). A change of an object setting (the
+  alias, address group, address list, tag or security group the connector puts blocks in) is refused the same way
+  (`409 live_actions`, the changed keys in `settings`) while the connector has active actions. While blocks made by the older
+  *Block…* route are in force it is refused with `409 legacy_object_in_use`, which cannot be confirmed away: those records do
+  not name their object, so their release would look in the new one. Release them first, then change the setting.
 * **Removing a connector, or changing its address, while it has active actions** (4.5). Refused with `409`
   (`code: live_actions`, the action ids in `actions`): release them first, so that DENIS removes what it put on the device.
   To go ahead anyway and leave those changes on the device, confirm it: `DELETE /api/nac/connectors/{id}?acknowledge=live_actions`,
@@ -384,9 +429,9 @@ same path, with the rule as the actor:
   for real is checked too: one who lost the permission or was switched off sends that rule back to "prepare", with a
   notice. A rule still in its trial only writes down what it would have done, so it never suspends automation.
 * **Leader only.** On a cluster only the leader acts. The database refuses the writes of a leader that lost its lease
-  (the write fence, Experimental like the whole pair), but a change already on its way to a device cannot be recalled,
-  and 13 connectors do not ask the lease again before every request (see [Active responses](#active-responses)), so
-  treat automation on a cluster with extra care.
+  (the write fence, Experimental like the whole pair), but a change already on its way to a device cannot be recalled.
+  Since 4.6.2 every request of automatic enforcement that changes something asks the lease again right before it
+  leaves (see [Active responses](#active-responses)). Treat automation on a cluster with extra care.
 
 ### Undo
 
@@ -430,7 +475,7 @@ DENIS never acts on some devices, whatever you ask: its own address, the gateway
 
 On top of them there is one list for the whole installation, the **hands-off list**, in the section *Hands-off devices* of **Network → Readiness**: devices DENIS never acts on. A device on it is refused by every connector and by every switch port action ("never touch my safety PLC", said once). An entry is a device of the register, an IP address, a MAC address or a network. The same screen also shows, read only, DENIS's built-in rules and the lists of the connectors, so the answer to "is this device protected, and why?" is in one place.
 
-A device entry follows the device: when two copies of one device are merged (a joined site's copy into the local one) or a split hardware address is folded back, the entry then names the device that remains, as the rule exceptions and watches do. This is done from the merge record, so it also happens after a restart in between.
+A device entry follows the device: when two copies of one device are merged (a joined site's copy into the local one) or a split hardware address is folded back, the entry then names the device that remains, as the rule exceptions and watches do. From 4.6.2 the same holds for a zone member and for the subjects, excepted subjects and peers of an allow-list that pick the device (each change with its own history row), and for a rule's trial records and a prepared plan. This is done from the merge record, so it also happens after a restart in between.
 
 The list can only add refusals. Adding an entry needs no password, because it makes DENIS more careful. Removing one needs your password, because it makes blocking possible again; the person who added an entry may take it back without the password in the first ten minutes. Both are audited (`nac.hands_off.add`, `nac.hands_off.remove`). The API is under `/api/network/hands-off` (see the API reference).
 
@@ -577,7 +622,15 @@ action never acts on another vendor's switch, and the capabilities list marks it
 over LLDP, or *learned from the switch*'s forwarding table) and how old the reading is ("switch read 3 minutes ago"). An
 LLDP announcement on a port where the same switch's forwarding table no longer learns the device, while it learns it on
 another port, is where the device was, not where it is: the forwarding table wins. A placement on another port in the
-last two reads makes the location uncertain until the reads agree, so no port action is proposed meanwhile.
+last two reads makes the location uncertain until the reads agree, so no port action is proposed meanwhile. From 4.6.2 a port action also needs the device to be the only one the switch placed on that port in the last 7
+days (its placement history): a quiet access point or a small unmanaged switch shows one talking client for a few
+reads at night, and switching the port off would take everything behind it off too. Such a port is *shared*, with the
+sentence "The switch also placed n other devices on … in the last 7 days", and no port action is proposed; a phone
+that announces itself on the port does not count, and a device the switch placed *behind* the port (in the day the
+port looked like a desk switch or a busy port) does. The device's own history on that port must reach back 7 days: on a
+switch added lately or a port read for the first time the port history is shorter than 7 days, the dialog says so, and
+no port action is proposed until it is not. When the history cannot be read, no port action is proposed either.
+Tested against the stand-in switch data of the tests; not checked on real equipment.
 
 **Slow methods.** A method that needs a commit on the firewall (PAN-OS: the deny rule of *Block a connection*, the static block
 and quarantine groups) says so on its row and in the plan dialog: the commit takes minutes on a PA-220. For fast
@@ -626,7 +679,9 @@ is told the action moved on and can try again on the new end.
 **Check now only reads** (4.6.0). A check of an action, the hourly check's read-back and the plan never change the device.
 Where DENIS puts a missing part of its own change back by itself (the MikroTik name chain, a lost Palo Alto tag), that is
 a step of its own of the hourly check, recorded with the action and audited, and it waits for enforcement to be on and for
-an update to be confirmed.
+an update to be confirmed. It is a new write of the action, so it also follows what a new block follows (4.6.2): while the
+connector is paused, or the lab switches the action needs are off, nothing is put back; the action records why
+(`repair_held` in its verification) and the drift notice says that DENIS did not change it. A release still works.
 
 **Extend reads the device first.** Before the end is moved, DENIS reads the block back from the equipment (except where the
 connector renews the end on the device itself, as Palo Alto does for a timed tag). In force, or changed but still there: the
@@ -639,8 +694,11 @@ process) as an open `extend_intent` step of the action, in the same transaction 
 action can be open, so device writes for one action never interleave (`409 extend_in_progress`). When the device side is done, one transaction closes the
 intent and moves the end, only if the intent is still open and the action still has the end the request was computed from. The ledger end therefore
 never passes the device's: if the device took the new end but the ledger could not be written, or the process stopped in between, the answer is
-"uncertain", the end stays, and the open intent is closed by *reading* the device (the next extend after a wait, or the reconcile job), never by
-sending the extend again. A firewall that shows no remaining time can only be asked whether the block is there; DENIS keeps the earlier end and
+"uncertain", the end stays, and the intent is closed without sending the extend again. Since 4.6.2 an extend whose call to the device has
+returned always closes its intent before it answers: settled by reading the device, or, when the device does not answer or the end cannot be
+saved, closed keeping the earlier end. So a release or the end of the block is never held back by an extend that has finished. Only an intent
+left by a stopped process (or a device call that never returns) stays open, and is closed by *reading* the device (the next extend after a wait,
+or the reconcile job). A firewall that shows no remaining time can only be asked whether the block is there; DENIS keeps the earlier end and
 releases then.
 
 **An extend and a release never both write (4.5.2, third review).** The release's claim on the action is one compare-and-set in the database that
@@ -668,21 +726,39 @@ refusal (nothing changed, so a lease lost at its retry is still "not sent"), a c
 connect, TLS handshake or policy: also "not sent", seen by a probe around the HTTP agent's transport, `nac_kit::wire`), and everything else, which
 stays "unknown" and is read back (a request whose first byte left, an earlier request that may be in place, a transport without a probe). The
 earlier possible effect is its own flag, so a refused retry never hides an earlier request that may have been applied. A save the ASA did not take
-(`write memory`) leaves the change in the running configuration; the result now says so in words, not only as a skipped step. Not covered:
-the other 13 connectors. They ask the gate (the lease, and the kill switch where the purpose asks it) before their first write only; what
-they ask after that, per connector (documented from the code, 4.6.1):
+(`write memory`) leaves the change in the running configuration; the result now says so in words, not only as a skipped step.
 
-| Connector | Asked before the first write | Asked between steps |
+**The gate between the steps of a change (4.6.2).** Every connector takes a ticket per request since 4.6.2 (the nine above since 4.6.0, the
+other thirteen in 4.6.2). The ticket of a request that applies or extends asks three things right before the request leaves: the lease,
+the kill switch, and the update hold. So the kill switch switched off, an update that begins to hold changes, or a lease that is lost in the
+middle of a change with several steps stops it before its next step. Nothing more is sent; what the earlier steps did stays on the device,
+DENIS reads the device back, and the action is "not confirmed" (or "partial" when a step that should have been undone is still in force),
+never "in force" and never "released", also when the device reads the whole change back (a step left out that was only best
+effort, such as ending the open connections, included). The answer says why ("Enforcement was switched off while this action was under way, so DENIS
+stopped before the next step"). A release, an expiry, the removal of an orphan and the undo of a failed step are never stopped by the
+kill switch, the hourly limit or the lab switches (a release is always possible); they stop only when the lease is lost, because a node
+that is not the leader must not write. On an SNMP switch the bounce of a quarantine (the port switched off and on again) asks for its
+"off" like an apply, and for its "on" like a release: the kill switch set between the two never leaves the port off. Documented and
+checked by tests against simulated devices (the enforcement fixture's scenario 4 and each connector's stand-in device); not yet run on
+real equipment.
+
+What each connector counts as one request, per connector (documented from the code, 4.6.2):
+
+| Connector | A request that takes a ticket | What happens when the gate stops it between steps |
 |---|---|---|
-| Cisco Catalyst 9800 (WLC), Meraki, TP-Link Omada, WatchGuard | the gate | the lease, after each step it records |
-| SonicWall | the gate; the lease and the kill switch again once it holds the device | the lease, after each step it records |
-| OPNsense | the gate; the lease and the kill switch again once it holds the device | nothing |
-| AWS, Azure, Hyper-V, Juniper, NSX-T, Proxmox, SNMP switches | the gate | nothing |
+| ASA, Check Point, FMC, FDM, FortiGate, MikroTik, Palo Alto, RADIUS CoA, UniFi | every request that changes something, and each repeat | read back; not confirmed |
+| SNMP switches | every SET (the port, the VLAN, both halves of a bounce) | the "on" of a bounce is never stopped by the kill switch |
+| OPNsense, NSX-T | every request that changes something, and each repeat after a rate limit | read back; not confirmed |
+| Cisco Catalyst 9800 (WLC), Meraki, TP-Link Omada, WatchGuard | the one write of an action, and each repeat (a rate limit, a new sign-in) | nothing was sent |
+| SonicWall | the address object, the group, the commit | the edits not yet committed are discarded (the discard is never stopped by the kill switch) |
+| AWS | every call that is not a read or a dry run (the group swap, the marks) | read back; an interface swapped without its marks is still released from the record |
+| Azure, Proxmox | every `PUT`, `POST` and `DELETE` | read back; not confirmed |
+| Hyper-V | the start of every script that changes something | read back; not confirmed |
+| Juniper SRX | the edit, the commit, the confirming commit, each clear of sessions | before the commit: the edit is discarded; before the confirmation: the SRX takes the change back by itself when its confirmation time runs out, and it is never counted as in force |
 
-So on these connectors a lease lost, or the kill switch switched off, while an action is under way lets the step under way finish, and on
-the connectors that ask nothing between steps, the rest of the sequence as well.
+The device hold of SonicWall, OPNsense and NSX-T asks the lease and, for an apply, the kill switch again once it holds the device.
 
-Since 4.6.0 the nine connectors that ask the lease at the last moment cannot send a change any other way: a request that changes something needs a ticket that only the
+Since 4.6.0 the nine connectors that ask the lease at the last moment cannot send a change any other way (since 4.6.2 every connector): a request that changes something needs a ticket that only the
 gate's permit for that action hands out, and a request that comes without one is refused before anything is sent (documented; checked by
 source scans and by tests against simulated devices, not on real equipment). Two writes were found this way and now go through the gate:
 the Palo Alto hourly check ended the open sessions of an unconfirmed tag block without asking the update holds, the lease or the kill

@@ -96,3 +96,25 @@ The console shows a short line under each field and a short note behind its (i).
   when every changed line names this install's objects, and said so in a step; anything else in the candidate is still
   refused. The cleanup after a lost session asks for the lock a few times before it gives up.
 * Only this install's own deny policies (name, marker and action) count as "DENIS's policies ahead of this one".
+
+## 4.6.2: a renamed address set and an edited description
+
+Documented from the code; not tried on an SRX.
+
+* A `get-config` reply without the configuration element is an error, never an empty configuration.
+* An address set not found under its name while DENIS's address object is still there is "cannot tell": the release removes
+  nothing and stays open.
+* The regular check now tells a changed member from a removed one: DENIS's name in the set with another address or an edited
+  description is a deviation, gone only when the name is not in the set.
+* A release no longer refuses for good when the description of DENIS's address object was edited: the name is taken out of
+  the set (the block), the object is left in place and listed as left behind.
+* The same for a flow block: a deny policy of the action's name whose description was edited is still DENIS's when it is
+  made only of the action's own address objects, and the release removes it; an address or application whose description
+  was edited is left in place and listed as left behind, and no longer holds back the read-back. A policy of that name made
+  of other objects is still refused.
+* A reply that has the configuration but leaves its security part (the global address book) out says nothing about the
+  set: the release removes nothing and stays open, the check shows that it cannot tell. A reply that has the security part
+  but no global address book (its last address was deleted on the SRX) holds nothing of DENIS: the release has nothing to
+  remove and is released (4.6.2; best guess for what Junos answers then, to be read on a lab SRX).
+* The release of a row of the old route (made before the action path) is confirmed only from a reply that holds the address
+  book, and a set not found while its address object `denis-block-...` is still there is "cannot tell", never released.

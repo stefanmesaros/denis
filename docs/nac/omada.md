@@ -137,3 +137,11 @@ The console shows a short line under each field and a short note behind its (i).
 - **Never block these MAC addresses**: List DENIS itself, your gateway, the controller and any device that must never be cut off. A managed access point, switch or gateway of the site is refused anyway.
 - **Read the clients and devices this controller sees**: Read only. On by default for a new connector. A connector made before 4.3 reads clients only after an administrator ticks this.
 - **Tell me when a change is recorded in this site's audit log (Experimental)** (4.6.0): Off by default. Read only: every 15 minutes DENIS reads only the time of the newest entry of the site's audit log, with the same Open API app, and says when a new entry appeared. It never keeps what the entry says, its old or new values or who made it. DENIS's own blocks and unblocks are written to the same log and are marked as DENIS's own. See [Configuration changes](../config-changes.md#omada-the-sites-audit-log).
+
+## 4.6.2: a client the controller no longer knows
+
+Documented from the code; not tried on a controller. A release of a client whose record the controller no longer answers
+(an offline client may still be blocked) is "cannot tell", never "released": DENIS still asks the controller to unblock it,
+and when the controller answers that it does not know the client the action stays open with the sentence *The Omada
+controller has no record of this client any more*. Check the blocked clients in the controller and mark the action resolved
+by hand. A client record answer that is not a record is an error, never "unknown client".

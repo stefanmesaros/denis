@@ -95,7 +95,9 @@ What is covered:
   found); their global addresses are learned when they speak.
 * **Identity.** IPv6 mDNS, SSDP and DHCPv6 *client* messages feed the same hostname, model and vendor fields as their
   IPv4 versions. DHCPv6 gives the client's name (FQDN), its vendor class and the options it asks for; relayed messages are
-  read only when the relay is on your network and names the client's hardware address; server replies are never read.
+  read only when the relay names the client's hardware address, and (from 4.6.2) only add a name to a device DENIS already
+  knows by a name: a relayed message never adds a device, never gives one its first name and sets no vendor class, since
+  the hardware address in it is the relay's word. Server replies are never read.
   The sender's IPv6 address is not recorded from these messages.
 * **NAT64.** A device on an IPv6-only network that contacts a listed IPv4 address through a NAT64 gateway
   (`64:ff9b::/96` or `64:ff9b:1::/48`) raises `threat_list_match`. A site-specific NAT64 prefix is not recognised.
@@ -180,8 +182,9 @@ are one line with "+11 more", not twelve. A finding whose risk has been accepted
 acknowledged incident is not open. The total is only an ordering key, not a 0–100 score. Nothing about
 reachability ("can an attacker get to it?") is counted yet.
 
-It appears on the Dashboard (the top five, with **Show all**) and, on a device that has an anchor, as **Why this is
-a top exposure** on the device panel's Overview. You only ever see devices on sites you can read. API:
+It appears on the Dashboard as **Top exposures today** (up to five devices, one line each with its strongest reason and
+"+N more"; **Open the devices at risk** under the list) and, on a device that has an anchor, as **Why this is a top
+exposure** on the device panel's Overview, with every reason. You only ever see devices on sites you can read. API:
 `GET /api/exposures` ([API](api.md)).
 
 ## Relationships and the Investigate section
