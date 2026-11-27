@@ -1,5 +1,4 @@
 /target
-/.claude/worktrees
 
 # Databases hold a network inventory, password hashes and notification secrets: never commit them.
 *.db
